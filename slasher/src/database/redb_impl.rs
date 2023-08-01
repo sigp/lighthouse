@@ -31,7 +31,7 @@ pub struct Database<'env> {
 #[derive(Debug)]
 pub struct RwTransaction<'env> {
     // txn: Option<redb::WriteTransaction<'env>>,
-    _phantom:  PhantomData<&'env ()>,
+    _phantom: PhantomData<&'env ()>,
 }
 
 #[derive(Debug)]
@@ -66,10 +66,13 @@ impl<'env> WriteTransaction<'env> {
 impl Environment {
     pub fn new(config: &Config) -> Result<Environment, Error> {
         let env = config.database_path.clone();
-        Ok(Environment { env, db_count: MAX_NUM_DBS })
+        Ok(Environment {
+            env,
+            db_count: MAX_NUM_DBS,
+        })
     }
 
-    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {        
+    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
         let indexed_attestation_db = self.create_table(INDEXED_ATTESTATION_DB);
         let indexed_attestation_id_db = self.create_table(INDEXED_ATTESTATION_ID_DB);
         let attesters_db = self.create_table(ATTESTERS_DB);
@@ -110,46 +113,60 @@ impl Environment {
     }
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
-        Ok(RwTransaction { _phantom: PhantomData })
+        Ok(RwTransaction {
+            _phantom: PhantomData,
+        })
     }
 }
 
 impl<'env> Database<'env> {
-
     fn open_database(&'env self) -> Result<redb::Database, Error> {
         match redb::Database::open(BASE_DB) {
             Ok(db) => Ok(db),
-            Err(e) =>Err(Error::DatabaseRedbError(e.into())),
+            Err(e) => Err(Error::DatabaseRedbError(e.into())),
         }
     }
 
-    fn create_write_transaction(&'env self, database: &'env redb::Database) -> Result<redb::WriteTransaction, Error> {
+    fn create_write_transaction(
+        &'env self,
+        database: &'env redb::Database,
+    ) -> Result<redb::WriteTransaction, Error> {
         match database.begin_write() {
             Ok(transaction) => Ok(transaction),
             Err(e) => return Err(Error::DatabaseRedbError(e.into())),
         }
     }
 
-    fn create_read_transaction(&self, database: &'env redb::Database) -> Result<redb::ReadTransaction, Error> {
+    fn create_read_transaction(
+        &self,
+        database: &'env redb::Database,
+    ) -> Result<redb::ReadTransaction, Error> {
         match database.begin_read() {
             Ok(transaction) => Ok(transaction),
             Err(e) => Err(Error::DatabaseRedbError(e.into())),
         }
     }
-    
-    fn open_write_table(&'env self, tx: &'env redb::WriteTransaction) -> Result<redb::Table<'env, 'env, &'env[u8], &'env[u8]>, Error> {
+
+    fn open_write_table(
+        &'env self,
+        tx: &'env redb::WriteTransaction,
+    ) -> Result<redb::Table<'env, 'env, &'env [u8], &'env [u8]>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(self.table);
         match tx.open_table(table_definition) {
             Ok(table) => Ok(table),
-            Err(e) =>Err(Error::DatabaseRedbError(e.into())),
+            Err(e) => Err(Error::DatabaseRedbError(e.into())),
         }
     }
 
-    fn open_read_table(&self, tx: &'env redb::ReadTransaction<'env>) -> Result<redb::ReadOnlyTable<'env, &'env[u8], &'env[u8]>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(self.table.clone());
+    fn open_read_table(
+        &self,
+        tx: &'env redb::ReadTransaction<'env>,
+    ) -> Result<redb::ReadOnlyTable<'env, &'env [u8], &'env [u8]>, Error> {
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+            TableDefinition::new(self.table.clone());
         match tx.open_table(table_definition) {
             Ok(table) => Ok(table),
-            Err(e) =>Err(Error::DatabaseRedbError(e.into())),
+            Err(e) => Err(Error::DatabaseRedbError(e.into())),
         }
     }
 }
@@ -157,7 +174,7 @@ impl<'env> Database<'env> {
 impl<'env> RwTransaction<'env> {
     pub fn get<K: AsRef<[u8]> + ?Sized>(
         &'env self,
-        db:  &Database<'env>,
+        db: &Database<'env>,
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(db.table);
@@ -173,8 +190,8 @@ impl<'env> RwTransaction<'env> {
                     Ok(Some(Cow::from(value)))
                 } else {
                     Ok(None)
-                }  
-            },
+                }
+            }
             Err(e) => Err(Error::DatabaseRedbError(e.into())),
         }
     }
@@ -187,7 +204,7 @@ impl<'env> RwTransaction<'env> {
     ) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(db.table);
         let database = db.open_database()?;
-        let tx = database.begin_write().unwrap();
+        let tx = db.create_write_transaction(&database)?;
         {
             let mut table = tx.open_table(table_definition).unwrap();
             table
@@ -201,7 +218,7 @@ impl<'env> RwTransaction<'env> {
     pub fn del<K: AsRef<[u8]>>(&mut self, db: &Database, key: K) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(db.table);
         let database = db.open_database()?;
-        let tx = database.begin_write().unwrap();
+        let tx = db.create_write_transaction(&database)?;
         {
             let mut table = tx.open_table(table_definition).unwrap();
 
@@ -220,7 +237,7 @@ impl<'env> RwTransaction<'env> {
 
     pub fn commit(self) -> Result<(), Error> {
         Ok(())
-        /* 
+        /*
         match self.txn.unwrap().commit() {
             Ok(_) => {
                 self.txn = None;
@@ -236,14 +253,16 @@ impl<'env> Cursor<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table);
         let database = self.db.open_database()?;
-        let tx = database.begin_read().unwrap();
-        let first = tx
-            .open_table(table_definition)
-            .unwrap()
-            .iter()
-            .unwrap()
-            .next()
-            .map(|x| x.map(|(key, _)| (key.value()).to_vec()));
+        let tx = self.db.create_read_transaction(&database)?;
+
+        let table = tx.open_table(table_definition).unwrap();
+
+        let first = match table.iter() {
+            Ok(mut iterator) => iterator
+                .next()
+                .map(|x| x.map(|(key, _)| (key.value()).to_vec())),
+            Err(e) => return Err(Error::DatabaseRedbError(e.into())),
+        };
 
         if let Some(owned_key) = first {
             let owned_key = owned_key.unwrap();
@@ -258,15 +277,17 @@ impl<'env> Cursor<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table);
         let database = self.db.open_database()?;
-        let tx = database.begin_read().unwrap();
-        let last = tx
-            .open_table(table_definition)
-            .unwrap()
-            .iter()
-            .unwrap()
-            .rev()
-            .next_back()
-            .map(|x| x.map(|(key, _)| (key.value()).to_vec()));
+        let tx = self.db.create_read_transaction(&database)?;
+
+        let table = tx.open_table(table_definition).unwrap();
+
+        let last = match table.iter() {
+            Ok(iterator) => iterator
+                .rev()
+                .next_back()
+                .map(|x| x.map(|(key, _)| (key.value()).to_vec())),
+            Err(e) => return Err(Error::DatabaseRedbError(e.into())),
+        };
 
         if let Some(owned_key) = last {
             let owned_key = owned_key.unwrap();
@@ -281,69 +302,80 @@ impl<'env> Cursor<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table);
         let database = self.db.open_database()?;
-        let tx = database.begin_read().unwrap();
+        let tx = self.db.create_read_transaction(&database)?;
         let range: std::ops::RangeFrom<&[u8]> = &self.current_key.clone().unwrap()..;
-        let next = tx
-            .open_table(table_definition)
-            .unwrap()
-            .range(range)
-            .unwrap()
-            .next()
-            .map(|x| x.map(|(key, _)| (key.value()).to_vec()));
+
+        let table = tx.open_table(table_definition).unwrap();
+
+        let next = match table.range(range) {
+            Ok(mut range) => range
+                .next()
+                .map(|x| x.map(|(key, _)| (key.value()).to_vec())),
+            Err(e) => return Err(Error::DatabaseRedbError(e.into())),
+        };
 
         if let Some(owned_key) = next {
             let owned_key = owned_key.unwrap();
             self.current_key = Some(Cow::from(owned_key));
             Ok(self.current_key.clone())
         } else {
-            panic!()
+            Ok(None)
         }
     }
 
     pub fn get_current(&mut self) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(self.db.table);
-        let database = self.db.open_database()?;
-        let tx = database.begin_read().unwrap();
-        let table = tx.open_table(table_definition).unwrap();
-        let value = table
-            .get(self.current_key.clone().unwrap().as_ref())
-            .unwrap()
-            .unwrap()
-            .value()
-            .to_vec();
-        Ok(Some((
-            self.current_key.clone().unwrap().clone(),
-            Cow::from(value),
-        )))
+        if let Some(key) = &self.current_key {
+            let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+                TableDefinition::new(self.db.table);
+            let database = self.db.open_database()?;
+            let tx = self.db.create_read_transaction(&database)?;
+            let table = tx.open_table(table_definition).unwrap();
+            let result = table.get(key.as_ref());
+            let value = match result {
+                Ok(res) => {
+                    if let Some(access_guard) = res {
+                        access_guard.value().to_vec().clone()
+                    } else {
+                        return Ok(None);
+                    }
+                }
+                Err(e) => return Err(Error::DatabaseRedbError(e.into())),
+            };
+            Ok(Some((key.clone(), Cow::from(value))))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn delete_current(&mut self) -> Result<(), Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(self.db.table);
-        let database = self.db.open_database()?;
-        let tx = database.begin_write().unwrap();
-        {
-            let mut table = tx.open_table(table_definition).unwrap();
-            table
-                .remove(self.current_key.clone().unwrap().as_ref().borrow())
-                .unwrap();
+        if let Some(key) = &self.current_key {
+            let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+                TableDefinition::new(self.db.table);
+            let database = self.db.open_database()?;
+            let tx = self.db.create_write_transaction(&database)?;
+            {
+                let mut table = tx.open_table(table_definition).unwrap();
+                match table.remove(key.as_ref()) {
+                    Ok(_) => return Ok(()),
+                    Err(e) => return Err(Error::DatabaseRedbError(e.into())),
+                };
+            }
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table);
         let database = self.db.open_database()?;
-        let tx = database.begin_write().unwrap();
+        let tx = self.db.create_write_transaction(&database)?;
         {
             let mut table = tx.open_table(table_definition).unwrap();
-            table
-                .insert(key.as_ref().borrow(), value.as_ref().borrow())
-                .unwrap();
-            // set cursor current key to key
+            match table.insert(key.as_ref().borrow(), value.as_ref().borrow()) {
+                Ok(_) => return Ok(()),
+                Err(e) => return Err(Error::DatabaseRedbError(e.into())),
+            };
         }
-        Ok(())
     }
 }
