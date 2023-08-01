@@ -89,12 +89,6 @@ pub struct SingleLookupReqId {
     pub req_counter: Id,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct ParentLookupReqId {
-    pub id: Id,
-    pub req_counter: Id,
-}
-
 /// Id of rpc requests sent by sync to the network.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RequestId {
