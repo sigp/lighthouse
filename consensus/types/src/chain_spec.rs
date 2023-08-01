@@ -172,7 +172,6 @@ pub struct ChainSpec {
     pub subnets_per_node: u8,
     pub epochs_per_subnet_subscription: u64,
     pub gossip_max_size: u64,
-    pub max_request_blocks: u64,
     pub min_epochs_for_block_requests: u64,
     pub max_chunk_size: u64,
     pub ttfb_timeout: u64,
@@ -634,7 +633,6 @@ impl ChainSpec {
             target_aggregators_per_committee: 16,
             epochs_per_subnet_subscription: 256,
             gossip_max_size: default_gossip_max_size(),
-            max_request_blocks: default_max_request_blocks(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
             max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
@@ -867,7 +865,6 @@ impl ChainSpec {
             target_aggregators_per_committee: 16,
             epochs_per_subnet_subscription: 256,
             gossip_max_size: default_gossip_max_size(),
-            max_request_blocks: default_max_request_blocks(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
             max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
@@ -990,9 +987,6 @@ pub struct Config {
     #[serde(default = "default_gossip_max_size")]
     #[serde(with = "serde_utils::quoted_u64")]
     gossip_max_size: u64,
-    #[serde(default = "default_max_request_blocks")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    max_request_blocks: u64,
     #[serde(default = "default_min_epochs_for_block_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_block_requests: u64,
@@ -1059,10 +1053,6 @@ fn default_subnets_per_node() -> u8 {
 
 const fn default_gossip_max_size() -> u64 {
     10485760
-}
-
-const fn default_max_request_blocks() -> u64 {
-    1024
 }
 
 const fn default_min_epochs_for_block_requests() -> u64 {
@@ -1194,7 +1184,6 @@ impl Config {
             deposit_contract_address: spec.deposit_contract_address,
 
             gossip_max_size: spec.gossip_max_size,
-            max_request_blocks: spec.max_request_blocks,
             min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
             max_chunk_size: spec.max_chunk_size,
             ttfb_timeout: spec.ttfb_timeout,
@@ -1248,7 +1237,6 @@ impl Config {
             deposit_network_id,
             deposit_contract_address,
             gossip_max_size,
-            max_request_blocks,
             min_epochs_for_block_requests,
             max_chunk_size,
             ttfb_timeout,
@@ -1295,7 +1283,6 @@ impl Config {
             terminal_block_hash_activation_epoch,
             safe_slots_to_import_optimistically,
             gossip_max_size,
-            max_request_blocks,
             min_epochs_for_block_requests,
             max_chunk_size,
             ttfb_timeout,
@@ -1565,7 +1552,6 @@ mod yaml_tests {
         check_default!(safe_slots_to_import_optimistically);
         check_default!(bellatrix_fork_version);
         check_default!(gossip_max_size);
-        check_default!(max_request_blocks);
         check_default!(min_epochs_for_block_requests);
         check_default!(max_chunk_size);
         check_default!(ttfb_timeout);

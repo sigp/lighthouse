@@ -20,6 +20,7 @@ use types::{
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
+pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;

@@ -297,9 +297,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request blocks
-        let max_request_blocks = self.chain.spec.max_request_blocks;
-        if *req.count() > max_request_blocks {
-            *req.count_mut() = max_request_blocks;
+        if *req.count() > MAX_REQUEST_BLOCKS {
+            *req.count_mut() = MAX_REQUEST_BLOCKS;
         }
 
         let forwards_block_root_iter = match self
