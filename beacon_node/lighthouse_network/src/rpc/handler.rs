@@ -3,7 +3,7 @@
 
 use super::methods::{GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode, ResponseTermination};
 use super::outbound::OutboundRequestContainer;
-use super::protocol::{max_rpc_size, InboundRequest, Protocol, RPCError, RPCProtocol};
+use super::protocol::{InboundRequest, Protocol, RPCError, RPCProtocol};
 use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
