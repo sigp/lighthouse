@@ -38,6 +38,7 @@ use types::{
     SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
     Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
+use tree_hash::TreeHash;
 
 use beacon_processor::{
     work_reprocessing_queue::{
@@ -445,10 +446,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
         let aggregates = packages.iter().map(|package| package.aggregate.as_ref());
+        
+        let aggregates = aggregates
+            .filter(|agg| !self
+                .chain
+                .observed_attestations
+                .write()
+                .is_known_subset(&agg.message.aggregate, agg.message.aggregate.data.tree_hash_root())
+                .unwrap_or(false)
+            )
+            .map(|agg| SignedAggregateAndProof {
+                message: agg.message.not_lazy().unwrap(),
+                signature: agg.signature,
+            })
+            .collect();
 
         let results = match self
             .chain
-            .batch_verify_aggregated_attestations_for_gossip(aggregates)
+            .batch_verify_aggregated_attestations_for_gossip(&aggregates.iter())
         {
             Ok(results) => results,
             Err(e) => {
@@ -482,25 +497,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .collect::<Vec<_>>();
 
         for (result, package) in results.into_iter().zip(packages.into_iter()) {
-            let result = match result {
-                Ok(indexed_attestation) => Ok(VerifiedAggregate {
-                    indexed_attestation,
-                    signed_aggregate: package.aggregate,
-                }),
-                Err(error) => Err(RejectedAggregate {
-                    signed_aggregate: package.aggregate,
-                    error,
-                }),
-            };
+            if let Ok(signed_aggregate) = package.aggregate.not_lazy() {
+                let result = match result {
+                    Ok(indexed_attestation) => Ok(VerifiedAggregate {
+                        indexed_attestation,
+                        signed_aggregate: Box::new(signed_aggregate),
+                    }),
+                    Err(error) => Err(RejectedAggregate {
+                        signed_aggregate: Box::new(signed_aggregate),
+                        error,
+                    }),
+                };
 
-            self.process_gossip_aggregate_result(
-                result,
-                package.beacon_block_root,
-                package.message_id,
-                package.peer_id,
-                reprocess_tx.clone(),
-                package.seen_timestamp,
-            );
+                self.process_gossip_aggregate_result(
+                    result,
+                    package.beacon_block_root,
+                    package.message_id,
+                    package.peer_id,
+                    reprocess_tx.clone(),
+                    package.seen_timestamp,
+                );
+            }
         }
     }
 

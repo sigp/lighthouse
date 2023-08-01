@@ -138,13 +138,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processor = self.clone();
         let process_individual = move |package: GossipAggregatePackage<T::EthSpec>| {
             let reprocess_tx = processor.reprocess_tx.clone();
-            processor.process_gossip_aggregate(
-                package.message_id,
-                package.peer_id,
-                package.aggregate,
-                Some(reprocess_tx),
-                package.seen_timestamp,
-            )
+            if let Ok(signed_aggregate) = aggregate.not_lazy() {
+                processor.process_gossip_aggregate(
+                    package.message_id,
+                    package.peer_id,
+                    Box::new(signed_aggregate),
+                    Some(reprocess_tx),
+                    package.seen_timestamp,
+                )
+            }
         };
 
         // Define a closure for processing batches of attestations.

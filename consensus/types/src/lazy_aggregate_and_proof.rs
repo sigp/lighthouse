@@ -1,9 +1,10 @@
 use super::{EthSpec, LazyAttestation, Signature};
-use crate::test_utils::TestRandom;
+use crate::{test_utils::TestRandom, AggregateAndProof};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+use bls::Error;
 
 /// A Validators aggregate attestation and selection proof.
 #[derive(
@@ -29,4 +30,14 @@ pub struct LazyAggregateAndProof<T: EthSpec> {
     /// A proof provided by the validator that permits them to publish on the
     /// `beacon_aggregate_and_proof` gossipsub topic.
     pub selection_proof: Signature,
+}
+
+impl<T: EthSpec> LazyAggregateAndProof<T> {
+    pub fn not_lazy(self) -> Result<AggregateAndProof<T>, Error> {
+        Ok(AggregateAndProof {
+            aggregator_index: self.aggregator_index,
+            aggregate: self.aggregate.to_attestation()?,
+            selection_proof: self.selection_proof,
+        })
+    }
 }

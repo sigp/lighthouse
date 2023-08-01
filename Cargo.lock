@@ -5081,6 +5081,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util 0.6.10",
+ "tree_hash",
  "types",
 ]
 

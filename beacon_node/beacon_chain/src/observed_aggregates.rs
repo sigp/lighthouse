@@ -3,6 +3,7 @@
 
 use crate::sync_committee_verification::SyncCommitteeData;
 use ssz_types::{BitList, BitVector};
+use store::LazyAttestation;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
@@ -103,6 +104,27 @@ pub trait SubsetItem {
 }
 
 impl<T: EthSpec> SubsetItem for Attestation<T> {
+    type Item = BitList<T::MaxValidatorsPerCommittee>;
+    fn is_subset(&self, other: &Self::Item) -> bool {
+        self.aggregation_bits.is_subset(other)
+    }
+
+    fn is_superset(&self, other: &Self::Item) -> bool {
+        other.is_subset(&self.aggregation_bits)
+    }
+
+    /// Returns the sync contribution aggregation bits.
+    fn get_item(&self) -> Self::Item {
+        self.aggregation_bits.clone()
+    }
+
+    /// Returns the hash tree root of the attestation data.
+    fn root(&self) -> Hash256 {
+        self.data.tree_hash_root()
+    }
+}
+
+impl<T: EthSpec> SubsetItem for LazyAttestation<T> {
     type Item = BitList<T::MaxValidatorsPerCommittee>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         self.aggregation_bits.is_subset(other)

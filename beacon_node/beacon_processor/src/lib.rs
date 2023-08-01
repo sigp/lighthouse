@@ -61,7 +61,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use types::consts::deneb::MAX_BLOBS_PER_BLOCK;
-use types::{Attestation, Hash256, SignedAggregateAndProof, SubnetId};
+use types::{Attestation, Hash256, SignedAggregateAndProof, SubnetId, LazySignedAggregateAndProof};
 use types::{EthSpec, Slot};
 use work_reprocessing_queue::IgnoredRpcBlock;
 use work_reprocessing_queue::{
@@ -527,7 +527,7 @@ pub struct GossipAttestationPackage<E: EthSpec> {
 pub struct GossipAggregatePackage<E: EthSpec> {
     pub message_id: MessageId,
     pub peer_id: PeerId,
-    pub aggregate: Box<SignedAggregateAndProof<E>>,
+    pub aggregate: Box<LazySignedAggregateAndProof<E>>,
     pub beacon_block_root: Hash256,
     pub seen_timestamp: Duration,
 }
