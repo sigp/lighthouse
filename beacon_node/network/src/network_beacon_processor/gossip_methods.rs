@@ -599,7 +599,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    // TODO: docs
     #[allow(clippy::too_many_arguments)]
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
@@ -711,11 +710,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
         match self.chain.process_blob(verified_blob).await {
-            Ok(AvailabilityProcessingStatus::Imported(_hash)) => {
-                //TODO(sean) add metrics and logging
+            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+                // Note: Reusing block imported metric here
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
+                info!(
+                    self.log,
+                    "Gossipsub blob processed, imported fully available block";
+                    "hash" => %hash
+                );
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_hash)) => {
+                debug!(
+                    self.log,
+                    "Missing block components for gossip verified blob";
+                    "slot" => %blob_slot,
+                    "blob_index" => %blob_index,
+                    "blob_root" => %blob_root,
+                );
                 self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
                     slot, peer_id, block_hash,
                 ));
