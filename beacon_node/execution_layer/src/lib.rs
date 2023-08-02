@@ -74,8 +74,6 @@ const EXECUTION_BLOCKS_LRU_CACHE_SIZE: usize = 128;
 const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
-const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(60);
-
 /// A payload alongside some information about where it came from.
 pub enum ProvenancedPayload<P> {
     /// A good ol' fashioned farm-to-table payload from your local EE.
@@ -500,24 +498,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         };
 
         self.spawn(preparation_cleaner, "exec_preparation_cleanup");
-    }
-
-    /// Spawns a routine that polls the `exchange_transition_configuration` endpoint.
-    pub fn spawn_transition_configuration_poll(&self, spec: ChainSpec) {
-        let routine = |el: ExecutionLayer<T>| async move {
-            loop {
-                if let Err(e) = el.exchange_transition_configuration(&spec).await {
-                    error!(
-                        el.log(),
-                        "Failed to check transition config";
-                        "error" => ?e
-                    );
-                }
-                sleep(CONFIG_POLL_INTERVAL).await;
-            }
-        };
-
-        self.spawn(routine, "exec_config_poll");
     }
 
     /// Returns `true` if the execution engine is synced and reachable.
@@ -1316,53 +1296,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         )
         .map_err(Box::new)
         .map_err(Error::EngineError)
-    }
-
-    pub async fn exchange_transition_configuration(&self, spec: &ChainSpec) -> Result<(), Error> {
-        let local = TransitionConfigurationV1 {
-            terminal_total_difficulty: spec.terminal_total_difficulty,
-            terminal_block_hash: spec.terminal_block_hash,
-            terminal_block_number: 0,
-        };
-
-        let result = self
-            .engine()
-            .request(|engine| engine.api.exchange_transition_configuration_v1(local))
-            .await;
-
-        match result {
-            Ok(remote) => {
-                if local.terminal_total_difficulty != remote.terminal_total_difficulty
-                    || local.terminal_block_hash != remote.terminal_block_hash
-                {
-                    error!(
-                        self.log(),
-                        "Execution client config mismatch";
-                        "msg" => "ensure lighthouse and the execution client are up-to-date and \
-                                  configured consistently",
-                        "remote" => ?remote,
-                        "local" => ?local,
-                    );
-                    Err(Error::EngineError(Box::new(EngineError::Api {
-                        error: ApiError::TransitionConfigurationMismatch,
-                    })))
-                } else {
-                    debug!(
-                        self.log(),
-                        "Execution client config is OK";
-                    );
-                    Ok(())
-                }
-            }
-            Err(e) => {
-                error!(
-                    self.log(),
-                    "Unable to get transition config";
-                    "error" => ?e,
-                );
-                Err(Error::EngineError(Box::new(e)))
-            }
-        }
     }
 
     /// Returns the execution engine capabilities resulting from a call to

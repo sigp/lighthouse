@@ -43,7 +43,6 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_payload_bodies_by_range_v1: true,
     get_payload_v1: true,
     get_payload_v2: true,
-    exchange_transition_configuration_v1: true,
 };
 
 mod execution_block_generator;

@@ -28,7 +28,7 @@ operating system.
 Install the following packages:
 
 ```bash
-sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf-compiler
+sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
 ```
 
 > Tips:
@@ -51,10 +51,6 @@ After this, you are ready to [build Lighthouse](#build-lighthouse).
 brew install cmake
 ```
 
-1. Install protoc using Homebrew:
-```
-brew install protobuf
-```
 
 [Homebrew]: https://brew.sh/
 
@@ -71,7 +67,7 @@ After this, you are ready to [build Lighthouse](#build-lighthouse).
     Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
     ```
     > - To verify that Chocolatey is ready, run `choco` and it should return the version.
-1. Install Make, CMake, LLVM and protoc using Chocolatey:
+1. Install Make, CMake and LLVM using Chocolatey:
 
 ```
 choco install make
@@ -83,10 +79,6 @@ choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
 
 ```
 choco install llvm
-```
-
-```
-choco install protoc
 ```
 
 These dependencies are for compiling Lighthouse natively on Windows. Lighthouse can also run
@@ -217,4 +209,3 @@ look into [cross compilation](./cross-compiling.md), or use a [pre-built
 binary](https://github.com/sigp/lighthouse/releases).
 
 If compilation fails with `error: linking with cc failed: exit code: 1`, try running `cargo clean`.
-

@@ -201,6 +201,8 @@ else:
    use local payload
 ```
 
+If you would like to always use the builder payload, you can add the flag `--always-prefer-builder-payload` to the beacon node.
+
 ## Checking your builder config
 
 You can check that your builder is configured correctly by looking for these log messages.
