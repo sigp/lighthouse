@@ -4947,8 +4947,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (mut block, _) = block.deconstruct();
         *block.state_root_mut() = state_root;
 
-        //FIXME(sean)
-        // - add a new timer for processing here
+        let blobs_verification_timer =
+            metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
         if let (Some(blobs), Some(proofs)) = (blobs_opt, proofs_opt) {
             let kzg = self
                 .kzg
@@ -5010,6 +5010,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.proposal_blob_cache
                 .put(beacon_block_root, blob_sidecars);
         }
+
+        drop(blobs_verification_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
 
