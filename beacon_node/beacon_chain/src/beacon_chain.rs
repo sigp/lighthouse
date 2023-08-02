@@ -3215,10 +3215,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(blobs) = blobs {
             if !blobs.is_empty() {
-                //FIXME(sean) using this for debugging for now
                 info!(
                     self.log, "Writing blobs to store";
-                    "block_root" => ?block_root
+                    "block_root" => %block_root,
+                    "count" => blobs.len(),
                 );
                 ops.push(StoreOp::PutBlobs(block_root, blobs));
             }
