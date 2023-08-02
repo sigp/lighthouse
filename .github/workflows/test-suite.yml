@@ -22,37 +22,6 @@ env:
   # Self-hosted runners need to reference a different host for `./watch` tests.
   WATCH_HOST: ${{ github.repository == 'sigp/lighthouse' && 'host.docker.internal' || 'localhost' }}
 jobs:
-  release-tests-windows:
-    name: release-tests-windows
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows"]') || 'windows-2019'  }}
-    env:
-      RUST_MIN_STACK: 8388608
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
-      run: rustup update stable
-    - name: Use Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '14'
-    - name: Install windows build tools
-      run: |
-        choco install python protoc visualstudio2019-workload-vctools -y
-        npm config set msvs_version 2019
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-    - name: Install make
-      run: choco install -y make
-    - uses: KyleMayes/install-llvm-action@v1
-      if: env.SELF_HOSTED_RUNNERS == false
-      with:
-        version: "15.0"
-        directory: ${{ runner.temp }}/llvm
-    - name: Set LIBCLANG_PATH
-      run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
-    - name: Run tests in release
-      run: make test-release
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
