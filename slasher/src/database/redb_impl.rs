@@ -105,14 +105,13 @@ impl Environment {
             None => "".to_string(),
         };
 
-        // opening the table for the first time  
+        // opening the table for the first time
         let database = redb::Database::create(&db_path)?;
-         
 
         Ok(crate::Database::Redb(Database {
             table_name,
             db_path,
-            db: database
+            db: database,
         }))
     }
 
