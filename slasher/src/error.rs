@@ -90,6 +90,34 @@ impl From<lmdb::Error> for Error {
     }
 }
 
+#[cfg(feature = "redb")]
+impl From<redb::TableError> for Error {
+    fn from(e: redb::TableError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::TransactionError> for Error {
+    fn from(e: redb::TransactionError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::DatabaseError> for Error {
+    fn from(e: redb::DatabaseError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::StorageError> for Error {
+    fn from(e: redb::StorageError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Error::DatabaseIOError(e)
