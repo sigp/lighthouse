@@ -11,7 +11,7 @@ use lighthouse_network::rpc::methods::{
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
-use slog::{debug, error, trace, warn};
+use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
@@ -247,7 +247,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 };
 
                 match blob_list_result.as_ref() {
-                    Ok(Some(blobs_sidecar_list)) => {
+                    Ok(blobs_sidecar_list) => {
                         'inner: for blob_sidecar in blobs_sidecar_list.iter() {
                             if blob_sidecar.index == index {
                                 self.send_response(
@@ -259,14 +259,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 break 'inner;
                             }
                         }
-                    }
-                    Ok(None) => {
-                        debug!(
-                            self.log,
-                            "Peer requested unknown blobs";
-                            "peer" => %peer_id,
-                            "request_root" => ?root
-                        );
                     }
                     Err(e) => {
                         debug!(
@@ -767,7 +759,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         for root in block_roots {
             match self.chain.get_blobs(&root) {
-                Ok(Some(blob_sidecar_list)) => {
+                Ok(blob_sidecar_list) => {
                     for blob_sidecar in blob_sidecar_list.iter() {
                         blobs_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
@@ -776,15 +768,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             id: request_id,
                         });
                     }
-                }
-                Ok(None) => {
-                    trace!(
-                        self.log,
-                        "No blobs in the store for block root";
-                        "request" => ?req,
-                        "peer" => %peer_id,
-                        "block_root" => ?root
-                    );
                 }
                 Err(e) => {
                     error!(
