@@ -107,6 +107,9 @@ pub struct Config {
     /// Disables the discovery protocol from starting.
     pub disable_discovery: bool,
 
+    /// Disables quic support.
+    pub disable_quic_support: bool,
+
     /// Attempt to construct external port mappings with UPnP.
     pub upnp_enabled: bool,
 
@@ -154,27 +157,41 @@ impl Config {
     /// Sets the listening address to use an ipv4 address. The discv5 ip_mode and table filter are
     /// adjusted accordingly to ensure addresses that are present in the enr are globally
     /// reachable.
-    pub fn set_ipv4_listening_address(&mut self, addr: Ipv4Addr, tcp_port: u16, udp_port: u16) {
+    pub fn set_ipv4_listening_address(
+        &mut self,
+        addr: Ipv4Addr,
+        tcp_port: u16,
+        disc_port: u16,
+        quic_port: u16,
+    ) {
         self.listen_addresses = ListenAddress::V4(ListenAddr {
             addr,
-            udp_port,
+            disc_port,
+            quic_port,
             tcp_port,
         });
-        self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), udp_port);
+        self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), disc_port);
         self.discv5_config.table_filter = |enr| enr.ip4().as_ref().map_or(false, is_global_ipv4)
     }
 
     /// Sets the listening address to use an ipv6 address. The discv5 ip_mode and table filter is
     /// adjusted accordingly to ensure addresses that are present in the enr are globally
     /// reachable.
-    pub fn set_ipv6_listening_address(&mut self, addr: Ipv6Addr, tcp_port: u16, udp_port: u16) {
+    pub fn set_ipv6_listening_address(
+        &mut self,
+        addr: Ipv6Addr,
+        tcp_port: u16,
+        disc_port: u16,
+        quic_port: u16,
+    ) {
         self.listen_addresses = ListenAddress::V6(ListenAddr {
             addr,
-            udp_port,
+            disc_port,
+            quic_port,
             tcp_port,
         });
 
-        self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), udp_port);
+        self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), disc_port);
         self.discv5_config.table_filter = |enr| enr.ip6().as_ref().map_or(false, is_global_ipv6)
     }
 
@@ -185,26 +202,30 @@ impl Config {
         &mut self,
         v4_addr: Ipv4Addr,
         tcp4_port: u16,
-        udp4_port: u16,
+        disc4_port: u16,
+        quic4_port: u16,
         v6_addr: Ipv6Addr,
         tcp6_port: u16,
-        udp6_port: u16,
+        disc6_port: u16,
+        quic6_port: u16,
     ) {
         self.listen_addresses = ListenAddress::DualStack(
             ListenAddr {
                 addr: v4_addr,
-                udp_port: udp4_port,
+                disc_port: disc4_port,
+                quic_port: quic4_port,
                 tcp_port: tcp4_port,
             },
             ListenAddr {
                 addr: v6_addr,
-                udp_port: udp6_port,
+                disc_port: disc6_port,
+                quic_port: quic6_port,
                 tcp_port: tcp6_port,
             },
         );
         self.discv5_config.listen_config = discv5::ListenConfig::default()
-            .with_ipv4(v4_addr, udp4_port)
-            .with_ipv6(v6_addr, udp6_port);
+            .with_ipv4(v4_addr, disc4_port)
+            .with_ipv6(v6_addr, disc6_port);
 
         self.discv5_config.table_filter = |enr| match (&enr.ip4(), &enr.ip6()) {
             (None, None) => false,
@@ -218,27 +239,32 @@ impl Config {
         match listen_addr {
             ListenAddress::V4(ListenAddr {
                 addr,
-                udp_port,
+                disc_port,
+                quic_port,
                 tcp_port,
-            }) => self.set_ipv4_listening_address(addr, tcp_port, udp_port),
+            }) => self.set_ipv4_listening_address(addr, tcp_port, disc_port, quic_port),
             ListenAddress::V6(ListenAddr {
                 addr,
-                udp_port,
+                disc_port,
+                quic_port,
                 tcp_port,
-            }) => self.set_ipv6_listening_address(addr, tcp_port, udp_port),
+            }) => self.set_ipv6_listening_address(addr, tcp_port, disc_port, quic_port),
             ListenAddress::DualStack(
                 ListenAddr {
                     addr: ip4addr,
-                    udp_port: udp4_port,
+                    disc_port: disc4_port,
+                    quic_port: quic4_port,
                     tcp_port: tcp4_port,
                 },
                 ListenAddr {
                     addr: ip6addr,
-                    udp_port: udp6_port,
+                    disc_port: disc6_port,
+                    quic_port: quic6_port,
                     tcp_port: tcp6_port,
                 },
             ) => self.set_ipv4_ipv6_listening_addresses(
-                ip4addr, tcp4_port, udp4_port, ip6addr, tcp6_port, udp6_port,
+                ip4addr, tcp4_port, disc4_port, quic4_port, ip6addr, tcp6_port, disc6_port,
+                quic6_port,
             ),
         }
     }
@@ -277,7 +303,8 @@ impl Default for Config {
         );
         let listen_addresses = ListenAddress::V4(ListenAddr {
             addr: Ipv4Addr::UNSPECIFIED,
-            udp_port: 9000,
+            disc_port: 9000,
+            quic_port: 9001,
             tcp_port: 9000,
         });
 
@@ -325,6 +352,7 @@ impl Default for Config {
             disable_peer_scoring: false,
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
+            disable_quic_support: false,
             upnp_enabled: true,
             network_load: 3,
             private: false,

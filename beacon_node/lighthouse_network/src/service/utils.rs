@@ -9,6 +9,7 @@ use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxe
 use libp2p::gossipsub;
 use libp2p::identity::{secp256k1, Keypair};
 use libp2p::{core, noise, yamux, PeerId, Transport, TransportExt};
+use libp2p_quic;
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
 use ssz::Decode;
@@ -37,18 +38,15 @@ pub struct Context<'a> {
 
 type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 
-/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
-/// mplex as the multiplexing layer.
+/// The implementation supports TCP/IP, QUIC (experimental) over UDP, noise as the encryption layer, and
+/// mplex/yamux as the multiplexing layer (when using TCP).
 pub fn build_transport(
     local_private_key: Keypair,
 ) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
+    // Creates the TCP transport layer
     let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true));
+    // Enables DNS over the TCP transport.
     let transport = libp2p::dns::TokioDnsConfig::system(tcp)?;
-    #[cfg(feature = "libp2p-websocket")]
-    let transport = {
-        let trans_clone = transport.clone();
-        transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
-    };
 
     // yamux config
     let mut yamux_config = yamux::Config::default();
@@ -58,10 +56,19 @@ pub fn build_transport(
         .authenticate(generate_noise_config(&local_private_key))
         .multiplex(yamux_config)
         .timeout(Duration::from_secs(10))
-        .boxed()
         .with_bandwidth_logging();
 
-    // Authentication
+    // Enables Quic
+    /*
+    // The default quic configuration suits us for now.
+    let quic_config = libp2p_quic::Config::new(&local_private_key);
+    let transport = transport.or_transport(libp2p_quic::tokio::Transport::new(quic_config));
+
+    // TODO: Get quick to support bandwidth measurements.
+    */
+
+    let transport = transport.boxed();
+
     Ok((transport, bandwidth))
 }
 
