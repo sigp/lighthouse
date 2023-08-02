@@ -820,7 +820,6 @@ mod tests {
                 match found_block_result.as_ref() {
                     Ok(maybe_block) => {
                         let found_block = maybe_block.clone().expect("should have a block");
-                        dbg!(&found_block.fork_name(&spec));
                         let expected_block = expected_blocks
                             .get(start + i)
                             .expect("should get expected block");
