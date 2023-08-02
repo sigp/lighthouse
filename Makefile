@@ -111,7 +111,7 @@ test-release:
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
-	cargo test --workspace --exclude ef_tests --exclude beacon_chain --exclude network
+	cargo test --workspace --exclude ef_tests --exclude beacon_chain --exclude network -- --nocapture
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
