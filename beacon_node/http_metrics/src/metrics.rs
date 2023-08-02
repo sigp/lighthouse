@@ -1,6 +1,6 @@
 use crate::Context;
 use beacon_chain::BeaconChainTypes;
-use lighthouse_metrics::{Encoder, TextEncoder};
+use lighthouse_metrics::TextEncoder;
 use lighthouse_network::prometheus_client::encoding::text::encode;
 use malloc_utils::scrape_allocator_metrics;
 
@@ -9,7 +9,7 @@ pub use lighthouse_metrics::*;
 pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
     ctx: &Context<T>,
 ) -> std::result::Result<String, String> {
-    let mut buffer = vec![];
+    let mut buffer = String::new();
     let encoder = TextEncoder::new();
 
     // There are two categories of metrics:
@@ -50,7 +50,7 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
     }
 
     encoder
-        .encode(&lighthouse_metrics::gather(), &mut buffer)
+        .encode_utf8(&lighthouse_metrics::gather(), &mut buffer)
         .unwrap();
     // encode gossipsub metrics also if they exist
     if let Some(registry) = ctx.gossipsub_registry.as_ref() {
@@ -59,5 +59,5 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
         }
     }
 
-    String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
+    Ok(buffer)
 }
