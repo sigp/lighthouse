@@ -127,11 +127,10 @@ impl Environment {
 }
 
 impl<'env> Database<'env> {
+    /* 
     fn open_database(&'env self) -> Result<redb::Database, redb::DatabaseError> {
         redb::Database::create(&self.db_path)
     }
-
-    /*
 
      fn open_write_table<'a>(
          table_name: &str,
@@ -162,17 +161,12 @@ impl<'env> RwTransaction<'env> {
         let database = &db.db;
         let tx = database.begin_write()?;
         let table = tx.open_table(table_definition)?;
-        let result = table.get(key.as_ref().borrow());
-        match result {
-            Ok(res) => {
-                if let Some(access_guard) = res {
-                    let value = access_guard.value().to_vec().clone();
-                    Ok(Some(Cow::from(value)))
-                } else {
-                    Ok(None)
-                }
-            }
-            Err(e) => Err(Error::DatabaseRedbError(e.into())),
+        let result = table.get(key.as_ref().borrow())?;
+        if let Some(access_guard) = result {
+            let value = access_guard.value().to_vec().clone();
+            Ok(Some(Cow::from(value)))
+        } else {
+            Ok(None)
         }
     }
 
@@ -190,6 +184,7 @@ impl<'env> RwTransaction<'env> {
             let mut table = tx.open_table(table_definition)?;
             table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -202,6 +197,7 @@ impl<'env> RwTransaction<'env> {
             let mut table = tx.open_table(table_definition)?;
             table.remove(key.as_ref().borrow())?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -321,6 +317,7 @@ impl<'env> Cursor<'env> {
                 let mut table = tx.open_table(table_definition)?;
                 table.remove(key.as_ref())?;
             }
+            tx.commit()?;
         }
         Ok(())
     }
@@ -334,6 +331,7 @@ impl<'env> Cursor<'env> {
             let mut table = tx.open_table(table_definition)?;
             table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
         }
+        tx.commit()?;
         Ok(())
     }
 }

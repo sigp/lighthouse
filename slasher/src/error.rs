@@ -118,6 +118,14 @@ impl From<redb::StorageError> for Error {
     }
 }
 
+#[cfg(feature = "redb")]
+impl From<redb::CommitError> for Error {
+    fn from(e: redb::CommitError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Error::DatabaseIOError(e)
