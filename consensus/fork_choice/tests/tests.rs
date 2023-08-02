@@ -1346,6 +1346,8 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
 
 /// Checks that `ProgressiveBalancesCache` is updated correctly after an attester slashing event,
 /// where the slashed validator is a target attester in previous / current epoch.
+/// Note: disabled on Windows CI for now until Rust 1.73 release due to regression in windows.
+#[cfg(unix)]
 #[tokio::test]
 async fn progressive_balances_cache_attester_slashing() {
     ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Strict)
@@ -1377,6 +1379,8 @@ async fn progressive_balances_cache_attester_slashing() {
 
 /// Checks that `ProgressiveBalancesCache` is updated correctly after a proposer slashing event,
 /// where the slashed validator is a target attester in previous / current epoch.
+/// Note: disabled on Windows CI for now until Rust 1.73 release due to regression in windows.
+#[cfg(unix)]
 #[tokio::test]
 async fn progressive_balances_cache_proposer_slashing() {
     ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Strict)
