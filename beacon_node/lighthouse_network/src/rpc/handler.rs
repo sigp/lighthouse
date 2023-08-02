@@ -896,10 +896,9 @@ where
         if expected_responses > 0 {
             if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
                 // Store the stream and tag the output.
-                let delay_key = self.inbound_substreams_delay.insert(
-                    self.current_inbound_substream_id,
-                    self.resp_timeout,
-                );
+                let delay_key = self
+                    .inbound_substreams_delay
+                    .insert(self.current_inbound_substream_id, self.resp_timeout);
                 let awaiting_stream = InboundState::Idle(substream);
                 self.inbound_substreams.insert(
                     self.current_inbound_substream_id,
@@ -961,10 +960,9 @@ where
         let expected_responses = request.expected_responses();
         if expected_responses > 0 {
             // new outbound request. Store the stream and tag the output.
-            let delay_key = self.outbound_substreams_delay.insert(
-                self.current_outbound_substream_id,
-                self.resp_timeout,
-            );
+            let delay_key = self
+                .outbound_substreams_delay
+                .insert(self.current_outbound_substream_id, self.resp_timeout);
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(substream),
                 request,

@@ -241,7 +241,12 @@ where
         // NOTE: this is needed because PeerIds have interior mutability.
         let peer_repr = peer_id.to_string();
         let log = self.log.new(slog::o!("peer_id" => peer_repr));
-        let handler = RPCHandler::new(protocol, self.fork_context.clone(), &log, self.network_params.resp_timeout);
+        let handler = RPCHandler::new(
+            protocol,
+            self.fork_context.clone(),
+            &log,
+            self.network_params.resp_timeout,
+        );
 
         Ok(handler)
     }
@@ -267,7 +272,12 @@ where
         // NOTE: this is needed because PeerIds have interior mutability.
         let peer_repr = peer_id.to_string();
         let log = self.log.new(slog::o!("peer_id" => peer_repr));
-        let handler = RPCHandler::new(protocol, self.fork_context.clone(), &log, self.network_params.resp_timeout);
+        let handler = RPCHandler::new(
+            protocol,
+            self.fork_context.clone(),
+            &log,
+            self.network_params.resp_timeout,
+        );
 
         Ok(handler)
     }

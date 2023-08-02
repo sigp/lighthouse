@@ -408,7 +408,11 @@ impl From<u8> for NetworkLoad {
 }
 
 /// Return a Lighthouse specific `GossipsubConfig` where the `message_id_fn` depends on the current fork.
-pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>, gossipsub_config_params: GossipsubConfigParams) -> gossipsub::Config {
+pub fn gossipsub_config(
+    network_load: u8,
+    fork_context: Arc<ForkContext>,
+    gossipsub_config_params: GossipsubConfigParams,
+) -> gossipsub::Config {
     // The function used to generate a gossipsub message id
     // We use the first 8 bytes of SHA256(topic, data) for content addressing
     let fast_gossip_message_id = |message: &gossipsub::RawMessage| {
@@ -454,7 +458,10 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>, gossip
     let load = NetworkLoad::from(network_load);
 
     gossipsub::ConfigBuilder::default()
-        .max_transmit_size(gossip_max_size(is_merge_enabled, gossipsub_config_params.gossip_max_size))
+        .max_transmit_size(gossip_max_size(
+            is_merge_enabled,
+            gossipsub_config_params.gossip_max_size,
+        ))
         .heartbeat_interval(load.heartbeat_interval)
         .mesh_n(load.mesh_n)
         .mesh_n_low(load.mesh_n_low)
