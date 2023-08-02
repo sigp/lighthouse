@@ -155,11 +155,11 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
         builder.ip6(*ip);
     }
 
-    if let Some(udp4_port) = config.enr_udp4_port {
+    if let Some(udp4_port) = config.enr_disc4_port {
         builder.udp4(udp4_port);
     }
 
-    if let Some(udp6_port) = config.enr_udp6_port {
+    if let Some(udp6_port) = config.enr_disc6_port {
         builder.udp6(udp6_port);
     }
 

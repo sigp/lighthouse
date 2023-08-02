@@ -11,7 +11,9 @@ pub struct ListenAddr<Ip> {
     /// The UDP port that discovery will listen on.
     pub disc_port: u16,
     /// The UDP port that QUIC will listen on.
-    pub quic_port: u16,
+    /// NB: Quic port is optional as it's not yet supported with IPV6
+    /// See https://github.com/libp2p/rust-libp2p/issues/4165
+    pub quic_port: Option<u16>,
     /// The TCP port that libp2p will listen on.
     pub tcp_port: u16,
 }
@@ -21,8 +23,20 @@ impl<Ip: Into<IpAddr> + Clone> ListenAddr<Ip> {
         (self.addr.clone().into(), self.disc_port).into()
     }
 
-    pub fn quic_socket_addr(&self) -> SocketAddr {
-        (self.addr.clone().into(), self.quic_port).into()
+    pub fn quic_socket_addr(&self) -> Option<SocketAddr> {
+        let addr: IpAddr = self.addr.clone().into();
+        match addr {
+            IpAddr::V4(ip) => {
+                let addr = (
+                    ip,
+                    self.quic_port
+                        .expect("Quic port should exist on an IPV4 address"),
+                )
+                    .into();
+                Some(addr)
+            }
+            IpAddr::V6(_) => None,
+        }
     }
 
     pub fn libp2p_socket_addr(&self) -> SocketAddr {
@@ -55,15 +69,24 @@ impl ListenAddress {
         }
     }
 
-    /// Returns the TCP addresses.
-    pub fn tcp_addresses(&self) -> impl Iterator<Item = Multiaddr> + '_ {
-        let v4_multiaddr = self
+    /// Returns the Listen addresses.
+    pub fn listen_addresses(&self) -> impl Iterator<Item = Multiaddr> {
+        let v4_tcp_multiaddrs = self
             .v4()
             .map(|v4_addr| Multiaddr::from(v4_addr.addr).with(Protocol::Tcp(v4_addr.tcp_port)));
-        let v6_multiaddr = self
+
+        let v4_quic_multiaddrs = self
+            .v4()
+            .map(|v4_addr| Multiaddr::from(v4_addr.addr).with(Protocol::Tcp(v4_addr.tcp_port)));
+
+        let v6_tcp_multiaddrs = self
             .v6()
             .map(|v6_addr| Multiaddr::from(v6_addr.addr).with(Protocol::Tcp(v6_addr.tcp_port)));
-        v4_multiaddr.into_iter().chain(v6_multiaddr)
+
+        v4_tcp_multiaddrs
+            .into_iter()
+            .chain(v4_quic_multiaddrs)
+            .chain(v6_tcp_multiaddrs)
     }
 
     #[cfg(test)]
@@ -71,7 +94,7 @@ impl ListenAddress {
         ListenAddress::V4(ListenAddr {
             addr: Ipv4Addr::UNSPECIFIED,
             disc_port: unused_port::unused_udp4_port().unwrap(),
-            quic_port: unused_port::unused_udp4_port().unwrap(),
+            quic_port: unused_port::unused_udp4_port().transpose().unwrap(),
             tcp_port: unused_port::unused_tcp4_port().unwrap(),
         })
     }
@@ -81,7 +104,7 @@ impl ListenAddress {
         ListenAddress::V6(ListenAddr {
             addr: Ipv6Addr::UNSPECIFIED,
             disc_port: unused_port::unused_udp6_port().unwrap(),
-            quic_port: unused_port::unused_udp6_port().unwrap(),
+            quic_port: None,
             tcp_port: unused_port::unused_tcp6_port().unwrap(),
         })
     }
@@ -96,13 +119,18 @@ impl slog::KV for ListenAddress {
         if let Some(v4_addr) = self.v4() {
             serializer.emit_arguments("ip4_address", &format_args!("{}", v4_addr.addr))?;
             serializer.emit_u16("disc4_port", v4_addr.disc_port)?;
-            serializer.emit_u16("quic4_port", v4_addr.quic_port)?;
+            serializer.emit_u16(
+                "quic4_port",
+                v4_addr
+                    .quic_port
+                    .expect("Quic port should exist on an IPV4 address"),
+            )?;
             serializer.emit_u16("tcp4_port", v4_addr.tcp_port)?;
         }
         if let Some(v6_addr) = self.v6() {
             serializer.emit_arguments("ip6_address", &format_args!("{}", v6_addr.addr))?;
             serializer.emit_u16("disc6_port", v6_addr.disc_port)?;
-            serializer.emit_u16("quic6_port", v6_addr.quic_port)?;
+            serializer.emit_none("quic6_port")?;
             serializer.emit_u16("tcp6_port", v6_addr.tcp_port)?;
         }
         slog::Result::Ok(())

@@ -89,7 +89,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("port")
                 .long("port")
                 .value_name("PORT")
-                .help("The TCP/UDP ports to listen on. There are two UDP ports. The discovery UDP port will be set to this value and the Quic UDP port will be set to his value + 1. The discovery port can be modified by the \
+                .help("The TCP/UDP ports to listen on. There are two UDP ports. \
+                      The discovery UDP port will be set to this value and the Quic UDP port will be set to this value + 1. The discovery port can be modified by the \
                       --discovery-port flag and the quic port can be modified by the --quic-port flag. If listening over both IPv4 and IPv6 the --port flag \
                       will apply to the IPv4 address and --port6 to the IPv6 address.")
                 .default_value("9000")
@@ -246,7 +247,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("disable-discovery")
                 .long("disable-discovery")
                 .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
-                .takes_value(false),
+                .takes_value(false)
                 .hidden(true)
         )
         .arg(

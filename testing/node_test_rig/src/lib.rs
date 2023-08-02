@@ -98,7 +98,7 @@ pub fn testing_client_config() -> ClientConfig {
     // Setting ports to `0` means that the OS will choose some available port.
     client_config
         .network
-        .set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 0, 0);
+        .set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 0, 0, 0);
     client_config.network.upnp_enabled = false;
     client_config.http_api.enabled = true;
     client_config.http_api.listen_port = 0;
