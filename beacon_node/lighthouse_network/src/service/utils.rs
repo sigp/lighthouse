@@ -4,6 +4,7 @@ use crate::types::{
     error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind,
 };
 use crate::{GossipTopic, NetworkConfig};
+use futures::future::Either;
 use libp2p::bandwidth::BandwidthSinks;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::gossipsub;
@@ -51,25 +52,24 @@ pub fn build_transport(
     // yamux config
     let mut yamux_config = yamux::Config::default();
     yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());
-    let (transport, bandwidth) = transport
+    let transport = transport
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
         .multiplex(yamux_config)
-        .timeout(Duration::from_secs(10))
-        .with_bandwidth_logging();
+        .timeout(Duration::from_secs(10));
 
     // Enables Quic
-    /*
     // The default quic configuration suits us for now.
     let quic_config = libp2p_quic::Config::new(&local_private_key);
-    let transport = transport.or_transport(libp2p_quic::tokio::Transport::new(quic_config));
+    let (transport, bandwidth) = transport
+        .or_transport(libp2p_quic::tokio::Transport::new(quic_config))
+        .map(|either_output, _| match either_output {
+            Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
+            Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
+        })
+        .with_bandwidth_logging();
 
-    // TODO: Get quick to support bandwidth measurements.
-    */
-
-    let transport = transport.boxed();
-
-    Ok((transport, bandwidth))
+    Ok((transport.boxed(), bandwidth))
 }
 
 // Useful helper functions for debugging. Currently not used in the client.
