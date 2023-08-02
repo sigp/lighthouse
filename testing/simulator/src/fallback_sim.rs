@@ -1,23 +1,17 @@
-use futures::prelude::*;
-
-use std::cmp::max;
-use std::net::Ipv4Addr;
-use std::time::Duration;
-
-use crate::local_network::{EXECUTION_PORT, TERMINAL_BLOCK, TERMINAL_DIFFICULTY};
-use crate::{checks, LocalNetwork, E};
+use crate::checks;
+use crate::local_network::{TERMINAL_BLOCK, TERMINAL_DIFFICULTY};
 use clap::ArgMatches;
-use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
-use eth1_test_rig::AnvilEth1Instance;
 
-use execution_layer::http::deposit_methods::Eth1Id;
-
+use crate::common::{create_local_network, LocalNetworkParams};
+use crate::retry::with_retry;
+use futures::prelude::*;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_client_config, testing_validator_config, ClientGenesis, ValidatorFiles,
+    testing_validator_config, ValidatorFiles,
 };
 use rayon::prelude::*;
-use sensitive_url::SensitiveUrl;
+use std::cmp::max;
+use std::time::Duration;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
@@ -29,12 +23,13 @@ const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
-    let speed_up_factor =
-        value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
     let vc_count = value_t!(matches, "vc_count", usize).expect("missing vc_count default");
     let validators_per_vc =
         value_t!(matches, "validators_per_vc", usize).expect("missing validators_per_vc default");
     let bns_per_vc = value_t!(matches, "bns_per_vc", usize).expect("missing bns_per_vc default");
+    assert!(bns_per_vc > 1);
+    let speed_up_factor =
+        value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
     let continue_after_checks = matches.is_present("continue_after_checks");
     let post_merge_sim = true;
 
@@ -46,26 +41,6 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let log_level = "debug";
 
-    fallback_sim(
-        speed_up_factor,
-        vc_count,
-        validators_per_vc,
-        bns_per_vc,
-        post_merge_sim,
-        continue_after_checks,
-        log_level,
-    )
-}
-
-fn fallback_sim(
-    speed_up_factor: u64,
-    vc_count: usize,
-    validators_per_vc: usize,
-    bns_per_vc: usize,
-    post_merge_sim: bool,
-    continue_after_checks: bool,
-    log_level: &str,
-) -> Result<(), String> {
     // Generate the directories and keystores required for the validator clients.
     let validator_files = (0..vc_count)
         .into_par_iter()
@@ -122,77 +97,29 @@ fn fallback_sim(
 
     let seconds_per_slot = spec.seconds_per_slot;
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
-    let _initial_validator_count = spec.min_genesis_active_validator_count as usize;
     let deposit_amount = env.eth2_config.spec.max_effective_balance;
 
     let context = env.core_context();
 
     let main_future = async {
         /*
-         * Deploy the deposit contract, spawn tasks to keep creating new blocks and deposit
-         * validators.
-         */
-        let anvil_eth1_instance = AnvilEth1Instance::new(DEFAULT_CHAIN_ID.into()).await?;
-        let deposit_contract = anvil_eth1_instance.deposit_contract;
-        let chain_id = anvil_eth1_instance.anvil.chain_id();
-        let anvil = anvil_eth1_instance.anvil;
-        let eth1_endpoint = SensitiveUrl::parse(anvil.endpoint().as_str())
-            .expect("Unable to parse anvil endpoint.");
-        let deposit_contract_address = deposit_contract.address();
-
-        // Start a timer that produces eth1 blocks on an interval.
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(eth1_block_time);
-            loop {
-                interval.tick().await;
-                let _ = anvil.evm_mine().await;
-            }
-        });
-
-        // Submit deposits to the deposit contract.
-        tokio::spawn(async move {
-            for i in 0..total_validator_count {
-                println!("Submitting deposit for validator {}...", i);
-                let _ = deposit_contract
-                    .deposit_deterministic_async::<E>(i, deposit_amount)
-                    .await;
-            }
-        });
-
-        let mut beacon_config = testing_client_config();
-
-        beacon_config.genesis = ClientGenesis::DepositContract;
-        beacon_config.eth1.endpoint = Eth1Endpoint::NoAuth(eth1_endpoint);
-        beacon_config.eth1.deposit_contract_address = deposit_contract_address;
-        beacon_config.eth1.deposit_contract_deploy_block = 0;
-        beacon_config.eth1.lowest_cached_block_number = 0;
-        beacon_config.eth1.follow_distance = 1;
-        beacon_config.eth1.node_far_behind_seconds = 20;
-        beacon_config.dummy_eth1_backend = false;
-        beacon_config.sync_eth1_chain = true;
-        beacon_config.eth1.auto_update_interval_millis = eth1_block_time.as_millis() as u64;
-        beacon_config.eth1.chain_id = Eth1Id::from(chain_id);
-        beacon_config.network.target_peers = node_count - 1;
-
-        beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
-
-        if post_merge_sim {
-            let el_config = execution_layer::Config {
-                execution_endpoints: vec![SensitiveUrl::parse(&format!(
-                    "http://localhost:{}",
-                    EXECUTION_PORT
-                ))
-                .unwrap()],
-                ..Default::default()
-            };
-
-            beacon_config.execution_layer = Some(el_config);
-        }
-
-        /*
          * Create a new `LocalNetwork` with one beacon node.
          */
-        let network = LocalNetwork::new(context.clone(), beacon_config.clone()).await?;
+        let max_retries = 3;
+        let (network, beacon_config) = with_retry(max_retries, || {
+            Box::pin(create_local_network(
+                LocalNetworkParams {
+                    eth1_block_time,
+                    total_validator_count,
+                    deposit_amount,
+                    node_count,
+                    proposer_nodes: 0,
+                    post_merge_sim,
+                },
+                context.clone(),
+            ))
+        })
+        .await?;
 
         /*
          * One by one, add beacon nodes to the network.

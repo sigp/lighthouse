@@ -18,6 +18,7 @@ extern crate clap;
 
 mod checks;
 mod cli;
+mod common;
 mod eth1_sim;
 mod fallback_sim;
 mod local_network;
