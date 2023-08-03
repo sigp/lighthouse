@@ -43,6 +43,7 @@ type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 /// mplex/yamux as the multiplexing layer (when using TCP).
 pub fn build_transport(
     local_private_key: Keypair,
+    quic_support: bool,
 ) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
     // Creates the TCP transport layer
     let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true));
@@ -58,16 +59,20 @@ pub fn build_transport(
         .multiplex(yamux_config)
         .timeout(Duration::from_secs(10));
 
-    // Enables Quic
-    // The default quic configuration suits us for now.
-    let quic_config = libp2p_quic::Config::new(&local_private_key);
-    let (transport, bandwidth) = transport
-        .or_transport(libp2p_quic::tokio::Transport::new(quic_config))
-        .map(|either_output, _| match either_output {
-            Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
-            Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
-        })
-        .with_bandwidth_logging();
+    let (transport, bandwidth) = if quic_support {
+        // Enables Quic
+        // The default quic configuration suits us for now.
+        let quic_config = libp2p_quic::Config::new(&local_private_key);
+        transport
+            .or_transport(libp2p_quic::tokio::Transport::new(quic_config))
+            .map(|either_output, _| match either_output {
+                Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
+                Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
+            })
+            .with_bandwidth_logging()
+    } else {
+        transport.with_bandwidth_logging()
+    };
 
     Ok((transport.boxed(), bandwidth))
 }

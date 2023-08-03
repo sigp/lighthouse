@@ -167,7 +167,7 @@ impl Config {
         self.listen_addresses = ListenAddress::V4(ListenAddr {
             addr,
             disc_port,
-            quic_port: Some(quic_port),
+            quic_port,
             tcp_port,
         });
         self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), disc_port);
@@ -177,11 +177,17 @@ impl Config {
     /// Sets the listening address to use an ipv6 address. The discv5 ip_mode and table filter is
     /// adjusted accordingly to ensure addresses that are present in the enr are globally
     /// reachable.
-    pub fn set_ipv6_listening_address(&mut self, addr: Ipv6Addr, tcp_port: u16, disc_port: u16) {
+    pub fn set_ipv6_listening_address(
+        &mut self,
+        addr: Ipv6Addr,
+        tcp_port: u16,
+        disc_port: u16,
+        quic_port: u16,
+    ) {
         self.listen_addresses = ListenAddress::V6(ListenAddr {
             addr,
             disc_port,
-            quic_port: None,
+            quic_port,
             tcp_port,
         });
 
@@ -202,19 +208,20 @@ impl Config {
         quic4_port: u16,
         v6_addr: Ipv6Addr,
         tcp6_port: u16,
+        quic6_port: u16,
         disc6_port: u16,
     ) {
         self.listen_addresses = ListenAddress::DualStack(
             ListenAddr {
                 addr: v4_addr,
                 disc_port: disc4_port,
-                quic_port: Some(quic4_port),
+                quic_port: quic4_port,
                 tcp_port: tcp4_port,
             },
             ListenAddr {
                 addr: v6_addr,
                 disc_port: disc6_port,
-                quic_port: None,
+                quic_port: quic6_port,
                 tcp_port: tcp6_port,
             },
         );
@@ -237,18 +244,13 @@ impl Config {
                 disc_port,
                 quic_port,
                 tcp_port,
-            }) => self.set_ipv4_listening_address(
-                addr,
-                tcp_port,
-                disc_port,
-                quic_port.expect("Quic port should exist on an IPV4 address"),
-            ),
+            }) => self.set_ipv4_listening_address(addr, tcp_port, disc_port, quic_port),
             ListenAddress::V6(ListenAddr {
                 addr,
                 disc_port,
-                quic_port: _,
+                quic_port,
                 tcp_port,
-            }) => self.set_ipv6_listening_address(addr, tcp_port, disc_port),
+            }) => self.set_ipv6_listening_address(addr, tcp_port, disc_port, quic_port),
             ListenAddress::DualStack(
                 ListenAddr {
                     addr: ip4addr,
@@ -259,17 +261,12 @@ impl Config {
                 ListenAddr {
                     addr: ip6addr,
                     disc_port: disc6_port,
-                    quic_port: _quic6_port,
+                    quic_port: quic6_port,
                     tcp_port: tcp6_port,
                 },
             ) => self.set_ipv4_ipv6_listening_addresses(
-                ip4addr,
-                tcp4_port,
-                disc4_port,
-                quic4_port.expect("Quic port should exist on an IPV4 address"),
-                ip6addr,
-                tcp6_port,
-                disc6_port,
+                ip4addr, tcp4_port, disc4_port, quic4_port, ip6addr, tcp6_port, disc6_port,
+                quic6_port,
             ),
         }
     }
@@ -309,7 +306,7 @@ impl Default for Config {
         let listen_addresses = ListenAddress::V4(ListenAddr {
             addr: Ipv4Addr::UNSPECIFIED,
             disc_port: 9000,
-            quic_port: Some(9001),
+            quic_port: 9001,
             tcp_port: 9000,
         });
 

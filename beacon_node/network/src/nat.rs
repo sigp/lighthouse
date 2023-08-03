@@ -29,9 +29,7 @@ impl UPnPConfig {
         config.listen_addrs().v4().map(|v4_addr| UPnPConfig {
             tcp_port: v4_addr.tcp_port,
             disc_port: v4_addr.disc_port,
-            quic_port: v4_addr
-                .quic_port
-                .expect("Quic port should exist on an IPV4 address"),
+            quic_port: v4_addr.quic_port,
             disable_discovery: config.disable_discovery,
             disable_quic_support: config.disable_quic_support,
         })

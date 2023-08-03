@@ -341,7 +341,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         let (swarm, bandwidth) = {
             // Set up the transport - tcp/ws with noise and mplex
-            let (transport, bandwidth) = build_transport(local_keypair.clone())
+            let (transport, bandwidth) = build_transport(local_keypair.clone(), !config.disable_quic_support)
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
             // use the executor for libp2p
@@ -397,9 +397,17 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     async fn start(&mut self, config: &crate::NetworkConfig) -> error::Result<()> {
         let enr = self.network_globals.local_enr();
         info!(self.log, "Libp2p Starting"; "peer_id" => %enr.peer_id(), "bandwidth_config" => format!("{}-{}", config.network_load, NetworkLoad::from(config.network_load).name));
-        debug!(self.log, "Attempting to open listening ports"; config.listen_addrs(), "discovery_enabled" => !config.disable_discovery);
+        debug!(self.log, "Attempting to open listening ports"; config.listen_addrs(), "discovery_enabled" => !config.disable_discovery, "quic_enabled" => !config.disable_quic_support);
 
         for listen_multiaddr in config.listen_addrs().listen_addresses() {
+
+            // If QUIC is disabled, ignore listening on QUIC ports
+            if config.disable_quic_support {
+                if listen_multiaddr.iter().any(|v| v == MProtocol::QuicV1) {
+                    continue;
+                }
+            }
+
             match self.swarm.listen_on(listen_multiaddr.clone()) {
                 Ok(_) => {
                     let mut log_address = listen_multiaddr;
@@ -440,6 +448,21 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         boot_nodes.dedup();
 
         for bootnode_enr in boot_nodes {
+            // If QUIC is enabled, attempt QUIC connections first
+            if !config.disable_quic_support {
+                for quic_multiaddr in &bootnode_enr.multiaddr_quic() {
+                    if !self
+                        .network_globals
+                        .peers
+                        .read()
+                        .is_connected_or_dialing(&bootnode_enr.peer_id())
+                    {
+                        dial(quic_multiaddr.clone());
+                    }
+                }
+            }
+
+            //
             for multiaddr in &bootnode_enr.multiaddr() {
                 // ignore udp multiaddr if it exists
                 let components = multiaddr.iter().collect::<Vec<_>>();
