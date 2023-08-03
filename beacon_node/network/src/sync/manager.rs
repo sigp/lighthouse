@@ -944,7 +944,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     &self.network,
                 ),
             RequestId::ParentLookupBlob { id: _ } => {
-                crit!(self.log, "Blob received during parent block request"; "peer_id" => %peer_id  );
+                crit!(self.log, "Block received during parent blob request"; "peer_id" => %peer_id  );
             }
             RequestId::BackFillBlocks { id } => {
                 let is_stream_terminator = block.is_none();
