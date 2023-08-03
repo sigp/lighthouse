@@ -387,7 +387,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub naive_sync_aggregation_pool:
         RwLock<NaiveAggregationPool<SyncContributionAggregateMap<T::EthSpec>>>,
     /// Contains a store of attestations which have been observed by the beacon chain.
-    pub observed_attestations: RwLock<ObservedAggregateAttestations<T::EthSpec>>,
+    pub(crate) observed_attestations: RwLock<ObservedAggregateAttestations<T::EthSpec>>,
     /// Contains a store of sync contributions which have been observed by the beacon chain.
     pub(crate) observed_sync_contributions: RwLock<ObservedSyncContributions<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to publish gossip attestations in
@@ -866,6 +866,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn is_lazy_att_observed_subset(
+        &self,
+        lazy: &LazyAttestation<T::EthSpec>,
+    ) -> Result<bool, crate::observed_aggregates::Error> {
+        self.observed_attestations
+            .write()
+            .is_lazy_att_known_subset(lazy)
     }
 
     /// Returns the state root at the given slot, if any. Only returns state roots in the canonical chain.

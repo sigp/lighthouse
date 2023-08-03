@@ -5,7 +5,7 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-use crate::{test_utils::TestRandom, slot_data::SlotData, Slot};
+use crate::{slot_data::SlotData, test_utils::TestRandom, Slot};
 
 use super::{AggregateSignature, Attestation, AttestationData, BitList, EthSpec, SignatureBytes};
 

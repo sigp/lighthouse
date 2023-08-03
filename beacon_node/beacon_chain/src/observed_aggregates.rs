@@ -3,9 +3,9 @@
 
 use crate::sync_committee_verification::SyncCommitteeData;
 use ssz_types::{BitList, BitVector};
-use store::LazyAttestation;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use store::LazyAttestation;
 use tree_hash::TreeHash;
 use types::consts::altair::{
     SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
@@ -25,12 +25,9 @@ pub type ObservedAggregateAttestations<E> = ObservedAggregates<
 >;
 
 impl<E: EthSpec> ObservedAggregateAttestations<E> {
-    pub fn is_lazy_att_known_subset(
-        &mut self, 
-        lazy: &LazyAttestation<E>, 
-        root: Hash256
-    ) -> Result<bool, Error>  {
+    pub fn is_lazy_att_known_subset(&mut self, lazy: &LazyAttestation<E>) -> Result<bool, Error> {
         let index = self.get_set_index(lazy.get_slot())?;
+        let root = lazy.data.tree_hash_root();
 
         self.sets
             .get(index)

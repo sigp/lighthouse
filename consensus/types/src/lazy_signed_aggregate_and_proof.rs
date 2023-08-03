@@ -1,10 +1,10 @@
 use super::{EthSpec, LazyAggregateAndProof, Signature};
 use crate::{test_utils::TestRandom, SignedAggregateAndProof};
+use bls::Error;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-use bls::Error;
 
 /// A Validators signed aggregate proof received from `beacon_aggregate_and_proof`
 /// gossipsub topic.
