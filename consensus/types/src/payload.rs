@@ -13,6 +13,7 @@ use std::hash::Hash;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use crate::blob_sidecar::SidecarLess;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockType {
@@ -85,7 +86,8 @@ pub trait AbstractExecPayload<T: EthSpec>:
     + TryInto<Self::Capella>
     + TryInto<Self::Deneb>
 {
-    type Sidecar: Sidecar<T>;
+    type BlobSidecar: Sidecar<T>;
+    type Blob: SidecarLess<T>;
 
     type Ref<'a>: ExecPayload<T>
         + Copy
@@ -107,6 +109,9 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + TryFrom<ExecutionPayloadHeaderDeneb<T>>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
+    fn default_blobs_at_fork(
+        fork_name: ForkName,
+    ) -> Result<Self::Blob, Error>;
 }
 
 #[superstruct(
@@ -383,7 +388,8 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
 }
 
 impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
-    type Sidecar = BlobSidecar<T>;
+    type BlobSidecar = BlobSidecar<T>;
+    type Blob = Blobs<T>;
     type Ref<'a> = FullPayloadRef<'a, T>;
     type Merge = FullPayloadMerge<T>;
     type Capella = FullPayloadCapella<T>;
@@ -396,6 +402,9 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
             ForkName::Capella => Ok(FullPayloadCapella::default().into()),
             ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
         }
+    }
+    fn default_blobs_at_fork(fork_name: ForkName) -> Result<Blobs<T>, Error> {
+        Ok(VariableList::default())
     }
 }
 
@@ -897,11 +906,13 @@ impl_exec_payload_for_fork!(
 );
 
 impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
-    type Sidecar = BlindedBlobSidecar;
     type Ref<'a> = BlindedPayloadRef<'a, T>;
     type Merge = BlindedPayloadMerge<T>;
     type Capella = BlindedPayloadCapella<T>;
     type Deneb = BlindedPayloadDeneb<T>;
+
+    type BlobSidecar = BlindedBlobSidecar;
+    type Blob = BlobRoots<T>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
@@ -910,6 +921,9 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
             ForkName::Capella => Ok(BlindedPayloadCapella::default().into()),
             ForkName::Deneb => Ok(BlindedPayloadDeneb::default().into()),
         }
+    }
+    fn default_blobs_at_fork(fork_name: ForkName) -> Result<BlobRoots<T>, Error> {
+        Ok(VariableList::default())
     }
 }
 

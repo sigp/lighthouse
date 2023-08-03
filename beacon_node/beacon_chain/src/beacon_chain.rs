@@ -115,9 +115,8 @@ use store::{
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
-use tree_hash::TreeHash;
-use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
+use types::blob_sidecar::SidecarLess;
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
@@ -483,7 +482,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconBlockAndState<T, Payload> = (
     BeaconBlock<T, Payload>,
     BeaconState<T>,
-    Option<SidecarListVariant<T>>,
+    Option<SidecarList<T, <Payload as AbstractExecPayload<T>>::BlobSidecar>>,
 );
 
 impl FinalizationAndCanonicity {
@@ -4970,23 +4969,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
 
                 let kzg_proofs = Vec::from(proofs);
-
-                match blobs_or_blobs_roots {
-                    BlobsOrBlobRoots::Blobs(blobs) => Some(self.build_blob_sidecars(
-                        &block,
-                        blobs,
-                        expected_kzg_commitments,
-                        kzg_proofs,
-                    )?),
-                    BlobsOrBlobRoots::BlobRoots(blob_roots) => {
-                        Some(self.build_blinded_blob_sidecars(
-                            &block,
-                            blob_roots,
-                            expected_kzg_commitments,
-                            kzg_proofs,
-                        )?)
-                    }
-                }
+                Some(blobs_or_blobs_roots.to_sidecar(
+                    &block,
+                    expected_kzg_commitments,
+                    kzg_proofs,
+                )?)
             }
             _ => None,
         };
@@ -6258,97 +6245,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .deneb_fork_epoch
             .map(|fork_epoch| fork_epoch <= current_epoch)
             .unwrap_or(false))
-    }
-
-    fn build_blob_sidecars<Payload: AbstractExecPayload<T::EthSpec>>(
-        &self,
-        block: &BeaconBlock<T::EthSpec, Payload>,
-        blobs: Blobs<T::EthSpec>,
-        expected_kzg_commitments: &KzgCommitments<T::EthSpec>,
-        kzg_proofs: Vec<KzgProof>,
-    ) -> Result<SidecarListVariant<T::EthSpec>, BlockProductionError> {
-        let kzg = self
-            .kzg
-            .as_ref()
-            .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
-        let beacon_block_root = block.canonical_root();
-        let slot = block.slot();
-
-        kzg_utils::validate_blobs::<T::EthSpec>(kzg, expected_kzg_commitments, &blobs, &kzg_proofs)
-            .map_err(BlockProductionError::KzgError)?;
-
-        let blob_sidecars = BlobSidecarList::from(
-            blobs
-                .into_iter()
-                .enumerate()
-                .map(|(blob_index, blob)| {
-                    let kzg_commitment = expected_kzg_commitments
-                        .get(blob_index)
-                        .expect("KZG commitment should exist for blob");
-
-                    let kzg_proof = kzg_proofs
-                        .get(blob_index)
-                        .expect("KZG proof should exist for blob");
-
-                    Ok(Arc::new(BlobSidecar {
-                        block_root: beacon_block_root,
-                        index: blob_index as u64,
-                        slot,
-                        block_parent_root: block.parent_root(),
-                        proposer_index: block.proposer_index(),
-                        blob,
-                        kzg_commitment: *kzg_commitment,
-                        kzg_proof: *kzg_proof,
-                    }))
-                })
-                .collect::<Result<Vec<_>, BlockProductionError>>()?,
-        );
-
-        Ok(SidecarListVariant::Full(blob_sidecars))
-    }
-
-    fn build_blinded_blob_sidecars<Payload: AbstractExecPayload<T::EthSpec>>(
-        &self,
-        block: &BeaconBlock<T::EthSpec, Payload>,
-        blob_roots: BlobRoots<T::EthSpec>,
-        expected_kzg_commitments: &KzgCommitments<T::EthSpec>,
-        kzg_proofs: Vec<KzgProof>,
-    ) -> Result<SidecarListVariant<T::EthSpec>, BlockProductionError> {
-        let beacon_block_root = block.canonical_root();
-        let slot = block.slot();
-
-        let blob_sidecars = BlindedBlobSidecarList::<T::EthSpec>::from(
-            blob_roots
-                .into_iter()
-                .enumerate()
-                .map(|(blob_index, blob_root)| {
-                    let kzg_commitment = expected_kzg_commitments
-                        .get(blob_index)
-                        .expect("KZG commitment should exist for blob");
-
-                    let kzg_proof =
-                        kzg_proofs
-                            .get(blob_index)
-                            .ok_or(BlockProductionError::MissingKzgProof(format!(
-                                "Missing KZG proof for slot {} blob index: {}",
-                                slot, blob_index
-                            )))?;
-
-                    Ok(Arc::new(BlindedBlobSidecar {
-                        block_root: beacon_block_root,
-                        index: blob_index as u64,
-                        slot,
-                        block_parent_root: block.parent_root(),
-                        proposer_index: block.proposer_index(),
-                        blob_root,
-                        kzg_commitment: *kzg_commitment,
-                        kzg_proof: *kzg_proof,
-                    }))
-                })
-                .collect::<Result<Vec<_>, BlockProductionError>>()?,
-        );
-
-        Ok(SidecarListVariant::Blinded(blob_sidecars))
     }
 }
 

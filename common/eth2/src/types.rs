@@ -1363,7 +1363,7 @@ pub enum BlockContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
 
 pub type BlockContentsTuple<T, Payload> = (
     BeaconBlock<T, Payload>,
-    Option<SidecarList<T, <Payload as AbstractExecPayload<T>>::Sidecar>>,
+    Option<SidecarList<T, <Payload as AbstractExecPayload<T>>::BlobSidecar>>,
 );
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
@@ -1429,7 +1429,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> Into<BeaconBlock<T, Payload>>
 
 pub type SignedBlockContentsTuple<T, Payload> = (
     SignedBeaconBlock<T, Payload>,
-    Option<SignedSidecarList<T, <Payload as AbstractExecPayload<T>>::Sidecar>>,
+    Option<SignedSidecarList<T, <Payload as AbstractExecPayload<T>>::BlobSidecar>>,
 );
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobSidecars`].
@@ -1445,7 +1445,7 @@ pub enum SignedBlockContents<T: EthSpec, Payload: AbstractExecPayload<T> = FullP
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload> {
     pub fn new(
         block: SignedBeaconBlock<T, Payload>,
-        blobs: Option<SignedSidecarList<T, Payload::Sidecar>>,
+        blobs: Option<SignedSidecarList<T, Payload::BlobSidecar>>,
     ) -> Self {
         match (Payload::block_type(), blobs) {
             (BlockType::Blinded, Some(blobs)) => {
@@ -1476,7 +1476,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
         }
     }
 
-    pub fn blobs_cloned(&self) -> Option<SignedSidecarList<T, Payload::Sidecar>> {
+    pub fn blobs_cloned(&self) -> Option<SignedSidecarList<T, Payload::BlobSidecar>> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
                 Some(block_and_sidecars.signed_blob_sidecars.clone())
@@ -1596,14 +1596,14 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBlockContentsTuple<
 #[serde(bound = "T: EthSpec")]
 pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub signed_block: SignedBeaconBlock<T, Payload>,
-    pub signed_blob_sidecars: SignedSidecarList<T, Payload::Sidecar>,
+    pub signed_blob_sidecars: SignedSidecarList<T, Payload::BlobSidecar>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
 #[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
 pub struct BeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub block: BeaconBlock<T, Payload>,
-    pub blob_sidecars: SidecarList<T, Payload::Sidecar>,
+    pub blob_sidecars: SidecarList<T, Payload::BlobSidecar>,
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
@@ -1619,7 +1619,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
             block: serde_json::Value,
             blob_sidecars: SidecarList<T, S>,
         }
-        let helper: Helper<T, Payload::Sidecar> =
+        let helper: Helper<T, Payload::BlobSidecar> =
             serde_json::from_value(value).map_err(serde::de::Error::custom)?;
 
         Ok(Self {
@@ -1636,7 +1636,7 @@ pub struct SignedBlindedBeaconBlockAndBlobSidecars<
     Payload: AbstractExecPayload<T> = BlindedPayload<T>,
 > {
     pub signed_blinded_block: SignedBeaconBlock<T, Payload>,
-    pub signed_blinded_blob_sidecars: SignedSidecarList<T, Payload::Sidecar>,
+    pub signed_blinded_blob_sidecars: SignedSidecarList<T, Payload::BlobSidecar>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
@@ -1646,7 +1646,7 @@ pub struct BlindedBeaconBlockAndBlobSidecars<
     Payload: AbstractExecPayload<T> = BlindedPayload<T>,
 > {
     pub blinded_block: BeaconBlock<T, Payload>,
-    pub blinded_blob_sidecars: SidecarList<T, Payload::Sidecar>,
+    pub blinded_blob_sidecars: SidecarList<T, Payload::BlobSidecar>,
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
@@ -1662,7 +1662,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
             blinded_block: serde_json::Value,
             blinded_blob_sidecars: SidecarList<T, S>,
         }
-        let helper: Helper<T, Payload::Sidecar> =
+        let helper: Helper<T, Payload::BlobSidecar> =
             serde_json::from_value(value).map_err(serde::de::Error::custom)?;
 
         Ok(Self {

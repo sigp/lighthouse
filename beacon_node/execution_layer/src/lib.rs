@@ -41,15 +41,15 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::BlobsOrBlobRoots;
+use types::blob_sidecar::SidecarLess;
 use types::builder_bid::BuilderBid;
-use types::KzgProofs;
 use types::{
     AbstractExecPayload, BeaconStateError, ExecPayload, ExecutionPayloadDeneb, VersionedHash,
 };
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
 };
+use types::{KzgProofs, Sidecar, };
 use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction};
 
 mod block_hash;
@@ -108,7 +108,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<BuilderBid<E, Payload>>
                 payload: builder_bid.header,
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blinded_blobs_bundle.commitments,
-                blobs: BlobsOrBlobRoots::BlobRoots(builder_bid.blinded_blobs_bundle.blob_roots),
+                blobs: SidecarLess::from_blob_roots(builder_bid.blinded_blobs_bundle.blob_roots),
                 proofs: builder_bid.blinded_blobs_bundle.proofs,
             },
         };
@@ -161,7 +161,7 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         payload: Payload,
         block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
-        blobs: BlobsOrBlobRoots<T>,
+        blobs: Payload::Blob,
         proofs: KzgProofs<T>,
     },
 }
@@ -176,7 +176,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<GetPayloadResponse<E>>
                 payload: execution_payload.into(),
                 block_value,
                 kzg_commitments: bundle.commitments,
-                blobs: BlobsOrBlobRoots::Blobs(bundle.blobs),
+                blobs: SidecarLess::from_blobs(bundle.blobs),
                 proofs: bundle.proofs,
             },
             None => Self::Payload {
@@ -194,7 +194,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
     ) -> (
         Payload,
         Option<KzgCommitments<T>>,
-        Option<BlobsOrBlobRoots<T>>,
+        Option<Payload::Blob>,
         Option<KzgProofs<T>>,
     ) {
         match self {
@@ -241,7 +241,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             ForkName::Deneb => BlockProposalContents::PayloadAndBlobs {
                 payload: Payload::default_at_fork(fork_name)?,
                 block_value: Uint256::zero(),
-                blobs: BlobsOrBlobRoots::Blobs(VariableList::default()),
+                blobs: Payload::default_blobs_at_fork(fork_name)?,
                 kzg_commitments: VariableList::default(),
                 proofs: VariableList::default(),
             },

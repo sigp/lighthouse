@@ -891,7 +891,7 @@ where
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) => {
-                if let Some(SidecarListVariant::Full(blobs)) = maybe_blob_sidecars {
+                if let Some(blobs) = maybe_blob_sidecars {
                     let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
                         .into_iter()
                         .map(|blob| {
@@ -973,7 +973,7 @@ where
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) => {
-                if let Some(SidecarListVariant::Full(blobs)) = maybe_blob_sidecars {
+                if let Some(blobs) = maybe_blob_sidecars {
                     let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
                         .into_iter()
                         .map(|blob| {

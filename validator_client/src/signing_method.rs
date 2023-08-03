@@ -37,7 +37,7 @@ pub enum Error {
 pub enum SignableMessage<'a, T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     RandaoReveal(Epoch),
     BeaconBlock(&'a BeaconBlock<T, Payload>),
-    BlobSidecar(&'a Payload::Sidecar),
+    BlobSidecar(&'a Payload::BlobSidecar),
     AttestationData(&'a AttestationData),
     SignedAggregateAndProof(&'a AggregateAndProof<T>),
     SelectionProof(Slot),

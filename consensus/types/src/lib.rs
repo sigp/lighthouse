@@ -120,7 +120,7 @@ pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
 pub use crate::blob_sidecar::{
     BlindedBlobSidecar, BlindedBlobSidecarList, BlobRoots, BlobSidecar, BlobSidecarList, Blobs,
-    BlobsOrBlobRoots, Sidecar, SidecarList, SidecarListVariant,
+    Sidecar, SidecarList,
 };
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
