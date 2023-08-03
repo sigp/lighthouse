@@ -133,7 +133,7 @@ API token should be similar to `api-token-0x03eace4c98e8f77477bb99efb74f9af10d80
 ### 4. Create an SSH Tunnel
 
 In the **source host**, open a terminal window, SSH to the **destination host** and establish a reverse-SSH connection
-between the **desination host** and the **source host**.
+between the **destination host** and the **source host**.
 
 ```bash
 ssh dest-host
