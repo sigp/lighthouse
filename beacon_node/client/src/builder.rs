@@ -858,9 +858,6 @@ where
                     execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock>(
                         beacon_chain.slot_clock.clone(),
                     );
-
-                    // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
-                    execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
                 }
 
                 // Spawn a service to publish BLS to execution changes at the Capella fork.

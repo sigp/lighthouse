@@ -1,5 +1,5 @@
 #![cfg(test)]
-use libp2p::gossipsub::GossipsubConfigBuilder;
+use libp2p::gossipsub;
 use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
@@ -81,7 +81,7 @@ pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
     // Reduce gossipsub heartbeat parameters
-    config.gs_config = GossipsubConfigBuilder::from(config.gs_config)
+    config.gs_config = gossipsub::ConfigBuilder::from(config.gs_config)
         .heartbeat_initial_delay(Duration::from_millis(500))
         .heartbeat_interval(Duration::from_millis(500))
         .build()
