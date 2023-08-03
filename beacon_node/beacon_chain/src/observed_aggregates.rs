@@ -5,7 +5,7 @@ use crate::sync_committee_verification::SyncCommitteeData;
 use ssz_types::{BitList, BitVector};
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use store::LazyAttestation;
+use types::LazyAttestation;
 use tree_hash::TreeHash;
 use types::consts::altair::{
     SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
