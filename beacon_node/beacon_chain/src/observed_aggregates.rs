@@ -5,12 +5,12 @@ use crate::sync_committee_verification::SyncCommitteeData;
 use ssz_types::{BitList, BitVector};
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use types::LazyAttestation;
 use tree_hash::TreeHash;
 use types::consts::altair::{
     SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
 };
 use types::slot_data::SlotData;
+use types::LazyAttestation;
 use types::{Attestation, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 
 pub type ObservedSyncContributions<E> = ObservedAggregates<
