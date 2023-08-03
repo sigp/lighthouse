@@ -5,7 +5,7 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-use crate::test_utils::TestRandom;
+use crate::{test_utils::TestRandom, slot_data::SlotData, Slot};
 
 use super::{AggregateSignature, Attestation, AttestationData, BitList, EthSpec, SignatureBytes};
 
@@ -38,5 +38,11 @@ impl<T: EthSpec> LazyAttestation<T> {
             data: self.data,
             signature: AggregateSignature::from(&self.signature.decompress()?),
         })
+    }
+}
+
+impl<T: EthSpec> SlotData for LazyAttestation<T> {
+    fn get_slot(&self) -> Slot {
+        self.data.slot
     }
 }

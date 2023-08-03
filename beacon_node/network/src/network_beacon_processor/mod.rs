@@ -138,7 +138,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processor = self.clone();
         let process_individual = move |package: GossipAggregatePackage<T::EthSpec>| {
             let reprocess_tx = processor.reprocess_tx.clone();
-            if let Ok(signed_aggregate) = aggregate.not_lazy() {
+            if let Ok(signed_aggregate) = package.aggregate.not_lazy() {
                 processor.process_gossip_aggregate(
                     package.message_id,
                     package.peer_id,

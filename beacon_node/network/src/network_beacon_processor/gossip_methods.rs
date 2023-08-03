@@ -36,7 +36,7 @@ use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, LazySignedAggregateAndProof,
 };
 use tree_hash::TreeHash;
 
@@ -445,25 +445,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
-        let aggregates = packages.iter().map(|package| package.aggregate.as_ref());
-        
-        let aggregates = aggregates
+        let aggregates: Vec<SignedAggregateAndProof<T::EthSpec>> = packages
+            .iter()
+            .map(|package| package.aggregate.as_ref())
             .filter(|agg| !self
                 .chain
                 .observed_attestations
                 .write()
-                .is_known_subset(&agg.message.aggregate, agg.message.aggregate.data.tree_hash_root())
+                .is_lazy_att_known_subset(&agg.message.aggregate, agg.message.aggregate.data.tree_hash_root())
                 .unwrap_or(false)
             )
-            .map(|agg| SignedAggregateAndProof {
-                message: agg.message.not_lazy().unwrap(),
-                signature: agg.signature,
-            })
+            .map(|agg| agg.clone().not_lazy().unwrap())
             .collect();
 
         let results = match self
             .chain
-            .batch_verify_aggregated_attestations_for_gossip(&aggregates.iter())
+            .batch_verify_aggregated_attestations_for_gossip(aggregates.iter())
         {
             Ok(results) => results,
             Err(e) => {

@@ -3398,7 +3398,7 @@ pub fn serve<T: BeaconChainTypes>(
                         match chain.verify_aggregated_attestation_for_gossip(aggregate) {
                             Ok(verified_aggregate) => {
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
-                                    verified_aggregate.aggregate().clone(),
+                                    verified_aggregate.aggregate().clone().not_lazy(),
                                 )));
 
                                 // Notify the validator monitor.

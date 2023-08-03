@@ -24,6 +24,21 @@ pub type ObservedAggregateAttestations<E> = ObservedAggregates<
     BitList<<E as types::EthSpec>::MaxValidatorsPerCommittee>,
 >;
 
+impl<E: EthSpec> ObservedAggregateAttestations<E> {
+    pub fn is_lazy_att_known_subset(
+        &mut self, 
+        lazy: &LazyAttestation<E>, 
+        root: Hash256
+    ) -> Result<bool, Error>  {
+        let index = self.get_set_index(lazy.get_slot())?;
+
+        self.sets
+            .get(index)
+            .ok_or(Error::InvalidSetIndex(index))
+            .and_then(|set| set.is_known_subset(lazy, root))
+    }
+}
+
 /// A trait use to associate capacity constants with the type being stored in `ObservedAggregates`.
 pub trait Consts {
     /// The default capacity of items stored per slot, in a single `SlotHashSet`.
