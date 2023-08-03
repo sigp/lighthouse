@@ -171,7 +171,14 @@ Uploaded keystore 2 of 2 to the VC
 The user should now *securely* delete the `validators.json` file (e.g., `shred -u validators.json`).
 The `validators.json` contains the unencrypted validator keys and must not be
 shared with anyone.
-
+At the same time, `lighthouse vc` will log:
+```bash
+INFO Importing keystores via standard HTTP API, count: 1
+WARN No slashing protection data provided with keystores
+INFO Enabled validator                       voting_pubkey: 0xab6e29f1b98fedfca878edce2b471f1b5ee58ee4c3bd216201f98254ef6f6eac40a53d74c8b7da54f51d3e85cacae92f, signing_method: local_keystore
+INFO Modified key_cache saved successfully
+```
+The WARN message means that the `validators.json` file does not contain the slashing protection data. This is normal if you are starting a new validator. The flag `--enable-doppelganger-protection` will also protect users from potential slashing risk. 
 The validators will now go through 2-3 epochs of [doppelganger
 protection](./validator-doppelganger.md) and will automatically start performing
 their duties when they are deposited and activated. The guide is complete.
