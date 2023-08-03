@@ -885,7 +885,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// blobs peer because they did not provide all blobs on the initial request.
     fn handle_missing_components<R: RequestState<Current, T>>(
         &self,
-        cx: &mut SyncNetworkContext<T>,
+        cx: &SyncNetworkContext<T>,
         lookup: &mut SingleBlockLookup<Current, T>,
     ) -> Result<(), LookupRequestError> {
         let request_state = R::request_state_mut(lookup);

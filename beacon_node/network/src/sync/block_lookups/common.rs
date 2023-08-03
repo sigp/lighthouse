@@ -89,13 +89,41 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     /* Request building methods */
 
     /// Construct a new request.
-    fn build_request(&mut self) -> Result<(PeerId, Self::RequestType), LookupRequestError> {
-        debug_assert!(matches!(self.get_state().state, State::AwaitingDownload));
+    fn build_request(
+        &mut self,
+    ) -> Result<(PeerShouldHave, Self::RequestType), LookupRequestError> {
+        // Verify and construct request.
         self.too_many_attempts()?;
         let peer = self.get_peer()?;
         let request = self.new_request();
-        self.get_state_mut().req_counter += 1;
         Ok((peer, request))
+    }
+
+    /// Construct a new request and send it.
+    fn build_request_and_send(
+        &mut self,
+        id: Id,
+        already_downloaded: bool,
+        cx: &SyncNetworkContext<T>,
+    ) -> Result<(), LookupRequestError> {
+        // Check if request is necessary.
+        if already_downloaded || !matches!(self.get_state().state, State::AwaitingDownload) {
+            return Ok(());
+        }
+
+        // Construct request.
+        let (peer_id, request) = self.build_request()?;
+
+        // Update request state.
+        self.get_state_mut().state = State::Downloading { peer_id };
+        self.get_state_mut().req_counter += 1;
+
+        // Make request
+        let id = SingleLookupReqId {
+            id,
+            req_counter: self.get_state().req_counter,
+        };
+        Self::make_request(id, peer_id.to_peer_id(), request, cx)
     }
 
     /// Verify the current request has not exceeded the maximum number of attempts.
@@ -114,7 +142,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
 
     /// Get the next peer to request. Draws from the set of peers we think should have both the
     /// block and blob first. If that fails, we draw from the set of peers that may have either.
-    fn get_peer(&mut self) -> Result<PeerId, LookupRequestError> {
+    fn get_peer(&mut self) -> Result<PeerShouldHave, LookupRequestError> {
         let request_state = self.get_state_mut();
         let available_peer_opt = request_state
             .available_peers
@@ -132,8 +160,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
             return Err(LookupRequestError::NoPeers);
         };
         request_state.used_peers.insert(peer_id.to_peer_id());
-        request_state.state = State::Downloading { peer_id };
-        Ok(peer_id.to_peer_id())
+        Ok(peer_id)
     }
 
     /// Initialize `Self::RequestType`.

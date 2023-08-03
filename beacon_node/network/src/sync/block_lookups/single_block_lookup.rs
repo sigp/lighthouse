@@ -118,31 +118,11 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
             trace!(cx.log, "Lookup request already completed"; "block_root"=> ?block_root);
             return Ok(());
         }
-
-        self.request_generic::<BlockRequestState<L>>(block_already_downloaded, cx)?;
-        self.request_generic::<BlobRequestState<L, T::EthSpec>>(blobs_already_downloaded, cx)
-    }
-
-    /// Common checks and request logic for blocks and blobs.
-    fn request_generic<R: RequestState<L, T>>(
-        &mut self,
-        already_downloaded: bool,
-        cx: &SyncNetworkContext<T>,
-    ) -> Result<(), LookupRequestError> {
         let id = self.id;
-        let request_state = R::request_state_mut(self);
-
-        let should_request = !already_downloaded
-            && matches!(request_state.get_state().state, State::AwaitingDownload);
-        if should_request {
-            let (peer_id, request) = request_state.build_request()?;
-            let id = SingleLookupReqId {
-                id,
-                req_counter: request_state.get_state().req_counter,
-            };
-            R::make_request(id, peer_id, request, cx)?;
-        }
-        Ok(())
+        self.block_request_state
+            .build_request_and_send(id, block_already_downloaded, cx)?;
+        self.blob_request_state
+            .build_request_and_send(id, blobs_already_downloaded, cx)
     }
 
     /// Returns a `CachedChild`, which is a wrapper around a `RpcBlock` that is either:
