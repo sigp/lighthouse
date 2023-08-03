@@ -134,9 +134,8 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
         log: &slog::Logger,
     ) -> NetworkGlobals<TSpec> {
         use crate::CombinedKeyExt;
-        let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let enr_key: discv5::enr::CombinedKey =
-            discv5::enr::CombinedKey::from_libp2p(&keypair).unwrap();
+        let keypair = libp2p::identity::secp256k1::Keypair::generate();
+        let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
         let enr = discv5::enr::EnrBuilder::new("v4").build(&enr_key).unwrap();
         NetworkGlobals::new(
             enr,

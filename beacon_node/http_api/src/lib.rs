@@ -29,6 +29,7 @@ use beacon_chain::{
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
+use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
@@ -1236,6 +1237,41 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    let post_beacon_blocks_ssz = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("blocks"))
+        .and(warp::path::end())
+        .and(warp::body::bytes())
+        .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |block_bytes: Bytes,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger| async move {
+                let block = match SignedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
+                    &block_bytes,
+                    &chain.spec,
+                ) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        return Err(warp_utils::reject::custom_bad_request(format!("{:?}", e)))
+                    }
+                };
+                publish_blocks::publish_block(
+                    None,
+                    ProvenancedBlock::local(Arc::new(block)),
+                    chain,
+                    &network_tx,
+                    log,
+                    BroadcastValidation::default(),
+                )
+                .await
+                .map(|()| warp::reply().into_response())
+            },
+        );
+
     let post_beacon_blocks_v2 = eth_v2
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
@@ -1254,6 +1290,57 @@ pub fn serve<T: BeaconChainTypes>(
                 match publish_blocks::publish_block(
                     None,
                     ProvenancedBlock::local(block),
+                    chain,
+                    &network_tx,
+                    log,
+                    validation_level.broadcast_validation,
+                )
+                .await
+                {
+                    Ok(()) => warp::reply().into_response(),
+                    Err(e) => match warp_utils::reject::handle_rejection(e).await {
+                        Ok(reply) => reply.into_response(),
+                        Err(_) => warp::reply::with_status(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            eth2::StatusCode::INTERNAL_SERVER_ERROR,
+                        )
+                        .into_response(),
+                    },
+                }
+            },
+        );
+
+    let post_beacon_blocks_v2_ssz = eth_v2
+        .and(warp::path("beacon"))
+        .and(warp::path("blocks"))
+        .and(warp::query::<api_types::BroadcastValidationQuery>())
+        .and(warp::path::end())
+        .and(warp::body::bytes())
+        .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
+        .and(log_filter.clone())
+        .then(
+            |validation_level: api_types::BroadcastValidationQuery,
+             block_bytes: Bytes,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger| async move {
+                let block = match SignedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
+                    &block_bytes,
+                    &chain.spec,
+                ) {
+                    Ok(data) => data,
+                    Err(_) => {
+                        return warp::reply::with_status(
+                            StatusCode::BAD_REQUEST,
+                            eth2::StatusCode::BAD_REQUEST,
+                        )
+                        .into_response();
+                    }
+                };
+                match publish_blocks::publish_block(
+                    None,
+                    ProvenancedBlock::local(Arc::new(block)),
                     chain,
                     &network_tx,
                     log,
@@ -2034,15 +2121,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(log_filter.clone())
         .and_then(
-            |chain: Arc<BeaconChain<T>>,
-             epoch: Epoch,
-             validators: Vec<ValidatorId>,
-             log: Logger| {
+            |chain: Arc<BeaconChain<T>>, epoch: Epoch, validators: Vec<ValidatorId>| {
                 blocking_json_task(move || {
                     let attestation_rewards = chain
-                        .compute_attestation_rewards(epoch, validators, log)
+                        .compute_attestation_rewards(epoch, validators)
                         .map_err(|e| match e {
                             BeaconChainError::MissingBeaconState(root) => {
                                 warp_utils::reject::custom_not_found(format!(
@@ -2701,6 +2784,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                 fork_versioned_response(endpoint_version, fork_name, block)
                     .map(|response| warp::reply::json(&response).into_response())
+                    .map(|res| add_consensus_version_header(res, fork_name))
             },
         );
 
@@ -2758,6 +2842,7 @@ pub fn serve<T: BeaconChainTypes>(
                 // Pose as a V2 endpoint so we return the fork `version`.
                 fork_versioned_response(V2, fork_name, block)
                     .map(|response| warp::reply::json(&response).into_response())
+                    .map(|res| add_consensus_version_header(res, fork_name))
             },
         );
 
@@ -3301,6 +3386,45 @@ pub fn serve<T: BeaconChainTypes>(
                     }
 
                     Ok(())
+                })
+            },
+        );
+
+    // POST vaidator/liveness/{epoch}
+    let post_validator_liveness_epoch = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("liveness"))
+        .and(warp::path::param::<Epoch>())
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |epoch: Epoch, indices: Vec<u64>, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    // Ensure the request is for either the current, previous or next epoch.
+                    let current_epoch = chain
+                        .epoch()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let prev_epoch = current_epoch.saturating_sub(Epoch::new(1));
+                    let next_epoch = current_epoch.saturating_add(Epoch::new(1));
+
+                    if epoch < prev_epoch || epoch > next_epoch {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request epoch {} is more than one epoch from the current epoch {}",
+                            epoch, current_epoch
+                        )));
+                    }
+
+                    let liveness: Vec<api_types::StandardLivenessResponseData> = indices
+                        .iter()
+                        .cloned()
+                        .map(|index| {
+                            let is_live = chain.validator_seen_at_epoch(index as usize, epoch);
+                            api_types::StandardLivenessResponseData { index, is_live }
+                        })
+                        .collect();
+
+                    Ok(api_types::GenericResponse::from(liveness))
                 })
             },
         );
@@ -3947,7 +4071,10 @@ pub fn serve<T: BeaconChainTypes>(
         .boxed()
         .uor(
             warp::post().and(
-                post_beacon_blocks
+                warp::header::exact("Content-Type", "application/octet-stream")
+                    // Routes which expect `application/octet-stream` go within this `and`.
+                    .and(post_beacon_blocks_ssz.uor(post_beacon_blocks_v2_ssz))
+                    .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
                     .uor(post_beacon_blocks_v2)
                     .uor(post_beacon_blinded_blocks_v2)
@@ -3967,6 +4094,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_sync_committee_subscriptions)
                     .uor(post_validator_prepare_beacon_proposer)
                     .uor(post_validator_register_validator)
+                    .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)
                     .uor(post_lighthouse_database_historical_blocks)
