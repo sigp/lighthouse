@@ -869,20 +869,29 @@ pub fn parse_listening_addresses(
         .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?
         .unwrap_or(9090);
 
-    // parse the possible udp ports
-    let maybe_udp_port = cli_args
+    // parse the possible discovery ports.
+    let maybe_disc_port = cli_args
         .value_of("discovery-port")
         .map(str::parse::<u16>)
         .transpose()
         .map_err(|parse_error| {
             format!("Failed to parse --discovery-port as an integer: {parse_error}")
         })?;
-    let maybe_udp6_port = cli_args
+    let maybe_disc6_port = cli_args
         .value_of("discovery-port6")
         .map(str::parse::<u16>)
         .transpose()
         .map_err(|parse_error| {
             format!("Failed to parse --discovery-port6 as an integer: {parse_error}")
+        })?;
+
+    // parse the possible quic port.
+    let maybe_quic_port = cli_args
+        .value_of("quic-port")
+        .map(str::parse::<u16>)
+        .transpose()
+        .map_err(|parse_error| {
+            format!("Failed to parse --quic-port as an integer: {parse_error}")
         })?;
 
     // Now put everything together
@@ -903,20 +912,21 @@ pub fn parse_listening_addresses(
                 .transpose()?
                 .unwrap_or(port);
 
-            if maybe_udp6_port.is_some() {
+            if maybe_disc6_port.is_some() {
                 warn!(log, "When listening only over IpV6, use the --discovery-port flag. The value of --discovery-port6 will be ignored.")
             }
             // use zero ports if required. If not, use the specific udp port. If none given, use
             // the tcp port.
-            let udp_port = use_zero_ports
+            let disc_port = use_zero_ports
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
-                .or(maybe_udp_port)
+                .or(maybe_disc_port)
                 .unwrap_or(port);
 
             ListenAddress::V6(lighthouse_network::ListenAddr {
                 addr: ipv6,
-                udp_port,
+                quic_port: None,
+                disc_port,
                 tcp_port,
             })
         }
@@ -928,16 +938,25 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
-            // use zero ports if required. If not, use the specific udp port. If none given, use
+            // use zero ports if required. If not, use the specific discovery port. If none given, use
             // the tcp port.
-            let udp_port = use_zero_ports
+            let disc_port = use_zero_ports
                 .then(unused_port::unused_udp4_port)
                 .transpose()?
-                .or(maybe_udp_port)
+                .or(maybe_disc_port)
                 .unwrap_or(port);
+            // use zero ports if required. If not, use the specific quic port. If none given, use
+            // the tcp port + 1.
+            let quic_port = use_zero_ports
+                .then(unused_port::unused_udp4_port)
+                .transpose()?
+                .or(maybe_quic_port)
+                .unwrap_or(port + 1);
+
             ListenAddress::V4(lighthouse_network::ListenAddr {
                 addr: ipv4,
-                udp_port,
+                disc_port,
+                quic_port: Some(quic_port),
                 tcp_port,
             })
         }
@@ -946,31 +965,39 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
-            let ipv4_udp_port = use_zero_ports
+            let ipv4_disc_port = use_zero_ports
                 .then(unused_port::unused_udp4_port)
                 .transpose()?
-                .or(maybe_udp_port)
+                .or(maybe_disc_port)
                 .unwrap_or(ipv4_tcp_port);
+            let ipv4_quic_port = use_zero_ports
+                .then(unused_port::unused_udp4_port)
+                .transpose()?
+                .or(maybe_quic_port)
+                .unwrap_or(port + 1);
 
             // Defaults to 9090 when required
             let ipv6_tcp_port = use_zero_ports
                 .then(unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port6);
-            let ipv6_udp_port = use_zero_ports
+            let ipv6_disc_port = use_zero_ports
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
-                .or(maybe_udp6_port)
+                .or(maybe_disc6_port)
                 .unwrap_or(ipv6_tcp_port);
+
             ListenAddress::DualStack(
                 lighthouse_network::ListenAddr {
                     addr: ipv4,
-                    udp_port: ipv4_udp_port,
+                    disc_port: ipv4_disc_port,
+                    quic_port: Some(ipv4_quic_port),
                     tcp_port: ipv4_tcp_port,
                 },
                 lighthouse_network::ListenAddr {
                     addr: ipv6,
-                    udp_port: ipv6_udp_port,
+                    disc_port: ipv6_disc_port,
+                    quic_port: None,
                     tcp_port: ipv6_tcp_port,
                 },
             )
@@ -1079,7 +1106,7 @@ pub fn set_network_config(
     }
 
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
-        config.enr_udp4_port = Some(
+        config.enr_disc4_port = Some(
             enr_udp_port_str
                 .parse::<u16>()
                 .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
@@ -1095,7 +1122,7 @@ pub fn set_network_config(
     }
 
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp6-port") {
-        config.enr_udp6_port = Some(
+        config.enr_disc6_port = Some(
             enr_udp_port_str
                 .parse::<u16>()
                 .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
@@ -1121,7 +1148,7 @@ pub fn set_network_config(
                 ipv4_addr.addr
             };
             config.enr_address.0 = Some(ipv4_enr_addr);
-            config.enr_udp4_port = Some(ipv4_addr.udp_port);
+            config.enr_disc4_port = Some(ipv4_addr.disc_port);
         }
 
         if let Some(ipv6_addr) = config.listen_addrs().v6().cloned() {
@@ -1131,7 +1158,7 @@ pub fn set_network_config(
                 ipv6_addr.addr
             };
             config.enr_address.1 = Some(ipv6_enr_addr);
-            config.enr_udp6_port = Some(ipv6_addr.udp_port);
+            config.enr_disc6_port = Some(ipv6_addr.disc_port);
         }
     }
 
@@ -1164,11 +1191,11 @@ pub fn set_network_config(
                     // actually matters. Just use the udp port.
 
                     let port = match config.listen_addrs() {
-                        ListenAddress::V4(v4_addr) => v4_addr.udp_port,
-                        ListenAddress::V6(v6_addr) => v6_addr.udp_port,
+                        ListenAddress::V4(v4_addr) => v4_addr.disc_port,
+                        ListenAddress::V6(v6_addr) => v6_addr.disc_port,
                         ListenAddress::DualStack(v4_addr, _v6_addr) => {
                             // NOTE: slight preference for ipv4 that I don't think is of importance.
-                            v4_addr.udp_port
+                            v4_addr.disc_port
                         }
                     };
 
