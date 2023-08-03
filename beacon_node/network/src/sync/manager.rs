@@ -932,7 +932,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     &self.network,
                 ),
             RequestId::SingleBlob { .. } => {
-                crit!(self.log, "Blob received during block request"; "peer_id" => %peer_id  );
+                crit!(self.log, "Block received during blob request"; "peer_id" => %peer_id  );
             }
             RequestId::ParentLookup { id } => self
                 .block_lookups
