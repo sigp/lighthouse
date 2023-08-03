@@ -157,7 +157,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_block_request(&mut self, response_type: ResponseType) -> SingleLookupReqId {
+    fn expect_lookup_request(&mut self, response_type: ResponseType) -> SingleLookupReqId {
         match response_type {
             ResponseType::Block => match self.network_rx.try_recv() {
                 Ok(NetworkMessage::SendRequest {
@@ -173,7 +173,7 @@ impl TestRig {
                 Ok(NetworkMessage::SendRequest {
                     peer_id: _,
                     request: Request::BlobsByRoot(_request),
-                    request_id: RequestId::Sync(SyncId::SingleBlock { id }),
+                    request_id: RequestId::Sync(SyncId::SingleBlob { id }),
                 }) => id,
                 other => {
                     panic!("Expected blob request, found {:?}", other);
@@ -197,7 +197,7 @@ impl TestRig {
                 Ok(NetworkMessage::SendRequest {
                     peer_id: _,
                     request: Request::BlobsByRoot(_request),
-                    request_id: RequestId::Sync(SyncId::ParentLookup { id }),
+                    request_id: RequestId::Sync(SyncId::ParentLookupBlob { id }),
                 }) => id,
                 other => panic!("Expected parent blobs request, found {:?}", other),
             },
@@ -297,11 +297,11 @@ fn test_single_block_lookup_happy_path() {
     let block_root = block.canonical_root();
     // Trigger the request
     bl.search_block(block_root, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
-    let id = rig.expect_block_request(response_type);
+    let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
     if matches!(fork_name, ForkName::Deneb) {
-        let _ = rig.expect_block_request(ResponseType::Blob);
+        let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
@@ -345,18 +345,18 @@ fn test_single_block_lookup_empty_response() {
 
     // Trigger the request
     bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
-    let id = rig.expect_block_request(response_type);
+    let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
     if matches!(fork_name, ForkName::Deneb) {
-        let _ = rig.expect_block_request(ResponseType::Blob);
+        let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
     // The peer does not have the block. It should be penalized.
     bl.single_lookup_response::<BlockRequestState<Current>>(id, peer_id, None, D, &cx);
     rig.expect_penalty();
 
-    rig.expect_block_request(response_type); // it should be retried
+    rig.expect_lookup_request(response_type); // it should be retried
 }
 
 #[test]
@@ -373,11 +373,11 @@ fn test_single_block_lookup_wrong_response() {
 
     // Trigger the request
     bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
-    let id = rig.expect_block_request(response_type);
+    let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
     if matches!(fork_name, ForkName::Deneb) {
-        let _ = rig.expect_block_request(ResponseType::Blob);
+        let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
     // Peer sends something else. It should be penalized.
@@ -390,7 +390,7 @@ fn test_single_block_lookup_wrong_response() {
         &cx,
     );
     rig.expect_penalty();
-    rig.expect_block_request(response_type); // should be retried
+    rig.expect_lookup_request(response_type); // should be retried
 
     // Send the stream termination. This should not produce an additional penalty.
     bl.single_lookup_response::<BlockRequestState<Current>>(id, peer_id, None, D, &cx);
@@ -411,11 +411,11 @@ fn test_single_block_lookup_failure() {
 
     // Trigger the request
     bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
-    let id = rig.expect_block_request(response_type);
+    let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
     if matches!(fork_name, ForkName::Deneb) {
-        let _ = rig.expect_block_request(ResponseType::Blob);
+        let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
     // The request fails. RPC failures are handled elsewhere so we should not penalize the peer.
@@ -425,7 +425,7 @@ fn test_single_block_lookup_failure() {
         &cx,
         RPCError::UnsupportedProtocol,
     );
-    rig.expect_block_request(response_type);
+    rig.expect_lookup_request(response_type);
     rig.expect_empty_network();
 }
 
@@ -447,11 +447,11 @@ fn test_single_block_lookup_becomes_parent_request() {
         PeerShouldHave::BlockAndBlobs(peer_id),
         &mut cx,
     );
-    let id = rig.expect_block_request(response_type);
+    let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
     if matches!(fork_name, ForkName::Deneb) {
-        let _ = rig.expect_block_request(ResponseType::Blob);
+        let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
@@ -1033,11 +1033,11 @@ fn test_single_block_lookup_ignored_response() {
         PeerShouldHave::BlockAndBlobs(peer_id),
         &mut cx,
     );
-    let id = rig.expect_block_request(response_type);
+    let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
     if matches!(fork_name, ForkName::Deneb) {
-        let _ = rig.expect_block_request(ResponseType::Blob);
+        let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
@@ -1285,8 +1285,8 @@ mod deneb_only {
                             PeerShouldHave::BlockAndBlobs(peer_id),
                             &mut cx,
                         );
-                        let block_req_id = rig.expect_block_request(ResponseType::Block);
-                        let blob_req_id = rig.expect_block_request(ResponseType::Blob);
+                        let block_req_id = rig.expect_lookup_request(ResponseType::Block);
+                        let blob_req_id = rig.expect_lookup_request(ResponseType::Blob);
                         (Some(block_req_id), Some(blob_req_id), None, None)
                     }
                     RequestTrigger::GossipUnknownParentBlock => {
@@ -1306,12 +1306,12 @@ mod deneb_only {
                         block_root = child_root;
                         bl.search_child_block(
                             child_root,
-                            Some(ChildComponents::new(Some(child_block), None)),
+                            Some(CachedChildComponents::new(Some(child_block), None)),
                             &[PeerShouldHave::Neither(peer_id)],
                             &mut cx,
                         );
 
-                        let blob_req_id = rig.expect_block_request(ResponseType::Blob);
+                        let blob_req_id = rig.expect_lookup_request(ResponseType::Blob);
                         rig.expect_empty_network(); // expect no block request
                         bl.search_parent(slot, child_root, parent_root, peer_id, &mut cx);
                         let parent_block_req_id = rig.expect_parent_request(ResponseType::Block);
@@ -1344,13 +1344,13 @@ mod deneb_only {
                         *blobs.index_mut(0) = Some(child_blob);
                         bl.search_child_block(
                             child_root,
-                            Some(ChildComponents::new(None, Some(blobs))),
+                            Some(CachedChildComponents::new(None, Some(blobs))),
                             &[PeerShouldHave::Neither(peer_id)],
                             &mut cx,
                         );
 
-                        let block_req_id = rig.expect_block_request(ResponseType::Block);
-                        let blobs_req_id = rig.expect_block_request(ResponseType::Blob);
+                        let block_req_id = rig.expect_lookup_request(ResponseType::Block);
+                        let blobs_req_id = rig.expect_lookup_request(ResponseType::Blob);
                         rig.expect_empty_network(); // expect no block request
                         bl.search_parent(slot, child_root, parent_root, peer_id, &mut cx);
                         let parent_block_req_id = rig.expect_parent_request(ResponseType::Block);
@@ -1364,8 +1364,8 @@ mod deneb_only {
                     }
                     RequestTrigger::GossipUnknownBlockOrBlob => {
                         bl.search_block(block_root, PeerShouldHave::Neither(peer_id), &mut cx);
-                        let block_req_id = rig.expect_block_request(ResponseType::Block);
-                        let blob_req_id = rig.expect_block_request(ResponseType::Blob);
+                        let block_req_id = rig.expect_lookup_request(ResponseType::Block);
+                        let blob_req_id = rig.expect_lookup_request(ResponseType::Blob);
                         (Some(block_req_id), Some(blob_req_id), None, None)
                     }
                 };
@@ -1646,12 +1646,12 @@ mod deneb_only {
             self
         }
         fn expect_block_request(mut self) -> Self {
-            let id = self.rig.expect_block_request(ResponseType::Block);
+            let id = self.rig.expect_lookup_request(ResponseType::Block);
             self.block_req_id = Some(id);
             self
         }
         fn expect_blobs_request(mut self) -> Self {
-            let id = self.rig.expect_block_request(ResponseType::Blob);
+            let id = self.rig.expect_lookup_request(ResponseType::Blob);
             self.blob_req_id = Some(id);
             self
         }

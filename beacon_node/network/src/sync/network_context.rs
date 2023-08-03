@@ -443,8 +443,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_type: LookupType,
     ) -> Result<(), &'static str> {
         let sync_id = match lookup_type {
-            LookupType::Current => SyncRequestId::SingleBlock { id },
-            LookupType::Parent => SyncRequestId::ParentLookup { id },
+            LookupType::Current => SyncRequestId::SingleBlob { id },
+            LookupType::Parent => SyncRequestId::ParentLookupBlob { id },
         };
         let request_id = RequestId::Sync(sync_id);
 

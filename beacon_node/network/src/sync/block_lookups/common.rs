@@ -8,7 +8,7 @@ use crate::sync::block_lookups::{
 };
 use crate::sync::manager::{BlockProcessType, Id, SingleLookupReqId};
 use crate::sync::network_context::SyncNetworkContext;
-use crate::sync::ChildComponents;
+use crate::sync::CachedChildComponents;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
@@ -89,9 +89,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     /* Request building methods */
 
     /// Construct a new request.
-    fn build_request(
-        &mut self,
-    ) -> Result<(PeerShouldHave, Self::RequestType), LookupRequestError> {
+    fn build_request(&mut self) -> Result<(PeerShouldHave, Self::RequestType), LookupRequestError> {
         // Verify and construct request.
         self.too_many_attempts()?;
         let peer = self.get_peer()?;
@@ -222,7 +220,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     /// triggered by `UnknownParent` errors.
     fn add_to_child_components(
         verified_response: Self::VerifiedResponseType,
-        components: &mut ChildComponents<T::EthSpec>,
+        components: &mut CachedChildComponents<T::EthSpec>,
     );
 
     /// Convert a verified response to the type we send to the beacon processor.
@@ -231,7 +229,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     ) -> Self::ReconstructedResponseType;
 
     /// Send the response to the beacon processor.
-    fn send_for_processing(
+    fn send_reconstructed_for_processing(
         id: Id,
         bl: &BlockLookups<T>,
         block_root: Hash256,
@@ -326,7 +324,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
 
     fn add_to_child_components(
         verified_response: Arc<SignedBeaconBlock<T::EthSpec>>,
-        components: &mut ChildComponents<T::EthSpec>,
+        components: &mut CachedChildComponents<T::EthSpec>,
     ) {
         components.add_unknown_parent_block(verified_response);
     }
@@ -337,7 +335,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
         RpcBlock::new_without_blobs(block)
     }
 
-    fn send_for_processing(
+    fn send_reconstructed_for_processing(
         id: Id,
         bl: &BlockLookups<T>,
         block_root: Hash256,
@@ -432,7 +430,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
 
     fn add_to_child_components(
         verified_response: FixedBlobSidecarList<T::EthSpec>,
-        components: &mut ChildComponents<T::EthSpec>,
+        components: &mut CachedChildComponents<T::EthSpec>,
     ) {
         components.add_unknown_parent_blobs(verified_response);
     }
@@ -443,7 +441,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
         blobs
     }
 
-    fn send_for_processing(
+    fn send_reconstructed_for_processing(
         id: Id,
         bl: &BlockLookups<T>,
         block_root: Hash256,

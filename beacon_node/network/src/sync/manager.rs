@@ -44,7 +44,7 @@ use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::common::{Current, Parent};
 use crate::sync::block_lookups::delayed_lookup;
 use crate::sync::block_lookups::delayed_lookup::DelayedLookupMessage;
-use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, ChildComponents};
+use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, CachedChildComponents};
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -667,7 +667,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     blob_slot,
-                    Some(ChildComponents::new(None, Some(blobs))),
+                    Some(CachedChildComponents::new(None, Some(blobs))),
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
@@ -776,7 +776,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        parent_components: Option<ChildComponents<T::EthSpec>>,
+        parent_components: Option<CachedChildComponents<T::EthSpec>>,
     ) {
         if self.should_search_for_block(slot, &peer_id) {
             self.block_lookups.search_parent(

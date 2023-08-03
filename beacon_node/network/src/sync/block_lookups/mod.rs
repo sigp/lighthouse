@@ -23,7 +23,7 @@ use fnv::FnvHashMap;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-pub use single_block_lookup::ChildComponents;
+pub use single_block_lookup::CachedChildComponents;
 pub use single_block_lookup::{BlobRequestState, BlockRequestState};
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
@@ -155,7 +155,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_child_block(
         &mut self,
         block_root: Hash256,
-        parent_components: Option<ChildComponents<T::EthSpec>>,
+        parent_components: Option<CachedChildComponents<T::EthSpec>>,
         peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -175,7 +175,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_child_delayed(
         &mut self,
         block_root: Hash256,
-        parent_components: Option<ChildComponents<T::EthSpec>>,
+        parent_components: Option<CachedChildComponents<T::EthSpec>>,
         peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -235,7 +235,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new_current_lookup(
         &mut self,
         block_root: Hash256,
-        parent_components: Option<ChildComponents<T::EthSpec>>,
+        parent_components: Option<CachedChildComponents<T::EthSpec>>,
         peers: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) -> Option<SingleBlockLookup<Current, T>> {
@@ -511,7 +511,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
                 lookup.request_block_and_blobs(cx)?;
             }
-            CachedChild::NotRequired => R::send_for_processing(
+            CachedChild::NotRequired => R::send_reconstructed_for_processing(
                 id,
                 self,
                 block_root,

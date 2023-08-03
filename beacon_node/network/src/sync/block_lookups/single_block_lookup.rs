@@ -1,7 +1,6 @@
 use super::PeerShouldHave;
 use crate::sync::block_lookups::common::{Lookup, RequestState};
 use crate::sync::block_lookups::Id;
-use crate::sync::manager::SingleLookupReqId;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
@@ -56,13 +55,13 @@ pub struct SingleBlockLookup<L: Lookup, T: BeaconChainTypes> {
     pub da_checker: Arc<DataAvailabilityChecker<T>>,
     /// Only necessary for requests triggered by an `UnknownBlockParent` or `UnknownBlockParent`
     /// because any blocks or blobs without parents won't hit the data availability cache.
-    pub cached_child_components: Option<ChildComponents<T::EthSpec>>,
+    pub cached_child_components: Option<CachedChildComponents<T::EthSpec>>,
 }
 
 impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     pub fn new(
         requested_block_root: Hash256,
-        unknown_parent_components: Option<ChildComponents<T::EthSpec>>,
+        unknown_parent_components: Option<CachedChildComponents<T::EthSpec>>,
         peers: &[PeerShouldHave],
         da_checker: Arc<DataAvailabilityChecker<T>>,
         id: Id,
@@ -92,7 +91,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.block_request_state.requested_block_root = block_root;
         self.block_request_state.state.state = State::AwaitingDownload;
         self.blob_request_state.state.state = State::AwaitingDownload;
-        self.cached_child_components = Some(ChildComponents::default());
+        self.cached_child_components = Some(CachedChildComponents::default());
     }
 
     /// Get all unique peers across block and blob requests.
@@ -166,9 +165,9 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     }
 
     /// Add a child component to the lookup request. Merges with any existing child components.
-    pub fn add_child_components(&mut self, components: ChildComponents<T::EthSpec>) {
+    pub fn add_child_components(&mut self, components: CachedChildComponents<T::EthSpec>) {
         if let Some(ref mut existing_components) = self.cached_child_components {
-            let ChildComponents {
+            let CachedChildComponents {
                 downloaded_block,
                 downloaded_blobs,
             } = components;
@@ -382,12 +381,12 @@ pub enum CachedChild<E: EthSpec> {
 /// data availability cache currently because any blocks or blobs without parents
 /// won't pass validation and therefore won't make it into the cache.
 #[derive(Default)]
-pub struct ChildComponents<E: EthSpec> {
+pub struct CachedChildComponents<E: EthSpec> {
     pub downloaded_block: Option<Arc<SignedBeaconBlock<E>>>,
     pub downloaded_blobs: FixedBlobSidecarList<E>,
 }
 
-impl<E: EthSpec> From<RpcBlock<E>> for ChildComponents<E> {
+impl<E: EthSpec> From<RpcBlock<E>> for CachedChildComponents<E> {
     fn from(value: RpcBlock<E>) -> Self {
         let (block, blobs) = value.deconstruct();
         let fixed_blobs = blobs.map(|blobs| {
@@ -397,7 +396,7 @@ impl<E: EthSpec> From<RpcBlock<E>> for ChildComponents<E> {
     }
 }
 
-impl<E: EthSpec> ChildComponents<E> {
+impl<E: EthSpec> CachedChildComponents<E> {
     pub fn new(
         block: Option<Arc<SignedBeaconBlock<E>>>,
         blobs: Option<FixedBlobSidecarList<E>>,
@@ -678,6 +677,8 @@ mod tests {
             &mut sl.block_request_state,
         )
         .unwrap();
+        sl.block_request_state.state.state = State::Downloading { peer_id };
+
         <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::verify_response(
             &mut sl.block_request_state,
             block.canonical_root(),
@@ -726,6 +727,8 @@ mod tests {
             &mut sl.block_request_state,
         )
         .unwrap();
+        sl.block_request_state.state.state = State::Downloading { peer_id };
+
         <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::verify_response(
             &mut sl.block_request_state,
             block.canonical_root(),
