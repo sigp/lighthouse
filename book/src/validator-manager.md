@@ -13,7 +13,7 @@ supported by this command.
 
 The validator manager tool is similar to the `lighthouse account-manager` tool,
 except the latter creates files that will be read by the VC next time it starts
-whilst the former makers instant changes to a live VC.
+whilst the former makes instant changes to a live VC.
 
 The `account-manager` is ideal for importing keys created with the
 [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli). On the

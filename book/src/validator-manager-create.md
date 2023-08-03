@@ -41,16 +41,18 @@ Create validators from a mnemonic with:
 lighthouse \
     validator-manager \
     create \
+    --network mainnet \
     --first-index 0 \
     --count 2 \
     --eth1-withdrawal-address <ADDRESS> \
     --suggested-fee-recipient <ADDRESS> \
     --output-path ./
 ```
-
+> If the flag `--first-index` is not provided, it will default to using index 0.
 > The `--suggested-fee-recipient` flag may be omitted to use whatever default
-> value the VC uses. It does not necessarily need to be idential to
+> value the VC uses. It does not necessarily need to be identical to
 > `--eth1-withdrawal-address`.
+> The command will create the `deposits.json` and `validators.json` in the present working directory. If you would like these files to be created in a different directory, change the value of `output-path`, for example `--output-path /desired/directory`. The directory will be created if the path does not exist.
 
 Then, import the validators to a running VC with:
 
@@ -61,7 +63,7 @@ lighthouse \
     --validators-file validators.json \
     --vc-token <API-TOKEN-PATH>
 ```
-
+> This is assuming that `validators.json` is in the present working directory. If it is not, insert the directory of the file.
 > Be sure to remove `./validators.json` after the import is successful since it
 > contains unencrypted validator keystores.
 
@@ -75,9 +77,9 @@ host. This would help protect the mnemonic from being exposed to the Internet.
 
 ### 1. Create the Validators
 
-Run the `create` command, subsituting `<ADDRESS>` for an execution address that
+Run the `create` command, substituting `<ADDRESS>` for an execution address that
 you control. This is where all the staked ETH and rewards will ultimately
-reside, so it's very important that this address is secure, acessible and
+reside, so it's very important that this address is secure, accessible and
 backed-up. The `create` command:
 
 ```bash
@@ -143,7 +145,7 @@ In order to import the validators, the location of the VC `api-token.txt` file
 must be known. The location of the file varies, but it is located in the
 "validator directory" of your data directory. For example:
 `~/.lighthouse/mainnet/validators/api-token.txt`. We will use `<API-TOKEN-PATH>`
-to subsitute this value.
+to subsitute this value. If you are unsure of the `api-token.txt` path, you can run `curl http://localhost:5062/lighthouse/auth` which will show the path.
 
 
 Once the VC is running, use the `import` command to import the validators to the VC:
@@ -170,6 +172,6 @@ The user should now *securely* delete the `validators.json` file (e.g., `shred -
 The `validators.json` contains the unencrypted validator keys and must not be
 shared with anyone.
 
-The validators will now go through 3-4 epochs of [doppelganger
+The validators will now go through 2-3 epochs of [doppelganger
 protection](./validator-doppelganger.md) and will automatically start performing
 their duties when they are deposited and activated. The guide is complete.

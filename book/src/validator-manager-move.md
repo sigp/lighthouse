@@ -56,7 +56,7 @@ There will be two hosts in this example:
 - Host 1 (*"source host"*): Is running the `src-vc`.
 - Host 2 (*"destination host"*): Is running the `dest-vc`.
 
-The example will assume that all commands are run on Host 1. It also assumes
+The example assumes
 that Host 1 is able to SSH to Host 2.
 
 In reality, many host configurations are possible. For example:
@@ -66,7 +66,7 @@ In reality, many host configurations are possible. For example:
 
 ### 1. Configure the Source VC
 
-The source VC needs to have the following flags at a mininum:
+The source VC needs to have the following flags at a minimum:
 
 - `--http`
 - `--unencrypted-http-transport`
@@ -88,7 +88,7 @@ lighthouse \
 
 ### 2. Configure the Destination VC
 
-The destination VC needs to have the following flags at a mininum:
+The destination VC needs to have the following flags at a minimum:
 
 - `--http`
 - `--unencrypted-http-transport`
@@ -109,13 +109,13 @@ lighthouse \
 ```
 
 > The `--enable-doppelganger-protection` flag is not *strictly* required, however
-> it is recommended for an additional layer of safety. It will result in 3-4
+> it is recommended for an additional layer of safety. It will result in 2-3
 > epochs of downtime for the validator after it is moved, which is generally an
 > inconsequential cost in lost rewards or penalties.
 > 
 > Optionally, users can add the `--http-store-passwords-in-secrets-dir` flag if they'd like to have
 > the import validator keystore passwords stored in separate files rather than in the
-> `valdiator-definitions.yml` file. If you don't know what this means, you can safely omit the flag.
+> `validator-definitions.yml` file. If you don't know what this means, you can safely omit the flag.
 
 ### 3. Obtain the Source API Token
 
@@ -125,14 +125,14 @@ source host on its file-system.
 
 On the **source host**, find the location of the `api-token.txt` file and copy the contents. The
 location of the file varies, but it is located in the "validator directory" of your data directory,
-alongside validator keystores. For example: `~/.lighthouse/mainnet/validators/api-token.txt`.
+alongside validator keystores. For example: `~/.lighthouse/mainnet/validators/api-token.txt`. If you are unsure of the `api-token.txt` path, you can run `curl http://localhost:5062/lighthouse/auth` which will show the path.
 
 Copy the contents of that file into a new file on the **destination host** at `~/src-token.txt`. The
 API token should be similar to `api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123`.
 
 ### 4. Create an SSH Tunnel
 
-In one terminal window, SSH to the **destination host** and establish a reverse-SSH connection
+In the **source host**, open a terminal window, SSH to the **destination host** and establish a reverse-SSH connection
 between the **desination host** and the **source host**.
 
 ```bash
@@ -173,9 +173,9 @@ Done.
 
 Once the operation completes successfully, there is nothing else to be done. The
 validators have been removed from the `src-host` and enabled at the `dest-host`.
-If the `--enable-doppelganger-protection` flag was used it may take 3-4 epochs
+If the `--enable-doppelganger-protection` flag was used it may take 2-3 epochs
 for the validators to start attesting and producing blocks on the `dest-host`.
 
-Any errors encounted during the operation should include information on how to
+Any errors encountered during the operation should include information on how to
 proceed. Assistance is also available on our
 [Discord](https://discord.gg/cyAszAh).
