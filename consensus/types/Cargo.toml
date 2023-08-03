@@ -60,6 +60,7 @@ beacon_chain = { path = "../../beacon_node/beacon_chain" }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
 state_processing = { path = "../state_processing" }
 tokio = "1.14.0"
+paste = "1.0.14"
 
 [features]
 default = ["sqlite", "legacy-arith"]

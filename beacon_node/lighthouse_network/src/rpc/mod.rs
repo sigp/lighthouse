@@ -17,6 +17,7 @@ use slog::{crit, debug, o};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::HandlerErr;
@@ -107,6 +108,12 @@ pub struct RPCMessage<Id, TSpec: EthSpec> {
 
 type BehaviourAction<Id, TSpec> = ToSwarm<RPCMessage<Id, TSpec>, RPCSend<Id, TSpec>>;
 
+pub struct NetworkParams {
+    pub max_chunk_size: usize,
+    pub ttfb_timeout: Duration,
+    pub resp_timeout: Duration,
+}
+
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<Id: ReqId, TSpec: EthSpec> {
@@ -120,6 +127,8 @@ pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     enable_light_client_server: bool,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
+    /// Networking constant values
+    network_params: NetworkParams,
 }
 
 impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
@@ -129,6 +138,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
         inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
         log: slog::Logger,
+        network_params: NetworkParams,
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
@@ -149,6 +159,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             fork_context,
             enable_light_client_server,
             log,
+            network_params,
         }
     }
 
@@ -220,16 +231,22 @@ where
         let protocol = SubstreamProtocol::new(
             RPCProtocol {
                 fork_context: self.fork_context.clone(),
-                max_rpc_size: max_rpc_size(&self.fork_context),
+                max_rpc_size: max_rpc_size(&self.fork_context, self.network_params.max_chunk_size),
                 enable_light_client_server: self.enable_light_client_server,
                 phantom: PhantomData,
+                ttfb_timeout: self.network_params.ttfb_timeout,
             },
             (),
         );
         // NOTE: this is needed because PeerIds have interior mutability.
         let peer_repr = peer_id.to_string();
         let log = self.log.new(slog::o!("peer_id" => peer_repr));
-        let handler = RPCHandler::new(protocol, self.fork_context.clone(), log);
+        let handler = RPCHandler::new(
+            protocol,
+            self.fork_context.clone(),
+            &log,
+            self.network_params.resp_timeout,
+        );
 
         Ok(handler)
     }
@@ -244,9 +261,10 @@ where
         let protocol = SubstreamProtocol::new(
             RPCProtocol {
                 fork_context: self.fork_context.clone(),
-                max_rpc_size: max_rpc_size(&self.fork_context),
+                max_rpc_size: max_rpc_size(&self.fork_context, self.network_params.max_chunk_size),
                 enable_light_client_server: self.enable_light_client_server,
                 phantom: PhantomData,
+                ttfb_timeout: self.network_params.ttfb_timeout,
             },
             (),
         );
@@ -254,7 +272,12 @@ where
         // NOTE: this is needed because PeerIds have interior mutability.
         let peer_repr = peer_id.to_string();
         let log = self.log.new(slog::o!("peer_id" => peer_repr));
-        let handler = RPCHandler::new(protocol, self.fork_context.clone(), log);
+        let handler = RPCHandler::new(
+            protocol,
+            self.fork_context.clone(),
+            &log,
+            self.network_params.resp_timeout,
+        );
 
         Ok(handler)
     }

@@ -1,6 +1,6 @@
 use self::behaviour::Behaviour;
 use self::gossip_cache::GossipCache;
-use crate::config::{gossipsub_config, NetworkLoad};
+use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
 };
@@ -232,7 +232,15 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
             };
 
-            config.gs_config = gossipsub_config(config.network_load, ctx.fork_context.clone());
+            let gossipsub_config_params = GossipsubConfigParams {
+                message_domain_valid_snappy: ctx.chain_spec.message_domain_valid_snappy,
+                gossip_max_size: ctx.chain_spec.gossip_max_size as usize,
+            };
+            config.gs_config = gossipsub_config(
+                config.network_load,
+                ctx.fork_context.clone(),
+                gossipsub_config_params,
+            );
 
             // If metrics are enabled for gossipsub build the configuration
             let gossipsub_metrics = ctx
@@ -256,12 +264,18 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             (gossipsub, update_gossipsub_scores)
         };
 
+        let network_params = NetworkParams {
+            max_chunk_size: ctx.chain_spec.max_chunk_size as usize,
+            ttfb_timeout: ctx.chain_spec.ttfb_timeout(),
+            resp_timeout: ctx.chain_spec.resp_timeout(),
+        };
         let eth2_rpc = RPC::new(
             ctx.fork_context.clone(),
             config.enable_light_client_server,
             config.inbound_rate_limiter_config.clone(),
             config.outbound_rate_limiter_config.clone(),
             log.clone(),
+            network_params,
         );
 
         let discovery = {

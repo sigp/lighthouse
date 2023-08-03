@@ -3,9 +3,7 @@
 
 use super::methods::{GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode, ResponseTermination};
 use super::outbound::OutboundRequestContainer;
-use super::protocol::{
-    max_rpc_size, InboundOutput, InboundRequest, Protocol, RPCError, RPCProtocol,
-};
+use super::protocol::{InboundOutput, InboundRequest, Protocol, RPCError, RPCProtocol};
 use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
@@ -30,9 +28,6 @@ use std::{
 use tokio::time::{sleep_until, Instant as TInstant, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
 use types::{EthSpec, ForkContext};
-
-/// The time (in seconds) before a substream that is awaiting a response from the user times out.
-pub const RESPONSE_TIMEOUT: u64 = 10;
 
 /// The number of times to retry an outbound upgrade in the case of IO errors.
 const IO_ERROR_RETRIES: u8 = 3;
@@ -131,6 +126,9 @@ where
 
     /// Logger for handling RPC streams
     log: slog::Logger,
+
+    /// Timeout that will me used for inbound and outbound responses.
+    resp_timeout: Duration,
 }
 
 enum HandlerState {
@@ -212,7 +210,8 @@ where
     pub fn new(
         listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
         fork_context: Arc<ForkContext>,
-        log: slog::Logger,
+        log: &slog::Logger,
+        resp_timeout: Duration,
     ) -> Self {
         RPCHandler {
             listen_protocol,
@@ -230,7 +229,8 @@ where
             outbound_io_error_retries: 0,
             fork_context,
             waker: None,
-            log,
+            log: log.clone(),
+            resp_timeout,
         }
     }
 
@@ -554,7 +554,7 @@ where
                                 // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
                                 if let Some(ref delay_key) = info.delay_key {
                                     self.inbound_substreams_delay
-                                        .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
+                                        .reset(delay_key, self.resp_timeout);
                                 }
 
                                 // The stream may be currently idle. Attempt to process more
@@ -688,7 +688,7 @@ where
                                     };
                                 substream_entry.remaining_chunks = Some(remaining_chunks);
                                 self.outbound_substreams_delay
-                                    .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
+                                    .reset(delay_key, self.resp_timeout);
                             }
                         } else {
                             // either this is a single response request or this response closes the
@@ -811,7 +811,7 @@ where
                     OutboundRequestContainer {
                         req: req.clone(),
                         fork_context: self.fork_context.clone(),
-                        max_rpc_size: max_rpc_size(&self.fork_context),
+                        max_rpc_size: self.listen_protocol().upgrade().max_rpc_size,
                     },
                     (),
                 )
@@ -896,10 +896,9 @@ where
         if expected_responses > 0 {
             if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
                 // Store the stream and tag the output.
-                let delay_key = self.inbound_substreams_delay.insert(
-                    self.current_inbound_substream_id,
-                    Duration::from_secs(RESPONSE_TIMEOUT),
-                );
+                let delay_key = self
+                    .inbound_substreams_delay
+                    .insert(self.current_inbound_substream_id, self.resp_timeout);
                 let awaiting_stream = InboundState::Idle(substream);
                 self.inbound_substreams.insert(
                     self.current_inbound_substream_id,
@@ -961,10 +960,9 @@ where
         let expected_responses = request.expected_responses();
         if expected_responses > 0 {
             // new outbound request. Store the stream and tag the output.
-            let delay_key = self.outbound_substreams_delay.insert(
-                self.current_outbound_substream_id,
-                Duration::from_secs(RESPONSE_TIMEOUT),
-            );
+            let delay_key = self
+                .outbound_substreams_delay
+                .insert(self.current_outbound_substream_id, self.resp_timeout);
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(substream),
                 request,

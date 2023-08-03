@@ -1,7 +1,7 @@
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    BeaconChain, StateSkipConfig, WhenSlotSkipped,
 };
 use environment::null_logger;
 use eth2::{
@@ -2313,7 +2313,9 @@ impl ApiTester {
             .unwrap();
 
         self.chain.slot_clock.set_current_time(
-            current_epoch_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY - Duration::from_millis(1),
+            current_epoch_start
+                - self.chain.spec.maximum_gossip_clock_disparity()
+                - Duration::from_millis(1),
         );
 
         let dependent_root = self
@@ -2350,9 +2352,9 @@ impl ApiTester {
             "should not get attester duties outside of tolerance"
         );
 
-        self.chain
-            .slot_clock
-            .set_current_time(current_epoch_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+        self.chain.slot_clock.set_current_time(
+            current_epoch_start - self.chain.spec.maximum_gossip_clock_disparity(),
+        );
 
         self.client
             .get_validator_duties_proposer(current_epoch)
