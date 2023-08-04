@@ -1304,7 +1304,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         lookup.handle_consistency_failure(cx);
                         if let Err(e) = lookup.request_block_and_blobs(cx) {
                             debug!(self.log,
-                                "Failed to request block and blobs, droppingn lookup";
+                                "Failed to request block and blobs, dropping lookup";
                                 "error" => ?e
                             );
                             self.single_block_lookups.remove(&id);
