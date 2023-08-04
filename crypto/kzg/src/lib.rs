@@ -40,7 +40,7 @@ impl From<c_kzg_min::Error> for CryptoError {
     }
 }
 
-pub trait BlobTrait: Sized + Clone {
+pub trait BlobTrait: Sized + Clone + Debug + PartialEq + Eq + Send + Sync + AsRef<[u8]> {
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error>;
 }
 

@@ -525,8 +525,7 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
     kzg: &Kzg<T::Kzg>,
 ) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
-    //TODO(sean) remove clone
-    if validate_blob::<T>(kzg, blob.blob.clone(), blob.kzg_commitment, blob.kzg_proof)
+    if validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)
         .map_err(AvailabilityCheckError::Kzg)?
     {
         Ok(KzgVerifiedBlob { blob })

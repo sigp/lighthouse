@@ -753,7 +753,7 @@ version = "0.66.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2b84e06fc203107bfbad243f4aba2af864eb7db3b1cf46ea0a023b0b433d2a7"
 dependencies = [
- "bitflags 2.3.3",
+ "bitflags 2.4.0",
  "cexpr",
  "clang-sys",
  "lazy_static",
@@ -985,7 +985,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/ethereum//c-kzg-4844?rev=f5f6f863d475847876a2bd5ee252058d37c3a15d#f5f6f863d475847876a2bd5ee252058d37c3a15d"
+source = "git+https://github.com/ethDreamer//c-kzg-4844?rev=c4b0c9050a565f3ea64615f8fd7b917f1795e086#c4b0c9050a565f3ea64615f8fd7b917f1795e086"
 dependencies = [
  "bindgen 0.66.1",
  "blst",
@@ -999,7 +999,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/ethereum/c-kzg-4844?rev=f5f6f863d475847876a2bd5ee252058d37c3a15d#f5f6f863d475847876a2bd5ee252058d37c3a15d"
+source = "git+https://github.com/ethDreamer/c-kzg-4844?rev=c4b0c9050a565f3ea64615f8fd7b917f1795e086#c4b0c9050a565f3ea64615f8fd7b917f1795e086"
 dependencies = [
  "bindgen 0.66.1",
  "blst",
@@ -4050,8 +4050,8 @@ name = "kzg"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "c-kzg 0.1.0 (git+https://github.com/ethereum//c-kzg-4844?rev=f5f6f863d475847876a2bd5ee252058d37c3a15d)",
- "c-kzg 0.1.0 (git+https://github.com/ethereum/c-kzg-4844?rev=f5f6f863d475847876a2bd5ee252058d37c3a15d)",
+ "c-kzg 0.1.0 (git+https://github.com/ethDreamer//c-kzg-4844?rev=c4b0c9050a565f3ea64615f8fd7b917f1795e086)",
+ "c-kzg 0.1.0 (git+https://github.com/ethDreamer/c-kzg-4844?rev=c4b0c9050a565f3ea64615f8fd7b917f1795e086)",
  "derivative",
  "ethereum_hashing",
  "ethereum_serde_utils",
@@ -6165,7 +6165,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c64d9ba0963cdcea2e1b2230fbae2bab30eb25a174be395c41e764bfb65dd62"
 dependencies = [
  "proc-macro2",
- "syn 2.0.28",
+ "syn 2.0.29",
 ]
 
 [[package]]

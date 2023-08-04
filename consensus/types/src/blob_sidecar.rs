@@ -1,7 +1,3 @@
-use crate::test_utils::TestRandom;
-use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
-use derivative::Derivative;
-use kzg::{Kzg, KzgCommitment, KzgPreset, KzgProof, BYTES_PER_FIELD_ELEMENT};
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
@@ -10,9 +6,15 @@ use ssz_types::{FixedVector, VariableList};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::Arc;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+
+use derivative::Derivative;
+use kzg::{Kzg, KzgCommitment, KzgProof};
+use test_random_derive::TestRandom;
+
+use crate::test_utils::TestRandom;
+use crate::{EthSpec, Hash256, SignedRoot, SigpBlob, Slot};
 
 /// Container of the data that identifies an individual blob.
 #[derive(
@@ -58,8 +60,7 @@ pub struct BlobSidecar<T: EthSpec> {
     pub block_parent_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
-    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
-    pub blob: Blob<T>,
+    pub blob: SigpBlob<T>,
     pub kzg_commitment: KzgCommitment,
     pub kzg_proof: KzgProof,
 }
@@ -123,37 +124,22 @@ impl<T: EthSpec> BlobSidecar<T> {
             slot: Slot::new(0),
             block_parent_root: Hash256::zero(),
             proposer_index: 0,
-            blob: Blob::<T>::default(),
+            blob: SigpBlob::<T>::default(),
             kzg_commitment: KzgCommitment::empty_for_testing(),
             kzg_proof: KzgProof::empty(),
         }
     }
 
     pub fn random_valid<R: Rng>(rng: &mut R, kzg: &Kzg<T::Kzg>) -> Result<Self, String> {
-        let mut blob_bytes = vec![0u8; T::Kzg::BYTES_PER_BLOB];
-        rng.fill_bytes(&mut blob_bytes);
-        // Ensure that the blob is canonical by ensuring that
-        // each field element contained in the blob is < BLS_MODULUS
-        for i in 0..T::Kzg::FIELD_ELEMENTS_PER_BLOB {
-            let Some(byte) = blob_bytes.get_mut(
-                i.checked_mul(BYTES_PER_FIELD_ELEMENT)
-                    .ok_or("overflow".to_string())?,
-            ) else {
-                return Err(format!("blob byte index out of bounds: {:?}", i));
-            };
-            *byte = 0;
-        }
-
-        let blob = Blob::<T>::new(blob_bytes)
-            .map_err(|e| format!("error constructing random blob: {:?}", e))?;
-        let kzg_blob = T::blob_from_bytes(&blob).unwrap();
+        let blob = SigpBlob::<T>::random_valid(rng)?;
+        let kzg_blob = blob.c_kzg_blob();
 
         let commitment = kzg
-            .blob_to_kzg_commitment(&kzg_blob)
+            .blob_to_kzg_commitment(kzg_blob)
             .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
 
         let proof = kzg
-            .compute_blob_kzg_proof(&kzg_blob, commitment)
+            .compute_blob_kzg_proof(kzg_blob, commitment)
             .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
 
         Ok(Self {
@@ -206,5 +192,5 @@ pub type BlindedBlobSidecarList<T> = SidecarList<T, BlindedBlobSidecar>;
 pub type FixedBlobSidecarList<T> =
     FixedVector<Option<Arc<BlobSidecar<T>>>, <T as EthSpec>::MaxBlobsPerBlock>;
 
-pub type BlobsList<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type BlobsList<T> = VariableList<SigpBlob<T>, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
 pub type BlobRootsList<T> = VariableList<Hash256, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;

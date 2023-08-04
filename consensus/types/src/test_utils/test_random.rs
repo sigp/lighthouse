@@ -9,6 +9,7 @@ use std::sync::Arc;
 mod address;
 mod aggregate_signature;
 mod bitfield;
+mod blob;
 mod hash256;
 mod kzg_commitment;
 mod kzg_proof;

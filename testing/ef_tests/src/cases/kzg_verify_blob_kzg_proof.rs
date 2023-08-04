@@ -6,7 +6,7 @@ use kzg::{Kzg, KzgCommitment, KzgPreset, KzgProof, TrustedSetup};
 use serde_derive::Deserialize;
 use std::convert::TryInto;
 use std::marker::PhantomData;
-use types::Blob;
+use types::SigpBlob;
 
 pub fn get_kzg<P: KzgPreset>() -> Result<Kzg<P>, Error> {
     let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup::<P>())
@@ -37,11 +37,11 @@ pub fn parse_commitment(commitment: &str) -> Result<KzgCommitment, Error> {
         .map(KzgCommitment)
 }
 
-pub fn parse_blob<E: EthSpec>(blob: &str) -> Result<Blob<E>, Error> {
+pub fn parse_blob<E: EthSpec>(blob: &str) -> Result<SigpBlob<E>, Error> {
     hex::decode(strip_0x(blob)?)
         .map_err(|e| Error::FailedToParseTest(format!("Failed to parse blob: {:?}", e)))
         .and_then(|bytes| {
-            Blob::<E>::new(bytes)
+            SigpBlob::<E>::try_from(bytes)
                 .map_err(|e| Error::FailedToParseTest(format!("Failed to parse blob: {:?}", e)))
         })
 }
@@ -82,7 +82,7 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProof<E> {
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-        let parse_input = |input: &KZGVerifyBlobKZGProofInput| -> Result<(Blob<E>, KzgCommitment, KzgProof), Error> {
+        let parse_input = |input: &KZGVerifyBlobKZGProofInput| -> Result<(SigpBlob<E>, KzgCommitment, KzgProof), Error> {
             let blob = parse_blob::<E>(&input.blob)?;
             let commitment = parse_commitment(&input.commitment)?;
             let proof = parse_proof(&input.proof)?;
@@ -91,7 +91,7 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProof<E> {
 
         let kzg = get_kzg::<E::Kzg>()?;
         let result = parse_input(&self.input).and_then(|(blob, commitment, proof)| {
-            validate_blob::<E>(&kzg, blob, commitment, proof)
+            validate_blob::<E>(&kzg, &blob, commitment, proof)
                 .map_err(|e| Error::InternalError(format!("Failed to validate blob: {:?}", e)))
         });
 
