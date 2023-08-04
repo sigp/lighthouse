@@ -106,12 +106,12 @@ build-release-tarballs:
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
-	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network -- --nocapture
+	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network --features logging/test_logger -- --nocapture
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
-	cargo test --workspace --exclude ef_tests --exclude beacon_chain --exclude network -- --nocapture
+	cargo test --workspace --exclude ef_tests --exclude beacon_chain --exclude network --features logging/test_logger -- --nocapture
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -133,7 +133,7 @@ run-ef-tests:
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo test --release --features fork_from_env,slasher/lmdb -p beacon_chain -- --nocapture
+	env FORK_NAME=$* cargo test --release --features fork_from_env,slasher/lmdb,logging/test_logger -p beacon_chain -- --nocapture
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
