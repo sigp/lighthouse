@@ -5,11 +5,12 @@ use crate::{
     sync::SyncMessage,
 };
 
-use beacon_chain::blob_verification::{BlobError, GossipVerifiedBlob};
+use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
+    data_availability_checker::AvailabilityCheckError,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
@@ -598,7 +599,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    // TODO: docs
     #[allow(clippy::too_many_arguments)]
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
@@ -635,7 +635,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
-                    BlobError::BlobParentUnknown(blob) => {
+                    GossipBlobError::BlobParentUnknown(blob) => {
                         debug!(
                             self.log,
                             "Unknown parent hash for blob";
@@ -645,11 +645,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                         self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
                     }
-                    BlobError::ProposerSignatureInvalid
-                    | BlobError::UnknownValidator(_)
-                    | BlobError::ProposerIndexMismatch { .. }
-                    | BlobError::BlobIsNotLaterThanParent { .. }
-                    | BlobError::InvalidSubnet { .. } => {
+                    GossipBlobError::ProposerSignatureInvalid
+                    | GossipBlobError::UnknownValidator(_)
+                    | GossipBlobError::ProposerIndexMismatch { .. }
+                    | GossipBlobError::BlobIsNotLaterThanParent { .. }
+                    | GossipBlobError::InvalidSubnet { .. } => {
                         warn!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Rejecting the blob sidecar";
@@ -670,10 +670,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Reject,
                         );
                     }
-                    BlobError::FutureSlot { .. }
-                    | BlobError::BeaconChainError(_)
-                    | BlobError::RepeatBlob { .. }
-                    | BlobError::PastFinalizedSlot { .. } => {
+                    GossipBlobError::FutureSlot { .. }
+                    | GossipBlobError::BeaconChainError(_)
+                    | GossipBlobError::RepeatBlob { .. }
+                    | GossipBlobError::PastFinalizedSlot { .. } => {
                         warn!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Ignoring the blob sidecar";
@@ -710,11 +710,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
         match self.chain.process_blob(verified_blob).await {
-            Ok(AvailabilityProcessingStatus::Imported(_hash)) => {
-                //TODO(sean) add metrics and logging
+            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+                // Note: Reusing block imported metric here
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
+                info!(
+                    self.log,
+                    "Gossipsub blob processed, imported fully available block";
+                    "hash" => %hash
+                );
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_hash)) => {
+                debug!(
+                    self.log,
+                    "Missing block components for gossip verified blob";
+                    "slot" => %blob_slot,
+                    "blob_index" => %blob_index,
+                    "blob_root" => %blob_root,
+                );
                 self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
                     slot, peer_id, block_hash,
                 ));
@@ -954,14 +967,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 return None;
             }
-            Err(e @ BlockError::BlobValidation(_)) | Err(e @ BlockError::AvailabilityCheck(_)) => {
-                warn!(self.log, "Could not verify block against known blobs in gossip. Rejecting the block";
-                            "error" => %e);
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::LowToleranceError,
-                    "gossip_blob_low",
+            // Note: This error variant cannot be reached when doing gossip validation
+            // as we do not do availability checks here.
+            Err(e @ BlockError::AvailabilityCheck(_)) => {
+                crit!(self.log, "Internal block gossip validation error. Availability check during
+                 gossip validation";
+                    "error" => %e
                 );
                 return None;
             }
@@ -1141,6 +1152,43 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Failed to verify execution payload";
                     "error" => %e
                 );
+            }
+            Err(BlockError::AvailabilityCheck(err)) => {
+                match err {
+                    AvailabilityCheckError::KzgNotInitialized
+                    | AvailabilityCheckError::SszTypes(_)
+                    | AvailabilityCheckError::MissingBlobs
+                    | AvailabilityCheckError::StoreError(_)
+                    | AvailabilityCheckError::DecodeError(_) => {
+                        crit!(
+                            self.log,
+                            "Internal availability check error";
+                            "error" => ?err,
+                        );
+                    }
+                    AvailabilityCheckError::Kzg(_)
+                    | AvailabilityCheckError::KzgVerificationFailed
+                    | AvailabilityCheckError::NumBlobsMismatch { .. }
+                    | AvailabilityCheckError::TxKzgCommitmentMismatch(_)
+                    | AvailabilityCheckError::BlobIndexInvalid(_)
+                    | AvailabilityCheckError::UnorderedBlobs { .. }
+                    | AvailabilityCheckError::BlockBlobRootMismatch { .. }
+                    | AvailabilityCheckError::BlockBlobSlotMismatch { .. }
+                    | AvailabilityCheckError::KzgCommitmentMismatch { .. } => {
+                        // Note: we cannot penalize the peer that sent us the block
+                        // over gossip here because these errors imply either an issue
+                        // with:
+                        // 1. Blobs we have received over non-gossip sources
+                        //    (from potentially other peers)
+                        // 2. The proposer being malicious and sending inconsistent
+                        //    blocks and blobs.
+                        warn!(
+                            self.log,
+                            "Received invalid blob or malicious proposer";
+                            "error" => ?err
+                        );
+                    }
+                }
             }
             other => {
                 debug!(

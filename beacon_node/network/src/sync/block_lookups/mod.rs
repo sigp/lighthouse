@@ -928,8 +928,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     BlockError::AvailabilityCheck(
                         AvailabilityCheckError::KzgVerificationFailed,
                     )
-                    | BlockError::AvailabilityCheck(AvailabilityCheckError::Kzg(_))
-                    | BlockError::BlobValidation(_) => {
+                    | BlockError::AvailabilityCheck(AvailabilityCheckError::Kzg(_)) => {
                         warn!(self.log, "Blob validation failure"; "root" => %root, "peer_id" => %peer_id);
                         if let Ok(blob_peer) = request_ref.processing_peer(ResponseType::Blob) {
                             cx.report_peer(

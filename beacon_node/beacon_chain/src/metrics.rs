@@ -1036,6 +1036,10 @@ lazy_static! {
     pub static ref KZG_VERIFICATION_BATCH_TIMES: Result<Histogram> =
         try_create_histogram("kzg_verification_batch_seconds", "Runtime of batched kzg verification");
 
+    pub static ref BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+            "beacon_block_production_blobs_verification_seconds",
+            "Time taken to verify blobs against commitments and creating BlobSidecar objects in block production"
+    );
     /*
     * Availability related metrics
     */
