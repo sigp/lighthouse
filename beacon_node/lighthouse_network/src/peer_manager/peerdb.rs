@@ -8,10 +8,13 @@ use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
 use score::{PeerAction, ReportSource, Score, ScoreState};
 use slog::{crit, debug, error, trace, warn};
-use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Formatter,
+};
 use sync_status::SyncStatus;
 use types::EthSpec;
 
@@ -1206,6 +1209,7 @@ pub enum BanOperation {
 }
 
 /// When checking if a peer is banned, it can be banned for multiple reasons.
+#[derive(Copy, Clone, Debug)]
 pub enum BanResult {
     /// The peer's score is too low causing it to be banned.
     BadScore,
@@ -1213,7 +1217,16 @@ pub enum BanResult {
     BannedIp(IpAddr),
 }
 
-impl Display for BanResult {}
+impl Display for BanResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BanResult::BadScore => write!(f, "Peer has a bad score"),
+            BanResult::BannedIp(addr) => write!(f, "Peer address: {} is banned", addr),
+        }
+    }
+}
+
+impl std::error::Error for BanResult {}
 
 #[derive(Default)]
 pub struct BannedPeersCount {

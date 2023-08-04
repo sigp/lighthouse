@@ -8,7 +8,7 @@ use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
-use libp2p::swarm::{ConnectionId, NetworkBehaviour, PollParameters, ToSwarm};
+use libp2p::swarm::{ConnectionDenied, ConnectionId, NetworkBehaviour, PollParameters, ToSwarm};
 use slog::{debug, error};
 use types::EthSpec;
 
@@ -157,12 +157,30 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     fn handle_established_inbound_connection(
         &mut self,
         _connection_id: ConnectionId,
-        _peer: PeerId,
+        peer_id: PeerId,
         _local_addr: &libp2p::Multiaddr,
         _remote_addr: &libp2p::Multiaddr,
-    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        // TODO: we might want to check if we accept this peer or not in the future.
-        Ok(ConnectionHandler)
+    ) -> Result<libp2p::swarm::THandler<Self>, ConnectionDenied> {
+        // Check to make sure the peer is not supposed to be banned
+        match self.ban_status(&peer_id) {
+            Some(cause @ BanResult::BadScore) => {
+                // This is a faulty state
+                error!(self.log, "Connected to a banned peer. Re-banning"; "peer_id" => %peer_id);
+                // Disconnect the peer.
+                self.goodbye_peer(&peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
+                // Re-ban the peer to prevent repeated errors.
+                self.events.push(PeerManagerEvent::Banned(peer_id, vec![]));
+                Err(ConnectionDenied::new(cause))
+            }
+            Some(cause @ BanResult::BannedIp(ip_addr)) => {
+                // A good peer has connected to us via a banned IP address. We ban the peer and
+                // prevent future connections.
+                debug!(self.log, "Peer connected via banned IP. Banning"; "peer_id" => %peer_id, "banned_ip" => %ip_addr);
+                self.goodbye_peer(&peer_id, GoodbyeReason::BannedIP, ReportSource::PeerManager);
+                Err(ConnectionDenied::new(cause))
+            }
+            None => Ok(ConnectionHandler),
+        }
     }
 
     fn handle_established_outbound_connection(
@@ -192,28 +210,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // Check NAT if metrics are enabled
         if self.network_globals.local_enr.read().udp4().is_some() {
             metrics::check_nat();
-        }
-
-        // Check to make sure the peer is not supposed to be banned
-        match self.ban_status(&peer_id) {
-            // TODO: directly emit the ban event?
-            BanResult::BadScore => {
-                // This is a faulty state
-                error!(self.log, "Connected to a banned peer. Re-banning"; "peer_id" => %peer_id);
-                // Disconnect the peer.
-                self.goodbye_peer(&peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
-                // Re-ban the peer to prevent repeated errors.
-                self.events.push(PeerManagerEvent::Banned(peer_id, vec![]));
-                return;
-            }
-            BanResult::BannedIp(ip_addr) => {
-                // A good peer has connected to us via a banned IP address. We ban the peer and
-                // prevent future connections.
-                debug!(self.log, "Peer connected via banned IP. Banning"; "peer_id" => %peer_id, "banned_ip" => %ip_addr);
-                self.goodbye_peer(&peer_id, GoodbyeReason::BannedIP, ReportSource::PeerManager);
-                return;
-            }
-            BanResult::NotBanned => {}
         }
 
         // Count dialing peers in the limit if the peer dialed us.
