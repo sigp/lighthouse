@@ -1,4 +1,5 @@
-use crate::blob_verification::GossipVerifiedBlobList;
+use crate::blob_verification::{GossipBlobError, GossipVerifiedBlobList};
+use crate::block_verification::BlockError;
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
@@ -266,6 +267,37 @@ pub struct BlockImportData<E: EthSpec> {
 
 pub type GossipVerifiedBlockContents<T> =
     (GossipVerifiedBlock<T>, Option<GossipVerifiedBlobList<T>>);
+
+#[derive(Debug)]
+pub enum BlockContentsError<T: EthSpec> {
+    BlockError(BlockError<T>),
+    BlobError(GossipBlobError<T>),
+}
+
+impl<T: EthSpec> From<BlockError<T>> for BlockContentsError<T> {
+    fn from(value: BlockError<T>) -> Self {
+        Self::BlockError(value)
+    }
+}
+
+impl<T: EthSpec> From<GossipBlobError<T>> for BlockContentsError<T> {
+    fn from(value: GossipBlobError<T>) -> Self {
+        Self::BlobError(value)
+    }
+}
+
+impl<T: EthSpec> std::fmt::Display for BlockContentsError<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlockContentsError::BlockError(err) => {
+                write!(f, "BlockError({})", err)
+            }
+            BlockContentsError::BlobError(err) => {
+                write!(f, "BlobError({})", err)
+            }
+        }
+    }
+}
 
 /// Trait for common block operations.
 pub trait AsBlock<E: EthSpec> {

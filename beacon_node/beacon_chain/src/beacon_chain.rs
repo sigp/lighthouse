@@ -8,7 +8,7 @@ use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache}
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
-use crate::blob_verification::{self, BlobError, GossipVerifiedBlob};
+use crate::blob_verification::{self, GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
@@ -1102,10 +1102,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
+    ) -> Result<BlobSidecarList<T::EthSpec>, Error> {
         self.early_attester_cache
             .get_blobs(*block_root)
-            .map_or_else(|| self.get_blobs(block_root), |blobs| Ok(Some(blobs)))
+            .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
     /// Returns the block at the given root, if any.
@@ -1185,11 +1185,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - block and blobs are inconsistent in the database
     /// - this method is called with a pre-deneb block root
     /// - this method is called for a blob that is beyond the prune depth
-    pub fn get_blobs(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
-        Ok(self.store.get_blobs(block_root)?)
+    pub fn get_blobs(&self, block_root: &Hash256) -> Result<BlobSidecarList<T::EthSpec>, Error> {
+        match self.store.get_blobs(block_root)? {
+            Some(blobs) => Ok(blobs),
+            None => Ok(BlobSidecarList::default()),
+        }
     }
 
     pub fn get_blinded_block(
@@ -2015,7 +2015,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob_sidecar: SignedBlobSidecar<T::EthSpec>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T>, BlobError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedBlob<T>, GossipBlobError<T::EthSpec>> {
         blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
     }
 
@@ -2834,7 +2834,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             notify_execution_layer,
         )?;
 
-        //TODO(sean) error handling?
         publish_fn()?;
 
         let executed_block = self
@@ -3216,10 +3215,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(blobs) = blobs {
             if !blobs.is_empty() {
-                //FIXME(sean) using this for debugging for now
                 info!(
                     self.log, "Writing blobs to store";
-                    "block_root" => ?block_root
+                    "block_root" => %block_root,
+                    "count" => blobs.len(),
                 );
                 ops.push(StoreOp::PutBlobs(block_root, blobs));
             }
@@ -4948,8 +4947,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (mut block, _) = block.deconstruct();
         *block.state_root_mut() = state_root;
 
-        //FIXME(sean)
-        // - add a new timer for processing here
+        let blobs_verification_timer =
+            metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
         if let (Some(blobs), Some(proofs)) = (blobs_opt, proofs_opt) {
             let kzg = self
                 .kzg
@@ -5011,6 +5010,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.proposal_blob_cache
                 .put(beacon_block_root, blob_sidecars);
         }
+
+        drop(blobs_verification_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
 
