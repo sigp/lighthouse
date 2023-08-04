@@ -48,9 +48,9 @@
 // returned alongside.
 #![allow(clippy::result_large_err)]
 
-use crate::blob_verification::{BlobError, GossipVerifiedBlob};
+use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_verification_types::{
-    AsBlock, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
+    AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
 };
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
@@ -292,17 +292,21 @@ pub enum BlockError<T: EthSpec> {
     /// Honest peers shouldn't forward more than 1 equivocating block from the same proposer, so
     /// we penalise them with a mid-tolerance error.
     Slashable,
-    //TODO(sean) peer scoring docs
-    /// A blob alone failed validation.
-    BlobValidation(BlobError<T>),
     /// The block and blob together failed validation.
+    ///
+    /// ## Peer scoring
+    ///
+    /// This error implies that the block satisfied all block validity conditions except consistency
+    /// with the corresponding blob that we received over gossip/rpc. This is because availability
+    /// checks are always done after all other checks are completed.
+    /// This implies that either:
+    /// 1. The block proposer is faulty
+    /// 2. We received the blob over rpc and it is invalid (inconsistent w.r.t the block).
+    /// 3. It is an internal error
+    /// For all these cases, we cannot penalize the peer that gave us the block.
+    /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
+    /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
-}
-
-impl<T: EthSpec> From<BlobError<T>> for BlockError<T> {
-    fn from(e: BlobError<T>) -> Self {
-        Self::BlobValidation(e)
-    }
 }
 
 impl<T: EthSpec> From<AvailabilityCheckError> for BlockError<T> {
@@ -662,7 +666,7 @@ pub trait IntoGossipVerifiedBlockContents<T: BeaconChainTypes>: Sized {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockError<T::EthSpec>>;
+    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>>;
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec>;
     fn inner_blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>>;
 }
@@ -671,7 +675,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedB
     fn into_gossip_verified_block(
         self,
         _chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
         Ok(self)
     }
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
@@ -693,16 +697,16 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
         let (block, blobs) = self.deconstruct();
         let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;
         let gossip_verified_blobs = blobs
             .map(|blobs| {
-                Ok::<_, BlobError<T::EthSpec>>(VariableList::from(
+                Ok::<_, GossipBlobError<T::EthSpec>>(VariableList::from(
                     blobs
                         .into_iter()
                         .map(|blob| GossipVerifiedBlob::new(blob, chain))
-                        .collect::<Result<Vec<_>, BlobError<T::EthSpec>>>()?,
+                        .collect::<Result<Vec<_>, GossipBlobError<T::EthSpec>>>()?,
                 ))
             })
             .transpose()?;
@@ -1139,7 +1143,6 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
     }
 }
 
-//TODO(sean) can this be deleted
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock<T::EthSpec>> {
     /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
     /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.

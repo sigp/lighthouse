@@ -7,7 +7,7 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::blob_verification::{self, BlobError, GossipVerifiedBlob};
+use crate::blob_verification::{self, GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
@@ -2017,7 +2017,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob_sidecar: SignedBlobSidecar<T::EthSpec>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T>, BlobError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedBlob<T>, GossipBlobError<T::EthSpec>> {
         blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
     }
 
@@ -2836,7 +2836,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             notify_execution_layer,
         )?;
 
-        //TODO(sean) error handling?
         publish_fn()?;
 
         let executed_block = self
@@ -3218,10 +3217,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(blobs) = blobs {
             if !blobs.is_empty() {
-                //FIXME(sean) using this for debugging for now
                 info!(
                     self.log, "Writing blobs to store";
-                    "block_root" => ?block_root
+                    "block_root" => %block_root,
+                    "count" => blobs.len(),
                 );
                 ops.push(StoreOp::PutBlobs(block_root, blobs));
             }
@@ -4950,8 +4949,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (mut block, _) = block.deconstruct();
         *block.state_root_mut() = state_root;
 
-        //FIXME(sean)
-        // - add a new timer for processing here
+        let blobs_verification_timer =
+            metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
         let maybe_sidecar_list = match (blobs_opt, proofs_opt) {
             (Some(blobs_or_blobs_roots), Some(proofs)) => {
                 let expected_kzg_commitments =
@@ -4991,6 +4990,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             _ => None,
         };
+
+        drop(blobs_verification_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
 

@@ -2393,7 +2393,8 @@ impl ApiTester {
                 .0;
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
-            let signed_block_contents = SignedBlockContents::from(signed_block.clone());
+            let signed_block_contents =
+                SignedBlockContents::try_from(signed_block.clone()).unwrap();
 
             self.client
                 .post_beacon_blocks(&signed_block_contents)

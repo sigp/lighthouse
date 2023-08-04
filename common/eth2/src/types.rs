@@ -1551,17 +1551,19 @@ impl<T: EthSpec> SignedBlockContents<T, BlindedPayload<T>> {
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBeaconBlock<T, Payload>>
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> TryFrom<SignedBeaconBlock<T, Payload>>
     for SignedBlockContents<T, Payload>
 {
-    fn from(block: SignedBeaconBlock<T, Payload>) -> Self {
+    type Error = &'static str;
+    fn try_from(block: SignedBeaconBlock<T, Payload>) -> Result<Self, Self::Error> {
         match block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
-            | SignedBeaconBlock::Capella(_) => SignedBlockContents::Block(block),
-            //TODO: error handling, this should be try from
-            SignedBeaconBlock::Deneb(_block) => todo!(),
+            | SignedBeaconBlock::Capella(_) => Ok(SignedBlockContents::Block(block)),
+            SignedBeaconBlock::Deneb(_) => {
+                Err("deneb block contents cannot be fully constructed from just the signed block")
+            }
         }
     }
 }

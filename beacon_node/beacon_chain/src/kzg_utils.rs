@@ -30,19 +30,6 @@ pub fn validate_blobs<T: EthSpec>(
     blobs: &[Blob<T>],
     kzg_proofs: &[KzgProof],
 ) -> Result<bool, KzgError> {
-    // TODO(sean) batch verification fails with a single element, it's unclear to me why
-    if blobs.len() == 1 && kzg_proofs.len() == 1 && expected_kzg_commitments.len() == 1 {
-        if let (Some(blob), Some(kzg_proof), Some(kzg_commitment)) = (
-            blobs.get(0),
-            kzg_proofs.get(0),
-            expected_kzg_commitments.get(0),
-        ) {
-            return validate_blob::<T>(kzg, blob.clone(), *kzg_commitment, *kzg_proof);
-        } else {
-            return Ok(false);
-        }
-    }
-
     let blobs = blobs
         .iter()
         .map(|blob| ssz_blob_to_crypto_blob::<T>(blob.clone())) // Avoid this clone

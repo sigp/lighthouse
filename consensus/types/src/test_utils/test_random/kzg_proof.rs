@@ -1,10 +1,9 @@
 use super::*;
-use kzg::KzgProof;
+use kzg::{KzgProof, BYTES_PER_COMMITMENT};
 
 impl TestRandom for KzgProof {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        // TODO(pawan): use the length constant here
-        let mut bytes = [0; 48];
+        let mut bytes = [0; BYTES_PER_COMMITMENT];
         rng.fill_bytes(&mut bytes);
         Self(bytes)
     }
