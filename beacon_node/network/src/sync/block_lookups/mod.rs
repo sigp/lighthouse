@@ -338,7 +338,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Lookup responses */
 
     /// Get a single block lookup by its ID. This method additionally ensures the `req_counter`
-    /// matches the current `req_counter` for the lookup. This any stale responses from requests
+    /// matches the current `req_counter` for the lookup. This ensures any stale responses from requests
     /// that have been retried are ignored.
     fn get_single_lookup<R: RequestState<Current, T>>(
         &mut self,
