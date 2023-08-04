@@ -338,7 +338,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Lookup responses */
 
     /// Get a single block lookup by its ID. This method additionally ensures the `req_counter`
-    /// matches the current `req_counter` for the lookup. This any stale responses from requests
+    /// matches the current `req_counter` for the lookup. This ensures any stale responses from requests
     /// that have been retried are ignored.
     fn get_single_lookup<R: RequestState<Current, T>>(
         &mut self,
@@ -1321,7 +1321,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         lookup.handle_consistency_failure(cx);
                         if let Err(e) = lookup.request_block_and_blobs(cx) {
                             debug!(self.log,
-                                "Failed to request block and blobs, droppingn lookup";
+                                "Failed to request block and blobs, dropping lookup";
                                 "error" => ?e
                             );
                             self.single_block_lookups.remove(&id);
