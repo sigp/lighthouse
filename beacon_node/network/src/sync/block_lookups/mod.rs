@@ -12,7 +12,7 @@ use crate::sync::block_lookups::single_block_lookup::{
 };
 use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
-use beacon_chain::data_availability_checker::DataAvailabilityChecker;
+use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::Current;
@@ -43,7 +43,7 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
-pub type DownloadedBlocks<T> = (Hash256, RpcBlock<T>);
+pub type DownloadedBlock<T> = (Hash256, RpcBlock<T>);
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
@@ -155,11 +155,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_child_block(
         &mut self,
         block_root: Hash256,
-        parent_components: Option<CachedChildComponents<T::EthSpec>>,
+        child_components: Option<CachedChildComponents<T::EthSpec>>,
         peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let lookup = self.new_current_lookup(block_root, parent_components, peer_source, cx);
+        let lookup = self.new_current_lookup(block_root, child_components, peer_source, cx);
         if let Some(lookup) = lookup {
             self.trigger_single_lookup(lookup, cx);
         }
@@ -175,11 +175,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_child_delayed(
         &mut self,
         block_root: Hash256,
-        parent_components: Option<CachedChildComponents<T::EthSpec>>,
+        child_components: Option<CachedChildComponents<T::EthSpec>>,
         peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let lookup = self.new_current_lookup(block_root, parent_components, peer_source, cx);
+        let lookup = self.new_current_lookup(block_root, child_components, peer_source, cx);
         if let Some(lookup) = lookup {
             self.add_single_lookup(lookup)
         }
@@ -235,7 +235,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new_current_lookup(
         &mut self,
         block_root: Hash256,
-        parent_components: Option<CachedChildComponents<T::EthSpec>>,
+        child_components: Option<CachedChildComponents<T::EthSpec>>,
         peers: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) -> Option<SingleBlockLookup<Current, T>> {
@@ -246,7 +246,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .find(|(_id, lookup)| lookup.is_for_block(block_root))
         {
             lookup.add_peers(peers);
-            if let Some(components) = parent_components {
+            if let Some(components) = child_components {
                 lookup.add_child_components(components);
             }
             return None;
@@ -280,7 +280,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         Some(SingleBlockLookup::new(
             block_root,
-            parent_components,
+            child_components,
             peers,
             self.da_checker.clone(),
             cx.next_id(),
@@ -397,7 +397,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             Err(e) => {
                 debug!(self.log,
-                    "Single lookup retry failed";
+                    "Single lookup request failed";
                     "error" => ?e,
                     "block_root" => ?expected_block_root,
                 );
@@ -503,7 +503,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // we should penalize the blobs peer because they did not provide all blobs on the
                 // initial request.
                 if lookup.both_components_downloaded() {
-                    lookup.penalize_lazy_blob_peer(cx);
+                    lookup.penalize_blob_peer(false, cx);
                     lookup
                         .blob_request_state
                         .state
@@ -602,12 +602,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn parent_lookup_response_inner<R: RequestState<Parent, T>>(
         &mut self,
         peer_id: PeerId,
-        block: Option<R::ResponseType>,
+        response: Option<R::ResponseType>,
         seen_timestamp: Duration,
         cx: &SyncNetworkContext<T>,
         parent_lookup: &mut ParentLookup<T>,
     ) -> Result<(), RequestError> {
-        match parent_lookup.verify_block::<R>(block, &mut self.failed_chains) {
+        match parent_lookup.verify_response::<R>(response, &mut self.failed_chains) {
             Ok(Some(verified_response)) => {
                 self.handle_verified_response::<Parent, R>(
                     seen_timestamp,
@@ -892,7 +892,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         request_state.get_state_mut().component_processed = true;
         if lookup.both_components_processed() {
-            lookup.penalize_lazy_blob_peer(cx);
+            lookup.penalize_blob_peer(false, cx);
 
             // Try it again if possible.
             lookup
@@ -944,28 +944,45 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 return Ok(None);
             }
             BlockError::AvailabilityCheck(e) => {
-                warn!(self.log, "Availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
-                lookup.handle_availability_check_failure(cx);
-                lookup.request_block_and_blobs(cx)?
-            }
-            BlockError::BlobValidation(_) => {
-                warn!(self.log, "Blob validation failure"; "root" => %root, "peer_id" => %peer_id);
-                if let Ok(blob_peer) = lookup.blob_request_state.state.processing_peer() {
-                    cx.report_peer(
-                        blob_peer.to_peer_id(),
-                        PeerAction::MidToleranceError,
-                        "single_block_failure",
-                    );
-                    lookup
-                        .blob_request_state
-                        .state
-                        .remove_peer_if_useless(blob_peer.as_peer_id());
+                match e {
+                    // Internal error.
+                    AvailabilityCheckError::KzgNotInitialized
+                    | AvailabilityCheckError::SszTypes(_)
+                    | AvailabilityCheckError::MissingBlobs
+                    | AvailabilityCheckError::UnorderedBlobs { .. }
+                    | AvailabilityCheckError::StoreError(_)
+                    | AvailabilityCheckError::DecodeError(_) => {
+                        warn!(self.log, "Internal availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
+                        lookup
+                            .block_request_state
+                            .state
+                            .register_failure_downloading();
+                        lookup
+                            .blob_request_state
+                            .state
+                            .register_failure_downloading();
+                        lookup.request_block_and_blobs(cx)?
+                    }
+
+                    // Invalid block and blob comparison.
+                    AvailabilityCheckError::NumBlobsMismatch { .. }
+                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
+                    | AvailabilityCheckError::BlockBlobRootMismatch { .. }
+                    | AvailabilityCheckError::BlockBlobSlotMismatch { .. } => {
+                        warn!(self.log, "Availability check failure in consistency"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
+                        lookup.handle_consistency_failure(cx);
+                        lookup.request_block_and_blobs(cx)?
+                    }
+
+                    // Malicious errors.
+                    AvailabilityCheckError::Kzg(_)
+                    | AvailabilityCheckError::BlobIndexInvalid(_)
+                    | AvailabilityCheckError::KzgVerificationFailed => {
+                        warn!(self.log, "Availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
+                        lookup.handle_availability_check_failure(cx);
+                        lookup.request_block_and_blobs(cx)?
+                    }
                 }
-                lookup
-                    .blob_request_state
-                    .state
-                    .register_failure_processing();
-                lookup.request_block_and_blobs(cx)?
             }
             other => {
                 warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);

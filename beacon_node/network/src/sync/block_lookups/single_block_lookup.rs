@@ -172,9 +172,9 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
                 downloaded_blobs,
             } = components;
             if let Some(block) = downloaded_block {
-                existing_components.add_unknown_parent_block(block);
+                existing_components.add_cached_child_block(block);
             }
-            existing_components.add_unknown_parent_blobs(downloaded_blobs);
+            existing_components.add_cached_child_blobs(downloaded_blobs);
         } else {
             self.cached_child_components = Some(components);
         }
@@ -283,13 +283,13 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// Penalizes a blob peer if it should have blobs but didn't return them to us. Does not penalize
     /// a peer who we request blobs from based on seeing a block or blobs over gossip. This may
     /// have been a benign failure.
-    pub fn penalize_lazy_blob_peer(&mut self, cx: &SyncNetworkContext<T>) {
+    pub fn penalize_blob_peer(&mut self, penalize_always: bool, cx: &SyncNetworkContext<T>) {
         if let Ok(blob_peer) = self.blob_request_state.state.processing_peer() {
-            if let PeerShouldHave::BlockAndBlobs(blob_peer) = blob_peer {
+            if penalize_always || matches!(blob_peer, PeerShouldHave::BlockAndBlobs(_)) {
                 cx.report_peer(
-                    blob_peer,
+                    blob_peer.to_peer_id(),
                     PeerAction::MidToleranceError,
-                    "single_block_failure",
+                    "single_blob_failure",
                 );
             }
             self.blob_request_state
@@ -301,7 +301,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// This failure occurs on download, so register a failure downloading, penalize the peer if
     /// necessary and clear the blob cache.
     pub fn handle_consistency_failure(&mut self, cx: &SyncNetworkContext<T>) {
-        self.penalize_lazy_blob_peer(cx);
+        self.penalize_blob_peer(false, cx);
         if let Some(cached_child) = self.cached_child_components.as_mut() {
             cached_child.clear_blobs();
         }
@@ -311,7 +311,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// This failure occurs after processing, so register a failure processing, penalize the peer if
     /// necessary and clear the blob cache.
     pub fn handle_availability_check_failure(&mut self, cx: &SyncNetworkContext<T>) {
-        self.penalize_lazy_blob_peer(cx);
+        self.penalize_blob_peer(true, cx);
         if let Some(cached_child) = self.cached_child_components.as_mut() {
             cached_child.clear_blobs();
         }
@@ -411,11 +411,11 @@ impl<E: EthSpec> CachedChildComponents<E> {
         self.downloaded_blobs = FixedBlobSidecarList::default();
     }
 
-    pub fn add_unknown_parent_block(&mut self, block: Arc<SignedBeaconBlock<E>>) {
+    pub fn add_cached_child_block(&mut self, block: Arc<SignedBeaconBlock<E>>) {
         self.downloaded_block = Some(block);
     }
 
-    pub fn add_unknown_parent_blobs(&mut self, blobs: FixedBlobSidecarList<E>) {
+    pub fn add_cached_child_blobs(&mut self, blobs: FixedBlobSidecarList<E>) {
         for (index, blob_opt) in self.downloaded_blobs.iter_mut().enumerate() {
             if let Some(Some(downloaded_blob)) = blobs.get(index) {
                 *blob_opt = Some(downloaded_blob.clone());

@@ -41,7 +41,6 @@ pub enum AvailabilityCheckError {
         num_blobs: usize,
     },
     MissingBlobs,
-    TxKzgCommitmentMismatch(String),
     KzgCommitmentMismatch {
         blob_index: u64,
     },

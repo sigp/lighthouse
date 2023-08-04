@@ -660,6 +660,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 let block_root = blob.block_root;
                 let parent_root = blob.block_parent_root;
                 let blob_index = blob.index;
+                if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
+                    warn!(self.log, "Peer sent blob with invalid index"; "index" => blob_index, "peer_id" => %peer_id);
+                    return;
+                }
                 let mut blobs = FixedBlobSidecarList::default();
                 *blobs.index_mut(blob_index as usize) = Some(blob);
                 self.handle_unknown_parent(
@@ -776,7 +780,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        parent_components: Option<CachedChildComponents<T::EthSpec>>,
+        child_components: Option<CachedChildComponents<T::EthSpec>>,
     ) {
         if self.should_search_for_block(slot, &peer_id) {
             self.block_lookups.search_parent(
@@ -789,7 +793,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             if self.should_delay_lookup(slot) {
                 self.block_lookups.search_child_delayed(
                     block_root,
-                    parent_components,
+                    child_components,
                     &[PeerShouldHave::Neither(peer_id)],
                     &mut self.network,
                 );
@@ -802,7 +806,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } else {
                 self.block_lookups.search_child_block(
                     block_root,
-                    parent_components,
+                    child_components,
                     &[PeerShouldHave::Neither(peer_id)],
                     &mut self.network,
                 );

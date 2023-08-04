@@ -1,5 +1,5 @@
 use super::single_block_lookup::{LookupRequestError, LookupVerifyError, SingleBlockLookup};
-use super::{DownloadedBlocks, PeerShouldHave};
+use super::{DownloadedBlock, PeerShouldHave};
 use crate::sync::block_lookups::common::Parent;
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::{manager::SLOT_IMPORT_TOLERANCE, network_context::SyncNetworkContext};
@@ -25,7 +25,7 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     /// The root of the block triggering this parent request.
     chain_hash: Hash256,
     /// The blocks that have currently been downloaded.
-    downloaded_blocks: Vec<DownloadedBlocks<T::EthSpec>>,
+    downloaded_blocks: Vec<DownloadedBlock<T::EthSpec>>,
     /// Request of the last parent.
     pub current_parent_request: SingleBlockLookup<Parent, T>,
 }
@@ -186,7 +186,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
 
     /// Verifies that the received block is what we requested. If so, parent lookup now waits for
     /// the processing result of the block.
-    pub fn verify_block<R: RequestState<Parent, T>>(
+    pub fn verify_response<R: RequestState<Parent, T>>(
         &mut self,
         block: Option<R::ResponseType>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,

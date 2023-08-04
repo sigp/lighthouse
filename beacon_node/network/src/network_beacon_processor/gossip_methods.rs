@@ -1169,7 +1169,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     AvailabilityCheckError::Kzg(_)
                     | AvailabilityCheckError::KzgVerificationFailed
                     | AvailabilityCheckError::NumBlobsMismatch { .. }
-                    | AvailabilityCheckError::TxKzgCommitmentMismatch(_)
                     | AvailabilityCheckError::BlobIndexInvalid(_)
                     | AvailabilityCheckError::UnorderedBlobs { .. }
                     | AvailabilityCheckError::BlockBlobRootMismatch { .. }

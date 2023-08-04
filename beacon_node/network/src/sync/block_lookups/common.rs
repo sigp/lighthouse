@@ -326,7 +326,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
         verified_response: Arc<SignedBeaconBlock<T::EthSpec>>,
         components: &mut CachedChildComponents<T::EthSpec>,
     ) {
-        components.add_unknown_parent_block(verified_response);
+        components.add_cached_child_block(verified_response);
     }
 
     fn verified_to_reconstructed(
@@ -432,7 +432,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
         verified_response: FixedBlobSidecarList<T::EthSpec>,
         components: &mut CachedChildComponents<T::EthSpec>,
     ) {
-        components.add_unknown_parent_blobs(verified_response);
+        components.add_cached_child_blobs(verified_response);
     }
 
     fn verified_to_reconstructed(
