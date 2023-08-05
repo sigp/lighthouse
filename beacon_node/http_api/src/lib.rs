@@ -74,7 +74,7 @@ use version::{
 use warp::http::StatusCode;
 use warp::sse::Event;
 use warp::Reply;
-use warp::{http::Response, Filter};
+use warp::{http::Response, Filter, Rejection};
 use warp_utils::{
     query::multi_key_query,
     task::{blocking_json_task, blocking_response_task},
@@ -4000,7 +4000,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // Define the ultimate set of routes that will be provided to the server.
     // Use `uor` rather than `or` in order to simplify types (see `UnifyingOrFilter`).
-    let routes = warp::get()
+    let routes = warp::get().and(default_content_type())
         .and(
             get_beacon_genesis
                 .uor(get_beacon_state_root)
@@ -4070,7 +4070,7 @@ pub fn serve<T: BeaconChainTypes>(
         )
         .boxed()
         .uor(
-            warp::post().and(
+            warp::post().and(default_content_type()).and(
                 warp::header::exact("Content-Type", "application/octet-stream")
                     // Routes which expect `application/octet-stream` go within this `and`.
                     .and(post_beacon_blocks_ssz.uor(post_beacon_blocks_v2_ssz))
@@ -4143,6 +4143,18 @@ pub fn serve<T: BeaconChainTypes>(
     );
 
     Ok(http_server)
+}
+
+// Default content-type to application/json if no header was provided
+fn default_content_type() -> impl Filter<Extract = (), Error = Rejection> + Clone {
+    warp::header::optional::<api_types::Accept>("accept")
+        .map(|content_type: Option<api_types::Accept>| {
+            if content_type.is_none() {
+                warp::reply::with_header(warp::reply(), "Content-Type", "application/json");
+            }
+        })
+        .untuple_one()
+        .boxed()
 }
 
 /// Publish a message to the libp2p pubsub network.
