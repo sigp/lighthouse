@@ -27,17 +27,18 @@ use lighthouse_network::{
 use lru::LruCache;
 use parking_lot::Mutex;
 use slot_clock::SlotClock;
+use ssz::{Decode, Encode};
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, Epoch, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot,
-    SubnetId, LazySignedAggregateAndProof
+    Attestation, AttesterSlashing, Epoch, Hash256, LazySignedAggregateAndProof,
+    MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList,
+    SignedVoluntaryExit, Slot,
+    SubnetId,
 };
-use ssz::{Encode, Decode};
 
 type E = MainnetEthSpec;
 type T = EphemeralHarnessType<E>;
