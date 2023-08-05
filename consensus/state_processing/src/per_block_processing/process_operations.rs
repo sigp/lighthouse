@@ -234,7 +234,7 @@ pub mod deneb {
         // Matching roots, participation flag indices
         let data = &attestation.data;
         let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
-        let participation_flag_indices =
+        let participation_flag_indices = // [Modified in Deneb:EIP7045]
             get_attestation_participation_flag_indices_deneb(state, data, inclusion_delay, spec)?;
 
         // Update epoch participation flags.

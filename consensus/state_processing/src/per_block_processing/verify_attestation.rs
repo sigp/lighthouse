@@ -45,7 +45,7 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, T: EthSpec>(
                 }
             );
         }
-        // EIP-7045
+        // [Modified in Deneb:EIP7045]
         BeaconState::Deneb(_) => {}
     }
 

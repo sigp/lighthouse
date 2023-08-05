@@ -185,6 +185,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_attestation_reward)
     }
 
+    // There is an almost identical function below that includes the changes in Deneb. If you update
+    // this function, be sure to change the deneb version as well!
     fn compute_beacon_block_attestation_reward_altair<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
@@ -247,6 +249,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(total_proposer_reward)
     }
 
+    // This function is identical to the altair version except where noted. If you change this
+    // function be sure to change the altair version as well!
     fn compute_beacon_block_attestation_reward_deneb<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
@@ -266,6 +270,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for attestation in block.body().attestations() {
             let data = &attestation.data;
             let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
+            // [Modified in Deneb:EIP7045]
             let participation_flag_indices = get_attestation_participation_flag_indices_deneb(
                 state,
                 data,

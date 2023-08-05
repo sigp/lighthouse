@@ -16,6 +16,8 @@ use types::{AttestationData, BeaconState, ChainSpec, EthSpec};
 ///
 /// This function will return an error if the source of the attestation doesn't match the
 /// state's relevant justified checkpoint.
+///
+/// NOTE: if you modify this function, be sure to modify the deneb version below as well!
 pub fn get_attestation_participation_flag_indices_altair<T: EthSpec>(
     state: &BeaconState<T>,
     data: &AttestationData,
@@ -60,6 +62,8 @@ pub fn get_attestation_participation_flag_indices_altair<T: EthSpec>(
 ///
 /// This function will return an error if the source of the attestation doesn't match the
 /// state's relevant justified checkpoint.
+///
+/// NOTE: if you modify this function, be sure to modify the altair version above as well!
 pub fn get_attestation_participation_flag_indices_deneb<T: EthSpec>(
     state: &BeaconState<T>,
     data: &AttestationData,
@@ -88,7 +92,7 @@ pub fn get_attestation_participation_flag_indices_deneb<T: EthSpec>(
     if is_matching_source && inclusion_delay <= T::slots_per_epoch().integer_sqrt() {
         participation_flag_indices.push(TIMELY_SOURCE_FLAG_INDEX);
     }
-    if is_matching_target {
+    if is_matching_target { // [Modified in Deneb:EIP7045]
         participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
     }
     if is_matching_head && inclusion_delay == spec.min_attestation_inclusion_delay {
