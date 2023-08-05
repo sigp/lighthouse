@@ -35,8 +35,9 @@ use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     Attestation, AttesterSlashing, Epoch, Hash256, MainnetEthSpec, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot,
-    SubnetId,
+    SubnetId, LazySignedAggregateAndProof
 };
+use ssz::{Encode, Decode};
 
 type E = MainnetEthSpec;
 type T = EphemeralHarnessType<E>;
@@ -435,7 +436,7 @@ impl TestRig {
             .send_aggregated_attestation(
                 junk_message_id(),
                 junk_peer_id(),
-                aggregate,
+                LazySignedAggregateAndProof::from_ssz_bytes(&aggregate.as_ssz_bytes()).unwrap(),
                 Duration::from_secs(0),
             )
             .unwrap();
