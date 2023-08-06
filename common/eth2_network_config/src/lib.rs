@@ -277,7 +277,7 @@ mod tests {
                 .unwrap_or_else(|_| panic!("{:?}", net.name));
 
             // Ensure we can parse the YAML config to a chain spec.
-            if net.name == types::GNOSIS {
+            if config.config.preset_base == types::GNOSIS {
                 config.chain_spec::<GnosisEthSpec>().unwrap();
             } else {
                 config.chain_spec::<MainnetEthSpec>().unwrap();
