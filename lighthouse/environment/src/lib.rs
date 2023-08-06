@@ -186,7 +186,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
     /// Specifies that all logs should be sent to `null` (i.e., ignored).
     pub fn test_logger(mut self) -> Result<Self, String> {
-        self.log = Some(test_logger()?);
+        self.log = Some(test_logger());
         Ok(self)
     }
 
