@@ -400,6 +400,12 @@ pub fn get_config<E: EthSpec>(
         client_config.store.prune_payloads = prune_payloads;
     }
 
+    if let Some(epochs_per_migration) =
+        clap_utils::parse_optional(cli_args, "epochs-per-migration")?
+    {
+        client_config.chain.epochs_per_migration = epochs_per_migration;
+    }
+
     /*
      * Zero-ports
      *
@@ -575,8 +581,10 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
-    client_config.chain.max_network_size =
-        lighthouse_network::gossip_max_size(spec.bellatrix_fork_epoch.is_some());
+    client_config.chain.max_network_size = lighthouse_network::gossip_max_size(
+        spec.bellatrix_fork_epoch.is_some(),
+        spec.gossip_max_size as usize,
+    );
 
     if cli_args.is_present("slasher") {
         let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {

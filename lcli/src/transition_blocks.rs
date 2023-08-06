@@ -72,10 +72,12 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use logging::test_logger;
+use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
+use state_processing::state_advance::complete_state_advance;
 use state_processing::{
-    block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
-    BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
+    block_signature_verifier::BlockSignatureVerifier, per_block_processing, BlockSignatureStrategy,
+    ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -95,8 +97,12 @@ struct Config {
     exclude_post_block_thc: bool,
 }
 
-pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
-    let spec = &T::default_spec();
+pub fn run<T: EthSpec>(
+    env: Environment<T>,
+    network_config: Eth2NetworkConfig,
+    matches: &ArgMatches,
+) -> Result<(), String> {
+    let spec = &network_config.chain_spec::<T>()?;
     let executor = env.core_context().executor;
 
     /*
@@ -325,10 +331,8 @@ fn do_transition<T: EthSpec>(
 
     // Transition the parent state to the block slot.
     let t = Instant::now();
-    for i in pre_state.slot().as_u64()..block.slot().as_u64() {
-        per_slot_processing(&mut pre_state, Some(state_root), spec)
-            .map_err(|e| format!("Failed to advance slot on iteration {}: {:?}", i, e))?;
-    }
+    complete_state_advance(&mut pre_state, Some(state_root), block.slot(), spec)
+        .map_err(|e| format!("Unable to perform complete advance: {e:?}"))?;
     debug!("Slot processing: {:?}", t.elapsed());
 
     let t = Instant::now();

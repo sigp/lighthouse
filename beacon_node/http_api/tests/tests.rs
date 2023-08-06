@@ -1,7 +1,7 @@
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    BeaconChain, StateSkipConfig, WhenSlotSkipped,
 };
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
@@ -1247,6 +1247,22 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_beacon_blocks_ssz_valid(mut self) -> Self {
+        let next_block = &self.next_block;
+
+        self.client
+            .post_beacon_blocks_ssz(next_block)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid blocks should be sent to network"
+        );
+
+        self
+    }
+
     pub async fn test_post_beacon_blocks_invalid(mut self) -> Self {
         let block = self
             .harness
@@ -1261,6 +1277,29 @@ impl ApiTester {
             .0;
 
         assert!(self.client.post_beacon_blocks(&block).await.is_err());
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "gossip valid blocks should be sent to network"
+        );
+
+        self
+    }
+
+    pub async fn test_post_beacon_blocks_ssz_invalid(mut self) -> Self {
+        let block = self
+            .harness
+            .make_block_with_modifier(
+                self.harness.get_current_state(),
+                self.harness.get_current_slot(),
+                |b| {
+                    *b.state_root_mut() = Hash256::zero();
+                },
+            )
+            .await
+            .0;
+
+        assert!(self.client.post_beacon_blocks_ssz(&block).await.is_err());
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -2274,7 +2313,9 @@ impl ApiTester {
             .unwrap();
 
         self.chain.slot_clock.set_current_time(
-            current_epoch_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY - Duration::from_millis(1),
+            current_epoch_start
+                - self.chain.spec.maximum_gossip_clock_disparity()
+                - Duration::from_millis(1),
         );
 
         let dependent_root = self
@@ -2311,9 +2352,9 @@ impl ApiTester {
             "should not get attester duties outside of tolerance"
         );
 
-        self.chain
-            .slot_clock
-            .set_current_time(current_epoch_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+        self.chain.slot_clock.set_current_time(
+            current_epoch_start - self.chain.spec.maximum_gossip_clock_disparity(),
+        );
 
         self.client
             .get_validator_duties_proposer(current_epoch)
@@ -2976,6 +3017,69 @@ impl ApiTester {
                 assert_eq!(actual, fee_recipient);
             }
         }
+
+        self
+    }
+
+    pub async fn test_post_validator_liveness_epoch(self) -> Self {
+        let epoch = self.chain.epoch().unwrap();
+        let head_state = self.chain.head_beacon_state_cloned();
+        let indices = (0..head_state.validators().len())
+            .map(|i| i as u64)
+            .collect::<Vec<_>>();
+
+        // Construct the expected response
+        let expected: Vec<StandardLivenessResponseData> = head_state
+            .validators()
+            .iter()
+            .enumerate()
+            .map(|(index, _)| StandardLivenessResponseData {
+                index: index as u64,
+                is_live: false,
+            })
+            .collect();
+
+        let result = self
+            .client
+            .post_validator_liveness_epoch(epoch, indices.clone())
+            .await
+            .unwrap()
+            .data;
+
+        assert_eq!(result, expected);
+
+        // Attest to the current slot
+        self.client
+            .post_beacon_pool_attestations(self.attestations.as_slice())
+            .await
+            .unwrap();
+
+        let result = self
+            .client
+            .post_validator_liveness_epoch(epoch, indices.clone())
+            .await
+            .unwrap()
+            .data;
+
+        let committees = head_state
+            .get_beacon_committees_at_slot(self.chain.slot().unwrap())
+            .unwrap();
+        let attesting_validators: Vec<usize> = committees
+            .into_iter()
+            .flat_map(|committee| committee.committee.iter().cloned())
+            .collect();
+        // All attesters should now be considered live
+        let expected = expected
+            .into_iter()
+            .map(|mut a| {
+                if attesting_validators.contains(&(a.index as usize)) {
+                    a.is_live = true;
+                }
+                a
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(result, expected);
 
         self
     }
@@ -4389,6 +4493,22 @@ async fn post_beacon_blocks_valid() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_beacon_blocks_ssz_valid() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_blocks_ssz_valid()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_post_beacon_blocks_ssz_invalid() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_blocks_ssz_invalid()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_blocks_invalid() {
     ApiTester::new()
         .await
@@ -4867,6 +4987,14 @@ async fn builder_works_post_capella() {
         .test_builder_works_post_capella()
         .await
         .test_lighthouse_rejects_invalid_withdrawals_root()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_liveness_epoch() {
+    ApiTester::new()
+        .await
+        .test_post_validator_liveness_epoch()
         .await;
 }
 

@@ -11,7 +11,11 @@ use beacon_chain::{
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
-    BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
+    BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
+};
+use beacon_processor::{
+    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessor, BeaconProcessorSend,
+    WorkEvent, MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
@@ -27,12 +31,13 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
+use std::cmp;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -72,6 +77,10 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     http_metrics_config: http_metrics::Config,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
+    beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+    beacon_processor_receive: mpsc::Receiver<WorkEvent<T::EthSpec>>,
+    work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
+    work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
@@ -87,6 +96,10 @@ where
     ///
     /// The `eth_spec_instance` parameter is used to concretize `TEthSpec`.
     pub fn new(eth_spec_instance: TEthSpec) -> Self {
+        let (beacon_processor_send, beacon_processor_receive) =
+            mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
+        let (work_reprocessing_tx, work_reprocessing_rx) =
+            mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
         Self {
             slot_clock: None,
             store: None,
@@ -104,6 +117,10 @@ where
             http_metrics_config: <_>::default(),
             slasher: None,
             eth_spec_instance,
+            beacon_processor_send: BeaconProcessorSend(beacon_processor_send),
+            beacon_processor_receive,
+            work_reprocessing_tx,
+            work_reprocessing_rx,
         }
     }
 
@@ -167,6 +184,9 @@ where
             .store(store)
             .task_executor(context.executor.clone())
             .custom_spec(spec.clone())
+            .store_migrator_config(
+                MigratorConfig::default().epochs_per_migration(chain_config.epochs_per_migration),
+            )
             .chain_config(chain_config)
             .graffiti(graffiti)
             .event_handler(event_handler)
@@ -568,6 +588,8 @@ where
             gossipsub_registry
                 .as_mut()
                 .map(|registry| registry.sub_registry_with_prefix("gossipsub")),
+            self.beacon_processor_send.clone(),
+            self.work_reprocessing_tx.clone(),
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
@@ -755,6 +777,28 @@ where
         }
 
         if let Some(beacon_chain) = self.beacon_chain.as_ref() {
+            if let Some(network_globals) = &self.network_globals {
+                let beacon_processor_context = runtime_context.service_context("bproc".into());
+                BeaconProcessor {
+                    network_globals: network_globals.clone(),
+                    executor: beacon_processor_context.executor.clone(),
+                    max_workers: cmp::max(1, num_cpus::get()),
+                    current_workers: 0,
+                    enable_backfill_rate_limiting: beacon_chain
+                        .config
+                        .enable_backfill_rate_limiting,
+                    log: beacon_processor_context.log().clone(),
+                }
+                .spawn_manager(
+                    self.beacon_processor_receive,
+                    self.work_reprocessing_tx,
+                    self.work_reprocessing_rx,
+                    None,
+                    beacon_chain.slot_clock.clone(),
+                    beacon_chain.spec.maximum_gossip_clock_disparity(),
+                )?;
+            }
+
             let state_advance_context = runtime_context.service_context("state_advance".into());
             let state_advance_log = state_advance_context.log().clone();
             spawn_state_advance_timer(
@@ -807,9 +851,6 @@ where
                     execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock>(
                         beacon_chain.slot_clock.clone(),
                     );
-
-                    // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
-                    execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
                 }
 
                 // Spawn a service to publish BLS to execution changes at the Capella fork.

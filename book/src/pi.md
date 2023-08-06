@@ -22,7 +22,7 @@ terminal and an Internet connection are necessary.
 Install the Ubuntu dependencies:
 
 ```bash
-sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf-compiler
+sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
 ```
 
 > Tips:
