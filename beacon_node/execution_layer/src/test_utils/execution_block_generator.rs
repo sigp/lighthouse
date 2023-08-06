@@ -583,7 +583,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                     ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {}
                     ForkName::Deneb => {
                         // get random number between 0 and Max Blobs
-                        let num_blobs = rand::random::<usize>() % T::max_blobs_per_block();
+                        let num_blobs = rand::random::<usize>() % (T::max_blobs_per_block() + 1);
                         let kzg = self.kzg.as_ref().ok_or("kzg not initialized")?;
                         let (bundle, transactions) = generate_random_blobs(num_blobs, kzg)?;
                         for tx in Vec::from(transactions) {
