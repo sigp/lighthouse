@@ -13,7 +13,7 @@ use std::hash::Hash;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use crate::blob_sidecar::SidecarLess;
+use crate::blob_sidecar::RawBlobs;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockType {
@@ -86,8 +86,7 @@ pub trait AbstractExecPayload<T: EthSpec>:
     + TryInto<Self::Capella>
     + TryInto<Self::Deneb>
 {
-    type BlobSidecar: Sidecar<T>;
-    type Blob: SidecarLess<T>;
+    type Sidecar: Sidecar<T>;
 
     type Ref<'a>: ExecPayload<T>
         + Copy
@@ -111,7 +110,7 @@ pub trait AbstractExecPayload<T: EthSpec>:
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
     fn default_blobs_at_fork(
         fork_name: ForkName,
-    ) -> Result<Self::Blob, Error>;
+    ) -> Result<<Self::Sidecar as Sidecar<T>>::RawBlobs, Error>;
 }
 
 #[superstruct(
@@ -388,8 +387,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
 }
 
 impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
-    type BlobSidecar = BlobSidecar<T>;
-    type Blob = Blobs<T>;
+    type Sidecar = BlobSidecar<T>;
     type Ref<'a> = FullPayloadRef<'a, T>;
     type Merge = FullPayloadMerge<T>;
     type Capella = FullPayloadCapella<T>;
@@ -911,8 +909,7 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Capella = BlindedPayloadCapella<T>;
     type Deneb = BlindedPayloadDeneb<T>;
 
-    type BlobSidecar = BlindedBlobSidecar;
-    type Blob = BlobRoots<T>;
+    type Sidecar = BlindedBlobSidecar;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {

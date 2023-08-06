@@ -545,8 +545,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub async fn sign_blobs<Payload: AbstractExecPayload<E>>(
         &self,
         validator_pubkey: PublicKeyBytes,
-        blob_sidecars: SidecarList<E, Payload::BlobSidecar>,
-    ) -> Result<SignedSidecarList<E, Payload::BlobSidecar>, Error> {
+        blob_sidecars: SidecarList<E, Payload::Sidecar>,
+    ) -> Result<SignedSidecarList<E, Payload::Sidecar>, Error> {
         let mut signed_blob_sidecars = Vec::new();
         for blob_sidecar in blob_sidecars.into_iter() {
             let slot = blob_sidecar.slot();

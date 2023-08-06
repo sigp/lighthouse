@@ -41,7 +41,7 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::SidecarLess;
+use types::blob_sidecar::RawBlobs;
 use types::builder_bid::BuilderBid;
 use types::{
     AbstractExecPayload, BeaconStateError, ExecPayload, ExecutionPayloadDeneb, VersionedHash,
@@ -108,7 +108,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<BuilderBid<E, Payload>>
                 payload: builder_bid.header,
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blinded_blobs_bundle.commitments,
-                blobs: SidecarLess::from_blob_roots(builder_bid.blinded_blobs_bundle.blob_roots),
+                blobs: RawBlobs::from_blob_roots(builder_bid.blinded_blobs_bundle.blob_roots),
                 proofs: builder_bid.blinded_blobs_bundle.proofs,
             },
         };
@@ -161,7 +161,7 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         payload: Payload,
         block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
-        blobs: Payload::Blob,
+        blobs: <Payload::Sidecar as Sidecar<T>>::RawBlobs,
         proofs: KzgProofs<T>,
     },
 }
@@ -176,7 +176,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<GetPayloadResponse<E>>
                 payload: execution_payload.into(),
                 block_value,
                 kzg_commitments: bundle.commitments,
-                blobs: SidecarLess::from_blobs(bundle.blobs),
+                blobs: RawBlobs::from_blobs(bundle.blobs),
                 proofs: bundle.proofs,
             },
             None => Self::Payload {
@@ -194,7 +194,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
     ) -> (
         Payload,
         Option<KzgCommitments<T>>,
-        Option<Payload::Blob>,
+        Option<<Payload::Sidecar as Sidecar<T>>::RawBlobs>,
         Option<KzgProofs<T>>,
     ) {
         match self {

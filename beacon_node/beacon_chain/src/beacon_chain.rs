@@ -9,6 +9,7 @@ use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_verification::{self, GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
+use tree_hash::TreeHash;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
@@ -116,7 +117,7 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::SidecarLess;
+use types::blob_sidecar::RawBlobs;
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
@@ -482,7 +483,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconBlockAndState<T, Payload> = (
     BeaconBlock<T, Payload>,
     BeaconState<T>,
-    Option<SidecarList<T, <Payload as AbstractExecPayload<T>>::BlobSidecar>>,
+    Option<SidecarList<T, <Payload as AbstractExecPayload<T>>::Sidecar>>,
 );
 
 impl FinalizationAndCanonicity {
@@ -4969,11 +4970,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
 
                 let kzg_proofs = Vec::from(proofs);
-                Some(blobs_or_blobs_roots.to_sidecar(
+                Some(Sidecar::build_sidecar(blobs_or_blobs_roots,
                     &block,
                     expected_kzg_commitments,
                     kzg_proofs,
-                )?)
+                ).unwrap()) //TODO: remove unwrap
             }
             _ => None,
         };

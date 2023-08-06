@@ -39,64 +39,25 @@ pub trait Sidecar<E: EthSpec>:
     + Send
     + for<'a> arbitrary::Arbitrary<'a>
 {
+    type RawBlobs: RawBlobs<E>;
     fn slot(&self) -> Slot;
+    fn build_sidecar<Payload: AbstractExecPayload<E>>(
+        a: Self::RawBlobs,
+        block: &BeaconBlock<E, Payload>,
+        expected_kzg_commitments: &KzgCommitments<E>,
+        kzg_proofs: Vec<KzgProof>,
+    ) -> Result<SidecarList<E, Self>, String>;
 }
 
-pub trait SidecarLess<T: EthSpec>: Sync + Send {
-    fn to_sidecar<S: Sidecar<T>,P: AbstractExecPayload<T>>(
-        self,
-        block: &BeaconBlock<T, P>,
-        expected_kzg_commitments: &KzgCommitments<T>,
-        kzg_proofs: Vec<KzgProof>,
-    ) -> Result<SidecarList<T, S>, String> ;
+pub trait RawBlobs<T: EthSpec>: Sync + Send {
     fn from_blob_roots(roots: BlobRoots<T>) -> Self;
     fn from_blobs(blobs: Blobs<T>) -> Self;
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
 }
 
-impl<T: EthSpec> SidecarLess<T> for Blobs<T> {
-    fn to_sidecar<S: Sidecar<T>, P: AbstractExecPayload<T>>(
-        self,
-        block: &BeaconBlock<T, P>,
-        expected_kzg_commitments: &KzgCommitments<T>,
-        kzg_proofs: Vec<KzgProof>,
-    ) -> Result<SidecarList<T, S>, String> {
-        let blobs = self;
-        let beacon_block_root = block.canonical_root();
-        let slot = block.slot();
+impl<T: EthSpec> RawBlobs<T> for Blobs<T> {
 
-        //TODO(sean) kzg verify
-
-        let blob_sidecars = BlobSidecarList::from(
-            blobs
-                .into_iter()
-                .enumerate()
-                .map(|(blob_index, blob)| {
-                    let kzg_commitment = expected_kzg_commitments
-                        .get(blob_index)
-                        .expect("KZG commitment should exist for blob");
-
-                    let kzg_proof = kzg_proofs
-                        .get(blob_index)
-                        .expect("KZG proof should exist for blob");
-
-                    Ok(Arc::new(BlobSidecar {
-                        block_root: beacon_block_root,
-                        index: blob_index as u64,
-                        slot,
-                        block_parent_root: block.parent_root(),
-                        proposer_index: block.proposer_index(),
-                        blob,
-                        kzg_commitment: *kzg_commitment,
-                        kzg_proof: *kzg_proof,
-                    }))
-                })
-                .collect::<Result<Vec<_>, String>>()?,
-        );
-
-        Ok(blob_sidecars)
-    }
     fn from_blob_roots(roots: BlobRoots<T>) -> Self {
         todo!()
     }
@@ -111,47 +72,8 @@ impl<T: EthSpec> SidecarLess<T> for Blobs<T> {
     }
 }
 
-impl<T: EthSpec> SidecarLess<T> for BlobRoots<T> {
-    fn to_sidecar<S: Sidecar<T>, P: AbstractExecPayload<T>>(
-        self,
-        block: &BeaconBlock<T, P>,
-        expected_kzg_commitments: &KzgCommitments<T>,
-        kzg_proofs: Vec<KzgProof>,
-    ) -> Result<SidecarList<T, BlindedBlobSidecar>, String> {
-        let blob_roots = self;
-        let beacon_block_root = block.canonical_root();
-        let slot = block.slot();
+impl<T: EthSpec> RawBlobs<T> for BlobRoots<T> {
 
-        let blob_sidecars = BlindedBlobSidecarList::<T>::from(
-            blob_roots
-                .into_iter()
-                .enumerate()
-                .map(|(blob_index, blob_root)| {
-                    let kzg_commitment = expected_kzg_commitments
-                        .get(blob_index)
-                        .expect("KZG commitment should exist for blob");
-
-                    let kzg_proof = kzg_proofs.get(blob_index).ok_or(format!(
-                        "Missing KZG proof for slot {} blob index: {}",
-                        slot, blob_index
-                    ))?;
-
-                    Ok(Arc::new(BlindedBlobSidecar {
-                        block_root: beacon_block_root,
-                        index: blob_index as u64,
-                        slot,
-                        block_parent_root: block.parent_root(),
-                        proposer_index: block.proposer_index(),
-                        blob_root,
-                        kzg_commitment: *kzg_commitment,
-                        kzg_proof: *kzg_proof,
-                    }))
-                })
-                .collect::<Result<Vec<_>, String>>()?,
-        );
-
-        Ok(blob_sidecars)
-    }
     fn from_blob_roots(roots: BlobRoots<T>) -> Self {
         todo!()
     }
@@ -218,8 +140,49 @@ pub struct BlobSidecar<T: EthSpec> {
 }
 
 impl<E: EthSpec> Sidecar<E> for BlobSidecar<E> {
+    type RawBlobs = Blobs<E>;
     fn slot(&self) -> Slot {
         self.slot
+    }
+    fn build_sidecar<Payload: AbstractExecPayload<E>>(
+        blobs: Blobs<E>,
+        block: &BeaconBlock<E, Payload>,
+        expected_kzg_commitments: &KzgCommitments<E>,
+        kzg_proofs: Vec<KzgProof>,
+    ) -> Result<SidecarList<E, Self>, String> {
+        let beacon_block_root = block.canonical_root();
+        let slot = block.slot();
+
+        //TODO: kzg verify
+
+        let blob_sidecars = BlobSidecarList::from(
+            blobs
+                .into_iter()
+                .enumerate()
+                .map(|(blob_index, blob)| {
+                    let kzg_commitment = expected_kzg_commitments
+                        .get(blob_index)
+                        .expect("KZG commitment should exist for blob");
+
+                    let kzg_proof = kzg_proofs
+                        .get(blob_index)
+                        .expect("KZG proof should exist for blob");
+
+                    Ok(Arc::new(BlobSidecar {
+                        block_root: beacon_block_root,
+                        index: blob_index as u64,
+                        slot,
+                        block_parent_root: block.parent_root(),
+                        proposer_index: block.proposer_index(),
+                        blob,
+                        kzg_commitment: *kzg_commitment,
+                        kzg_proof: *kzg_proof,
+                    }))
+                })
+                .collect::<Result<Vec<_>, String>>()?,
+        );
+
+        Ok(blob_sidecars)
     }
 }
 
@@ -358,8 +321,48 @@ pub struct BlindedBlobSidecar {
 impl SignedRoot for BlindedBlobSidecar {}
 
 impl<E: EthSpec> Sidecar<E> for BlindedBlobSidecar {
+    type RawBlobs = BlobRoots<E>;
     fn slot(&self) -> Slot {
         self.slot
+    }
+    fn build_sidecar<Payload: AbstractExecPayload<E>>(
+        blob_roots: BlobRoots<E>,
+        block: &BeaconBlock<E, Payload>,
+        expected_kzg_commitments: &KzgCommitments<E>,
+        kzg_proofs: Vec<KzgProof>,
+    ) -> Result<SidecarList<E, BlindedBlobSidecar>, String> {
+        let beacon_block_root = block.canonical_root();
+        let slot = block.slot();
+
+        let blob_sidecars = BlindedBlobSidecarList::<E>::from(
+            blob_roots
+                .into_iter()
+                .enumerate()
+                .map(|(blob_index, blob_root)| {
+                    let kzg_commitment = expected_kzg_commitments
+                        .get(blob_index)
+                        .expect("KZG commitment should exist for blob");
+
+                    let kzg_proof = kzg_proofs.get(blob_index).ok_or(format!(
+                        "Missing KZG proof for slot {} blob index: {}",
+                        slot, blob_index
+                    ))?;
+
+                    Ok(Arc::new(BlindedBlobSidecar {
+                        block_root: beacon_block_root,
+                        index: blob_index as u64,
+                        slot,
+                        block_parent_root: block.parent_root(),
+                        proposer_index: block.proposer_index(),
+                        blob_root,
+                        kzg_commitment: *kzg_commitment,
+                        kzg_proof: *kzg_proof,
+                    }))
+                })
+                .collect::<Result<Vec<_>, String>>()?,
+        );
+
+        Ok(blob_sidecars)
     }
 }
 
