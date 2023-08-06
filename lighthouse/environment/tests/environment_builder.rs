@@ -1,8 +1,8 @@
 #![cfg(test)]
 
-use logging::test_logger;
 use environment::EnvironmentBuilder;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use logging::test_logger;
 use std::path::PathBuf;
 use types::{Config, MainnetEthSpec};
 

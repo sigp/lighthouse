@@ -1,7 +1,5 @@
 #![cfg(test)]
-use environment::{Environment,
-     EnvironmentBuilder,
-    test_logger};
+use environment::{test_logger, Environment, EnvironmentBuilder};
 use eth1::{Config, Eth1Endpoint, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID};
 use eth1_test_rig::{AnvilEth1Instance, Http, Middleware, Provider};

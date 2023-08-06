@@ -66,12 +66,12 @@ use beacon_chain::{
 };
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
-use environment::{Environment, test_logger};
-use logging::test_logger;
+use environment::{test_logger, Environment};
 use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
+use logging::test_logger;
 use ssz::Encode;
 use state_processing::{
     block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
@@ -187,12 +187,8 @@ pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), 
      * Create a `BeaconStore` and `ValidatorPubkeyCache` for block signature verification.
      */
 
-    let store = HotColdDB::open_ephemeral(
-        <_>::default(),
-        spec.clone(),
-        test_logger(),
-    )
-    .map_err(|e| format!("Failed to create ephemeral store: {:?}", e))?;
+    let store = HotColdDB::open_ephemeral(<_>::default(), spec.clone(), test_logger())
+        .map_err(|e| format!("Failed to create ephemeral store: {:?}", e))?;
 
     let store = Arc::new(store);
 

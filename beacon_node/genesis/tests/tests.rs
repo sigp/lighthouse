@@ -3,13 +3,13 @@
 //! You can start a suitable instance using the `anvil_test_node.sh` script in the `scripts`
 //! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
-use environment::{Environment, EnvironmentBuilder, test_logger};
+use environment::{test_logger, Environment, EnvironmentBuilder};
 use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
 use eth1_test_rig::{AnvilEth1Instance, DelayThenDeposit, Middleware};
+use genesis::{Eth1Config, Eth1GenesisService};
 use sensitive_url::SensitiveUrl;
 use state_processing::is_valid_genesis_state;
 use std::time::Duration;
-use genesis::{Eth1Config, Eth1GenesisService};
 use types::{test_utils::generate_deterministic_keypair, Hash256, MinimalEthSpec};
 
 pub fn new_env() -> Environment<MinimalEthSpec> {
