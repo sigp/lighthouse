@@ -1,7 +1,9 @@
-use warp::{Filter, Rejection, Reply};
 use bytes::{Buf, Bytes};
-use std::error::Error as StdError;
 use serde::de::DeserializeOwned;
+use std::error::Error as StdError;
+use warp::{Filter, Rejection};
+
+use crate::reject;
 
 struct Json;
 
@@ -14,10 +16,7 @@ impl Json {
 }
 
 pub fn json<T: DeserializeOwned + Send>() -> impl Filter<Extract = (T,), Error = Rejection> + Copy {
-    warp::body::bytes()
-        .and_then(|buf: Bytes| async move {
-            Json::decode(buf).map_err(|err| {
-                warp::reject::reject()
-            })
-        })
+    warp::body::bytes().and_then(|buf: Bytes| async move {
+        Json::decode(buf).map_err(|err| reject::custom_bad_request(format!("{:?}", err)))
+    })
 }
