@@ -126,7 +126,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let lookup = self.new_current_lookup(block_root, None, &[peer_source], cx);
+
         if let Some(lookup) = lookup {
+            let blob_indices = lookup.blob_request_state.requested_ids.indices();
+            debug!(
+                self.log,
+                "Searching for block";
+                "peer_id" => ?peer_source,
+                "block" => ?block_root,
+                "blob_indices" => ?blob_indices
+            );
             self.trigger_single_lookup(lookup, cx);
         }
     }
@@ -142,6 +151,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) {
         let lookup = self.new_current_lookup(block_root, None, &[peer_source], cx);
         if let Some(lookup) = lookup {
+            let blob_indices = lookup.blob_request_state.requested_ids.indices();
+            debug!(
+                self.log,
+                "Initialized delayed lookup for block";
+                "peer_id" => ?peer_source,
+                "block" => ?block_root,
+                "blob_indices" => ?blob_indices
+            );
             self.add_single_lookup(lookup)
         }
     }
@@ -161,6 +178,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) {
         let lookup = self.new_current_lookup(block_root, child_components, peer_source, cx);
         if let Some(lookup) = lookup {
+            let blob_indices = lookup.blob_request_state.requested_ids.indices();
+            debug!(
+                self.log,
+                "Searching for components of a block with unknown parent";
+                "peer_id" => ?peer_source,
+                "block" => ?block_root,
+                "blob_indices" => ?blob_indices
+            );
             self.trigger_single_lookup(lookup, cx);
         }
     }
@@ -181,6 +206,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) {
         let lookup = self.new_current_lookup(block_root, child_components, peer_source, cx);
         if let Some(lookup) = lookup {
+            let blob_indices = lookup.blob_request_state.requested_ids.indices();
+            debug!(
+                self.log,
+                "Initialized delayed lookup for block with unknown parent";
+                "peer_id" => ?peer_source,
+                "block" => ?block_root,
+                "blob_indices" => ?blob_indices
+            );
             self.add_single_lookup(lookup)
         }
     }
@@ -218,6 +251,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn trigger_lookup_by_root(&mut self, block_root: Hash256, cx: &SyncNetworkContext<T>) {
         self.single_block_lookups.retain(|_id, lookup| {
             if lookup.block_root() == block_root {
+                let blob_indices = lookup.blob_request_state.requested_ids.indices();
+                debug!(
+                    self.log,
+                    "Triggering delayed single lookup";
+                    "block" => ?block_root,
+                    "blob_indices" => ?blob_indices
+                );
                 if let Err(e) = lookup.request_block_and_blobs(cx) {
                     debug!(self.log, "Delayed single block lookup failed";
                         "error" => ?e,
@@ -270,13 +310,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             // we are already processing this block, ignore it.
             return None;
         }
-
-        debug!(
-            self.log,
-            "Searching for block";
-            "peer_id" => ?peers,
-            "block" => ?block_root
-        );
 
         Some(SingleBlockLookup::new(
             block_root,
