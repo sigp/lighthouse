@@ -58,8 +58,8 @@ impl SlashingDatabase {
             .open(path)?;
 
         restrict_file_permissions(path).map_err(|_| NotSafe::PermissionsError)?;
-        let conn_pool = Self::open_conn_pool(path)?;
         let start = Instant::now();
+        let conn_pool = Self::open_conn_pool(path)?;
         let mut conn = conn_pool.get()?;
         let duration = Instant::now().duration_since(start);
         println!("Retrieving connection took {:?}", duration);
