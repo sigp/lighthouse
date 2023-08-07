@@ -128,7 +128,7 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
     let (http_client, _keystores) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
 
     eprintln!(
-        "Starting to submit validators {} to VC, each validator may take several seconds",
+        "Starting to submit {} validators to VC, each validator may take several seconds",
         count
     );
 

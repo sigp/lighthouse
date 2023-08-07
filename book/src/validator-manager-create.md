@@ -159,7 +159,7 @@ If successful, the command output will appear like below:
 ```bash
 Running validator manager for mainnet network
 Validator client is reachable at http://localhost:5062/ and reports 0 validators
-Starting to submit validators 2 to VC, each validator may take several seconds
+Starting to submit 2 validators to VC, each validator may take several seconds
 Uploaded keystore 1 of 2 to the VC
 Uploaded keystore 2 of 2 to the VC
 ```
