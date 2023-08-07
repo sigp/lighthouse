@@ -118,8 +118,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("STRING")
                 .help(
                     "The validators to be moved. Either a list of 0x-prefixed \
-                    validator pubkeys, an integer count of validators or the \
-                    keyword \"all\".",
+                    validator pubkeys or the keyword \"all\".",
                 )
                 .takes_value(true),
         )
