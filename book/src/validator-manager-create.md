@@ -177,4 +177,30 @@ INFO Modified key_cache saved successfully
 The WARN message means that the `validators.json` file does not contain the slashing protection data. This is normal if you are starting a new validator. The flag `--enable-doppelganger-protection` will also protect users from potential slashing risk. 
 The validators will now go through 2-3 epochs of [doppelganger
 protection](./validator-doppelganger.md) and will automatically start performing
-their duties when they are deposited and activated. The guide is complete.
+their duties when they are deposited and activated. 
+
+If the host VC contains the same public key as the `validators.json` file, an error will be shown and the `import` process will stop:
+
+```bash
+Duplicate validator   0xab6e29f1b98fedfca878edce2b471f1b5ee58ee4c3bd216201f98254ef6f6eac40a53d74c8b7da54f51d3e85cacae92f already exists on the destination validator client. This may indicate that some validators are running in two places at once, which can lead to slashing. If you are certain that there is no risk, add the --ignore-duplicates flag.
+Err(DuplicateValidator(0xab6e29f1b98fedfca878edce2b471f1b5ee58ee4c3bd216201f98254ef6f6eac40a53d74c8b7da54f51d3e85cacae92f))
+```
+
+If you are certain that it is safe, you can add the flag `--ignore-duplicates` in the `import` command. The command becomes:
+
+```bash
+lighthouse \
+    validator-manager \
+    import \
+    --validators-file validators.json \
+    --vc-token <API-TOKEN-PATH> \
+    --ignore-duplicates
+```
+and the output will be as follows:
+
+```bash
+Duplicate validators are ignored, ignoring 0xab6e29f1b98fedfca878edce2b471f1b5ee58ee4c3bd216201f98254ef6f6eac40a53d74c8b7da54f51d3e85cacae92f which exists on the destination validator client
+Re-uploaded keystore 1 of 6 to the VC
+```
+
+The guide is complete.
