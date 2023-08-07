@@ -171,7 +171,18 @@ Once the operation completes successfully, there is nothing else to be done. The
 validators have been removed from the `src-host` and enabled at the `dest-host`.
 If the `--enable-doppelganger-protection` flag was used it may take 2-3 epochs
 for the validators to start attesting and producing blocks on the `dest-host`.
+If you would only like to move some validators, you can replace the flag `--validators all` with one or more validator public keys. For example:
 
+```bash
+lighthouse \
+	validator-manager \
+	move \
+	--src-vc-url http://localhost:6062 \
+	--src-vc-token ~/src-token.txt \
+	--dest-vc-url http://localhost:5062 \
+	--dest-vc-token ~/.lighthouse/mainnet/validators/api-token.txt \
+	--validators 0x9096aab771e44da149bd7c9926d6f7bb96ef465c0eeb4918be5178cd23a1deb4aec232c61d85ff329b54ed4a3bdfff3a,0x90fc4f72d898a8f01ab71242e36f4545aaf87e3887be81632bb8ba4b2ae8fb70753a62f866344d7905e9a07f5a9cdda1
+```
 Any errors encountered during the operation should include information on how to
 proceed. Assistance is also available on our
 [Discord](https://discord.gg/cyAszAh).
