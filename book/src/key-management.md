@@ -9,7 +9,7 @@
 This page recommends the use of the `lighthouse account-manager` tool to create
 validators. This tool will always generate keys with the withdrawal credentials
 of type `0x00`. This means the users who created keys using `lighthouse
-account-manager` will have to update their withdrawal credentials in in a
+account-manager` will have to update their withdrawal credentials in a
 separate step to receive staking rewards.
 
 In addition, Lighthouse generates the deposit data file in the form of `*.rlp`,
