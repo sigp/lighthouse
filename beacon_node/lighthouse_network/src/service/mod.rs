@@ -341,8 +341,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         let (swarm, bandwidth) = {
             // Set up the transport - tcp/ws with noise and mplex
-            let (transport, bandwidth) = build_transport(local_keypair.clone(), !config.disable_quic_support)
-                .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+            let (transport, bandwidth) =
+                build_transport(local_keypair.clone(), !config.disable_quic_support)
+                    .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
             // use the executor for libp2p
             struct Executor(task_executor::TaskExecutor);
@@ -400,7 +401,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         debug!(self.log, "Attempting to open listening ports"; config.listen_addrs(), "discovery_enabled" => !config.disable_discovery, "quic_enabled" => !config.disable_quic_support);
 
         for listen_multiaddr in config.listen_addrs().listen_addresses() {
-
             // If QUIC is disabled, ignore listening on QUIC ports
             if config.disable_quic_support {
                 if listen_multiaddr.iter().any(|v| v == MProtocol::QuicV1) {
@@ -1055,20 +1055,18 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             .filter_map(|(peer_id, enr)| {
                 let peers = self.network_globals.peers.read();
                 if predicate(enr) && peers.should_dial(peer_id) {
-                    Some(*peer_id)
+                    Some(enr)
                 } else {
                     None
                 }
             })
             .collect();
-        for peer_id in peers_to_dial {
+        for enr in peers_to_dial {
             debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
             // Remove the ENR from the cache to prevent continual re-dialing on disconnects
 
-            self.discovery_mut().remove_cached_enr(&peer_id);
-            // For any dial event, inform the peer manager
-            let enr = self.discovery_mut().enr_of_peer(&peer_id);
-            self.peer_manager_mut().dial_peer(&peer_id, enr);
+            self.discovery_mut().remove_cached_enr(&enr.peer_id());
+            self.peer_manager_mut().dial_peer(&enr.peer_id(), Some(enr));
         }
     }
 
@@ -1359,13 +1357,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &mut self,
         event: DiscoveredPeers,
     ) -> Option<NetworkEvent<AppReqId, TSpec>> {
-        let DiscoveredPeers { peers } = event;
-        let to_dial_peers = self.peer_manager_mut().peers_discovered(peers);
-        for peer_id in to_dial_peers {
-            debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
+        let to_dial_peers = self.peer_manager_mut().peers_discovered(event.peers);
+        for enr in to_dial_peers {
+            debug!(self.log, "Dialing discovered peer"; "peer_id" => %enr.peer_id());
             // For any dial event, inform the peer manager
-            let enr = self.discovery_mut().enr_of_peer(&peer_id);
-            self.peer_manager_mut().dial_peer(&peer_id, enr);
+            self.peer_manager_mut().dial_peer(&enr.peer_id(), Some(enr));
         }
         None
     }

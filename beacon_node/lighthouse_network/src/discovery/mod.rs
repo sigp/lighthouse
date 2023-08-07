@@ -75,7 +75,7 @@ const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 /// of the peer if it is specified.
 #[derive(Debug)]
 pub struct DiscoveredPeers {
-    pub peers: HashMap<PeerId, Option<Instant>>,
+    pub peers: HashMap<Enr, Option<Instant>>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -787,7 +787,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     fn process_completed_queries(
         &mut self,
         query: QueryResult,
-    ) -> Option<HashMap<PeerId, Option<Instant>>> {
+    ) -> Option<HashMap<Enr, Option<Instant>>> {
         match query.query_type {
             QueryType::FindPeers => {
                 self.find_peer_active = false;
@@ -798,10 +798,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     Ok(r) => {
                         debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
                         let mut results: HashMap<_, Option<Instant>> = HashMap::new();
-                        r.iter().for_each(|enr| {
+                        r.into_iter().for_each(|enr| {
                             // cache the found ENR's
                             self.cached_enrs.put(enr.peer_id(), enr.clone());
-                            results.insert(enr.peer_id(), None);
+                            results.insert(enr, None);
                         });
                         return Some(results);
                     }
@@ -850,17 +850,17 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             let subnet_predicate =
                                 subnet_predicate::<TSpec>(vec![query.subnet], &self.log);
 
-                            r.iter()
+                            r.clone()
+                                .into_iter()
                                 .filter(|enr| subnet_predicate(enr))
-                                .map(|enr| enr.peer_id())
-                                .for_each(|peer_id| {
+                                .for_each(|enr| {
                                     if let Some(v) = metrics::get_int_counter(
                                         &metrics::SUBNET_PEERS_FOUND,
                                         &[query_str],
                                     ) {
                                         v.inc();
                                     }
-                                    let other_min_ttl = mapped_results.get_mut(&peer_id);
+                                    let other_min_ttl = mapped_results.get_mut(&enr);
 
                                     // map peer IDs to the min_ttl furthest in the future
                                     match (query.min_ttl, other_min_ttl) {
@@ -878,15 +878,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                                         }
                                         // update the mapping if we have a specified min_ttl
                                         (Some(min_ttl), Some(None)) => {
-                                            mapped_results.insert(peer_id, Some(min_ttl));
+                                            mapped_results.insert(enr, Some(min_ttl));
                                         }
                                         // first seen min_ttl for this enr
-                                        (Some(min_ttl), None) => {
-                                            mapped_results.insert(peer_id, Some(min_ttl));
-                                        }
-                                        // first seen min_ttl for this enr
-                                        (None, None) => {
-                                            mapped_results.insert(peer_id, None);
+                                        (min_ttl, None) => {
+                                            mapped_results.insert(enr, min_ttl);
                                         }
                                         (None, Some(Some(_))) => {} // Don't replace the existing specific min_ttl
                                         (None, Some(None)) => {} // No-op because this is a duplicate
@@ -910,7 +906,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Drives the queries returning any results from completed queries.
-    fn poll_queries(&mut self, cx: &mut Context) -> Option<HashMap<PeerId, Option<Instant>>> {
+    fn poll_queries(&mut self, cx: &mut Context) -> Option<HashMap<Enr, Option<Instant>>> {
         while let Poll::Ready(Some(query_result)) = self.active_queries.poll_next_unpin(cx) {
             let result = self.process_completed_queries(query_result);
             if result.is_some() {
