@@ -8395,6 +8395,7 @@ dependencies = [
  "merkle_proof",
  "metastruct",
  "parking_lot 0.12.1",
+ "paste",
  "rand 0.8.5",
  "rand_xorshift",
  "rayon",

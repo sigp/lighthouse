@@ -733,7 +733,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
         work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
         slot_clock: S,
-    ) {
+        maximum_gossip_clock_disparity: Duration,
+    ) -> Result<(), String> {
         // Used by workers to communicate that they are finished a task.
         let (idle_tx, idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
 
@@ -798,7 +799,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             &self.executor,
             slot_clock,
             self.log.clone(),
-        );
+            maximum_gossip_clock_disparity,
+        )?;
 
         let executor = self.executor.clone();
 
@@ -1303,6 +1305,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
         // Spawn on the core executor.
         executor.spawn(manager_future, MANAGER_TASK_NAME);
+        Ok(())
     }
 
     /// Spawns a blocking worker thread to process some `Work`.

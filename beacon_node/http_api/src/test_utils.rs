@@ -211,7 +211,9 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
         work_reprocessing_rx,
         None,
         chain.slot_clock.clone(),
-    );
+        chain.spec.maximum_gossip_clock_disparity(),
+    )
+    .unwrap();
 
     let ctx = Arc::new(Context {
         config: Config {

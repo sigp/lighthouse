@@ -72,7 +72,7 @@ lazy_static! {
     /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
     /// We calculate the value from its fields instead of constructing the block and checking the length.
     /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
-    /// with `MAX_RPC_SIZE_POST_MERGE`.
+    /// with `max_chunk_size`.
     pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize =
     // Size of a full altair block
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
@@ -109,25 +109,18 @@ lazy_static! {
     .len();
 }
 
-/// The maximum bytes that can be sent across the RPC pre-merge.
-pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
-/// The maximum bytes that can be sent across the RPC post-merge.
-pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
-pub(crate) const MAX_RPC_SIZE_POST_CAPELLA: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
-/// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
-const TTFB_TIMEOUT: u64 = 5;
 /// The number of seconds to wait for the first bytes of a request once a protocol has been
 /// established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 15;
 
 /// Returns the maximum bytes that can be sent across the RPC.
-pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
+pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize {
     match fork_context.current_fork() {
-        ForkName::Altair | ForkName::Base => MAX_RPC_SIZE,
-        ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
-        ForkName::Capella => MAX_RPC_SIZE_POST_CAPELLA,
+        ForkName::Altair | ForkName::Base => max_chunk_size / 10,
+        ForkName::Merge => max_chunk_size,
+        ForkName::Capella => max_chunk_size,
     }
 }
 
@@ -262,6 +255,7 @@ pub struct RPCProtocol<TSpec: EthSpec> {
     pub max_rpc_size: usize,
     pub enable_light_client_server: bool,
     pub phantom: PhantomData<TSpec>,
+    pub ttfb_timeout: Duration,
 }
 
 impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
@@ -447,7 +441,7 @@ where
                 }
             };
             let mut timed_socket = TimeoutStream::new(socket);
-            timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
+            timed_socket.set_read_timeout(Some(self.ttfb_timeout));
 
             let socket = Framed::new(Box::pin(timed_socket), codec);
 
