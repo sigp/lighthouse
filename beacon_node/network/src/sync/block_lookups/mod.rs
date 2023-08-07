@@ -832,7 +832,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
         debug!(
             self.log,
-            "Block component processed for single block lookup not present"
+            "Block component processed for lookup";
+            "response_type" => ?R::response_type(),
+            "result" => ?result,
         );
 
         match result {
