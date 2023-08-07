@@ -953,25 +953,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     ) {
     }
 
-    fn handle_pending_outbound_connection(
-        &mut self,
-        _connection_id: ConnectionId,
-        maybe_peer: Option<PeerId>,
-        _addresses: &[Multiaddr],
-        _effective_role: libp2p::core::Endpoint,
-    ) -> Result<Vec<Multiaddr>, libp2p::swarm::ConnectionDenied> {
-        if let Some(enr) = maybe_peer.and_then(|peer_id| self.enr_of_peer(&peer_id)) {
-            // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
-            // port is removed, which is assumed to be associated with the discv5 protocol (and
-            // therefore irrelevant for other libp2p components).
-            let mut addrs = enr.multiaddr_tcp();
-            addrs.append(&mut enr.multiaddr_tcp());
-            Ok(addrs)
-        } else {
-            Ok(vec![])
-        }
-    }
-
     // Main execution loop to drive the behaviour
     fn poll(
         &mut self,

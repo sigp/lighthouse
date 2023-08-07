@@ -1049,25 +1049,26 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     /// in Connected, Dialing or Banned state.
     fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet) {
         let predicate = subnet_predicate::<TSpec>(vec![subnet], &self.log);
-        let peers_to_dial: Vec<PeerId> = self
+        let peers_to_dial: Vec<Enr> = self
             .discovery()
             .cached_enrs()
             .filter_map(|(peer_id, enr)| {
                 let peers = self.network_globals.peers.read();
                 if predicate(enr) && peers.should_dial(peer_id) {
-                    Some(enr)
+                    Some(enr.clone())
                 } else {
                     None
                 }
             })
             .collect();
-        for enr in peers_to_dial {
-            debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
-            // Remove the ENR from the cache to prevent continual re-dialing on disconnects
 
+        // Remove the ENR from the cache to prevent continual re-dialing on disconnects
+        // TODO: add this step to the iteration above.
+        peers_to_dial.iter().for_each(|enr| {
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
-            self.peer_manager_mut().dial_peer(&enr.peer_id(), Some(enr));
-        }
+        });
+
+        self.peer_manager_mut().dial_peers(peers_to_dial);
     }
 
     /* Sub-behaviour event handling functions */
@@ -1358,11 +1359,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         event: DiscoveredPeers,
     ) -> Option<NetworkEvent<AppReqId, TSpec>> {
         let to_dial_peers = self.peer_manager_mut().peers_discovered(event.peers);
-        for enr in to_dial_peers {
-            debug!(self.log, "Dialing discovered peer"; "peer_id" => %enr.peer_id());
-            // For any dial event, inform the peer manager
-            self.peer_manager_mut().dial_peer(&enr.peer_id(), Some(enr));
-        }
+        // For any dial event, inform the peer manager
+        self.peer_manager_mut().dial_peers(to_dial_peers);
         None
     }
 

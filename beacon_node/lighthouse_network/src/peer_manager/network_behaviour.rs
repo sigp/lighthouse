@@ -12,6 +12,7 @@ use libp2p::swarm::{ConnectionId, NetworkBehaviour, PollParameters, ToSwarm};
 use slog::{debug, error};
 use types::EthSpec;
 
+use crate::discovery::enr_ext::EnrExt;
 use crate::metrics;
 use crate::rpc::GoodbyeReason;
 use crate::types::SyncState;
@@ -95,11 +96,18 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             self.events.shrink_to_fit();
         }
 
-        if let Some((peer_id, maybe_enr)) = self.peers_to_dial.pop_first() {
-            self.inject_peer_connection(&peer_id, ConnectingType::Dialing, maybe_enr);
+        if let Some(enr) = self.peers_to_dial.pop() {
+            self.inject_peer_connection(&enr.peer_id(), ConnectingType::Dialing, Some(enr.clone()));
+            // Prioritize Quic connections over Tcp ones.
+            let multiaddrs = enr
+                .multiaddr_quic()
+                .into_iter()
+                .chain(enr.multiaddr_tcp())
+                .collect();
             return Poll::Ready(ToSwarm::Dial {
-                opts: DialOpts::peer_id(peer_id)
+                opts: DialOpts::peer_id(enr.peer_id())
                     .condition(PeerCondition::Disconnected)
+                    .addresses(multiaddrs)
                     .build(),
             });
         }
