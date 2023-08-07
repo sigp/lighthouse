@@ -434,6 +434,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
+        let blob_count = blobs.iter().filter(|b| b.is_some()).count();
+        if blob_count == 0 {
+            return Ok(());
+        }
         let process_fn = self.clone().generate_rpc_blobs_process_fn(
             block_root,
             blobs,

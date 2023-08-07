@@ -7,7 +7,8 @@ use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::{BlobRequestId, BlockRequestId};
+use crate::sync::block_lookups::common::LookupType;
+use crate::sync::manager::SingleLookupReqId;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
@@ -62,7 +63,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
 
     /// Logger for the `SyncNetworkContext`.
-    log: slog::Logger,
+    pub log: slog::Logger,
 }
 
 /// Small enumeration to make dealing with block and blob requests easier.
@@ -118,11 +119,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .unwrap_or_default()
     }
 
-    pub fn status_peers<C: ToStatusMessage>(
-        &mut self,
-        chain: &C,
-        peers: impl Iterator<Item = PeerId>,
-    ) {
+    pub fn status_peers<C: ToStatusMessage>(&self, chain: &C, peers: impl Iterator<Item = PeerId>) {
         let status_message = chain.status_message();
         for peer_id in peers {
             debug!(
@@ -408,21 +405,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    /// Sends a blocks by root request for a parent request.
-    pub fn single_block_lookup_request(
-        &mut self,
+    pub fn block_lookup_request(
+        &self,
+        id: SingleLookupReqId,
         peer_id: PeerId,
         request: BlocksByRootRequest,
-    ) -> Result<Id, &'static str> {
-        let id = self.next_id();
-        let request_id = RequestId::Sync(SyncRequestId::SingleBlock { id });
+        lookup_type: LookupType,
+    ) -> Result<(), &'static str> {
+        let sync_id = match lookup_type {
+            LookupType::Current => SyncRequestId::SingleBlock { id },
+            LookupType::Parent => SyncRequestId::ParentLookup { id },
+        };
+        let request_id = RequestId::Sync(sync_id);
 
         trace!(
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
             "count" => request.block_roots().len(),
-            "peer" => %peer_id
+            "peer" => %peer_id,
+            "lookup_type" => ?lookup_type
         );
 
         self.send_network_msg(NetworkMessage::SendRequest {
@@ -430,82 +432,39 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request: Request::BlocksByRoot(request),
             request_id,
         })?;
-        Ok(id)
+        Ok(())
     }
 
-    /// Sends a blobs by root request for a parent request.
-    pub fn single_blobs_lookup_request(
-        &mut self,
-        peer_id: PeerId,
-        request: BlobsByRootRequest,
-    ) -> Result<Id, &'static str> {
-        let id = self.next_id();
-        let request_id = RequestId::Sync(SyncRequestId::SingleBlock { id });
+    pub fn blob_lookup_request(
+        &self,
+        id: SingleLookupReqId,
+        blob_peer_id: PeerId,
+        blob_request: BlobsByRootRequest,
+        lookup_type: LookupType,
+    ) -> Result<(), &'static str> {
+        let sync_id = match lookup_type {
+            LookupType::Current => SyncRequestId::SingleBlob { id },
+            LookupType::Parent => SyncRequestId::ParentLookupBlob { id },
+        };
+        let request_id = RequestId::Sync(sync_id);
 
-        trace!(
-            self.log,
-            "Sending BlobsByRoot Request";
-            "method" => "BlobsByRoot",
-            "count" => request.blob_ids.len(),
-            "peer" => %peer_id
-        );
+        if !blob_request.blob_ids.is_empty() {
+            trace!(
+                self.log,
+                "Sending BlobsByRoot Request";
+                "method" => "BlobsByRoot",
+                "count" => blob_request.blob_ids.len(),
+                "peer" => %blob_peer_id,
+                "lookup_type" => ?lookup_type
+            );
 
-        self.send_network_msg(NetworkMessage::SendRequest {
-            peer_id,
-            request: Request::BlobsByRoot(request),
-            request_id,
-        })?;
-        Ok(id)
-    }
-
-    /// Sends a blocks by root request for a parent request.
-    pub fn parent_lookup_block_request(
-        &mut self,
-        peer_id: PeerId,
-        request: BlocksByRootRequest,
-    ) -> Result<BlockRequestId, &'static str> {
-        let id = self.next_id();
-        let request_id = RequestId::Sync(SyncRequestId::ParentLookup { id });
-
-        trace!(
-            self.log,
-            "Sending parent BlocksByRoot Request";
-            "method" => "BlocksByRoot",
-            "count" => request.block_roots().len(),
-            "peer" => %peer_id
-        );
-
-        self.send_network_msg(NetworkMessage::SendRequest {
-            peer_id,
-            request: Request::BlocksByRoot(request),
-            request_id,
-        })?;
-        Ok(id)
-    }
-
-    /// Sends a blocks by root request for a parent request.
-    pub fn parent_lookup_blobs_request(
-        &mut self,
-        peer_id: PeerId,
-        request: BlobsByRootRequest,
-    ) -> Result<BlobRequestId, &'static str> {
-        let id = self.next_id();
-        let request_id = RequestId::Sync(SyncRequestId::ParentLookup { id });
-
-        trace!(
-            self.log,
-            "Sending parent BlobsByRoot Request";
-            "method" => "BlobsByRoot",
-            "count" => request.blob_ids.len(),
-            "peer" => %peer_id
-        );
-
-        self.send_network_msg(NetworkMessage::SendRequest {
-            peer_id,
-            request: Request::BlobsByRoot(request),
-            request_id,
-        })?;
-        Ok(id)
+            self.send_network_msg(NetworkMessage::SendRequest {
+                peer_id: blob_peer_id,
+                request: Request::BlobsByRoot(blob_request),
+                request_id,
+            })?;
+        }
+        Ok(())
     }
 
     pub fn is_execution_engine_online(&self) -> bool {
@@ -532,7 +491,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// Reports to the scoring algorithm the behaviour of a peer.
-    pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction, msg: &'static str) {
+    pub fn report_peer(&self, peer_id: PeerId, action: PeerAction, msg: &'static str) {
         debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action);
         self.network_send
             .send(NetworkMessage::ReportPeer {
@@ -547,7 +506,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// Subscribes to core topics.
-    pub fn subscribe_core_topics(&mut self) {
+    pub fn subscribe_core_topics(&self) {
         self.network_send
             .send(NetworkMessage::SubscribeCoreTopics)
             .unwrap_or_else(|e| {
@@ -556,7 +515,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// Sends an arbitrary network message.
-    fn send_network_msg(&mut self, msg: NetworkMessage<T::EthSpec>) -> Result<(), &'static str> {
+    fn send_network_msg(&self, msg: NetworkMessage<T::EthSpec>) -> Result<(), &'static str> {
         self.network_send.send(msg).map_err(|_| {
             debug!(self.log, "Could not send message to the network service");
             "Network channel send Failed"
@@ -572,7 +531,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self.network_beacon_processor
     }
 
-    fn next_id(&mut self) -> Id {
+    pub(crate) fn next_id(&mut self) -> Id {
         let id = self.request_id;
         self.request_id += 1;
         id
@@ -587,7 +546,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         const _: () = assert!(
             super::backfill_sync::BACKFILL_EPOCHS_PER_BATCH == 1
                 && super::range_sync::EPOCHS_PER_BATCH == 1,
-            "To deal with alignment with 4844 boundaries, batches need to be of just one epoch"
+            "To deal with alignment with deneb boundaries, batches need to be of just one epoch"
         );
 
         #[cfg(test)]
@@ -596,16 +555,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ByRangeRequestType::Blocks
         }
         #[cfg(not(test))]
-        {
-            if let Some(data_availability_boundary) = self.chain.data_availability_boundary() {
-                if epoch >= data_availability_boundary {
-                    ByRangeRequestType::BlocksAndBlobs
-                } else {
-                    ByRangeRequestType::Blocks
-                }
+        if let Some(data_availability_boundary) = self.chain.data_availability_boundary() {
+            if epoch >= data_availability_boundary {
+                ByRangeRequestType::BlocksAndBlobs
             } else {
                 ByRangeRequestType::Blocks
             }
+        } else {
+            ByRangeRequestType::Blocks
         }
     }
 }

@@ -21,7 +21,7 @@ use lighthouse_network::{
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
 use logging::TimeLatch;
-use slog::{debug, o, trace};
+use slog::{crit, debug, o, trace};
 use slog::{error, warn};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -482,15 +482,22 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. } => {
-                    unreachable!("Block lookups do not request BBRange requests")
+                SyncId::SingleBlock { .. }
+                | SyncId::SingleBlob { .. }
+                | SyncId::ParentLookup { .. }
+                | SyncId::ParentLookupBlob { .. } => {
+                    crit!(self.log, "Block lookups do not request BBRange requests"; "peer_id" => %peer_id);
+                    return;
                 }
                 id @ (SyncId::BackFillBlocks { .. }
                 | SyncId::RangeBlocks { .. }
                 | SyncId::BackFillBlockAndBlobs { .. }
                 | SyncId::RangeBlockAndBlobs { .. }) => id,
             },
-            RequestId::Router => unreachable!("All BBRange requests belong to sync"),
+            RequestId::Router => {
+                crit!(self.log, "All BBRange requests belong to sync"; "peer_id" => %peer_id);
+                return;
+            }
         };
 
         trace!(
@@ -548,10 +555,18 @@ impl<T: BeaconChainTypes> Router<T> {
                 | SyncId::RangeBlocks { .. }
                 | SyncId::RangeBlockAndBlobs { .. }
                 | SyncId::BackFillBlockAndBlobs { .. } => {
-                    unreachable!("Batch syncing do not request BBRoot requests")
+                    crit!(self.log, "Batch syncing do not request BBRoot requests"; "peer_id" => %peer_id);
+                    return;
+                }
+                SyncId::SingleBlob { .. } | SyncId::ParentLookupBlob { .. } => {
+                    crit!(self.log, "Blob response to block by roots request"; "peer_id" => %peer_id);
+                    return;
                 }
             },
-            RequestId::Router => unreachable!("All BBRoot requests belong to sync"),
+            RequestId::Router => {
+                crit!(self.log, "All BBRoot requests belong to sync"; "peer_id" => %peer_id);
+                return;
+            }
         };
 
         trace!(
@@ -576,15 +591,23 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
+                id @ (SyncId::SingleBlob { .. } | SyncId::ParentLookupBlob { .. }) => id,
+                SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. } => {
+                    crit!(self.log, "Block response to blobs by roots request"; "peer_id" => %peer_id);
+                    return;
+                }
                 SyncId::BackFillBlocks { .. }
                 | SyncId::RangeBlocks { .. }
                 | SyncId::RangeBlockAndBlobs { .. }
                 | SyncId::BackFillBlockAndBlobs { .. } => {
-                    unreachable!("Batch syncing does not request BBRoot requests")
+                    crit!(self.log, "Batch syncing does not request BBRoot requests"; "peer_id" => %peer_id);
+                    return;
                 }
             },
-            RequestId::Router => unreachable!("All BlobsByRoot requests belong to sync"),
+            RequestId::Router => {
+                crit!(self.log, "All BlobsByRoot requests belong to sync"; "peer_id" => %peer_id);
+                return;
+            }
         };
 
         trace!(

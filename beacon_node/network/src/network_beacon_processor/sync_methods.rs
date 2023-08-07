@@ -1,6 +1,5 @@
 use crate::metrics;
 use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
-use crate::sync::manager::ResponseType;
 use crate::sync::BatchProcessResult;
 use crate::sync::{
     manager::{BlockProcessType, SyncMessage},
@@ -96,7 +95,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.send_sync_message(SyncMessage::BlockComponentProcessed {
                 process_type,
                 result: crate::sync::manager::BlockProcessingResult::Ignored,
-                response_type: crate::sync::manager::ResponseType::Block,
             });
         };
         (process_fn, Box::new(ignore_fn))
@@ -249,7 +247,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
             result: result.into(),
-            response_type: ResponseType::Block,
         });
 
         // Drop the handle to remove the entry from the cache
@@ -301,7 +298,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
             result: result.into(),
-            response_type: ResponseType::Blob,
         });
     }
 
