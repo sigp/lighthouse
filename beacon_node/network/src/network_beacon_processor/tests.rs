@@ -11,7 +11,7 @@ use crate::{
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconChain, ChainConfig};
+use beacon_chain::BeaconChain;
 use beacon_processor::{work_reprocessing_queue::*, *};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
