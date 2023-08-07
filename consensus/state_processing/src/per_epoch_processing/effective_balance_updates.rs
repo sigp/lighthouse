@@ -45,7 +45,7 @@ pub fn process_effective_balance_updates<T: EthSpec>(
         }
 
         if new_effective_balance != validator.effective_balance() {
-            validator.to_mut().mutable.effective_balance = new_effective_balance;
+            validator.into_mut()?.mutable.effective_balance = new_effective_balance;
         }
     }
 

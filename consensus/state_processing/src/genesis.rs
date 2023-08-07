@@ -118,7 +118,7 @@ pub fn process_activations<T: EthSpec>(
     let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
     let mut validators_iter = validators.iter_cow();
     while let Some((index, validator)) = validators_iter.next_cow() {
-        let validator = validator.to_mut();
+        let validator = validator.into_mut()?;
         let balance = balances
             .get(index)
             .copied()
