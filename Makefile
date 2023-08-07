@@ -168,7 +168,7 @@ test: test-release
 cli:
 	./lighthouse/scripts/cli.sh
 # Runs the entire test suite, downloading test vectors if required.
-test-full: cargo-fmt test-release test-debug test-ef test-exec-engine cli
+test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
 
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
