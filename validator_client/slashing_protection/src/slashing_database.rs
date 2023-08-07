@@ -11,7 +11,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::fs::File;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKeyBytes, SignedRoot, Slot};
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
@@ -59,7 +59,10 @@ impl SlashingDatabase {
 
         restrict_file_permissions(path).map_err(|_| NotSafe::PermissionsError)?;
         let conn_pool = Self::open_conn_pool(path)?;
+        let start = Instant::now();
         let mut conn = conn_pool.get()?;
+        let duration = Instant::now().duration_since(start);
+        println!("Retrieving connection took {:?}", duration);
 
         conn.execute(
             "CREATE TABLE validators (
