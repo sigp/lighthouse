@@ -1215,7 +1215,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
@@ -1277,7 +1277,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("blocks"))
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
@@ -1370,7 +1370,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("blinded_blocks"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
@@ -1396,7 +1396,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("blinded_blocks"))
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
@@ -1579,7 +1579,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
@@ -1752,7 +1752,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("attester_slashings"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
@@ -1807,7 +1807,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("proposer_slashings"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
@@ -1862,7 +1862,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("voluntary_exits"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
@@ -1915,7 +1915,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("sync_committees"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
@@ -1949,7 +1949,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("bls_to_execution_changes"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
@@ -2120,7 +2120,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("attestations"))
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and_then(
             |chain: Arc<BeaconChain<T>>, epoch: Epoch, validators: Vec<ValidatorId>| {
                 blocking_json_task(move || {
@@ -2168,7 +2168,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("sync_committee"))
         .and(block_id_or_err)
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(log_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
@@ -2922,7 +2922,7 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(chain_filter.clone())
         .and_then(
             |epoch: Epoch, indices: api_types::ValidatorIndexData, chain: Arc<BeaconChain<T>>| {
@@ -2944,7 +2944,7 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(chain_filter.clone())
         .and_then(
             |epoch: Epoch, indices: api_types::ValidatorIndexData, chain: Arc<BeaconChain<T>>| {
@@ -2990,7 +2990,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
@@ -3101,7 +3101,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter)
         .and(log_filter.clone())
         .and_then(
@@ -3126,7 +3126,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("beacon_committee_subscriptions"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(validator_subscription_tx_filter.clone())
         .and(chain_filter.clone())
         .and(log_filter.clone())
@@ -3179,7 +3179,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and(log_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              log: Logger,
@@ -3226,7 +3226,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(chain_filter.clone())
         .and(log_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              log: Logger,
@@ -3352,7 +3352,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("sync_committee_subscriptions"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(validator_subscription_tx_filter)
         .and(chain_filter.clone())
         .and(log_filter.clone())
@@ -3396,7 +3396,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("liveness"))
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(chain_filter.clone())
         .and_then(
             |epoch: Epoch, indices: Vec<u64>, chain: Arc<BeaconChain<T>>| {
@@ -3433,7 +3433,7 @@ pub fn serve<T: BeaconChainTypes>(
     let post_lighthouse_liveness = warp::path("lighthouse")
         .and(warp::path("liveness"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(chain_filter.clone())
         .and_then(
             |request_data: api_types::LivenessRequestData, chain: Arc<BeaconChain<T>>| {
@@ -3524,7 +3524,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("ui"))
         .and(warp::path("validator_metrics"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(chain_filter.clone())
         .and_then(
             |request_data: ui::ValidatorMetricsRequestData, chain: Arc<BeaconChain<T>>| {
@@ -3540,7 +3540,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("ui"))
         .and(warp::path("validator_info"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(chain_filter.clone())
         .and_then(
             |request_data: ui::ValidatorInfoRequestData, chain: Arc<BeaconChain<T>>| {
@@ -3805,7 +3805,7 @@ pub fn serve<T: BeaconChainTypes>(
     let post_lighthouse_database_historical_blocks = database_path
         .and(warp::path("historical_blocks"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(chain_filter.clone())
         .and(log_filter.clone())
         .and_then(
@@ -3838,7 +3838,7 @@ pub fn serve<T: BeaconChainTypes>(
     let post_lighthouse_block_rewards = warp::path("lighthouse")
         .and(warp::path("analysis"))
         .and(warp::path("block_rewards"))
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(warp::path::end())
         .and(chain_filter.clone())
         .and(log_filter.clone())
