@@ -387,3 +387,11 @@ jobs:
       run: rustup override set beta
     - name: Run make
       run: make
+  cli-check:
+    name: cli-check
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v3
+    - name: Run Makefile to trigger the bash script
+      run: make cli
