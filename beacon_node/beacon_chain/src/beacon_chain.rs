@@ -33,7 +33,6 @@ use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, Prep
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
-use crate::kzg_utils;
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -68,6 +67,7 @@ use crate::validator_monitor::{
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::{kzg_utils, AvailabilityPendingExecutedBlock};
 use crate::{metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, CachedHead};
 use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
@@ -118,7 +118,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::BlobSidecarList;
+use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
@@ -2791,10 +2791,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        self.check_availability_and_maybe_import(blob.slot(), |chain| {
-            chain.data_availability_checker.put_gossip_blob(blob)
-        })
-        .await
+        self.check_gossip_blob_availability_and_import(blob).await
     }
 
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
@@ -2845,12 +2842,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match executed_block {
             ExecutedBlock::Available(block) => self.import_available_block(Box::new(block)).await,
             ExecutedBlock::AvailabilityPending(block) => {
-                self.check_availability_and_maybe_import(block.block.slot(), |chain| {
-                    chain
-                        .data_availability_checker
-                        .put_pending_executed_block(block)
-                })
-                .await
+                self.check_block_availability_and_import(block).await
             }
         }
     }
@@ -2939,17 +2931,57 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Accepts a fully-verified, available block and imports it into the chain without performing any
-    /// additional verification.
+    /* Import methods */
+
+    /// Checks if the block is available, and imports immediately if so, otherwise caches the block
+    /// in the data availability checker.
+    pub async fn check_block_availability_and_import(
+        self: &Arc<Self>,
+        block: AvailabilityPendingExecutedBlock<T::EthSpec>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        let slot = block.block.slot();
+        let availability = self
+            .data_availability_checker
+            .put_pending_executed_block(block)?;
+        self.process_availability(slot, availability).await
+    }
+
+    /// Checks if the provided blob can make any cached blocks available, and imports immediately
+    /// if so, otherwise caches the blob in the data availability checker.
+    pub async fn check_gossip_blob_availability_and_import(
+        self: &Arc<Self>,
+        blob: GossipVerifiedBlob<T>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        let slot = blob.slot();
+        let availability = self.data_availability_checker.put_gossip_blob(blob)?;
+
+        self.process_availability(slot, availability).await
+    }
+
+    /// Checks if the provided blobs can make any cached blocks available, and imports immediately
+    /// if so, otherwise caches the blob in the data availability checker.
+    pub async fn check_rpc_blob_availability_and_import(
+        self: &Arc<Self>,
+        slot: Slot,
+        block_root: Hash256,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        let availability = self
+            .data_availability_checker
+            .put_rpc_blobs(block_root, blobs)?;
+
+        self.process_availability(slot, availability).await
+    }
+
+    /// Imports a fully available block. Otherwise, returns `AvailabilityProcessingStatus::MissingComponents`
     ///
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
-    pub async fn check_availability_and_maybe_import(
+    async fn process_availability(
         self: &Arc<Self>,
         slot: Slot,
-        cache_fn: impl FnOnce(Arc<Self>) -> Result<Availability<T::EthSpec>, AvailabilityCheckError>,
+        availability: Availability<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        let availability = cache_fn(self.clone())?;
         match availability {
             Availability::Available(block) => {
                 // This is the time since start of the slot where all the components of the block have become available
