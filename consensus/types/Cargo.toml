@@ -50,7 +50,7 @@ superstruct = "0.7.0"
 metastruct = "0.1.1"
 serde_json = "1.0.74"
 smallvec = "1.8.0"
-milhouse = { git = "https://github.com/sigp/milhouse", branch = "main" }
+milhouse = { git = "https://github.com/sigp/milhouse", branch = "cow-make-mut" }
 rpds = "0.11.0"
 serde_with = "1.13.0"
 maplit = "1.0.2"

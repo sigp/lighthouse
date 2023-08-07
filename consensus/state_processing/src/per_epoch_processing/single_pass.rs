@@ -12,6 +12,7 @@ use types::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
+    milhouse::Cow,
     ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ExitCache, ForkName,
     ParticipationFlags, ProgressiveBalancesCache, Unsigned, Validator,
 };
@@ -180,19 +181,15 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         previous_epoch_participation.iter(),
         current_epoch_participation.iter(),
     ) {
-        let (_, validator_cow) = validators_iter
+        let (_, mut validator) = validators_iter
             .next_cow()
             .ok_or(BeaconStateError::UnknownValidator(index))?;
-        let (_, balance_cow) = balances_iter
+        let (_, mut balance) = balances_iter
             .next_cow()
             .ok_or(BeaconStateError::UnknownValidator(index))?;
-        let (_, inactivity_score_cow) = inactivity_scores_iter
+        let (_, mut inactivity_score) = inactivity_scores_iter
             .next_cow()
             .ok_or(BeaconStateError::UnknownValidator(index))?;
-
-        let validator = validator_cow.to_mut();
-        let balance = balance_cow.to_mut();
-        let inactivity_score = inactivity_score_cow.to_mut();
 
         let is_active_current_epoch = validator.is_active_at(current_epoch);
         let is_active_previous_epoch = validator.is_active_at(previous_epoch);
@@ -222,7 +219,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             // `process_inactivity_updates`
             if conf.inactivity_updates {
                 process_single_inactivity_update(
-                    inactivity_score,
+                    &mut inactivity_score,
                     validator_info,
                     state_ctxt,
                     spec,
@@ -232,8 +229,8 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             // `process_rewards_and_penalties`
             if conf.rewards_and_penalties {
                 process_single_reward_and_penalty(
-                    balance,
-                    inactivity_score,
+                    &mut balance,
+                    &inactivity_score,
                     validator_info,
                     rewards_ctxt,
                     state_ctxt,
@@ -245,7 +242,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         // `process_registry_updates`
         if conf.registry_updates {
             process_single_registry_update(
-                validator,
+                &mut validator,
                 validator_info,
                 exit_cache,
                 activation_queue,
@@ -257,14 +254,14 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
         // `process_slashings`
         if conf.slashings {
-            process_single_slashing(balance, validator, slashings_ctxt, state_ctxt, spec)?;
+            process_single_slashing(&mut balance, &validator, slashings_ctxt, state_ctxt, spec)?;
         }
 
         // `process_effective_balance_updates`
         if conf.effective_balance_updates {
             process_single_effective_balance_update(
                 *balance,
-                validator,
+                &mut validator,
                 validator_info,
                 &mut next_epoch_total_active_balance,
                 &mut next_epoch_cache,
@@ -289,7 +286,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 }
 
 fn process_single_inactivity_update(
-    inactivity_score: &mut u64,
+    inactivity_score: &mut Cow<u64>,
     validator_info: &ValidatorInfo,
     state_ctxt: &StateContext,
     spec: &ChainSpec,
@@ -302,25 +299,27 @@ fn process_single_inactivity_update(
     if validator_info.is_unslashed_participating_index(TIMELY_TARGET_FLAG_INDEX)? {
         // Avoid mutating when the inactivity score is 0 and can't go any lower -- the common
         // case.
-        if *inactivity_score == 0 {
+        if **inactivity_score == 0 {
             return Ok(());
         }
-        inactivity_score.safe_sub_assign(1)?;
+        inactivity_score.make_mut().safe_sub_assign(1)?;
     } else {
-        inactivity_score.safe_add_assign(spec.inactivity_score_bias)?;
+        inactivity_score
+            .make_mut()
+            .safe_add_assign(spec.inactivity_score_bias)?;
     }
 
     // Decrease the score of all validators for forgiveness when not during a leak
     if !state_ctxt.is_in_inactivity_leak {
-        inactivity_score
-            .safe_sub_assign(min(spec.inactivity_score_recovery_rate, *inactivity_score))?;
+        let deduction = min(spec.inactivity_score_recovery_rate, **inactivity_score);
+        inactivity_score.make_mut().safe_sub_assign(deduction)?;
     }
 
     Ok(())
 }
 
 fn process_single_reward_and_penalty(
-    balance: &mut u64,
+    balance: &mut Cow<u64>,
     inactivity_score: &u64,
     validator_info: &ValidatorInfo,
     rewards_ctxt: &RewardsAndPenaltiesContext,
@@ -349,8 +348,11 @@ fn process_single_reward_and_penalty(
         spec,
     )?;
 
-    balance.safe_add_assign(delta.rewards)?;
-    *balance = balance.saturating_sub(delta.penalties);
+    if delta.rewards != 0 || delta.penalties != 0 {
+        let balance = balance.make_mut();
+        balance.safe_add_assign(delta.rewards)?;
+        *balance = balance.saturating_sub(delta.penalties);
+    }
 
     Ok(())
 }
@@ -449,7 +451,7 @@ impl RewardsAndPenaltiesContext {
 }
 
 fn process_single_registry_update(
-    validator: &mut Validator,
+    validator: &mut Cow<Validator>,
     validator_info: &ValidatorInfo,
     exit_cache: &mut ExitCache,
     activation_queue: &BTreeSet<usize>,
@@ -460,7 +462,7 @@ fn process_single_registry_update(
     let current_epoch = state_ctxt.current_epoch;
 
     if validator.is_eligible_for_activation_queue(spec) {
-        validator.mutable.activation_eligibility_epoch = current_epoch.safe_add(1)?;
+        validator.make_mut().mutable.activation_eligibility_epoch = current_epoch.safe_add(1)?;
     }
 
     if validator.is_active_at(current_epoch)
@@ -470,7 +472,8 @@ fn process_single_registry_update(
     }
 
     if activation_queue.contains(&validator_info.index) {
-        validator.mutable.activation_epoch = spec.compute_activation_exit_epoch(current_epoch)?;
+        validator.make_mut().mutable.activation_epoch =
+            spec.compute_activation_exit_epoch(current_epoch)?;
     }
 
     // Caching: add to speculative activation queue for next epoch.
@@ -485,7 +488,7 @@ fn process_single_registry_update(
 }
 
 fn initiate_validator_exit(
-    validator: &mut Validator,
+    validator: &mut Cow<Validator>,
     exit_cache: &mut ExitCache,
     state_ctxt: &StateContext,
     spec: &ChainSpec,
@@ -506,6 +509,7 @@ fn initiate_validator_exit(
         exit_queue_epoch.safe_add_assign(1)?;
     }
 
+    let validator = validator.make_mut();
     validator.mutable.exit_epoch = exit_queue_epoch;
     validator.mutable.withdrawable_epoch =
         exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
@@ -538,7 +542,7 @@ impl SlashingsContext {
 }
 
 fn process_single_slashing(
-    balance: &mut u64,
+    balance: &mut Cow<u64>,
     validator: &Validator,
     slashings_ctxt: &SlashingsContext,
     state_ctxt: &StateContext,
@@ -556,7 +560,7 @@ fn process_single_slashing(
             .safe_div(state_ctxt.total_active_balance)?
             .safe_mul(increment)?;
 
-        *balance = balance.saturating_sub(penalty);
+        *balance.make_mut() = balance.saturating_sub(penalty);
     }
     Ok(())
 }
@@ -580,7 +584,7 @@ impl EffectiveBalancesContext {
 #[allow(clippy::too_many_arguments)]
 fn process_single_effective_balance_update(
     balance: u64,
-    validator: &mut Validator,
+    validator: &mut Cow<Validator>,
     validator_info: &ValidatorInfo,
     next_epoch_total_active_balance: &mut u64,
     next_epoch_cache: &mut PreEpochCache,
@@ -610,7 +614,7 @@ fn process_single_effective_balance_update(
     }
 
     if new_effective_balance != old_effective_balance {
-        validator.mutable.effective_balance = new_effective_balance;
+        validator.make_mut().mutable.effective_balance = new_effective_balance;
 
         // Update progressive balances cache for the *current* epoch, which will soon become the
         // previous epoch once the epoch transition completes.
