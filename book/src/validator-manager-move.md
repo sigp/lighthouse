@@ -69,8 +69,6 @@ In reality, many host configurations are possible. For example:
 The source VC needs to have the following flags at a minimum:
 
 - `--http`
-- `--unencrypted-http-transport`
-- `--http-address 127.0.0.1`
 - `--http-port 5062`
 - `--http-allow-keystore-export`
 
@@ -80,8 +78,6 @@ Therefore, the source VC command might look like:
 lighthouse \
     vc \
     --http \
-    --unencrypted-http-transport \
-    --http-address 127.0.0.1 \
     --http-port 5062 \
     --http-allow-keystore-export
 ```
@@ -91,8 +87,6 @@ lighthouse \
 The destination VC needs to have the following flags at a minimum:
 
 - `--http`
-- `--unencrypted-http-transport`
-- `--http-address 127.0.0.1`
 - `--http-port 5062`
 - `--enable-doppelganger-protection`
 
@@ -102,8 +96,6 @@ Therefore, the destination VC command might look like:
 lighthouse \
     vc \
     --http \
-    --unencrypted-http-transport \
-    --http-address 127.0.0.1 \
     --http-port 5062 \
     --enable-doppelganger-protection
 ```
