@@ -71,8 +71,8 @@ use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
-use logging::test_logger;
 use eth2_network_config::Eth2NetworkConfig;
+use logging::test_logger;
 use ssz::Encode;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
