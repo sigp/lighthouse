@@ -44,7 +44,7 @@
     * [Remote Signing with Web3Signer](./validator-web3signer.md)
     * [Database Configuration](./advanced_database.md)
     * [Database Migrations](./database-migrations.md)
-    * [Key Management](./key-management.md)
+    * [Key Management (Deprecated)](./key-management.md)
     * [Key Recovery](./key-recovery.md)
     * [Advanced Networking](./advanced_networking.md)
     * [Running a Slasher](./slasher.md)
