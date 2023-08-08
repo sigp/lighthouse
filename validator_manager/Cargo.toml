@@ -1,0 +1,30 @@
+[package]
+name = "validator_manager"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bls = { path = "../crypto/bls" }
+clap = "2.33.3"
+types = { path = "../consensus/types" }
+environment = { path = "../lighthouse/environment" }
+eth2_network_config = { path = "../common/eth2_network_config" }
+clap_utils = { path = "../common/clap_utils" }
+eth2_wallet = { path = "../crypto/eth2_wallet" }
+eth2_keystore = { path = "../crypto/eth2_keystore" }
+account_utils = { path = "../common/account_utils" }
+serde = { version = "1.0.116", features = ["derive"] }
+serde_json = "1.0.58"
+ethereum_serde_utils = "0.5.0"
+tree_hash = "0.5.0"
+eth2 = { path = "../common/eth2", features = ["lighthouse"]}
+hex = "0.4.2"
+tokio = { version = "1.14.0", features = ["time", "rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tempfile = "3.1.0"
+regex = "1.6.0"
+eth2_network_config = { path = "../common/eth2_network_config" }
+validator_client = { path = "../validator_client" }

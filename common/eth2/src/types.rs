@@ -1233,6 +1233,13 @@ impl FromStr for Accept {
     }
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+pub struct StandardLivenessResponseData {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    pub is_live: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LivenessRequestData {
     pub epoch: Epoch,
@@ -1438,6 +1445,13 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
         } else {
             Self::Block(block)
         }
+    }
+
+    /// SSZ decode with fork variant determined by slot.
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+        // FIXME(jimmy): SSZ decode not implemented for `SignedBeaconBlockAndBlobSidecars`
+        SignedBeaconBlock::from_ssz_bytes(bytes, spec)
+            .map(|block| SignedBlockContents::Block(block))
     }
 
     pub fn signed_block(&self) -> &SignedBeaconBlock<T, Payload> {

@@ -1,5 +1,5 @@
 [target.x86_64-unknown-linux-gnu]
-dockerfile = './scripts/cross/Dockerfile'
+pre-build = ["apt-get install -y cmake clang-3.9"]
 
 [target.aarch64-unknown-linux-gnu]
-dockerfile = './scripts/cross/Dockerfile'
+pre-build = ["apt-get install -y cmake clang-3.9"]

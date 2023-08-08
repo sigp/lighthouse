@@ -2,12 +2,12 @@ use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{
     duties_service::{DutiesService, DutyAndProof},
     http_metrics::metrics,
-    validator_store::ValidatorStore,
+    validator_store::{Error as ValidatorStoreError, ValidatorStore},
     OfflineOnFailure,
 };
 use environment::RuntimeContext;
 use futures::future::join_all;
-use slog::{crit, error, info, trace};
+use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -395,6 +395,20 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .await
             {
                 Ok(()) => Some((attestation, duty.validator_index)),
+                Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                    // A pubkey can be missing when a validator was recently
+                    // removed via the API.
+                    warn!(
+                        log,
+                        "Missing pubkey for attestation";
+                        "info" => "a validator may have recently been removed from this VC",
+                        "pubkey" => ?pubkey,
+                        "validator" => ?duty.pubkey,
+                        "committee_index" => committee_index,
+                        "slot" => slot.as_u64(),
+                    );
+                    None
+                }
                 Err(e) => {
                     crit!(
                         log,
@@ -527,10 +541,20 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .await
             {
                 Ok(aggregate) => Some(aggregate),
+                Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                    // A pubkey can be missing when a validator was recently
+                    // removed via the API.
+                    debug!(
+                        log,
+                        "Missing pubkey for aggregate";
+                        "pubkey" => ?pubkey,
+                    );
+                    None
+                }
                 Err(e) => {
                     crit!(
                         log,
-                        "Failed to sign attestation";
+                        "Failed to sign aggregate";
                         "error" => ?e,
                         "pubkey" => ?duty.pubkey,
                     );
