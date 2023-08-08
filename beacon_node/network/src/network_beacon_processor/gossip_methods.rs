@@ -20,6 +20,7 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
+use itertools::Itertools;
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -36,7 +37,7 @@ use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, LazySignedAggregateAndProof,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, LazySignedAggregateAndProof, LazyAttestation
 };
 
 use beacon_processor::{
@@ -78,9 +79,14 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
     }
 }
 
+enum LazyOrNotAttestation<T: EthSpec> {
+    Lazy(LazyAttestation<T>),
+    Not(Attestation<T>),
+}
+
 /// An attestation that failed validation by the `BeaconChain`.
 struct RejectedUnaggregate<T: EthSpec> {
-    attestation: Box<Attestation<T>>,
+    attestation: Box<LazyAttestation<T>>,
     error: AttnError,
 }
 
@@ -114,20 +120,20 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
 
 /// An attestation that failed validation by the `BeaconChain`.
 struct RejectedAggregate<T: EthSpec> {
-    signed_aggregate: Box<SignedAggregateAndProof<T>>,
+    signed_aggregate: Box<LazySignedAggregateAndProof<T>>,
     error: AttnError,
 }
 
 /// Data for an aggregated or unaggregated attestation that failed verification.
 enum FailedAtt<T: EthSpec> {
     Unaggregate {
-        attestation: Box<Attestation<T>>,
+        attestation: Box<LazyAttestation<T>>,
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
     },
     Aggregate {
-        attestation: Box<SignedAggregateAndProof<T>>,
+        attestation: Box<LazySignedAggregateAndProof<T>>,
         seen_timestamp: Duration,
     },
 }
@@ -144,7 +150,7 @@ impl<T: EthSpec> FailedAtt<T> {
         }
     }
 
-    pub fn attestation(&self) -> &Attestation<T> {
+    pub fn attestation(&self) -> &LazyAttestation<T> {
         match self {
             FailedAtt::Unaggregate { attestation, .. } => attestation,
             FailedAtt::Aggregate { attestation, .. } => &attestation.message.aggregate,
@@ -198,22 +204,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        attestation: Box<Attestation<T::EthSpec>>,
+        attestation: Box<LazyAttestation<T::EthSpec>>,
         subnet_id: SubnetId,
         should_import: bool,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         seen_timestamp: Duration,
     ) {
-        let result = match self
-            .chain
-            .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
-        {
-            Ok(verified_attestation) => Ok(VerifiedUnaggregate {
-                indexed_attestation: verified_attestation.into_indexed_attestation(),
-                attestation,
-            }),
+        let result = match attestation.to_attestation() {
+            Ok(att) => {
+                match self
+                    .chain
+                    .verify_unaggregated_attestation_for_gossip(&att, Some(subnet_id))
+                {
+                    Ok(verified_attestation) => Ok(VerifiedUnaggregate {
+                        indexed_attestation: verified_attestation.into_indexed_attestation(),
+                        attestation: Box::new(att),
+                    }),
+                    Err(error) => Err(RejectedUnaggregate { attestation, error }),
+                }
+            }
             Err(error) => Err(RejectedUnaggregate { attestation, error }),
         };
+        
 
         self.process_gossip_attestation_result(
             result,
@@ -444,21 +456,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
-        let aggregates: Vec<SignedAggregateAndProof<T::EthSpec>> = packages
-            .iter()
-            .map(|package| package.aggregate.as_ref())
-            .filter(|agg| {
-                !self
-                    .chain
-                    .is_lazy_att_observed_subset(&agg.message.aggregate)
-                    .unwrap_or(false)
-            })
-            .map(|agg| agg.clone().not_lazy().unwrap())
-            .collect();
+        let (to_process, skip): (
+            Vec<(GossipAggregatePackage<T::EthSpec>, SignedAggregateAndProof<T::EthSpec>)>,
+            Vec<GossipAggregatePackage<T::EthSpec>>,
+        ) = packages.into_iter().partition_map(|p| {
+            match self.chain.is_lazy_att_observed_subset(&p.aggregate.message.aggregate) {
+                Ok(false) => {
+                    match p.aggregate.clone().not_lazy() {
+                        Ok(agg) => itertools::Either::Left((p, agg)),
+                        Err(_) => itertools::Either::Right(p),
+                    }
+                }
+                Ok(true) | Err(_) => itertools::Either::Right(p),
+            }
+        });
+
+        // let aggregates: Vec<SignedAggregateAndProof<T::EthSpec>> = packages
+        //     .iter()
+        //     .map(|package| package.aggregate.as_ref())
+        //     .filter(|agg| {
+        //         !self
+        //             .chain
+        //             .is_lazy_att_observed_subset(&agg.message.aggregate)
+        //             .unwrap_or(false)
+        //     })
+        //     .map(|agg| agg.clone().not_lazy().unwrap())
+        //     .collect();
 
         let results = match self
             .chain
-            .batch_verify_aggregated_attestations_for_gossip(aggregates.iter())
+            .batch_verify_aggregated_attestations_for_gossip(to_process.iter().map(|(_, agg)| agg))
         {
             Ok(results) => results,
             Err(e) => {
@@ -472,14 +499,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         // Sanity check.
-        if results.len() != packages.len() {
+        if results.len() != to_process.len() {
             // The log is `crit` since in this scenario we might be penalizing/rewarding the wrong
             // peer.
             crit!(
                 self.log,
                 "Batch agg. attestation result mismatch";
                 "results" => results.len(),
-                "packages" => packages.len(),
+                "packages" => to_process.len(),
             )
         }
 
@@ -491,28 +518,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map(|result| result.map(|verified| verified.into_indexed_attestation()))
             .collect::<Vec<_>>();
 
-        for (result, package) in results.into_iter().zip(packages.into_iter()) {
-            if let Ok(signed_aggregate) = package.aggregate.not_lazy() {
-                let result = match result {
-                    Ok(indexed_attestation) => Ok(VerifiedAggregate {
-                        indexed_attestation,
-                        signed_aggregate: Box::new(signed_aggregate),
-                    }),
-                    Err(error) => Err(RejectedAggregate {
-                        signed_aggregate: Box::new(signed_aggregate),
-                        error,
-                    }),
-                };
+        for (result, (processed_package, signed_aggregate)) in results.into_iter().zip(to_process.into_iter()) {
+            let result = match result {
+                Ok(indexed_attestation) => Ok(VerifiedAggregate {
+                    indexed_attestation,
+                    signed_aggregate: Box::new(signed_aggregate),
+                }),
+                Err(error) => Err(RejectedAggregate {
+                    signed_aggregate: processed_package.aggregate,
+                    error,
+                }),
+            };
 
-                self.process_gossip_aggregate_result(
-                    result,
-                    package.beacon_block_root,
-                    package.message_id,
-                    package.peer_id,
-                    reprocess_tx.clone(),
-                    package.seen_timestamp,
-                );
-            }
+            self.process_gossip_aggregate_result(
+                result,
+                processed_package.beacon_block_root,
+                processed_package.message_id,
+                processed_package.peer_id,
+                reprocess_tx.clone(),
+                processed_package.seen_timestamp,
+            );
         }
     }
 
