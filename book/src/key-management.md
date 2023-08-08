@@ -1,9 +1,30 @@
-# Key Management
+# Key Management (Deprecated)
 
 [launchpad]: https://launchpad.ethereum.org/
 
->
-> **Note: While Lighthouse is able to generate the validator keys and the deposit data file to submit to the deposit contract, we strongly recommend using the [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli) to create validators keys and the deposit data file. This is because the [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli) has the option to assign a withdrawal address during the key generation process, while Lighthouse wallet will always generate keys with withdrawal credentials of type 0x00. This means that users who created keys using Lighthouse will have to update their withdrawal credentials in the future to enable withdrawals. In addition, Lighthouse generates the deposit data file in the form of `*.rlp`, which cannot be uploaded to the [Staking launchpad][launchpad] that accepts only `*.json` file. This means that users have to directly interact with the deposit contract to be able to submit the deposit if they were to generate the files using Lighthouse.**
+**⚠️ The information on this page refers to tooling and process that have been deprecated. Please read the "Deprecation Notice". ⚠️**
+
+## Deprecation Notice
+
+This page recommends the use of the `lighthouse account-manager` tool to create
+validators. This tool will always generate keys with the withdrawal credentials
+of type `0x00`. This means the users who created keys using `lighthouse
+account-manager` will have to update their withdrawal credentials in a
+separate step to receive staking rewards.
+
+In addition, Lighthouse generates the deposit data file in the form of `*.rlp`,
+which cannot be uploaded to the [Staking launchpad][launchpad] that accepts only
+`*.json` file. This means that users have to directly interact with the deposit
+contract to be able to submit the deposit if they were to generate the files
+using Lighthouse.
+
+Rather than continuing to read this page, we recommend users visit either:
+
+- The [Staking Launchpad][launchpad] for detailed, beginner-friendly instructions.
+- The [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli) for a CLI tool used by the [Staking Launchpad][launchpad].
+- The [validator-manager documentation](./validator-manager.md) for a Lighthouse-specific tool for streamlined validator management tools.
+
+## The `lighthouse account-manager`
 
 Lighthouse uses a _hierarchical_ key management system for producing validator
 keys. It is hierarchical because each validator key can be _derived_ from a
