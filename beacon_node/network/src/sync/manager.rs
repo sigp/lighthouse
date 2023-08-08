@@ -794,7 +794,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.block_lookups.search_child_delayed(
                     block_root,
                     child_components,
-                    &[PeerShouldHave::Neither(peer_id)],
+                    PeerShouldHave::Neither(peer_id),
                     &mut self.network,
                 );
                 if let Err(e) = self
@@ -807,7 +807,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.block_lookups.search_child_block(
                     block_root,
                     child_components,
-                    &[PeerShouldHave::Neither(peer_id)],
+                    PeerShouldHave::Neither(peer_id),
                     &mut self.network,
                 );
             }
@@ -815,6 +815,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     fn should_delay_lookup(&mut self, slot: Slot) -> bool {
+        if !self.block_lookups.da_checker.is_deneb() {
+            return false;
+        }
         let earliest_slot = self
             .chain
             .slot_clock

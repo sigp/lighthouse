@@ -313,6 +313,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map_or(false, |da_epoch| block_epoch >= da_epoch)
     }
 
+    /// Returns `true` if the current epoch is greater than or equal to the `Deneb` epoch.
+    pub fn is_deneb(&self) -> bool {
+        self.slot_clock.now().map_or(false, |slot| {
+            self.spec.deneb_fork_epoch.map_or(false, |deneb_epoch| {
+                let now_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+                now_epoch >= deneb_epoch
+            })
+        })
+    }
+
     /// Persist all in memory components to disk
     pub fn persist_all(&self) -> Result<(), AvailabilityCheckError> {
         self.availability_cache.write_all_to_disk()

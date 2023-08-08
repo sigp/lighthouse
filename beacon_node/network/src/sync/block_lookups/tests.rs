@@ -1307,7 +1307,7 @@ mod deneb_only {
                         bl.search_child_block(
                             child_root,
                             CachedChildComponents::new(Some(child_block), None),
-                            &[PeerShouldHave::Neither(peer_id)],
+                            PeerShouldHave::Neither(peer_id),
                             &mut cx,
                         );
 
@@ -1345,7 +1345,7 @@ mod deneb_only {
                         bl.search_child_block(
                             child_root,
                             CachedChildComponents::new(None, Some(blobs)),
-                            &[PeerShouldHave::Neither(peer_id)],
+                            PeerShouldHave::Neither(peer_id),
                             &mut cx,
                         );
 
