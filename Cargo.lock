@@ -30,6 +30,8 @@ dependencies = [
  "filesystem",
  "safe_arith",
  "sensitive_url",
+ "serde",
+ "serde_json",
  "slashing_protection",
  "slot_clock",
  "tempfile",
@@ -4331,6 +4333,7 @@ dependencies = [
  "env_logger 0.9.3",
  "environment",
  "eth1",
+ "eth2",
  "eth2_network_config",
  "ethereum_hashing",
  "futures",
@@ -4353,6 +4356,7 @@ dependencies = [
  "unused_port",
  "validator_client",
  "validator_dir",
+ "validator_manager",
 ]
 
 [[package]]
@@ -8617,6 +8621,7 @@ dependencies = [
  "bls",
  "deposit_contract",
  "derivative",
+ "directory",
  "eth2_keystore",
  "filesystem",
  "hex",
@@ -8625,6 +8630,31 @@ dependencies = [
  "tempfile",
  "tree_hash",
  "types",
+]
+
+[[package]]
+name = "validator_manager"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "bls",
+ "clap",
+ "clap_utils",
+ "environment",
+ "eth2",
+ "eth2_keystore",
+ "eth2_network_config",
+ "eth2_wallet",
+ "ethereum_serde_utils",
+ "hex",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tree_hash",
+ "types",
+ "validator_client",
 ]
 
 [[package]]
