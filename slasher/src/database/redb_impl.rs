@@ -19,7 +19,7 @@ const BASE_DB: &str = "slasher_db";
 
 #[derive(Debug)]
 pub struct Environment {
-    db_count: usize,
+    _db_count: usize,
     db: redb::Database,
 }
 
@@ -57,37 +57,29 @@ impl<'env> fmt::Debug for WriteTransaction<'env> {
 
 impl Environment {
     pub fn new(config: &Config) -> Result<Environment, Error> {
-
         let db_path = match config.database_path.join(BASE_DB).as_path().to_str() {
             Some(path) => path.to_string(),
             None => "".to_string(),
         };
 
-        let database = redb::Database::create(&db_path)?;
-        
+        let database = redb::Database::create(db_path)?;
+
         Ok(Environment {
-            db_count: MAX_NUM_DBS,
-            db: database
+            _db_count: MAX_NUM_DBS,
+            db: database,
         })
     }
 
     pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
-        let indexed_attestation_db =
-            self.create_table(INDEXED_ATTESTATION_DB);
-        let indexed_attestation_id_db =
-            self.create_table(INDEXED_ATTESTATION_ID_DB);
-        let attesters_db = self.create_table(ATTESTERS_DB);
-        let attesters_max_targets_db =
-            self.create_table(ATTESTERS_MAX_TARGETS_DB);
-        let min_targets_db = self.create_table(MIN_TARGETS_DB);
-        let max_targets_db = self.create_table(MAX_TARGETS_DB);
-        let current_epochs_db = self.create_table(CURRENT_EPOCHS_DB);
-        let proposers_db = self.create_table(PROPOSERS_DB);
-        let metadata_db = self.create_table(METADATA_DB);
-
-        if self.db_count != 9 {
-            panic!();
-        }
+        let indexed_attestation_db = self.create_table(INDEXED_ATTESTATION_DB)?;
+        let indexed_attestation_id_db = self.create_table(INDEXED_ATTESTATION_ID_DB)?;
+        let attesters_db = self.create_table(ATTESTERS_DB)?;
+        let attesters_max_targets_db = self.create_table(ATTESTERS_MAX_TARGETS_DB)?;
+        let min_targets_db = self.create_table(MIN_TARGETS_DB)?;
+        let max_targets_db = self.create_table(MAX_TARGETS_DB)?;
+        let current_epochs_db = self.create_table(CURRENT_EPOCHS_DB)?;
+        let proposers_db = self.create_table(PROPOSERS_DB)?;
+        let metadata_db = self.create_table(METADATA_DB)?;
 
         Ok(OpenDatabases {
             indexed_attestation_db,
@@ -105,11 +97,19 @@ impl Environment {
     pub fn create_table<'env>(
         &'env self,
         table_name: &'env str,
-    ) -> crate::Database<'env> {
-        crate::Database::Redb(Database {
+    ) -> Result<crate::Database<'env>, Error> {
+        // need to create the table via opening in write mode
+        // so we can open it in read mode later
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(table_name);
+        let database = &self.db;
+        let tx = database.begin_write()?;
+        tx.open_table(table_definition)?;
+        tx.commit()?;
+
+        Ok(crate::Database::Redb(Database {
             table_name,
-            env: self
-        })
+            env: self,
+        }))
     }
 
     pub fn filenames(&self, config: &Config) -> Vec<PathBuf> {
@@ -124,7 +124,7 @@ impl Environment {
 }
 
 impl<'env> Database<'env> {
-    /* 
+    /*
     fn open_database(&'env self) -> Result<redb::Database, redb::DatabaseError> {
         redb::Database::create(&self.db_path)
     }
@@ -156,7 +156,7 @@ impl<'env> RwTransaction<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(db.table_name);
         let database = &db.env.db;
-        let tx = database.begin_write()?;
+        let tx = database.begin_read()?;
         let table = tx.open_table(table_definition)?;
         let result = table.get(key.as_ref().borrow())?;
         if let Some(access_guard) = result {
@@ -223,7 +223,7 @@ impl<'env> Cursor<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table_name);
         let database = &self.db.env.db;
-        let tx = database.begin_write()?;
+        let tx = database.begin_read()?;
 
         let table = tx.open_table(table_definition)?;
 
@@ -245,7 +245,7 @@ impl<'env> Cursor<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table_name);
         let database = &self.db.env.db;
-        let tx = database.begin_write()?;
+        let tx = database.begin_read()?;
 
         let table = tx.open_table(table_definition)?;
 
@@ -267,7 +267,7 @@ impl<'env> Cursor<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table_name);
         let database = &self.db.env.db;
-        let tx = database.begin_write()?;
+        let tx = database.begin_read()?;
 
         if let Some(current_key) = &self.current_key.clone() {
             let range: std::ops::RangeFrom<&[u8]> = current_key..;
@@ -292,7 +292,7 @@ impl<'env> Cursor<'env> {
             let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                 TableDefinition::new(self.db.table_name);
             let database = &self.db.env.db;
-            let tx = database.begin_write()?;
+            let tx = database.begin_read()?;
             let table = tx.open_table(table_definition)?;
             let result = table.get(key.as_ref())?;
 

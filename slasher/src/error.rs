@@ -125,7 +125,6 @@ impl From<redb::CommitError> for Error {
     }
 }
 
-
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Error::DatabaseIOError(e)
