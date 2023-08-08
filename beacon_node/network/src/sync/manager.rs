@@ -652,7 +652,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     block_slot,
-                    Some(block.into()),
+                    block.into(),
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
@@ -671,7 +671,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     blob_slot,
-                    Some(CachedChildComponents::new(None, Some(blobs))),
+                    CachedChildComponents::new(None, Some(blobs)),
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
@@ -780,7 +780,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        child_components: Option<CachedChildComponents<T::EthSpec>>,
+        child_components: CachedChildComponents<T::EthSpec>,
     ) {
         if self.should_search_for_block(slot, &peer_id) {
             self.block_lookups.search_parent(
@@ -1010,28 +1010,44 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { .. } => {
                 crit!(self.log, "Single blob received during block request"; "peer_id" => %peer_id  );
             }
-            RequestId::SingleBlob { id } => self
-                .block_lookups
-                .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
-                    id,
-                    peer_id,
-                    blob,
-                    seen_timestamp,
-                    &self.network,
-                ),
+            RequestId::SingleBlob { id } => {
+                if let Some(blob) = blob.as_ref() {
+                    debug!(self.log,
+                        "Peer returned blob for single lookup";
+                        "peer_id" => %peer_id ,
+                        "blob_id" =>?blob.id()
+                    );
+                }
+                self.block_lookups
+                    .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
+                        id,
+                        peer_id,
+                        blob,
+                        seen_timestamp,
+                        &self.network,
+                    )
+            }
 
             RequestId::ParentLookup { id: _ } => {
                 crit!(self.log, "Single blob received during parent block request"; "peer_id" => %peer_id  );
             }
-            RequestId::ParentLookupBlob { id } => self
-                .block_lookups
-                .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
-                    id,
-                    peer_id,
-                    blob,
-                    seen_timestamp,
-                    &self.network,
-                ),
+            RequestId::ParentLookupBlob { id } => {
+                if let Some(blob) = blob.as_ref() {
+                    debug!(self.log,
+                        "Peer returned blob for parent lookup";
+                        "peer_id" => %peer_id ,
+                        "blob_id" =>?blob.id()
+                    );
+                }
+                self.block_lookups
+                    .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
+                        id,
+                        peer_id,
+                        blob,
+                        seen_timestamp,
+                        &self.network,
+                    )
+            }
             RequestId::BackFillBlocks { id: _ } => {
                 crit!(self.log, "Blob received during backfill block request"; "peer_id" => %peer_id  );
             }

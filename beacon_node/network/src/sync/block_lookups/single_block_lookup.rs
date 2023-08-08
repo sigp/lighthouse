@@ -463,6 +463,16 @@ impl<E: EthSpec> CachedChildComponents<E> {
             .filter_map(|(i, blob_opt)| blob_opt.as_ref().map(|_| i))
             .collect::<HashSet<_>>()
     }
+
+    pub fn is_missing_components(&self) -> bool {
+        self.downloaded_block
+            .as_ref()
+            .map(|block| {
+                block.num_expected_blobs()
+                    != self.downloaded_blobs.iter().filter(|b| b.is_some()).count()
+            })
+            .unwrap_or(false)
+    }
 }
 
 /// Object representing the state of a single block or blob lookup request.

@@ -422,7 +422,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "block_roots" => ?request.block_roots(),
+            "block_roots" => ?request.block_roots().to_vec(),
             "peer" => %peer_id,
             "lookup_type" => ?lookup_type
         );

@@ -172,21 +172,24 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_child_block(
         &mut self,
         block_root: Hash256,
-        child_components: Option<CachedChildComponents<T::EthSpec>>,
+        child_components: CachedChildComponents<T::EthSpec>,
         peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let lookup = self.new_current_lookup(block_root, child_components, peer_source, cx);
-        if let Some(lookup) = lookup {
-            let blob_indices = lookup.blob_request_state.requested_ids.indices();
-            debug!(
-                self.log,
-                "Searching for components of a block with unknown parent";
-                "peer_id" => ?peer_source,
-                "block" => ?block_root,
-                "blob_indices" => ?blob_indices
-            );
-            self.trigger_single_lookup(lookup, cx);
+        if child_components.is_missing_components() {
+            let lookup =
+                self.new_current_lookup(block_root, Some(child_components), peer_source, cx);
+            if let Some(lookup) = lookup {
+                let blob_indices = lookup.blob_request_state.requested_ids.indices();
+                debug!(
+                    self.log,
+                    "Searching for components of a block with unknown parent";
+                    "peer_id" => ?peer_source,
+                    "block" => ?block_root,
+                    "blob_indices" => ?blob_indices
+                );
+                self.trigger_single_lookup(lookup, cx);
+            }
         }
     }
 
@@ -200,21 +203,24 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_child_delayed(
         &mut self,
         block_root: Hash256,
-        child_components: Option<CachedChildComponents<T::EthSpec>>,
+        child_components: CachedChildComponents<T::EthSpec>,
         peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let lookup = self.new_current_lookup(block_root, child_components, peer_source, cx);
-        if let Some(lookup) = lookup {
-            let blob_indices = lookup.blob_request_state.requested_ids.indices();
-            debug!(
-                self.log,
-                "Initialized delayed lookup for block with unknown parent";
-                "peer_id" => ?peer_source,
-                "block" => ?block_root,
-                "blob_indices" => ?blob_indices
-            );
-            self.add_single_lookup(lookup)
+        if child_components.is_missing_components() {
+            let lookup =
+                self.new_current_lookup(block_root, Some(child_components), peer_source, cx);
+            if let Some(lookup) = lookup {
+                let blob_indices = lookup.blob_request_state.requested_ids.indices();
+                debug!(
+                    self.log,
+                    "Initialized delayed lookup for block with unknown parent";
+                    "peer_id" => ?peer_source,
+                    "block" => ?block_root,
+                    "blob_indices" => ?blob_indices
+                );
+                self.add_single_lookup(lookup)
+            }
         }
     }
 
@@ -616,7 +622,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             &mut parent_lookup,
         ) {
             Ok(()) => {
-                debug!(self.log, "Requesting parent"; &parent_lookup);
                 self.parent_lookups.push(parent_lookup);
             }
             Err(e) => {
@@ -1468,10 +1473,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Err(e) => {
                 self.handle_parent_request_error(&mut parent_lookup, cx, e);
             }
-            Ok(_) => {
-                debug!(self.log, "Requesting parent"; &parent_lookup);
-                self.parent_lookups.push(parent_lookup)
-            }
+            Ok(_) => self.parent_lookups.push(parent_lookup),
         }
 
         // We remove and add back again requests so we want this updated regardless of outcome.
