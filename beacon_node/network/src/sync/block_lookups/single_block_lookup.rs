@@ -471,7 +471,7 @@ impl<E: EthSpec> CachedChildComponents<E> {
                 block.num_expected_blobs()
                     != self.downloaded_blobs.iter().filter(|b| b.is_some()).count()
             })
-            .unwrap_or(false)
+            .unwrap_or(true)
     }
 }
 
