@@ -309,6 +309,32 @@ fn http_allow_origin_all_flag() {
         .run()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
+#[test]
+fn http_allow_keystore_export_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.http_api.allow_keystore_export));
+}
+#[test]
+fn http_allow_keystore_export_present() {
+    CommandLineTest::new()
+        .flag("http-allow-keystore-export", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.allow_keystore_export));
+}
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.http_api.store_passwords_in_secrets_dir));
+}
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_present() {
+    CommandLineTest::new()
+        .flag("http-store-passwords-in-secrets-dir", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.store_passwords_in_secrets_dir));
+}
 
 // Tests for Metrics flags.
 #[test]

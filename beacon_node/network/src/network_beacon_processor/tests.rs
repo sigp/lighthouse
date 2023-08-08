@@ -11,7 +11,7 @@ use crate::{
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconChain, ChainConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use beacon_chain::{BeaconChain, ChainConfig};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
@@ -215,7 +215,7 @@ impl TestRig {
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
 
-        BeaconProcessor {
+        let beacon_processor = BeaconProcessor {
             network_globals,
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
@@ -229,7 +229,10 @@ impl TestRig {
             work_reprocessing_rx,
             Some(work_journal_tx),
             harness.chain.slot_clock.clone(),
+            chain.spec.maximum_gossip_clock_disparity(),
         );
+
+        assert!(!beacon_processor.is_err());
 
         Self {
             chain,
@@ -505,7 +508,7 @@ async fn import_gossip_block_acceptably_early() {
 
     rig.chain
         .slot_clock
-        .set_current_time(slot_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
 
     assert_eq!(
         rig.chain.slot().unwrap(),
@@ -552,9 +555,9 @@ async fn import_gossip_block_unacceptably_early() {
         .start_of(rig.next_block.slot())
         .unwrap();
 
-    rig.chain
-        .slot_clock
-        .set_current_time(slot_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY - Duration::from_millis(1));
+    rig.chain.slot_clock.set_current_time(
+        slot_start - rig.chain.spec.maximum_gossip_clock_disparity() - Duration::from_millis(1),
+    );
 
     assert_eq!(
         rig.chain.slot().unwrap(),

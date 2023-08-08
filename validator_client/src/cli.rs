@@ -204,6 +204,26 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     address of this server (e.g., http://localhost:5062).")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("http-allow-keystore-export")
+                .long("http-allow-keystore-export")
+                .help("If present, allow access to the DELETE /lighthouse/keystores HTTP \
+                    API method, which allows exporting keystores and passwords to HTTP API \
+                    consumers who have access to the API token. This method is useful for \
+                    exporting validators, however it should be used with caution since it \
+                    exposes private key data to authorized users.")
+                .required(false)
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("http-store-passwords-in-secrets-dir")
+                .long("http-store-passwords-in-secrets-dir")
+                .help("If present, any validators created via the HTTP will have keystore \
+                    passwords stored in the secrets-dir rather than the validator \
+                    definitions file.")
+                .required(false)
+                .takes_value(false),
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")

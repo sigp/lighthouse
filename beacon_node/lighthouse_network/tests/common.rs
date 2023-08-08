@@ -94,6 +94,7 @@ pub async fn build_libp2p_instance(
     boot_nodes: Vec<Enr>,
     log: slog::Logger,
     fork_name: ForkName,
+    spec: &ChainSpec,
 ) -> Libp2pInstance {
     let port = unused_tcp4_port().unwrap();
     let config = build_config(port, boot_nodes);
@@ -106,7 +107,7 @@ pub async fn build_libp2p_instance(
         config: &config,
         enr_fork_id: EnrForkId::default(),
         fork_context: Arc::new(fork_context(fork_name)),
-        chain_spec: &ChainSpec::minimal(),
+        chain_spec: spec,
         gossipsub_registry: None,
     };
     Libp2pInstance(
@@ -130,12 +131,13 @@ pub async fn build_node_pair(
     rt: Weak<Runtime>,
     log: &slog::Logger,
     fork_name: ForkName,
+    spec: &ChainSpec,
 ) -> (Libp2pInstance, Libp2pInstance) {
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
 
-    let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log, fork_name).await;
-    let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name).await;
+    let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log, fork_name, spec).await;
+    let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name, spec).await;
 
     let receiver_multiaddr = receiver.local_enr().multiaddr()[1].clone();
 
@@ -180,10 +182,11 @@ pub async fn build_linear(
     log: slog::Logger,
     n: usize,
     fork_name: ForkName,
+    spec: &ChainSpec,
 ) -> Vec<Libp2pInstance> {
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
-        nodes.push(build_libp2p_instance(rt.clone(), vec![], log.clone(), fork_name).await);
+        nodes.push(build_libp2p_instance(rt.clone(), vec![], log.clone(), fork_name, spec).await);
     }
 
     let multiaddrs: Vec<Multiaddr> = nodes

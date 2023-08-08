@@ -1391,6 +1391,46 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST beacon/blocks
+    let post_beacon_blinded_blocks_ssz =
+        eth_v1
+            .and(warp::path("beacon"))
+            .and(warp::path("blinded_blocks"))
+            .and(warp::path::end())
+            .and(warp::body::bytes())
+            .and(chain_filter.clone())
+            .and(network_tx_filter.clone())
+            .and(log_filter.clone())
+            .and_then(
+                |block_bytes: Bytes,
+                 chain: Arc<BeaconChain<T>>,
+                 network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                 log: Logger| async move {
+                    let block =
+                        match SignedBeaconBlock::<T::EthSpec, BlindedPayload<_>>::from_ssz_bytes(
+                            &block_bytes,
+                            &chain.spec,
+                        ) {
+                            Ok(data) => data,
+                            Err(e) => {
+                                return Err(warp_utils::reject::custom_bad_request(format!(
+                                    "{:?}",
+                                    e
+                                )))
+                            }
+                        };
+                    publish_blocks::publish_blinded_block(
+                        block,
+                        chain,
+                        &network_tx,
+                        log,
+                        BroadcastValidation::default(),
+                    )
+                    .await
+                    .map(|()| warp::reply().into_response())
+                },
+            );
+
     let post_beacon_blinded_blocks_v2 = eth_v2
         .and(warp::path("beacon"))
         .and(warp::path("blinded_blocks"))
@@ -1427,6 +1467,58 @@ pub fn serve<T: BeaconChainTypes>(
                 }
             },
         );
+
+    let post_beacon_blinded_blocks_v2_ssz =
+        eth_v2
+            .and(warp::path("beacon"))
+            .and(warp::path("blinded_blocks"))
+            .and(warp::query::<api_types::BroadcastValidationQuery>())
+            .and(warp::path::end())
+            .and(warp::body::bytes())
+            .and(chain_filter.clone())
+            .and(network_tx_filter.clone())
+            .and(log_filter.clone())
+            .then(
+                |validation_level: api_types::BroadcastValidationQuery,
+                 block_bytes: Bytes,
+                 chain: Arc<BeaconChain<T>>,
+                 network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                 log: Logger| async move {
+                    let block =
+                        match SignedBeaconBlock::<T::EthSpec, BlindedPayload<_>>::from_ssz_bytes(
+                            &block_bytes,
+                            &chain.spec,
+                        ) {
+                            Ok(data) => data,
+                            Err(_) => {
+                                return warp::reply::with_status(
+                                    StatusCode::BAD_REQUEST,
+                                    eth2::StatusCode::BAD_REQUEST,
+                                )
+                                .into_response();
+                            }
+                        };
+                    match publish_blocks::publish_blinded_block(
+                        block,
+                        chain,
+                        &network_tx,
+                        log,
+                        validation_level.broadcast_validation,
+                    )
+                    .await
+                    {
+                        Ok(()) => warp::reply().into_response(),
+                        Err(e) => match warp_utils::reject::handle_rejection(e).await {
+                            Ok(reply) => reply.into_response(),
+                            Err(_) => warp::reply::with_status(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                eth2::StatusCode::INTERNAL_SERVER_ERROR,
+                            )
+                            .into_response(),
+                        },
+                    }
+                },
+            );
 
     let block_id_or_err = warp::path::param::<BlockId>().or_else(|_| async {
         Err(warp_utils::reject::custom_bad_request(
@@ -4073,7 +4165,12 @@ pub fn serve<T: BeaconChainTypes>(
             warp::post().and(
                 warp::header::exact("Content-Type", "application/octet-stream")
                     // Routes which expect `application/octet-stream` go within this `and`.
-                    .and(post_beacon_blocks_ssz.uor(post_beacon_blocks_v2_ssz))
+                    .and(
+                        post_beacon_blocks_ssz
+                            .uor(post_beacon_blocks_v2_ssz)
+                            .uor(post_beacon_blinded_blocks_ssz)
+                            .uor(post_beacon_blinded_blocks_v2_ssz),
+                    )
                     .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
                     .uor(post_beacon_blocks_v2)

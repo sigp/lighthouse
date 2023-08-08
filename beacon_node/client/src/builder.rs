@@ -795,7 +795,8 @@ where
                     self.work_reprocessing_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
-                );
+                    beacon_chain.spec.maximum_gossip_clock_disparity(),
+                )?;
             }
 
             let state_advance_context = runtime_context.service_context("state_advance".into());

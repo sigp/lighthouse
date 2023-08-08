@@ -46,6 +46,8 @@ Staying silent and refusing to sign messages will cause the following:
 - Potentially missed rewards by missing a block proposal (if the validator is an elected block
     proposer, which is unlikely).
 
+Notably, sync committee contributions are not slashable and will continue to be produced even when DP is suppressing other messages.
+
 The loss of rewards and penalties incurred due to the missed duties will be very small in
 dollar-values. Neglecting block proposals, generally they will equate to around 0.00002 ETH (equivalent to USD 0.04 assuming ETH is trading at USD 2000), or less than
 1% of the reward for one validator for one day. Since DP costs so little but can protect a user from
