@@ -721,7 +721,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_hash)) => {
-                debug!(
+                trace!(
                     self.log,
                     "Missing block components for gossip verified blob";
                     "slot" => %blob_slot,

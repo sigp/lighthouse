@@ -418,11 +418,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
         let request_id = RequestId::Sync(sync_id);
 
-        trace!(
+        debug!(
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "count" => request.block_roots().len(),
+            "block_roots" => ?request.block_roots().to_vec(),
             "peer" => %peer_id,
             "lookup_type" => ?lookup_type
         );
@@ -448,12 +448,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
         let request_id = RequestId::Sync(sync_id);
 
-        if !blob_request.blob_ids.is_empty() {
-            trace!(
+        if let Some(block_root) = blob_request.blob_ids.first().map(|id| id.block_root) {
+            let indices = blob_request
+                .blob_ids
+                .iter()
+                .map(|id| id.index)
+                .collect::<Vec<_>>();
+            debug!(
                 self.log,
                 "Sending BlobsByRoot Request";
                 "method" => "BlobsByRoot",
-                "count" => blob_request.blob_ids.len(),
+                "block_root" => ?block_root,
+                "blob_indices" => ?indices,
                 "peer" => %blob_peer_id,
                 "lookup_type" => ?lookup_type
             );

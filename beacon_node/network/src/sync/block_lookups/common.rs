@@ -374,7 +374,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
 
     fn new_request(&self) -> BlobsByRootRequest {
         BlobsByRootRequest {
-            blob_ids: VariableList::from(self.requested_ids.clone()),
+            blob_ids: self.requested_ids.clone().into(),
         }
     }
 
@@ -402,7 +402,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
                     Err(LookupVerifyError::UnrequestedBlobId)
                 } else {
                     // State should remain downloading until we receive the stream terminator.
-                    self.requested_ids.retain(|id| *id != received_id);
+                    self.requested_ids.remove(&received_id);
                     let blob_index = blob.index;
 
                     if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
