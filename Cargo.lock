@@ -5202,7 +5202,7 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.1.0"
-source = "git+https://github.com/sigp/milhouse?branch=cow-make-mut#ac0240bfd4063cedc249a6a7348904871aeebc8f"
+source = "git+https://github.com/sigp/milhouse?branch=main#d106d79a434967f4c112bbcf8591fcc7e21baad9"
 dependencies = [
  "arbitrary",
  "derivative",
