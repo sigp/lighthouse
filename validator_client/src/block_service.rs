@@ -522,16 +522,33 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         };
 
         let maybe_signed_blobs = match maybe_blob_sidecars {
-            Some(blob_sidecars) => Some(
-                // TODO(jimmy): add same error handling as block signing, i.e. handle ValidatorStoreError::UnknownPubkey
-                self_ref
+            Some(blob_sidecars) => {
+                match self_ref
                     .validator_store
                     .sign_blobs(*validator_pubkey_ref, blob_sidecars)
                     .await
-                    .map_err(|e| {
-                        BlockError::Recoverable(format!("Unable to sign blob: {:?}", e))
-                    })?,
-            ),
+                {
+                    Ok(signed_blobs) => Some(signed_blobs),
+                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                        // A pubkey can be missing when a validator was recently removed
+                        // via the API.
+                        warn!(
+                            log,
+                            "Missing pubkey for blobs";
+                            "info" => "a validator may have recently been removed from this VC",
+                            "pubkey" => ?pubkey,
+                            "slot" => ?slot
+                        );
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        return Err(BlockError::Recoverable(format!(
+                            "Unable to sign blobs: {:?}",
+                            e
+                        )))
+                    }
+                }
+            }
             None => None,
         };
         let signing_time_ms =
