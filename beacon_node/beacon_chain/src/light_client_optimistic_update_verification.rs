@@ -1,6 +1,4 @@
-use crate::{
-    beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY, BeaconChain, BeaconChainError, BeaconChainTypes,
-};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use eth2::types::Hash256;
 use slot_clock::SlotClock;
@@ -103,7 +101,8 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         // verify that enough time has passed for the block to have been propagated
         match start_time {
             Some(time) => {
-                if seen_timestamp + MAXIMUM_GOSSIP_CLOCK_DISPARITY < time + one_third_slot_duration
+                if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
+                    < time + one_third_slot_duration
                 {
                     return Err(Error::TooEarly);
                 }

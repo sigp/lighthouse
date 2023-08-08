@@ -220,9 +220,12 @@ mod tests {
         let snappy_protocol_id = ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy);
 
         let fork_context = Arc::new(fork_context(ForkName::Base));
+
+        let chain_spec = Spec::default_spec();
+
         let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
             snappy_protocol_id,
-            max_rpc_size(&fork_context),
+            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
             fork_context,
         );
 
@@ -254,9 +257,12 @@ mod tests {
         let snappy_protocol_id = ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy);
 
         let fork_context = Arc::new(fork_context(ForkName::Base));
+
+        let chain_spec = Spec::default_spec();
+
         let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
             snappy_protocol_id,
-            max_rpc_size(&fork_context),
+            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
             fork_context,
         );
 
@@ -282,7 +288,10 @@ mod tests {
 
         // Response limits
         let fork_context = Arc::new(fork_context(ForkName::Base));
-        let max_rpc_size = max_rpc_size(&fork_context);
+
+        let chain_spec = Spec::default_spec();
+
+        let max_rpc_size = max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize);
         let limit = protocol_id.rpc_response_limits::<Spec>(&fork_context);
         let mut max = encode_len(limit.max + 1);
         let mut codec = SSZSnappyOutboundCodec::<Spec>::new(

@@ -435,15 +435,6 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(response).unwrap())
         }
-        ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1 => {
-            let block_generator = ctx.execution_block_generator.read();
-            let transition_config: TransitionConfigurationV1 = TransitionConfigurationV1 {
-                terminal_total_difficulty: block_generator.terminal_total_difficulty,
-                terminal_block_hash: block_generator.terminal_block_hash,
-                terminal_block_number: block_generator.terminal_block_number,
-            };
-            Ok(serde_json::to_value(transition_config).unwrap())
-        }
         ENGINE_EXCHANGE_CAPABILITIES => {
             let engine_capabilities = ctx.engine_capabilities.read();
             Ok(serde_json::to_value(engine_capabilities.to_response()).unwrap())

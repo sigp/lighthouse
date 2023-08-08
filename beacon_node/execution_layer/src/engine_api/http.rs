@@ -48,10 +48,6 @@ pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesB
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1: &str = "engine_getPayloadBodiesByRangeV1";
 pub const ENGINE_GET_PAYLOAD_BODIES_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
-    "engine_exchangeTransitionConfigurationV1";
-pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration = Duration::from_secs(1);
-
 pub const ENGINE_EXCHANGE_CAPABILITIES: &str = "engine_exchangeCapabilities";
 pub const ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -72,7 +68,6 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_FORKCHOICE_UPDATED_V2,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
-    ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1,
 ];
 
 /// This is necessary because a user might run a capella-enabled version of
@@ -90,7 +85,6 @@ pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilit
     get_payload_v1: true,
     get_payload_v2: false,
     get_payload_v3: false,
-    exchange_transition_configuration_v1: true,
 };
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
@@ -994,24 +988,6 @@ impl HttpJsonRpc {
             .collect())
     }
 
-    pub async fn exchange_transition_configuration_v1(
-        &self,
-        transition_configuration: TransitionConfigurationV1,
-    ) -> Result<TransitionConfigurationV1, Error> {
-        let params = json!([transition_configuration]);
-
-        let response = self
-            .rpc_request(
-                ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1,
-                params,
-                ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT
-                    * self.execution_timeout_multiplier,
-            )
-            .await?;
-
-        Ok(response)
-    }
-
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
         let params = json!([LIGHTHOUSE_CAPABILITIES]);
 
@@ -1044,8 +1020,6 @@ impl HttpJsonRpc {
                 get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
                 get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
                 get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
-                exchange_transition_configuration_v1: capabilities
-                    .contains(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1),
             }),
         }
     }

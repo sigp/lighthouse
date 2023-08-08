@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::beacon_chain::{
     BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT,
-    MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
+    VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::kzg_utils::{validate_blob, validate_blobs};
@@ -196,7 +196,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     // Verify that the sidecar is not from a future slot.
     let latest_permissible_slot = chain
         .slot_clock
-        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if blob_slot > latest_permissible_slot {
         return Err(GossipBlobError::FutureSlot {
