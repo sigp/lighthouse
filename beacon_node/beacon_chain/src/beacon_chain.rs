@@ -9,7 +9,6 @@ use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_verification::{self, GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
-use tree_hash::TreeHash;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
@@ -33,7 +32,6 @@ use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, Prep
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
-use crate::kzg_utils;
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -68,7 +66,9 @@ use crate::validator_monitor::{
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::{metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, CachedHead};
+use crate::{
+    kzg_utils, metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, CachedHead,
+};
 use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
@@ -116,6 +116,7 @@ use store::{
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
+use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::RawBlobs;
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
@@ -4970,11 +4971,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
 
                 let kzg_proofs = Vec::from(proofs);
-                Some(Sidecar::build_sidecar(blobs_or_blobs_roots,
-                    &block,
-                    expected_kzg_commitments,
-                    kzg_proofs,
-                ).unwrap()) //TODO: remove unwrap
+
+                if let Some(blobs) = blobs_or_blobs_roots.blobs() {
+                    let kzg = self
+                        .kzg
+                        .as_ref()
+                        .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
+                    kzg_utils::validate_blobs::<T::EthSpec>(
+                        kzg,
+                        expected_kzg_commitments,
+                        blobs,
+                        &kzg_proofs,
+                    )
+                    .map_err(BlockProductionError::KzgError)?;
+                }
+
+                Some(
+                    Sidecar::build_sidecar(
+                        blobs_or_blobs_roots,
+                        &block,
+                        expected_kzg_commitments,
+                        kzg_proofs,
+                    )
+                    .map_err(BlockProductionError::FailedToBuildBlobSidecars)?,
+                )
             }
             _ => None,
         };

@@ -13,7 +13,6 @@ use std::hash::Hash;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use crate::blob_sidecar::RawBlobs;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockType {
@@ -401,7 +400,7 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
             ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
         }
     }
-    fn default_blobs_at_fork(fork_name: ForkName) -> Result<Blobs<T>, Error> {
+    fn default_blobs_at_fork(_fork_name: ForkName) -> Result<Blobs<T>, Error> {
         Ok(VariableList::default())
     }
 }
@@ -919,7 +918,7 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
             ForkName::Deneb => Ok(BlindedPayloadDeneb::default().into()),
         }
     }
-    fn default_blobs_at_fork(fork_name: ForkName) -> Result<BlobRoots<T>, Error> {
+    fn default_blobs_at_fork(_fork_name: ForkName) -> Result<BlobRoots<T>, Error> {
         Ok(VariableList::default())
     }
 }

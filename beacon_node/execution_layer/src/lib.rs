@@ -49,7 +49,7 @@ use types::{
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
 };
-use types::{KzgProofs, Sidecar, };
+use types::{KzgProofs, Sidecar};
 use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction};
 
 mod block_hash;
@@ -91,10 +91,12 @@ pub enum ProvenancedPayload<P> {
     Builder(P),
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<BuilderBid<E, Payload>>
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<BuilderBid<E, Payload>>
     for ProvenancedPayload<BlockProposalContents<E, Payload>>
 {
-    fn from(value: BuilderBid<E, Payload>) -> Self {
+    type Error = Error;
+
+    fn try_from(value: BuilderBid<E, Payload>) -> Result<Self, Error> {
         let block_proposal_contents = match value {
             BuilderBid::Merge(builder_bid) => BlockProposalContents::Payload {
                 payload: builder_bid.header,
@@ -108,11 +110,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<BuilderBid<E, Payload>>
                 payload: builder_bid.header,
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blinded_blobs_bundle.commitments,
-                blobs: RawBlobs::from_blob_roots(builder_bid.blinded_blobs_bundle.blob_roots),
+                blobs: RawBlobs::try_from_blob_roots(builder_bid.blinded_blobs_bundle.blob_roots)
+                    .map_err(Error::InvalidBlobConversion)?,
                 proofs: builder_bid.blinded_blobs_bundle.proofs,
             },
         };
-        ProvenancedPayload::Builder(block_proposal_contents)
+        Ok(ProvenancedPayload::Builder(block_proposal_contents))
     }
 }
 
@@ -137,6 +140,7 @@ pub enum Error {
     InvalidJWTSecret(String),
     InvalidForkForPayload,
     InvalidPayloadBody(String),
+    InvalidBlobConversion(String),
     BeaconStateError(BeaconStateError),
 }
 
@@ -166,23 +170,26 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     },
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<GetPayloadResponse<E>>
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
     for BlockProposalContents<E, Payload>
 {
-    fn from(response: GetPayloadResponse<E>) -> Self {
+    type Error = Error;
+
+    fn try_from(response: GetPayloadResponse<E>) -> Result<Self, Error> {
         let (execution_payload, block_value, maybe_bundle) = response.into();
         match maybe_bundle {
-            Some(bundle) => Self::PayloadAndBlobs {
+            Some(bundle) => Ok(Self::PayloadAndBlobs {
                 payload: execution_payload.into(),
                 block_value,
                 kzg_commitments: bundle.commitments,
-                blobs: RawBlobs::from_blobs(bundle.blobs),
+                blobs: RawBlobs::try_from_blobs(bundle.blobs)
+                    .map_err(Error::InvalidBlobConversion)?,
                 proofs: bundle.proofs,
-            },
-            None => Self::Payload {
+            }),
+            None => Ok(Self::Payload {
                 payload: execution_payload.into(),
                 block_value,
-            },
+            }),
         }
     }
 }
@@ -951,7 +958,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 current_fork,
                                 spec,
                             ) {
-                                Ok(()) => Ok(ProvenancedPayload::from(relay.data.message)),
+                                Ok(()) => Ok(ProvenancedPayload::try_from(relay.data.message)?),
                                 Err(reason) if !reason.payload_invalid() => {
                                     info!(
                                         self.log(),
@@ -1000,11 +1007,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 current_fork,
                                 spec,
                             ) {
-                                Ok(()) => Ok(ProvenancedPayload::from(relay.data.message)),
+                                Ok(()) => Ok(ProvenancedPayload::try_from(relay.data.message)?),
                                 // If the payload is valid then use it. The local EE failed
                                 // to produce a payload so we have no alternative.
                                 Err(e) if !e.payload_invalid() => {
-                                    Ok(ProvenancedPayload::from(relay.data.message))
+                                    Ok(ProvenancedPayload::try_from(relay.data.message)?)
                                 }
                                 Err(reason) => {
                                     metrics::inc_counter_vec(
@@ -1208,11 +1215,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     );
                 }
 
-                Ok(payload_response.into())
+                Ok(payload_response)
             })
             .await
             .map_err(Box::new)
             .map_err(Error::EngineError)
+            .and_then(|payload| payload.try_into())
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.

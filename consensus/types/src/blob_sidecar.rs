@@ -49,42 +49,58 @@ pub trait Sidecar<E: EthSpec>:
     ) -> Result<SidecarList<E, Self>, String>;
 }
 
-pub trait RawBlobs<T: EthSpec>: Sync + Send {
-    fn from_blob_roots(roots: BlobRoots<T>) -> Self;
-    fn from_blobs(blobs: Blobs<T>) -> Self;
+pub trait RawBlobs<T: EthSpec>: Sync + Send + Sized {
+    fn try_from_blob_roots(roots: BlobRoots<T>) -> Result<Self, String>;
+    fn try_from_blobs(blobs: Blobs<T>) -> Result<Self, String>;
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
+    fn blobs(&self) -> Option<&Blobs<T>>;
 }
 
 impl<T: EthSpec> RawBlobs<T> for Blobs<T> {
+    fn try_from_blob_roots(_roots: BlobRoots<T>) -> Result<Self, String> {
+        Err("Unexpected conversion from blob roots to blobs".to_string())
+    }
 
-    fn from_blob_roots(roots: BlobRoots<T>) -> Self {
-        todo!()
+    fn try_from_blobs(blobs: Blobs<T>) -> Result<Self, String> {
+        Ok(blobs)
     }
-    fn from_blobs(blobs: Blobs<T>) -> Self {
-        todo!()
-    }
+
     fn len(&self) -> usize {
         VariableList::len(self)
     }
+
     fn is_empty(&self) -> bool {
         VariableList::is_empty(self)
+    }
+
+    fn blobs(&self) -> Option<&Blobs<T>> {
+        Some(self)
     }
 }
 
 impl<T: EthSpec> RawBlobs<T> for BlobRoots<T> {
+    fn try_from_blob_roots(roots: BlobRoots<T>) -> Result<Self, String> {
+        Ok(roots)
+    }
 
-    fn from_blob_roots(roots: BlobRoots<T>) -> Self {
-        todo!()
+    fn try_from_blobs(_blobs: Blobs<T>) -> Result<Self, String> {
+        // It is possible to convert from blobs to blob roots, however this should be done using
+        // `From` or `Into` instead of this generic implementation; this function implementation
+        // should be unreachable, and attempt to use this indicates a bug somewhere.
+        Err("Unexpected conversion from blob to blob roots".to_string())
     }
-    fn from_blobs(blobs: Blobs<T>) -> Self {
-        todo!()
-    }
+
     fn len(&self) -> usize {
         VariableList::len(self)
     }
+
     fn is_empty(&self) -> bool {
         VariableList::is_empty(self)
+    }
+
+    fn blobs(&self) -> Option<&Blobs<T>> {
+        None
     }
 }
 
@@ -141,9 +157,11 @@ pub struct BlobSidecar<T: EthSpec> {
 
 impl<E: EthSpec> Sidecar<E> for BlobSidecar<E> {
     type RawBlobs = Blobs<E>;
+
     fn slot(&self) -> Slot {
         self.slot
     }
+
     fn build_sidecar<Payload: AbstractExecPayload<E>>(
         blobs: Blobs<E>,
         block: &BeaconBlock<E, Payload>,
@@ -152,9 +170,6 @@ impl<E: EthSpec> Sidecar<E> for BlobSidecar<E> {
     ) -> Result<SidecarList<E, Self>, String> {
         let beacon_block_root = block.canonical_root();
         let slot = block.slot();
-
-        //TODO: kzg verify
-
         let blob_sidecars = BlobSidecarList::from(
             blobs
                 .into_iter()
@@ -162,11 +177,11 @@ impl<E: EthSpec> Sidecar<E> for BlobSidecar<E> {
                 .map(|(blob_index, blob)| {
                     let kzg_commitment = expected_kzg_commitments
                         .get(blob_index)
-                        .expect("KZG commitment should exist for blob");
+                        .ok_or("KZG commitment should exist for blob")?;
 
                     let kzg_proof = kzg_proofs
                         .get(blob_index)
-                        .expect("KZG proof should exist for blob");
+                        .ok_or("KZG proof should exist for blob")?;
 
                     Ok(Arc::new(BlobSidecar {
                         block_root: beacon_block_root,
@@ -322,9 +337,11 @@ impl SignedRoot for BlindedBlobSidecar {}
 
 impl<E: EthSpec> Sidecar<E> for BlindedBlobSidecar {
     type RawBlobs = BlobRoots<E>;
+
     fn slot(&self) -> Slot {
         self.slot
     }
+
     fn build_sidecar<Payload: AbstractExecPayload<E>>(
         blob_roots: BlobRoots<E>,
         block: &BeaconBlock<E, Payload>,
@@ -341,7 +358,7 @@ impl<E: EthSpec> Sidecar<E> for BlindedBlobSidecar {
                 .map(|(blob_index, blob_root)| {
                     let kzg_commitment = expected_kzg_commitments
                         .get(blob_index)
-                        .expect("KZG commitment should exist for blob");
+                        .ok_or("KZG commitment should exist for blob")?;
 
                     let kzg_proof = kzg_proofs.get(blob_index).ok_or(format!(
                         "Missing KZG proof for slot {} blob index: {}",
@@ -375,4 +392,3 @@ pub type FixedBlobSidecarList<T> =
 
 pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
 pub type BlobRoots<T> = VariableList<Hash256, <T as EthSpec>::MaxBlobsPerBlock>;
-

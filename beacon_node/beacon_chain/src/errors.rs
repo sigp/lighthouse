@@ -290,6 +290,7 @@ pub enum BlockProductionError {
     TrustedSetupNotInitialized,
     InvalidBlockVariant(String),
     KzgError(kzg::Error),
+    FailedToBuildBlobSidecars(String),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

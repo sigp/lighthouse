@@ -58,7 +58,6 @@ pub enum Error {
     IncorrectStateVariant,
     RequiredMethodUnsupported(&'static str),
     UnsupportedForkVariant(String),
-    BadConversion(String),
     RlpDecoderError(rlp::DecoderError),
     BlobTxConversionError(BlobTxConversionError),
 }
