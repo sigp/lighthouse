@@ -110,17 +110,13 @@ pub fn construct_upnp_mappings<T: EthSpec>(
                     let mut udp_sockets = Vec::new();
 
                     // Set the discovery UDP port mapping
-                    if !config.disable_discovery {
-                        if set_udp_mapping(config.disc_port).is_ok() {
-                            udp_sockets.push(config.disc_port);
-                        }
+                    if !config.disable_discovery && set_udp_mapping(config.disc_port).is_ok() {
+                        udp_sockets.push(config.disc_port);
                     }
 
                     // Set the quic UDP port mapping
-                    if !config.disable_quic_support {
-                        if set_udp_mapping(config.quic_port).is_ok() {
-                            udp_sockets.push(config.quic_port)
-                        }
+                    if !config.disable_quic_support && set_udp_mapping(config.quic_port).is_ok() {
+                        udp_sockets.push(config.quic_port)
                     }
 
                     // report any updates to the network service.

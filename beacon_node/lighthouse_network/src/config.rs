@@ -193,8 +193,7 @@ impl Config {
     /// Sets the listening address to use both an ipv4 and ipv6 address. The discv5 ip_mode and
     /// table filter is adjusted accordingly to ensure addresses that are present in the enr are
     /// globally reachable.
-    /// TODO: add Quic support IPV6 port when https://github.com/libp2p/rust-libp2p/issues/4165
-    /// gets addressed.
+    #[allow(clippy::too_many_arguments)]
     pub fn set_ipv4_ipv6_listening_addresses(
         &mut self,
         v4_addr: Ipv4Addr,

@@ -1240,6 +1240,6 @@ mod tests {
         assert_eq!(results.len(), 2);
 
         // when a peer belongs to multiple subnet ids, we use the highest ttl.
-        assert_eq!(results.get(&enr1.peer_id()).unwrap(), &instant1);
+        assert_eq!(results.get(&enr1).unwrap(), &instant1);
     }
 }
