@@ -932,6 +932,20 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
             for result in duty_and_proof_results {
                 let duty_and_proof = match result {
                     Ok(duty_and_proof) => duty_and_proof,
+                    Err(Error::FailedToProduceSelectionProof(
+                        ValidatorStoreError::UnknownPubkey(pubkey),
+                    )) => {
+                        // A pubkey can be missing when a validator was recently
+                        // removed via the API.
+                        warn!(
+                            log,
+                            "Missing pubkey for duty and proof";
+                            "info" => "a validator may have recently been removed from this VC",
+                            "pubkey" => ?pubkey,
+                        );
+                        // Do not abort the entire batch for a single failure.
+                        continue;
+                    }
                     Err(e) => {
                         error!(
                             log,

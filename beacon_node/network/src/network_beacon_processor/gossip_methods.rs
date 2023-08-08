@@ -1845,6 +1845,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     attestation_verification::verify_propagation_slot_range(
                         seen_clock,
                         failed_att.attestation(),
+                        &self.chain.spec,
                     );
 
                 // Only penalize the peer if it would have been invalid at the moment we received
@@ -2396,6 +2397,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         sync_committee_verification::verify_propagation_slot_range(
                             seen_clock,
                             &sync_committee_message_slot,
+                            &self.chain.spec,
                         );
                     hindsight_verification.is_err()
                 };
@@ -2708,6 +2710,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let is_timely = attestation_verification::verify_propagation_slot_range(
             &self.chain.slot_clock,
             attestation,
+            &self.chain.spec,
         )
         .is_ok();
 

@@ -778,7 +778,8 @@ where
                     self.work_reprocessing_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
-                );
+                    beacon_chain.spec.maximum_gossip_clock_disparity(),
+                )?;
             }
 
             let state_advance_context = runtime_context.service_context("state_advance".into());
@@ -833,9 +834,6 @@ where
                     execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock>(
                         beacon_chain.slot_clock.clone(),
                     );
-
-                    // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
-                    execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
                 }
 
                 // Spawn a service to publish BLS to execution changes at the Capella fork.

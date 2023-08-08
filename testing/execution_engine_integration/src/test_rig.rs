@@ -205,16 +205,6 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let account2 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT2).unwrap());
 
         /*
-         * Check the transition config endpoint.
-         */
-        for ee in [&self.ee_a, &self.ee_b] {
-            ee.execution_layer
-                .exchange_transition_configuration(&self.spec)
-                .await
-                .unwrap();
-        }
-
-        /*
          * Read the terminal block hash from both pairs, check it's equal.
          */
 

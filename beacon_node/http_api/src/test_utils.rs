@@ -7,12 +7,9 @@ use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
-    libp2p::{
-        core::connection::ConnectionId,
-        swarm::{
-            behaviour::{ConnectionEstablished, FromSwarm},
-            NetworkBehaviour,
-        },
+    libp2p::swarm::{
+        behaviour::{ConnectionEstablished, FromSwarm},
+        ConnectionId, NetworkBehaviour,
     },
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
@@ -167,7 +164,7 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
         local_addr: EXTERNAL_ADDR.parse().unwrap(),
         send_back_addr: EXTERNAL_ADDR.parse().unwrap(),
     };
-    let connection_id = ConnectionId::new(1);
+    let connection_id = ConnectionId::new_unchecked(1);
     pm.on_swarm_event(FromSwarm::ConnectionEstablished(ConnectionEstablished {
         peer_id,
         connection_id,

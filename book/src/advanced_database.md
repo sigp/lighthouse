@@ -28,8 +28,8 @@ some example values.
 | Research                   | 32   | 3.4 TB            | 155 ms                |
 | Block explorer/analysis    | 128  | 851 GB            | 620 ms                |
 | Enthusiast (prev. default) | 2048 | 53.6 GB           | 10.2 s                |
-| Hobbyist                  | 4096 | 26.8 GB           | 20.5 s                |
-| Validator only (default)   | 8192 | 8.1 GB            | 41 s                  |
+| Hobbyist                   | 4096 | 26.8 GB           | 20.5 s                |
+| Validator only (default)   | 8192 | 12.7 GB           | 41 s                  |
 
 *Last update: May 2023. 
 
