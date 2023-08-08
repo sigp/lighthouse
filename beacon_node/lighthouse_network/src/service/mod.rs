@@ -1366,19 +1366,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
-    /// Handle a discovery event.
-    fn inject_discovery_event(
-        &mut self,
-        event: DiscoveredPeers,
-    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
-        // Inform the peer manager about discovered peers.
-        //
-        // The peer manager will subsequently decide which peers need to be dialed and then dial
-        // them.
-        self.peer_manager_mut().peers_discovered(event.peers);
-        None
-    }
-
     /// Handle an identify event.
     fn inject_identify_event(
         &mut self,
@@ -1479,7 +1466,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     BehaviourEvent::BannedPeers(void) => void::unreachable(void),
                     BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
                     BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
-                    BehaviourEvent::Discovery(de) => self.inject_discovery_event(de),
+                    // Inform the peer manager about discovered peers.
+                    //
+                    // The peer manager will subsequently decide which peers need to be dialed and then dial
+                    // them.
+                    BehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
+                        self.peer_manager_mut().peers_discovered(peers);
+                        None
+                    }
                     BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
                     BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
                     BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
@@ -1561,12 +1555,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         None
                     }
                 }
-                SwarmEvent::Dialing {
-                    peer_id,
-                    connection_id: _,
-                } => {
-                    None
-                }
+                SwarmEvent::Dialing { .. } => None,
             };
 
             if let Some(ev) = maybe_event {
