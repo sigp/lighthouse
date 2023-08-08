@@ -1066,9 +1066,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let peers_to_dial: Vec<Enr> = self
             .discovery()
             .cached_enrs()
-            .filter_map(|(peer_id, enr)| {
-                let peers = self.network_globals.peers.read();
-                if predicate(enr) && peers.should_dial(peer_id) {
+            .filter_map(|(_peer_id, enr)| {
+                if predicate(enr) {
                     Some(enr.clone())
                 } else {
                     None
@@ -1078,10 +1077,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         // Remove the ENR from the cache to prevent continual re-dialing on disconnects
         peers_to_dial.iter().for_each(|enr| {
+            self.peer_manager_mut().dial_peer(enr.clone());
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
         });
-
-        self.peer_manager_mut().dial_peers(peers_to_dial);
     }
 
     /* Sub-behaviour event handling functions */

@@ -315,8 +315,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// This function decides whether or not to dial these peers.
     #[allow(clippy::mutable_key_type)]
     pub fn peers_discovered(&mut self, results: HashMap<Enr, Option<Instant>>) {
-        let mut to_dial_peers = Vec::with_capacity(4);
-
+        let mut to_dial_peers = 0;
         let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
         for (enr, min_ttl) in results {
             // There are two conditions in deciding whether to dial this peer.
@@ -327,14 +326,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             //    considered a priority. We have pre-allocated some extra priority slots for these
             //    peers as specified by PRIORITY_PEER_EXCESS. Therefore we dial these peers, even
             //    if we are already at our max_peer limit.
-            if (min_ttl.is_some()
-                && connected_or_dialing + to_dial_peers.len() < self.max_priority_peers()
-                || connected_or_dialing + to_dial_peers.len() < self.max_peers())
-                && self
-                    .network_globals
-                    .peers
-                    .read()
-                    .should_dial(&enr.peer_id())
+            if min_ttl.is_some() && connected_or_dialing + to_dial_peers < self.max_priority_peers()
+                || connected_or_dialing + to_dial_peers < self.max_peers()
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed
@@ -345,15 +338,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         .update_min_ttl(&enr.peer_id(), min_ttl);
                 }
                 debug!(self.log, "Dialing discovered peer"; "peer_id" => %enr.peer_id());
-                to_dial_peers.push(enr);
+                self.dial_peer(enr);
+                to_dial_peers += 1;
             }
         }
 
         // Queue another discovery if we need to
-        self.maintain_peer_count(to_dial_peers.len());
-
-        // Dial the required peers
-        self.dial_peers(to_dial_peers);
+        self.maintain_peer_count(to_dial_peers);
     }
 
     /// A STATUS message has been received from a peer. This resets the status timer.
@@ -409,9 +400,16 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /* Notifications from the Swarm */
 
-    // A peer is being dialed.
-    pub fn dial_peers(&mut self, mut peers: Vec<Enr>) {
-        self.peers_to_dial.append(&mut peers);
+    /// A peer is being dialed.
+    pub fn dial_peer(&mut self, peer: Enr) {
+        if self
+            .network_globals
+            .peers
+            .read()
+            .should_dial(&peer.peer_id())
+        {
+            self.peers_to_dial.push(peer);
+        }
     }
 
     /// Reports if a peer is banned or not.
