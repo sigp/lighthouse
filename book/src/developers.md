@@ -6,7 +6,6 @@ This section lists Lighthouse-specific decisions that are not strictly spec'd an
 other protocol developers wishing to interact with lighthouse.
 
 
-
 ## Custom ENR Fields
 
 Lighthouse currently uses the following ENR fields:
@@ -16,10 +15,8 @@ Lighthouse currently uses the following ENR fields:
 | Field | Description |
 | ---- | ---- |
 | `eth2` | The `ENRForkId` in SSZ bytes specifying which fork the node is on |
-| `attnets` | An SSZ bitfield which indicates which of the 64 subnets the node is subscribed to for
-an extended period of time |
-| `syncnets` | An SSZ bitfield which indicates which of the sync committee subnets the node is
-subscribed to |
+| `attnets` | An SSZ bitfield which indicates which of the 64 subnets the node is subscribed to for an extended period of time |
+| `syncnets` | An SSZ bitfield which indicates which of the sync committee subnets the node is subscribed to |
 
 
 ### Lighthouse Custom Fields
@@ -40,10 +37,8 @@ custom RPC error messages.
 
 | Code | Message | Description |
 | ---- | ---- | ---- |
-| 128 | Unable to Verify Network | Teku uses this, so we adopted it. It relates to having a fork
-mismatch |
-| 129 | Too Many Peers | Lighthouse can close a connection because it has reached its peer-limit and
-pruned excess peers |
+| 128 | Unable to Verify Network | Teku uses this, so we adopted it. It relates to having a fork mismatch |
+| 129 | Too Many Peers | Lighthouse can close a connection because it has reached its peer-limit and pruned excess peers |
 | 250 | Bad Score | The node has been dropped due to having a bad peer score |
 | 251 | Banned | The peer has been banned and disconnected |
 | 252 | Banned IP | The IP the node is connected to us with has been banned |
