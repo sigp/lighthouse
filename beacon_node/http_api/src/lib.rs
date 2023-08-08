@@ -495,7 +495,7 @@ pub fn serve<T: BeaconChainTypes>(
     let app_start = std::time::Instant::now();
     let app_start_filter = warp::any().map(move || app_start);
 
-    // Create a `warp` filter that provides access the `TaskSpawner`.
+    // Create a `warp` filter that provides access to the `TaskSpawner`.
     let beacon_processor_send = ctx
         .beacon_processor_send
         .clone()
