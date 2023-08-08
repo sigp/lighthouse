@@ -6,8 +6,10 @@ use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{data_availability_checker, GossipVerifiedBlock, PayloadVerificationOutcome};
 use derivative::Derivative;
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::sync::Arc;
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     blob_sidecar::BlobIdentifier, ssz_tagged_beacon_state, ssz_tagged_signed_beacon_block,
     ssz_tagged_signed_beacon_block_arc,
@@ -71,6 +73,22 @@ impl<E: EthSpec> RpcBlock<E> {
             None => RpcBlockInner::Block(block),
         };
         Ok(Self { block: inner })
+    }
+
+    pub fn new_from_fixed(
+        block: Arc<SignedBeaconBlock<E>>,
+        blobs: FixedBlobSidecarList<E>,
+    ) -> Result<Self, AvailabilityCheckError> {
+        let filtered = blobs
+            .into_iter()
+            .filter_map(|b| b.clone())
+            .collect::<Vec<_>>();
+        let blobs = if filtered.is_empty() {
+            None
+        } else {
+            Some(VariableList::from(filtered))
+        };
+        Self::new(block, blobs)
     }
 
     pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<BlobSidecarList<E>>) {
