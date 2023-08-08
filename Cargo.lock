@@ -8497,7 +8497,6 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "serde_with",
  "serde_yaml",
  "slog",
  "smallvec 1.11.0",

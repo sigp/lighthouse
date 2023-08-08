@@ -1,19 +1,14 @@
-use std::marker::PhantomData;
-
-use serde::{Deserialize as De, Deserializer, Serialize as Ser, Serializer};
-use serde_derive::{Deserialize, Serialize};
-use serde_with::{As, DeserializeAs, SerializeAs};
-use superstruct::superstruct;
-use tree_hash_derive::TreeHash;
-
-use bls::PublicKeyBytes;
-use bls::Signature;
-
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
-    AbstractExecPayload, BlobRootsList, ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader,
-    ForkName, ForkVersionDeserialize, KzgProofs, SignedRoot, Uint256,
+    AbstractExecPayload, BlobRootsList, ChainSpec, EthSpec, ExecPayload, ForkName,
+    ForkVersionDeserialize, KzgProofs, SignedRoot, Uint256,
 };
+use bls::PublicKeyBytes;
+use bls::Signature;
+use serde::Deserializer;
+use serde_derive::{Deserialize, Serialize};
+use superstruct::superstruct;
+use tree_hash_derive::TreeHash;
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
 #[serde(bound = "E: EthSpec")]
@@ -27,27 +22,47 @@ pub struct BlindedBlobsBundle<E: EthSpec> {
     variants(Merge, Capella, Deneb),
     variant_attributes(
         derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone),
-        serde(bound = "E: EthSpec, Payload: ExecPayload<E>", deny_unknown_fields)
+        serde(
+            bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
+            deny_unknown_fields
+        )
     )
 )]
 #[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
 #[serde(
-    bound = "E: EthSpec, Payload: ExecPayload<E>",
+    bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
     deny_unknown_fields,
     untagged
 )]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
-    #[serde(with = "As::<BlindedPayloadAsHeader<E>>")]
-    pub header: Payload,
+    #[superstruct(only(Merge), partial_getter(rename = "header_merge"))]
+    pub header: Payload::Merge,
+    #[superstruct(only(Capella), partial_getter(rename = "header_capella"))]
+    pub header: Payload::Capella,
+    #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
+    pub header: Payload::Deneb,
     #[superstruct(only(Deneb))]
     pub blinded_blobs_bundle: BlindedBlobsBundle<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,
-    #[serde(skip)]
-    #[tree_hash(skip_hashing)]
-    _phantom_data: PhantomData<E>,
+}
+
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> BuilderBid<E, Payload> {
+    pub fn header(&self) -> Payload::Ref<'_> {
+        self.to_ref().header()
+    }
+}
+
+impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BuilderBidRef<'a, T, Payload> {
+    pub fn header(&self) -> Payload::Ref<'a> {
+        match self {
+            Self::Merge(bid) => Payload::Ref::from(&bid.header),
+            Self::Capella(bid) => Payload::Ref::from(&bid.header),
+            Self::Deneb(bid) => Payload::Ref::from(&bid.header),
+        }
+    }
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BuilderBid<E, Payload> {}
@@ -102,30 +117,6 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
             message: BuilderBid::deserialize_by_fork::<'de, D>(helper.message, fork_name)?,
             signature: helper.signature,
         })
-    }
-}
-
-struct BlindedPayloadAsHeader<E>(PhantomData<E>);
-
-impl<E: EthSpec, Payload: ExecPayload<E>> SerializeAs<Payload> for BlindedPayloadAsHeader<E> {
-    fn serialize_as<S>(source: &Payload, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        source.to_execution_payload_header().serialize(serializer)
-    }
-}
-
-impl<'de, E: EthSpec, Payload: AbstractExecPayload<E>> DeserializeAs<'de, Payload>
-    for BlindedPayloadAsHeader<E>
-{
-    fn deserialize_as<D>(deserializer: D) -> Result<Payload, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let payload_header = ExecutionPayloadHeader::deserialize(deserializer)?;
-        Payload::try_from(payload_header)
-            .map_err(|_| serde::de::Error::custom("unable to convert payload header to payload"))
     }
 }
 

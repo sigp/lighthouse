@@ -97,15 +97,15 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<BuilderBid<E, Payload>
     fn try_from(value: BuilderBid<E, Payload>) -> Result<Self, Error> {
         let block_proposal_contents = match value {
             BuilderBid::Merge(builder_bid) => BlockProposalContents::Payload {
-                payload: builder_bid.header,
+                payload: builder_bid.header.into(),
                 block_value: builder_bid.value,
             },
             BuilderBid::Capella(builder_bid) => BlockProposalContents::Payload {
-                payload: builder_bid.header,
+                payload: builder_bid.header.into(),
                 block_value: builder_bid.value,
             },
             BuilderBid::Deneb(builder_bid) => BlockProposalContents::PayloadAndBlobs {
-                payload: builder_bid.header,
+                payload: builder_bid.header.into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blinded_blobs_bundle.commitments,
                 blobs: BlobItems::try_from_blob_roots(builder_bid.blinded_blobs_bundle.blob_roots)
