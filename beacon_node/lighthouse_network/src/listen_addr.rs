@@ -66,7 +66,7 @@ impl ListenAddress {
 
         let v4_quic_multiaddrs = self.v4().map(|v4_addr| {
             Multiaddr::from(v4_addr.addr)
-                .with(Protocol::Udp(v4_addr.tcp_port))
+                .with(Protocol::Udp(v4_addr.quic_port))
                 .with(Protocol::QuicV1)
         });
 

@@ -1565,7 +1565,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     peer_id,
                     connection_id: _,
                 } => {
-                    debug!(self.log, "Swarm Dialing"; "peer_id" => ?peer_id);
                     None
                 }
             };
