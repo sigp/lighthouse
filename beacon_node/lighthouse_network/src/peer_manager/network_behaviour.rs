@@ -97,15 +97,20 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         }
 
         if let Some(enr) = self.peers_to_dial.pop() {
-            self.inject_peer_connection(&enr.peer_id(), ConnectingType::Dialing, Some(enr.clone()));
+            let peer_id = enr.peer_id();
+            self.inject_peer_connection(&peer_id, ConnectingType::Dialing, Some(enr.clone()));
+            let quic_multiaddrs = enr.multiaddr_quic();
+            if !quic_multiaddrs.is_empty() {
+                debug!(self.log, "Dialing QUIC supported peer"; "peer_id"=> %peer_id, "quic_multiaddrs" => ?quic_multiaddrs);
+            }
+
             // Prioritize Quic connections over Tcp ones.
-            let multiaddrs = enr
-                .multiaddr_quic()
+            let multiaddrs = quic_multiaddrs
                 .into_iter()
                 .chain(enr.multiaddr_tcp())
                 .collect();
             return Poll::Ready(ToSwarm::Dial {
-                opts: DialOpts::peer_id(enr.peer_id())
+                opts: DialOpts::peer_id(peer_id)
                     .condition(PeerCondition::Disconnected)
                     .addresses(multiaddrs)
                     .build(),

@@ -312,12 +312,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Peers that have been returned by discovery requests that are suitable for dialing are
     /// returned here.
     ///
-    /// NOTE: By dialing `PeerId`s and not multiaddrs, libp2p requests the multiaddr associated
-    /// with a new `PeerId` which involves a discovery routing table lookup. We could dial the
-    /// multiaddr here, however this could relate to duplicate PeerId's etc. If the lookup
-    /// proves resource constraining, we should switch to multiaddr dialling here.
+    /// This function decides whether or not to dial these peers.
     #[allow(clippy::mutable_key_type)]
-    pub fn peers_discovered(&mut self, results: HashMap<Enr, Option<Instant>>) -> Vec<Enr> {
+    pub fn peers_discovered(&mut self, results: HashMap<Enr, Option<Instant>>) {
         let mut to_dial_peers = Vec::with_capacity(4);
 
         let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
@@ -347,6 +344,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         .write()
                         .update_min_ttl(&enr.peer_id(), min_ttl);
                 }
+                debug!(self.log, "Dialing discovered peer"; "peer_id" => %enr.peer_id());
                 to_dial_peers.push(enr);
             }
         }
@@ -354,7 +352,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // Queue another discovery if we need to
         self.maintain_peer_count(to_dial_peers.len());
 
-        to_dial_peers
+        // Dial the required peers
+        self.dial_peers(to_dial_peers);
     }
 
     /// A STATUS message has been received from a peer. This resets the status timer.

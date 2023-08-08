@@ -1045,7 +1045,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
-    /// Dial cached enrs in discovery service that are in the given `subnet_id` and aren't
+    /// Dial cached Enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
     fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet) {
         let predicate = subnet_predicate::<TSpec>(vec![subnet], &self.log);
@@ -1063,7 +1063,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             .collect();
 
         // Remove the ENR from the cache to prevent continual re-dialing on disconnects
-        // TODO: add this step to the iteration above.
         peers_to_dial.iter().for_each(|enr| {
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
         });
@@ -1358,9 +1357,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &mut self,
         event: DiscoveredPeers,
     ) -> Option<NetworkEvent<AppReqId, TSpec>> {
-        let to_dial_peers = self.peer_manager_mut().peers_discovered(event.peers);
-        // For any dial event, inform the peer manager
-        self.peer_manager_mut().dial_peers(to_dial_peers);
+        // Inform the peer manager about discovered peers.
+        //
+        // The peer manager will subsequently decide which peers need to be dialed and then dial
+        // them.
+        self.peer_manager_mut().peers_discovered(event.peers);
         None
     }
 
