@@ -416,8 +416,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         for listen_multiaddr in config.listen_addrs().listen_addresses() {
             // If QUIC is disabled, ignore listening on QUIC ports
-            if config.disable_quic_support && listen_multiaddr.iter().any(|v| v == MProtocol::QuicV1) {
-                    continue;
+            if config.disable_quic_support
+                && listen_multiaddr.iter().any(|v| v == MProtocol::QuicV1)
+            {
+                continue;
             }
 
             match self.swarm.listen_on(listen_multiaddr.clone()) {
