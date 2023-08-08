@@ -343,7 +343,7 @@ impl TestRig {
         self.network_beacon_processor
             .send_blobs_by_range_request(
                 PeerId::random(),
-                (ConnectionId::new(42), SubstreamId::new(24)),
+                (ConnectionId::new_unchecked(42), SubstreamId::new(24)),
                 BlobsByRangeRequest {
                     start_slot: 0,
                     count,

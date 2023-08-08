@@ -1424,9 +1424,10 @@ pub type BlockContentsTuple<T, Payload> = (
 );
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobSidecars`].
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Encode, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
+#[ssz(enum_behaviour = "transparent")]
 pub enum SignedBlockContents<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars<T, Payload>),
     Block(SignedBeaconBlock<T, Payload>),

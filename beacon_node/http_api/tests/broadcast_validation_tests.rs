@@ -210,7 +210,8 @@ pub async fn gossip_full_pass_ssz() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBeaconBlock<E>, _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, _), _): ((SignedBeaconBlock<E>, _), _) =
+        tester.harness.make_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester
         .client
@@ -906,7 +907,7 @@ pub async fn blinded_gossip_full_pass_ssz() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBlindedBeaconBlock<E>, _) =
+    let ((block, _), _): ((SignedBlindedBeaconBlock<E>, _), _) =
         tester.harness.make_blinded_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester

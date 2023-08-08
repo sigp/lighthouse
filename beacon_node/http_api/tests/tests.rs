@@ -1307,7 +1307,11 @@ impl ApiTester {
             .await
             .0;
 
-        assert!(self.client.post_beacon_blocks_ssz(&block).await.is_err());
+        assert!(self
+            .client
+            .post_beacon_blocks_ssz(&SignedBlockContents::from(block))
+            .await
+            .is_err());
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
