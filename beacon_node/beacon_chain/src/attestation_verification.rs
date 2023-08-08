@@ -252,12 +252,6 @@ impl From<BeaconChainError> for Error {
     }
 }
 
-impl From<bls::Error> for Error {
-    fn from(_e: bls::Error) -> Self {
-        Error::InvalidSignature
-    }
-}
-
 /// Used to avoid double-checking signatures.
 #[derive(Copy, Clone)]
 enum CheckAttestationSignature {
