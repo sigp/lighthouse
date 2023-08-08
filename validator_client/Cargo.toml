@@ -10,7 +10,6 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 tokio = { version = "1.14.0", features = ["time", "rt-multi-thread", "macros"] }
-logging = { path = "../common/logging" }
 
 [dependencies]
 tree_hash = "0.5.0"
@@ -63,4 +62,3 @@ malloc_utils = { path = "../common/malloc_utils" }
 sysinfo = "0.26.5"
 system_health = { path = "../common/system_health" }
 logging = { path = "../common/logging" }
-

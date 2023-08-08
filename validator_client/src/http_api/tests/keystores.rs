@@ -12,6 +12,7 @@ use itertools::Itertools;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
 use std::{collections::HashMap, path::Path};
+use tokio::runtime::Handle;
 use types::Address;
 
 fn new_keystore(password: ZeroizeString) -> Keystore {
@@ -64,31 +65,23 @@ fn remotekey_validator_with_pubkey(pubkey: PublicKey) -> SingleImportRemotekeysR
     }
 }
 
-fn run_test<F, V>(f: F)
+async fn run_test<F, V>(f: F)
 where
     F: FnOnce(ApiTester) -> V,
     V: Future<Output = ()>,
 {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        let tester = ApiTester::new(weak_runtime).await;
-        f(tester).await
-    });
+    let tester = ApiTester::new().await;
+    f(tester).await
 }
 
-fn run_dual_vc_test<F, V>(f: F)
+async fn run_dual_vc_test<F, V>(f: F)
 where
     F: FnOnce(ApiTester, ApiTester) -> V,
     V: Future<Output = ()>,
 {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        let tester1 = ApiTester::new(weak_runtime.clone()).await;
-        let tester2 = ApiTester::new(weak_runtime).await;
-        f(tester1, tester2).await
-    });
+    let tester1 = ApiTester::new().await;
+    let tester2 = ApiTester::new().await;
+    f(tester1, tester2).await
 }
 
 fn keystore_pubkey(keystore: &Keystore) -> PublicKeyBytes {
@@ -199,8 +192,8 @@ fn check_remotekey_delete_response(
     }
 }
 
-#[test]
-fn get_auth_no_token() {
+#[tokio::test]
+async fn get_auth_no_token() {
     run_test(|mut tester| async move {
         let _ = &tester;
         tester.client.send_authorization_header(false);
@@ -213,19 +206,21 @@ fn get_auth_no_token() {
         // The token should match the one that the client was originally initialised with.
         assert!(tester.client.api_token() == Some(&token));
     })
+    .await;
 }
 
-#[test]
-fn get_empty_keystores() {
+#[tokio::test]
+async fn get_empty_keystores() {
     run_test(|tester| async move {
         let _ = &tester;
         let res = tester.client.get_keystores().await.unwrap();
         assert_eq!(res, ListKeystoresResponse { data: vec![] });
     })
+    .await;
 }
 
-#[test]
-fn import_new_keystores() {
+#[tokio::test]
+async fn import_new_keystores() {
     run_test(|tester| async move {
         let _ = &tester;
         let password = random_password_string();
@@ -250,10 +245,11 @@ fn import_new_keystores() {
         let get_res = tester.client.get_keystores().await.unwrap();
         check_keystore_get_response(&get_res, &keystores);
     })
+    .await;
 }
 
-#[test]
-fn import_only_duplicate_keystores() {
+#[tokio::test]
+async fn import_only_duplicate_keystores() {
     run_test(|tester| async move {
         let _ = &tester;
         let password = random_password_string();
@@ -279,10 +275,11 @@ fn import_only_duplicate_keystores() {
         let get_res = tester.client.get_keystores().await.unwrap();
         check_keystore_get_response(&get_res, &keystores);
     })
+    .await;
 }
 
-#[test]
-fn import_some_duplicate_keystores() {
+#[tokio::test]
+async fn import_some_duplicate_keystores() {
     run_test(|tester| async move {
         let _ = &tester;
         let password = random_password_string();
@@ -330,10 +327,11 @@ fn import_some_duplicate_keystores() {
         let import_res = tester.client.post_keystores(&req2).await.unwrap();
         check_keystore_import_response(&import_res, expected);
     })
+    .await;
 }
 
-#[test]
-fn import_wrong_number_of_passwords() {
+#[tokio::test]
+async fn import_wrong_number_of_passwords() {
     run_test(|tester| async move {
         let _ = &tester;
         let password = random_password_string();
@@ -352,10 +350,11 @@ fn import_wrong_number_of_passwords() {
             .unwrap_err();
         assert_eq!(err.status().unwrap(), 400);
     })
+    .await;
 }
 
-#[test]
-fn get_web3_signer_keystores() {
+#[tokio::test]
+async fn get_web3_signer_keystores() {
     run_test(|tester| async move {
         let _ = &tester;
         let num_local = 3;
@@ -412,10 +411,11 @@ fn get_web3_signer_keystores() {
             assert!(get_res.data.contains(&response), "{:?}", response);
         }
     })
+    .await;
 }
 
-#[test]
-fn import_and_delete_conflicting_web3_signer_keystores() {
+#[tokio::test]
+async fn import_and_delete_conflicting_web3_signer_keystores() {
     run_test(|tester| async move {
         let _ = &tester;
         let num_keystores = 3;
@@ -477,10 +477,11 @@ fn import_and_delete_conflicting_web3_signer_keystores() {
         let delete_res = tester.client.delete_keystores(&delete_req).await.unwrap();
         check_keystore_delete_response(&delete_res, all_delete_error(keystores.len()));
     })
+    .await;
 }
 
-#[test]
-fn import_keystores_wrong_password() {
+#[tokio::test]
+async fn import_keystores_wrong_password() {
     run_test(|tester| async move {
         let _ = &tester;
         let num_keystores = 4;
@@ -551,11 +552,12 @@ fn import_keystores_wrong_password() {
             &import_res,
             (0..num_keystores).map(|_| ImportKeystoreStatus::Duplicate),
         );
-    });
+    })
+    .await;
 }
 
-#[test]
-fn import_invalid_slashing_protection() {
+#[tokio::test]
+async fn import_invalid_slashing_protection() {
     run_test(|tester| async move {
         let _ = &tester;
         let password = random_password_string();
@@ -589,10 +591,11 @@ fn import_invalid_slashing_protection() {
         let get_res = tester.client.get_keystores().await.unwrap();
         check_keystore_get_response(&get_res, &[]);
     })
+    .await;
 }
 
-#[test]
-fn check_get_set_fee_recipient() {
+#[tokio::test]
+async fn check_get_set_fee_recipient() {
     run_test(|tester: ApiTester| async move {
         let _ = &tester;
         let password = random_password_string();
@@ -768,10 +771,11 @@ fn check_get_set_fee_recipient() {
             );
         }
     })
+    .await;
 }
 
-#[test]
-fn check_get_set_gas_limit() {
+#[tokio::test]
+async fn check_get_set_gas_limit() {
     run_test(|tester: ApiTester| async move {
         let _ = &tester;
         let password = random_password_string();
@@ -943,14 +947,15 @@ fn check_get_set_gas_limit() {
             );
         }
     })
+    .await
 }
 
 fn all_indices(count: usize) -> Vec<usize> {
     (0..count).collect()
 }
 
-#[test]
-fn migrate_all_with_slashing_protection() {
+#[tokio::test]
+async fn migrate_all_with_slashing_protection() {
     let n = 3;
     generic_migration_test(
         n,
@@ -967,11 +972,12 @@ fn migrate_all_with_slashing_protection() {
             (1, make_attestation(2, 3), false),
             (2, make_attestation(1, 2), false),
         ],
-    );
+    )
+    .await;
 }
 
-#[test]
-fn migrate_some_with_slashing_protection() {
+#[tokio::test]
+async fn migrate_some_with_slashing_protection() {
     let n = 3;
     generic_migration_test(
         n,
@@ -989,11 +995,12 @@ fn migrate_some_with_slashing_protection() {
             (0, make_attestation(2, 3), true),
             (1, make_attestation(3, 4), true),
         ],
-    );
+    )
+    .await;
 }
 
-#[test]
-fn migrate_some_missing_slashing_protection() {
+#[tokio::test]
+async fn migrate_some_missing_slashing_protection() {
     let n = 3;
     generic_migration_test(
         n,
@@ -1010,11 +1017,12 @@ fn migrate_some_missing_slashing_protection() {
             (1, make_attestation(2, 3), true),
             (0, make_attestation(2, 3), true),
         ],
-    );
+    )
+    .await;
 }
 
-#[test]
-fn migrate_some_extra_slashing_protection() {
+#[tokio::test]
+async fn migrate_some_extra_slashing_protection() {
     let n = 3;
     generic_migration_test(
         n,
@@ -1033,7 +1041,8 @@ fn migrate_some_extra_slashing_protection() {
             (1, make_attestation(3, 4), true),
             (2, make_attestation(2, 3), false),
         ],
-    );
+    )
+    .await;
 }
 
 /// Run a test that creates some validators on one VC, and then migrates them to a second VC.
@@ -1051,7 +1060,7 @@ fn migrate_some_extra_slashing_protection() {
 /// - `import_indices`: validators to transfer. It needn't be a subset of `delete_indices`.
 /// - `second_vc_attestations`: attestations to sign on the second VC after the transfer. The bool
 ///   indicates whether the signing should be successful.
-fn generic_migration_test(
+async fn generic_migration_test(
     num_validators: usize,
     first_vc_attestations: Vec<(usize, Attestation<E>)>,
     delete_indices: Vec<usize>,
@@ -1169,11 +1178,12 @@ fn generic_migration_test(
                 Err(e) => assert!(!should_succeed, "{:?}", e),
             }
         }
-    });
+    })
+    .await
 }
 
-#[test]
-fn delete_keystores_twice() {
+#[tokio::test]
+async fn delete_keystores_twice() {
     run_test(|tester| async move {
         let _ = &tester;
         let password = random_password_string();
@@ -1201,10 +1211,11 @@ fn delete_keystores_twice() {
         let delete_res = tester.client.delete_keystores(&delete_req).await.unwrap();
         check_keystore_delete_response(&delete_res, all_not_active(keystores.len()));
     })
+    .await
 }
 
-#[test]
-fn delete_nonexistent_keystores() {
+#[tokio::test]
+async fn delete_nonexistent_keystores() {
     run_test(|tester| async move {
         let _ = &tester;
         let password = random_password_string();
@@ -1219,6 +1230,7 @@ fn delete_nonexistent_keystores() {
         let delete_res = tester.client.delete_keystores(&delete_req).await.unwrap();
         check_keystore_delete_response(&delete_res, all_not_found(keystores.len()));
     })
+    .await
 }
 
 fn make_attestation(source_epoch: u64, target_epoch: u64) -> Attestation<E> {
@@ -1242,9 +1254,9 @@ fn make_attestation(source_epoch: u64, target_epoch: u64) -> Attestation<E> {
     }
 }
 
-#[test]
-fn delete_concurrent_with_signing() {
-    let runtime = build_runtime();
+#[tokio::test]
+async fn delete_concurrent_with_signing() {
+    let handle = Handle::try_current().unwrap();
     let num_keys = 8;
     let num_signing_threads = 8;
     let num_attestations = 100;
@@ -1257,115 +1269,112 @@ fn delete_concurrent_with_signing() {
         "num_keys should be divisible by num threads for simplicity"
     );
 
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        let tester = ApiTester::new(weak_runtime).await;
+    let tester = ApiTester::new().await;
 
-        // Generate a lot of keys and import them.
-        let password = random_password_string();
-        let keystores = (0..num_keys)
-            .map(|_| new_keystore(password.clone()))
-            .collect::<Vec<_>>();
-        let all_pubkeys = keystores.iter().map(keystore_pubkey).collect::<Vec<_>>();
+    // Generate a lot of keys and import them.
+    let password = random_password_string();
+    let keystores = (0..num_keys)
+        .map(|_| new_keystore(password.clone()))
+        .collect::<Vec<_>>();
+    let all_pubkeys = keystores.iter().map(keystore_pubkey).collect::<Vec<_>>();
 
-        let import_res = tester
-            .client
-            .post_keystores(&ImportKeystoresRequest {
-                keystores: keystores.clone(),
-                passwords: vec![password.clone(); keystores.len()],
-                slashing_protection: None,
-            })
-            .await
-            .unwrap();
-        check_keystore_import_response(&import_res, all_imported(keystores.len()));
+    let import_res = tester
+        .client
+        .post_keystores(&ImportKeystoresRequest {
+            keystores: keystores.clone(),
+            passwords: vec![password.clone(); keystores.len()],
+            slashing_protection: None,
+        })
+        .await
+        .unwrap();
+    check_keystore_import_response(&import_res, all_imported(keystores.len()));
 
-        // Start several threads signing attestations at sequential epochs.
-        let mut join_handles = vec![];
+    // Start several threads signing attestations at sequential epochs.
+    let mut join_handles = vec![];
 
-        for thread_index in 0..num_signing_threads {
-            let keys_per_thread = num_keys / num_signing_threads;
-            let validator_store = tester.validator_store.clone();
-            let thread_pubkeys = all_pubkeys
-                [thread_index * keys_per_thread..(thread_index + 1) * keys_per_thread]
-                .to_vec();
+    for thread_index in 0..num_signing_threads {
+        let keys_per_thread = num_keys / num_signing_threads;
+        let validator_store = tester.validator_store.clone();
+        let thread_pubkeys = all_pubkeys
+            [thread_index * keys_per_thread..(thread_index + 1) * keys_per_thread]
+            .to_vec();
 
-            let handle = runtime.spawn(async move {
-                for j in 0..num_attestations {
-                    let mut att = make_attestation(j, j + 1);
-                    for (_validator_id, public_key) in thread_pubkeys.iter().enumerate() {
-                        let _ = validator_store
-                            .sign_attestation(*public_key, 0, &mut att, Epoch::new(j + 1))
-                            .await;
-                    }
+        let handle = handle.spawn(async move {
+            for j in 0..num_attestations {
+                let mut att = make_attestation(j, j + 1);
+                for (_validator_id, public_key) in thread_pubkeys.iter().enumerate() {
+                    let _ = validator_store
+                        .sign_attestation(*public_key, 0, &mut att, Epoch::new(j + 1))
+                        .await;
                 }
-            });
-            join_handles.push(handle);
-        }
-
-        // Concurrently, delete each validator one at a time. Store the slashing protection
-        // data so we can ensure it doesn't change after a key is exported.
-        let mut delete_handles = vec![];
-        for _ in 0..num_delete_threads {
-            let client = tester.client.clone();
-            let all_pubkeys = all_pubkeys.clone();
-
-            let handle = runtime.spawn(async move {
-                let mut rng = SmallRng::from_entropy();
-
-                let mut slashing_protection = vec![];
-                for _ in 0..num_delete_attempts {
-                    let to_delete = all_pubkeys
-                        .iter()
-                        .filter(|_| rng.gen_bool(delete_prob))
-                        .copied()
-                        .collect::<Vec<_>>();
-
-                    if !to_delete.is_empty() {
-                        let delete_res = client
-                            .delete_keystores(&DeleteKeystoresRequest { pubkeys: to_delete })
-                            .await
-                            .unwrap();
-
-                        for status in delete_res.data.iter() {
-                            assert_ne!(status.status, DeleteKeystoreStatus::Error);
-                        }
-
-                        slashing_protection.push(delete_res.slashing_protection);
-                    }
-                }
-                slashing_protection
-            });
-
-            delete_handles.push(handle);
-        }
-
-        // Collect slashing protection.
-        let mut slashing_protection_map = HashMap::new();
-        let collected_slashing_protection = futures::future::join_all(delete_handles).await;
-
-        for interchange in collected_slashing_protection
-            .into_iter()
-            .flat_map(Result::unwrap)
-        {
-            for validator_data in interchange.data {
-                slashing_protection_map
-                    .entry(validator_data.pubkey)
-                    .and_modify(|existing| {
-                        assert_eq!(
-                            *existing, validator_data,
-                            "slashing protection data changed after first export"
-                        )
-                    })
-                    .or_insert(validator_data);
             }
-        }
+        });
+        join_handles.push(handle);
+    }
 
-        futures::future::join_all(join_handles).await
-    });
+    // Concurrently, delete each validator one at a time. Store the slashing protection
+    // data so we can ensure it doesn't change after a key is exported.
+    let mut delete_handles = vec![];
+    for _ in 0..num_delete_threads {
+        let client = tester.client.clone();
+        let all_pubkeys = all_pubkeys.clone();
+
+        let handle = handle.spawn(async move {
+            let mut rng = SmallRng::from_entropy();
+
+            let mut slashing_protection = vec![];
+            for _ in 0..num_delete_attempts {
+                let to_delete = all_pubkeys
+                    .iter()
+                    .filter(|_| rng.gen_bool(delete_prob))
+                    .copied()
+                    .collect::<Vec<_>>();
+
+                if !to_delete.is_empty() {
+                    let delete_res = client
+                        .delete_keystores(&DeleteKeystoresRequest { pubkeys: to_delete })
+                        .await
+                        .unwrap();
+
+                    for status in delete_res.data.iter() {
+                        assert_ne!(status.status, DeleteKeystoreStatus::Error);
+                    }
+
+                    slashing_protection.push(delete_res.slashing_protection);
+                }
+            }
+            slashing_protection
+        });
+
+        delete_handles.push(handle);
+    }
+
+    // Collect slashing protection.
+    let mut slashing_protection_map = HashMap::new();
+    let collected_slashing_protection = futures::future::join_all(delete_handles).await;
+
+    for interchange in collected_slashing_protection
+        .into_iter()
+        .flat_map(Result::unwrap)
+    {
+        for validator_data in interchange.data {
+            slashing_protection_map
+                .entry(validator_data.pubkey)
+                .and_modify(|existing| {
+                    assert_eq!(
+                        *existing, validator_data,
+                        "slashing protection data changed after first export"
+                    )
+                })
+                .or_insert(validator_data);
+        }
+    }
+
+    futures::future::join_all(join_handles).await;
 }
 
-#[test]
-fn delete_then_reimport() {
+#[tokio::test]
+async fn delete_then_reimport() {
     run_test(|tester| async move {
         let _ = &tester;
         let password = random_password_string();
@@ -1396,19 +1405,21 @@ fn delete_then_reimport() {
         let import_res = tester.client.post_keystores(&import_req).await.unwrap();
         check_keystore_import_response(&import_res, all_imported(keystores.len()));
     })
+    .await
 }
 
-#[test]
-fn get_empty_remotekeys() {
+#[tokio::test]
+async fn get_empty_remotekeys() {
     run_test(|tester| async move {
         let _ = &tester;
         let res = tester.client.get_remotekeys().await.unwrap();
         assert_eq!(res, ListRemotekeysResponse { data: vec![] });
     })
+    .await
 }
 
-#[test]
-fn import_new_remotekeys() {
+#[tokio::test]
+async fn import_new_remotekeys() {
     run_test(|tester| async move {
         let _ = &tester;
 
@@ -1443,10 +1454,11 @@ fn import_new_remotekeys() {
         let get_res = tester.client.get_remotekeys().await.unwrap();
         check_remotekey_get_response(&get_res, expected_responses);
     })
+    .await
 }
 
-#[test]
-fn import_same_remotekey_different_url() {
+#[tokio::test]
+async fn import_same_remotekey_different_url() {
     run_test(|tester| async move {
         let _ = &tester;
 
@@ -1485,10 +1497,11 @@ fn import_same_remotekey_different_url() {
             }],
         );
     })
+    .await
 }
 
-#[test]
-fn delete_remotekey_then_reimport_different_url() {
+#[tokio::test]
+async fn delete_remotekey_then_reimport_different_url() {
     run_test(|tester| async move {
         let _ = &tester;
 
@@ -1534,10 +1547,11 @@ fn delete_remotekey_then_reimport_different_url() {
             vec![ImportRemotekeyStatus::Imported].into_iter(),
         );
     })
+    .await
 }
 
-#[test]
-fn import_only_duplicate_remotekeys() {
+#[tokio::test]
+async fn import_only_duplicate_remotekeys() {
     run_test(|tester| async move {
         let _ = &tester;
         let remotekeys = (0..3)
@@ -1582,10 +1596,11 @@ fn import_only_duplicate_remotekeys() {
         let get_res = tester.client.get_remotekeys().await.unwrap();
         check_remotekey_get_response(&get_res, expected_responses);
     })
+    .await
 }
 
-#[test]
-fn import_some_duplicate_remotekeys() {
+#[tokio::test]
+async fn import_some_duplicate_remotekeys() {
     run_test(|tester| async move {
         let _ = &tester;
         let num_remotekeys = 5;
@@ -1649,10 +1664,11 @@ fn import_some_duplicate_remotekeys() {
         let get_res = tester.client.get_remotekeys().await.unwrap();
         check_remotekey_get_response(&get_res, expected_responses);
     })
+    .await
 }
 
-#[test]
-fn import_remote_and_local_keys() {
+#[tokio::test]
+async fn import_remote_and_local_keys() {
     run_test(|tester| async move {
         let _ = &tester;
         let num_local = 3;
@@ -1714,10 +1730,11 @@ fn import_remote_and_local_keys() {
             assert!(get_res.data.contains(&response), "{:?}", response);
         }
     })
+    .await
 }
 
-#[test]
-fn import_same_local_and_remote_keys() {
+#[tokio::test]
+async fn import_same_local_and_remote_keys() {
     run_test(|tester| async move {
         let _ = &tester;
         let num_local = 3;
@@ -1782,9 +1799,10 @@ fn import_same_local_and_remote_keys() {
             assert!(get_res.data.contains(&response), "{:?}", response);
         }
     })
+    .await
 }
-#[test]
-fn import_same_remote_and_local_keys() {
+#[tokio::test]
+async fn import_same_remote_and_local_keys() {
     run_test(|tester| async move {
         let _ = &tester;
         let num_local = 3;
@@ -1847,10 +1865,11 @@ fn import_same_remote_and_local_keys() {
         let get_res = tester.client.get_remotekeys().await.unwrap();
         check_remotekey_get_response(&get_res, expected_responses);
     })
+    .await
 }
 
-#[test]
-fn delete_remotekeys_twice() {
+#[tokio::test]
+async fn delete_remotekeys_twice() {
     run_test(|tester| async move {
         let _ = &tester;
 
@@ -1893,10 +1912,11 @@ fn delete_remotekeys_twice() {
         let get_res = tester.client.get_remotekeys().await.unwrap();
         check_remotekey_get_response(&get_res, Vec::new());
     })
+    .await
 }
 
-#[test]
-fn delete_nonexistent_remotekey() {
+#[tokio::test]
+async fn delete_nonexistent_remotekey() {
     run_test(|tester| async move {
         let _ = &tester;
 
@@ -1919,10 +1939,11 @@ fn delete_nonexistent_remotekey() {
         let get_res = tester.client.get_remotekeys().await.unwrap();
         check_remotekey_get_response(&get_res, Vec::new());
     })
+    .await
 }
 
-#[test]
-fn delete_then_reimport_remotekeys() {
+#[tokio::test]
+async fn delete_then_reimport_remotekeys() {
     run_test(|tester| async move {
         let _ = &tester;
 
@@ -1984,10 +2005,11 @@ fn delete_then_reimport_remotekeys() {
         let get_res = tester.client.get_remotekeys().await.unwrap();
         check_remotekey_get_response(&get_res, expected_responses);
     })
+    .await
 }
 
-#[test]
-fn import_remotekey_web3signer() {
+#[tokio::test]
+async fn import_remotekey_web3signer() {
     run_test(|tester| async move {
         let _ = &tester;
 
@@ -2043,10 +2065,11 @@ fn import_remotekey_web3signer() {
         let get_res = tester.client.get_remotekeys().await.unwrap();
         check_remotekey_get_response(&get_res, expected_responses);
     })
+    .await
 }
 
-#[test]
-fn import_remotekey_web3signer_disabled() {
+#[tokio::test]
+async fn import_remotekey_web3signer_disabled() {
     run_test(|tester| async move {
         let _ = &tester;
 
@@ -2096,10 +2119,11 @@ fn import_remotekey_web3signer_disabled() {
         let get_res = tester.client.get_remotekeys().await.unwrap();
         check_remotekey_get_response(&get_res, expected_responses);
     })
+    .await
 }
 
-#[test]
-fn import_remotekey_web3signer_enabled() {
+#[tokio::test]
+async fn import_remotekey_web3signer_enabled() {
     run_test(|tester| async move {
         let _ = &tester;
 
@@ -2156,4 +2180,5 @@ fn import_remotekey_web3signer_enabled() {
         let get_res = tester.client.get_remotekeys().await.unwrap();
         check_remotekey_get_response(&get_res, expected_responses);
     })
+    .await
 }
