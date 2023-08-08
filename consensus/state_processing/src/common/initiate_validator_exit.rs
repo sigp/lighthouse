@@ -35,7 +35,7 @@ pub fn initiate_validator_exit<T: EthSpec>(
         return Ok(());
     }
 
-    let validator = validator.to_mut();
+    let validator = validator.into_mut()?;
     validator.mutable.exit_epoch = exit_queue_epoch;
     validator.mutable.withdrawable_epoch =
         exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
