@@ -24,7 +24,7 @@ use itertools::Itertools;
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
 use slog::{crit, debug, error, info, trace, warn, Logger};
-use slot_clock::SlotClock;
+use slot_clock::{ManualSlotClock, SlotClock};
 use ssz::Encode;
 use std::fs;
 use std::io::Write;
@@ -33,8 +33,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
+use tree_hash::TreeHash;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
+    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LazySignedAggregateAndProof, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
     Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId
@@ -113,9 +114,14 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
     }
 }
 
+pub enum LazyOrNotSignedAggregateAndProof<T: EthSpec> {
+    Lazy(Box<LazySignedAggregateAndProof<T>>),
+    NotLazy(Box<SignedAggregateAndProof<T>>),
+}
+
 /// An attestation that failed validation by the `BeaconChain`.
 struct RejectedAggregate<T: EthSpec> {
-    signed_aggregate: Box<SignedAggregateAndProof<T>>,
+    signed_aggregate: LazyOrNotSignedAggregateAndProof<T>,
     error: AttnError,
 }
 
@@ -128,16 +134,12 @@ enum FailedAtt<T: EthSpec> {
         seen_timestamp: Duration,
     },
     Aggregate {
-        attestation: Box<SignedAggregateAndProof<T>>,
+        attestation: LazyOrNotSignedAggregateAndProof<T>,
         seen_timestamp: Duration,
     },
 }
 
 impl<T: EthSpec> FailedAtt<T> {
-    pub fn beacon_block_root(&self) -> &Hash256 {
-        &self.attestation().data.beacon_block_root
-    }
-
     pub fn kind(&self) -> &'static str {
         match self {
             FailedAtt::Unaggregate { .. } => "unaggregated",
@@ -145,10 +147,45 @@ impl<T: EthSpec> FailedAtt<T> {
         }
     }
 
-    pub fn attestation(&self) -> &Attestation<T> {
+    pub fn attestation_slot(&self) -> Slot {
         match self {
-            FailedAtt::Unaggregate { attestation, .. } => attestation,
-            FailedAtt::Aggregate { attestation, .. } => &attestation.message.aggregate,
+            FailedAtt::Unaggregate { attestation, .. } => attestation.data.slot,
+            FailedAtt::Aggregate { attestation, .. } => match attestation {
+                LazyOrNotSignedAggregateAndProof::Lazy(lazy_attestation) => {
+                    lazy_attestation.message.aggregate.data.slot
+                }
+                LazyOrNotSignedAggregateAndProof::NotLazy(attestation) => {
+                    attestation.message.aggregate.data.slot
+                }
+            },
+        }
+    }
+
+    pub fn beacon_block_root(&self) -> &Hash256 {
+        match self {
+            FailedAtt::Unaggregate { attestation, .. } => &attestation.data.beacon_block_root,
+            FailedAtt::Aggregate { attestation, .. } => match attestation {
+                LazyOrNotSignedAggregateAndProof::Lazy(lazy_attestation) => {
+                    &lazy_attestation.message.aggregate.data.beacon_block_root
+                }
+                LazyOrNotSignedAggregateAndProof::NotLazy(attestation) => {
+                    &attestation.message.aggregate.data.beacon_block_root
+                }
+            },
+        }
+    }
+
+    pub fn target_root(&self) -> &Hash256 {
+        match self {
+            FailedAtt::Unaggregate { attestation, .. } => &attestation.data.target.root,
+            FailedAtt::Aggregate { attestation, .. } => match attestation {
+                LazyOrNotSignedAggregateAndProof::Lazy(lazy_attestation) => {
+                    &lazy_attestation.message.aggregate.data.target.root
+                }
+                LazyOrNotSignedAggregateAndProof::NotLazy(attestation) => {
+                    &attestation.message.aggregate.data.target.root
+                }
+            },
         }
     }
 }
@@ -425,7 +462,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 signed_aggregate: aggregate,
             }),
             Err(error) => Err(RejectedAggregate {
-                signed_aggregate: aggregate,
+                signed_aggregate: LazyOrNotSignedAggregateAndProof::NotLazy(aggregate),
                 error,
             }),
         };
@@ -446,18 +483,39 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
         let (to_process, skip): (
-            Vec<(GossipAggregatePackage<T::EthSpec>, SignedAggregateAndProof<T::EthSpec>)>,
-            Vec<GossipAggregatePackage<T::EthSpec>>,
+            Vec<(
+                GossipAggregatePackage<T::EthSpec>,
+                SignedAggregateAndProof<T::EthSpec>,
+            )>,
+            Vec<(AttnError, GossipAggregatePackage<T::EthSpec>)>,
         ) = packages.into_iter().partition_map(|p| {
-            match self.chain.is_lazy_att_observed_subset(&p.aggregate.message.aggregate) {
-                Ok(false) => {
-                    match p.aggregate.clone().not_lazy() {
-                        Ok(agg) => itertools::Either::Left((p, agg)),
-                        Err(_) => itertools::Either::Right(p),
-                    }
-                }
-                Ok(true) => itertools::Either::Right(p),
-                Err(e) => itertools::Either::Right(p),
+            match self
+                .chain
+                .is_lazy_att_observed_subset(&p.aggregate.message.aggregate)
+            {
+                Ok(false) => match p.aggregate.clone().not_lazy() {
+                    Ok(agg) => itertools::Either::Left((p, agg)),
+                    Err(e) => itertools::Either::Right((e.into(), p)),
+                },
+                Ok(true) => itertools::Either::Right((
+                    AttnError::AttestationSupersetKnown(
+                        p.aggregate.message.aggregate.data.tree_hash_root(),
+                    ),
+                    p,
+                )),
+                // The only error that could occur here is observed_attestations::Error::SlotTooLow
+                Err(beacon_chain::ObservedAggregatesError::SlotTooLow {
+                    slot,
+                    lowest_permissible_slot,
+                }) => itertools::Either::Right((
+                    AttnError::PastSlot {
+                        attestation_slot: slot,
+                        earliest_permissible_slot: lowest_permissible_slot,
+                    },
+                    p,
+                )),
+                // This should never occur
+                Err(_) => itertools::Either::Right((AttnError::InvalidSignature, p)),
             }
         });
 
@@ -496,14 +554,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map(|result| result.map(|verified| verified.into_indexed_attestation()))
             .collect::<Vec<_>>();
 
-        for (result, (processed_package, signed_aggregate)) in results.into_iter().zip(to_process.into_iter()) {
+        for (result, (processed_package, signed_aggregate)) in
+            results.into_iter().zip(to_process.into_iter())
+        {
             let result = match result {
                 Ok(indexed_attestation) => Ok(VerifiedAggregate {
                     indexed_attestation,
                     signed_aggregate: Box::new(signed_aggregate),
                 }),
                 Err(error) => Err(RejectedAggregate {
-                    signed_aggregate: Box::new(signed_aggregate),
+                    signed_aggregate: LazyOrNotSignedAggregateAndProof::NotLazy(Box::new(
+                        signed_aggregate,
+                    )),
                     error,
                 }),
             };
@@ -518,10 +580,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
         }
 
-        for skipped_package in skip {
-            let result = 
+        for (attestation_error, skipped_package) in skip {
+            let rejected_aggregate = RejectedAggregate {
+                signed_aggregate: LazyOrNotSignedAggregateAndProof::Lazy(skipped_package.aggregate),
+                error: attestation_error,
+            };
             self.process_gossip_aggregate_result(
-                result,
+                Err(rejected_aggregate),
                 skipped_package.beacon_block_root,
                 skipped_package.message_id,
                 skipped_package.peer_id,
@@ -1937,11 +2002,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // network.
                 let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
                 let hindsight_verification =
-                    attestation_verification::verify_propagation_slot_range(
-                        seen_clock,
-                        failed_att.attestation(),
-                        &self.chain.spec,
-                    );
+                    attestation_verification::verify_propagation_slot_range::<
+                        ManualSlotClock,
+                        T::EthSpec,
+                    >(seen_clock, failed_att.attestation_slot(), &self.chain.spec);
 
                 // Only penalize the peer if it would have been invalid at the moment we received
                 // it.
@@ -2126,7 +2190,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 "msg" => "UnknownBlockHash"
                             )
                         });
-                    let msg = match failed_att {
+
+                    match failed_att {
                         FailedAtt::Aggregate {
                             attestation,
                             seen_timestamp,
@@ -2135,18 +2200,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL,
                             );
                             let processor = self.clone();
-                            ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
-                                beacon_block_root: *beacon_block_root,
-                                process_fn: Box::new(move || {
-                                    processor.process_gossip_aggregate(
-                                        message_id,
-                                        peer_id,
-                                        attestation,
-                                        None, // Do not allow this attestation to be re-processed beyond this point.
-                                        seen_timestamp,
+                            if let LazyOrNotSignedAggregateAndProof::NotLazy(attestation) =
+                                attestation
+                            {
+                                let msg =
+                                    ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
+                                        beacon_block_root: *beacon_block_root,
+                                        process_fn: Box::new(move || {
+                                            processor.process_gossip_aggregate(
+                                                message_id,
+                                                peer_id,
+                                                attestation,
+                                                None, // Do not allow this attestation to be re-processed beyond this point.
+                                                seen_timestamp,
+                                            )
+                                        }),
+                                    });
+
+                                if sender.try_send(msg).is_err() {
+                                    error!(
+                                    self.log,
+                                    "Failed to send attestation for re-processing";
                                     )
-                                }),
-                            })
+                                }
+                            }
                         }
                         FailedAtt::Unaggregate {
                             attestation,
@@ -2158,29 +2235,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL,
                             );
                             let processor = self.clone();
-                            ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
-                                beacon_block_root: *beacon_block_root,
-                                process_fn: Box::new(move || {
-                                    processor.process_gossip_attestation(
-                                        message_id,
-                                        peer_id,
-                                        attestation,
-                                        subnet_id,
-                                        should_import,
-                                        None, // Do not allow this attestation to be re-processed beyond this point.
-                                        seen_timestamp,
-                                    )
-                                }),
-                            })
+                            let msg =
+                                ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
+                                    beacon_block_root: *beacon_block_root,
+                                    process_fn: Box::new(move || {
+                                        processor.process_gossip_attestation(
+                                            message_id,
+                                            peer_id,
+                                            attestation,
+                                            subnet_id,
+                                            should_import,
+                                            None, // Do not allow this attestation to be re-processed beyond this point.
+                                            seen_timestamp,
+                                        )
+                                    }),
+                                });
+
+                            if sender.try_send(msg).is_err() {
+                                error!(
+                                self.log,
+                                "Failed to send attestation for re-processing";
+                                )
+                            }
                         }
                     };
-
-                    if sender.try_send(msg).is_err() {
-                        error!(
-                            self.log,
-                            "Failed to send attestation for re-processing";
-                        )
-                    }
                 } else {
                     // We shouldn't make any further attempts to process this attestation.
                     //
@@ -2357,7 +2435,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.log,
                     "Ignored attestation to finalized block";
                     "block_root" => ?beacon_block_root,
-                    "attestation_slot" => failed_att.attestation().data.slot,
+                    "attestation_slot" => failed_att.attestation_slot(),
                 );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -2380,9 +2458,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     self.log,
                     "Dropping attestation";
-                    "target_root" => ?failed_att.attestation().data.target.root,
+                    "target_root" => ?failed_att.target_root(),
                     "beacon_block_root" => ?beacon_block_root,
-                    "slot" => ?failed_att.attestation().data.slot,
+                    "slot" => ?failed_att.attestation_slot(),
                     "type" => ?attestation_type,
                     "error" => ?e,
                     "peer_id" => % peer_id
@@ -2401,7 +2479,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.log,
                     "Unable to validate attestation";
                     "beacon_block_root" => ?beacon_block_root,
-                    "slot" => ?failed_att.attestation().data.slot,
+                    "slot" => ?failed_att.attestation_slot(),
                     "type" => ?attestation_type,
                     "peer_id" => %peer_id,
                     "error" => ?e,
@@ -2802,11 +2880,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
     ) {
-        let is_timely = attestation_verification::verify_propagation_slot_range(
-            &self.chain.slot_clock,
-            attestation,
-            &self.chain.spec,
-        )
+        let is_timely = attestation_verification::verify_propagation_slot_range::<
+            <T as BeaconChainTypes>::SlotClock,
+            T::EthSpec,
+        >(&self.chain.slot_clock, attestation.data.slot, &self.chain.spec)
         .is_ok();
 
         self.propagate_if_timely(is_timely, message_id, peer_id)
