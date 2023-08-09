@@ -232,9 +232,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     SYNC_COMMITTEE_SUBNET_COUNT,
                     BLOB_SIDECAR_SUBNET_COUNT,
                 ),
-                max_subscribed_topics: 200,
+                max_subscribed_topics: 400,
                 // 162 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics) * 2
-                max_subscriptions_per_request: 160,
+                max_subscriptions_per_request: 200,
             };
 
             let gossipsub_config_params = GossipsubConfigParams {
