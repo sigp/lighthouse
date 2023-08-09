@@ -1562,7 +1562,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                 }
                 SwarmEvent::Dialing {
-                    peer_id,
+                    peer_id: _,
                     connection_id: _,
                 } => None,
             };
