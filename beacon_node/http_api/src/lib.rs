@@ -1291,8 +1291,8 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         BroadcastValidation::default(),
                     )
-                        .await
-                        .map(|()| warp::reply().into_response())
+                    .await
+                    .map(|()| warp::reply().into_response())
                 })
             },
         );
@@ -1348,7 +1348,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger|  {
+             log: Logger| {
                 task_spawner.spawn_async(Priority::P1, async move {
                     match publish_blocks::publish_block(
                         None,
@@ -1358,7 +1358,7 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         validation_level.broadcast_validation,
                     )
-                        .await
+                    .await
                     {
                         Ok(()) => warp::reply().into_response(),
                         Err(e) => match warp_utils::reject::handle_rejection(e).await {
@@ -1367,7 +1367,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 StatusCode::INTERNAL_SERVER_ERROR,
                                 eth2::StatusCode::INTERNAL_SERVER_ERROR,
                             )
-                                .into_response(),
+                            .into_response(),
                         },
                     }
                 })
@@ -1511,27 +1511,27 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger|  {
+             log: Logger| {
                 task_spawner.spawn_async(Priority::P0, async move {
-                match publish_blocks::publish_blinded_block(
-                    block_contents,
-                    chain,
-                    &network_tx,
-                    log,
-                    validation_level.broadcast_validation,
-                )
-                .await
-                {
-                    Ok(()) => warp::reply().into_response(),
-                    Err(e) => match warp_utils::reject::handle_rejection(e).await {
-                        Ok(reply) => reply.into_response(),
-                        Err(_) => warp::reply::with_status(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            eth2::StatusCode::INTERNAL_SERVER_ERROR,
-                        )
-                        .into_response(),
-                    },
-                }
+                    match publish_blocks::publish_blinded_block(
+                        block_contents,
+                        chain,
+                        &network_tx,
+                        log,
+                        validation_level.broadcast_validation,
+                    )
+                    .await
+                    {
+                        Ok(()) => warp::reply().into_response(),
+                        Err(e) => match warp_utils::reject::handle_rejection(e).await {
+                            Ok(reply) => reply.into_response(),
+                            Err(_) => warp::reply::with_status(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                eth2::StatusCode::INTERNAL_SERVER_ERROR,
+                            )
+                            .into_response(),
+                        },
+                    }
                 })
             },
         );
@@ -4247,31 +4247,6 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     chain.store_migrator.process_reconstruction();
                     Ok("success")
-                })
-            },
-        );
-
-    // POST lighthouse/database/historical_blocks
-    let post_lighthouse_database_historical_blocks = database_path
-        .and(warp::path("historical_blocks"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
-        .and_then(
-            |blocks: Vec<Arc<SignedBlindedBeaconBlock<T::EthSpec>>>,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             log: Logger| {
-                info!(
-                    log,
-                    "Importing historical blocks";
-                    "count" => blocks.len(),
-                    "source" => "http_api"
-                );
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    database::historical_blocks(chain, blocks)
                 })
             },
         );

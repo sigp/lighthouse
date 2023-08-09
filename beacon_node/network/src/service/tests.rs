@@ -5,7 +5,8 @@ mod tests {
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
     use beacon_processor::{
-        BeaconProcessorChannels, BeaconProcessorSend, MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
+        BeaconProcessorChannels, BeaconProcessorSend, MAX_SCHEDULED_WORK_QUEUE_LEN,
+        MAX_WORK_EVENT_QUEUE_LEN,
     };
     use lighthouse_network::Enr;
     use slog::{o, Drain, Level, Logger};
