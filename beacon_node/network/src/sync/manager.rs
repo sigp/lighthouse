@@ -50,7 +50,6 @@ use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
-    MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
@@ -537,6 +536,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                     // If we would otherwise be synced, first check if we need to perform or
                     // complete a backfill sync.
+                    #[cfg(not(feature = "disable_backfill"))]
                     if matches!(sync_state, SyncState::Synced) {
                         // Determine if we need to start/resume/restart a backfill sync.
                         match self.backfill_sync.start(&mut self.network) {
@@ -561,6 +561,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
                     // If there is a backfill sync in progress pause it.
+                    #[cfg(not(feature = "disable_backfill"))]
                     self.backfill_sync.pause();
 
                     SyncState::SyncingFinalized {
@@ -570,6 +571,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 Some((RangeSyncType::Head, start_slot, target_slot)) => {
                     // If there is a backfill sync in progress pause it.
+                    #[cfg(not(feature = "disable_backfill"))]
                     self.backfill_sync.pause();
 
                     SyncState::SyncingHead {
@@ -652,7 +654,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     block_slot,
-                    Some(block.into()),
+                    block.into(),
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
@@ -671,7 +673,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     blob_slot,
-                    Some(CachedChildComponents::new(None, Some(blobs))),
+                    CachedChildComponents::new(None, Some(blobs)),
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
@@ -780,7 +782,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        child_components: Option<CachedChildComponents<T::EthSpec>>,
+        child_components: CachedChildComponents<T::EthSpec>,
     ) {
         if self.should_search_for_block(slot, &peer_id) {
             self.block_lookups.search_parent(
@@ -794,7 +796,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.block_lookups.search_child_delayed(
                     block_root,
                     child_components,
-                    &[PeerShouldHave::Neither(peer_id)],
+                    PeerShouldHave::Neither(peer_id),
                     &mut self.network,
                 );
                 if let Err(e) = self
@@ -807,7 +809,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.block_lookups.search_child_block(
                     block_root,
                     child_components,
-                    &[PeerShouldHave::Neither(peer_id)],
+                    PeerShouldHave::Neither(peer_id),
                     &mut self.network,
                 );
             }
@@ -815,14 +817,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     fn should_delay_lookup(&mut self, slot: Slot) -> bool {
+        if !self.block_lookups.da_checker.is_deneb() {
+            return false;
+        }
+
+        let maximum_gossip_clock_disparity = self.chain.spec.maximum_gossip_clock_disparity();
         let earliest_slot = self
             .chain
             .slot_clock
-            .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+            .now_with_past_tolerance(maximum_gossip_clock_disparity);
         let latest_slot = self
             .chain
             .slot_clock
-            .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+            .now_with_future_tolerance(maximum_gossip_clock_disparity);
         if let (Some(earliest_slot), Some(latest_slot)) = (earliest_slot, latest_slot) {
             let msg_for_current_slot = slot >= earliest_slot && slot <= latest_slot;
             let delay_threshold_unmet = self
@@ -1010,28 +1017,44 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { .. } => {
                 crit!(self.log, "Single blob received during block request"; "peer_id" => %peer_id  );
             }
-            RequestId::SingleBlob { id } => self
-                .block_lookups
-                .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
-                    id,
-                    peer_id,
-                    blob,
-                    seen_timestamp,
-                    &self.network,
-                ),
+            RequestId::SingleBlob { id } => {
+                if let Some(blob) = blob.as_ref() {
+                    debug!(self.log,
+                        "Peer returned blob for single lookup";
+                        "peer_id" => %peer_id ,
+                        "blob_id" =>?blob.id()
+                    );
+                }
+                self.block_lookups
+                    .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
+                        id,
+                        peer_id,
+                        blob,
+                        seen_timestamp,
+                        &self.network,
+                    )
+            }
 
             RequestId::ParentLookup { id: _ } => {
                 crit!(self.log, "Single blob received during parent block request"; "peer_id" => %peer_id  );
             }
-            RequestId::ParentLookupBlob { id } => self
-                .block_lookups
-                .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
-                    id,
-                    peer_id,
-                    blob,
-                    seen_timestamp,
-                    &self.network,
-                ),
+            RequestId::ParentLookupBlob { id } => {
+                if let Some(blob) = blob.as_ref() {
+                    debug!(self.log,
+                        "Peer returned blob for parent lookup";
+                        "peer_id" => %peer_id ,
+                        "blob_id" =>?blob.id()
+                    );
+                }
+                self.block_lookups
+                    .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
+                        id,
+                        peer_id,
+                        blob,
+                        seen_timestamp,
+                        &self.network,
+                    )
+            }
             RequestId::BackFillBlocks { id: _ } => {
                 crit!(self.log, "Blob received during backfill block request"; "peer_id" => %peer_id  );
             }

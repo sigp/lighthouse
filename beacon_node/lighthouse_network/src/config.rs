@@ -6,10 +6,7 @@ use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
 use discv5::{Discv5Config, Discv5ConfigBuilder};
-use libp2p::gossipsub::{
-    FastMessageId, GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId,
-    RawGossipsubMessage, ValidationMode,
-};
+use libp2p::gossipsub;
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -18,11 +15,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{ForkContext, ForkName};
-
-/// The maximum transmit size of gossip messages in bytes pre-merge.
-const GOSSIP_MAX_SIZE: usize = 1_048_576; // 1M
-/// The maximum transmit size of gossip messages in bytes post-merge.
-const GOSSIP_MAX_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 
 /// The cache time is set to accommodate the circulation time of an attestation.
 ///
@@ -38,18 +30,18 @@ const GOSSIP_MAX_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 /// another 500ms for "fudge factor".
 pub const DUPLICATE_CACHE_TIME: Duration = Duration::from_secs(33 * 12 + 1);
 
-// We treat uncompressed messages as invalid and never use the INVALID_SNAPPY_DOMAIN as in the
-// specification. We leave it here for posterity.
-// const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
-const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
-
 /// The maximum size of gossip messages.
-pub fn gossip_max_size(is_merge_enabled: bool) -> usize {
+pub fn gossip_max_size(is_merge_enabled: bool, gossip_max_size: usize) -> usize {
     if is_merge_enabled {
-        GOSSIP_MAX_SIZE_POST_MERGE
+        gossip_max_size
     } else {
-        GOSSIP_MAX_SIZE
+        gossip_max_size / 10
     }
+}
+
+pub struct GossipsubConfigParams {
+    pub message_domain_valid_snappy: [u8; 4],
+    pub gossip_max_size: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -83,7 +75,7 @@ pub struct Config {
 
     /// Gossipsub configuration parameters.
     #[serde(skip)]
-    pub gs_config: GossipsubConfig,
+    pub gs_config: gossipsub::Config,
 
     /// Discv5 configuration parameters.
     #[serde(skip)]
@@ -265,7 +257,7 @@ impl Default for Config {
 
         // Note: Using the default config here. Use `gossipsub_config` function for getting
         // Lighthouse specific configuration for gossipsub.
-        let gs_config = GossipsubConfigBuilder::default()
+        let gs_config = gossipsub::ConfigBuilder::default()
             .build()
             .expect("valid gossipsub configuration");
 
@@ -416,16 +408,20 @@ impl From<u8> for NetworkLoad {
 }
 
 /// Return a Lighthouse specific `GossipsubConfig` where the `message_id_fn` depends on the current fork.
-pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> GossipsubConfig {
+pub fn gossipsub_config(
+    network_load: u8,
+    fork_context: Arc<ForkContext>,
+    gossipsub_config_params: GossipsubConfigParams,
+) -> gossipsub::Config {
     // The function used to generate a gossipsub message id
     // We use the first 8 bytes of SHA256(topic, data) for content addressing
-    let fast_gossip_message_id = |message: &RawGossipsubMessage| {
+    let fast_gossip_message_id = |message: &gossipsub::RawMessage| {
         let data = [message.topic.as_str().as_bytes(), &message.data].concat();
-        FastMessageId::from(&Sha256::digest(data)[..8])
+        gossipsub::FastMessageId::from(&Sha256::digest(data)[..8])
     };
     fn prefix(
         prefix: [u8; 4],
-        message: &GossipsubMessage,
+        message: &gossipsub::Message,
         fork_context: Arc<ForkContext>,
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
@@ -451,20 +447,23 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
             }
         }
     }
-
+    let message_domain_valid_snappy = gossipsub_config_params.message_domain_valid_snappy;
     let is_merge_enabled = fork_context.fork_exists(ForkName::Merge);
-    let gossip_message_id = move |message: &GossipsubMessage| {
-        MessageId::from(
+    let gossip_message_id = move |message: &gossipsub::Message| {
+        gossipsub::MessageId::from(
             &Sha256::digest(
-                prefix(MESSAGE_DOMAIN_VALID_SNAPPY, message, fork_context.clone()).as_slice(),
+                prefix(message_domain_valid_snappy, message, fork_context.clone()).as_slice(),
             )[..20],
         )
     };
 
     let load = NetworkLoad::from(network_load);
 
-    GossipsubConfigBuilder::default()
-        .max_transmit_size(gossip_max_size(is_merge_enabled))
+    gossipsub::ConfigBuilder::default()
+        .max_transmit_size(gossip_max_size(
+            is_merge_enabled,
+            gossipsub_config_params.gossip_max_size,
+        ))
         .heartbeat_interval(load.heartbeat_interval)
         .mesh_n(load.mesh_n)
         .mesh_n_low(load.mesh_n_low)
@@ -476,7 +475,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
         .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
         .history_gossip(load.history_gossip)
         .validate_messages() // require validation before propagation
-        .validation_mode(ValidationMode::Anonymous)
+        .validation_mode(gossipsub::ValidationMode::Anonymous)
         .duplicate_cache_time(DUPLICATE_CACHE_TIME)
         .message_id_fn(gossip_message_id)
         .fast_message_id_fn(fast_gossip_message_id)

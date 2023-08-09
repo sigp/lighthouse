@@ -5,9 +5,12 @@ use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
 use beacon_chain::BeaconChainTypes;
+use lighthouse_network::rpc::methods::MaxRequestBlobSidecars;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{trace, Logger};
+use ssz_types::VariableList;
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::Hash256;
@@ -257,7 +260,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
 
     /// Updates this request with the most recent picture of which blobs still need to be requested.
     pub fn update_blobs_request(&mut self) {
-        self.blob_request_state.requested_ids = self.missing_blob_ids()
+        self.blob_request_state.requested_ids = self.missing_blob_ids().into()
     }
 
     /// If `unknown_parent_components` is `Some`, we know block components won't hit the data
@@ -319,12 +322,42 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     }
 }
 
+#[derive(Clone, Default)]
+pub struct RequestedBlobIds(Vec<BlobIdentifier>);
+
+impl From<Vec<BlobIdentifier>> for RequestedBlobIds {
+    fn from(value: Vec<BlobIdentifier>) -> Self {
+        Self(value)
+    }
+}
+
+impl Into<VariableList<BlobIdentifier, MaxRequestBlobSidecars>> for RequestedBlobIds {
+    fn into(self) -> VariableList<BlobIdentifier, MaxRequestBlobSidecars> {
+        VariableList::from(self.0)
+    }
+}
+
+impl RequestedBlobIds {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub fn contains(&self, blob_id: &BlobIdentifier) -> bool {
+        self.0.contains(blob_id)
+    }
+    pub fn remove(&mut self, blob_id: &BlobIdentifier) {
+        self.0.retain(|id| id != blob_id)
+    }
+    pub fn indices(&self) -> Vec<u64> {
+        self.0.iter().map(|id| id.index).collect()
+    }
+}
+
 /// The state of the blob request component of a `SingleBlockLookup`.
 pub struct BlobRequestState<L: Lookup, T: EthSpec> {
     /// The latest picture of which blobs still need to be requested. This includes information
     /// from both block/blobs downloaded in the network layer and any blocks/blobs that exist in
     /// the data availability checker.
-    pub requested_ids: Vec<BlobIdentifier>,
+    pub requested_ids: RequestedBlobIds,
     /// Where we store blobs until we receive the stream terminator.
     pub blob_download_queue: FixedBlobSidecarList<T>,
     pub state: SingleLookupRequestState,
@@ -429,6 +462,16 @@ impl<E: EthSpec> CachedChildComponents<E> {
             .enumerate()
             .filter_map(|(i, blob_opt)| blob_opt.as_ref().map(|_| i))
             .collect::<HashSet<_>>()
+    }
+
+    pub fn is_missing_components(&self) -> bool {
+        self.downloaded_block
+            .as_ref()
+            .map(|block| {
+                block.num_expected_blobs()
+                    != self.downloaded_blobs.iter().filter(|b| b.is_some()).count()
+            })
+            .unwrap_or(true)
     }
 }
 
@@ -562,7 +605,7 @@ impl<L: Lookup, T: BeaconChainTypes> slog::Value for SingleBlockLookup<L, T> {
         serializer.emit_arguments("hash", &format_args!("{}", self.block_root()))?;
         serializer.emit_arguments(
             "blob_ids",
-            &format_args!("{:?}", self.blob_request_state.requested_ids),
+            &format_args!("{:?}", self.blob_request_state.requested_ids.indices()),
         )?;
         serializer.emit_arguments(
             "block_request_state.state",

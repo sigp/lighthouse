@@ -287,11 +287,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .check_availability_and_maybe_import(slot, |chain| {
-                chain
-                    .data_availability_checker
-                    .put_rpc_blobs(block_root, blobs)
-            })
+            .check_rpc_blob_availability_and_import(slot, block_root, blobs)
             .await;
 
         // Sync handles these results

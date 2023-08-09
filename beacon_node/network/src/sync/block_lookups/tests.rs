@@ -1306,8 +1306,8 @@ mod deneb_only {
                         block_root = child_root;
                         bl.search_child_block(
                             child_root,
-                            Some(CachedChildComponents::new(Some(child_block), None)),
-                            &[PeerShouldHave::Neither(peer_id)],
+                            CachedChildComponents::new(Some(child_block), None),
+                            PeerShouldHave::Neither(peer_id),
                             &mut cx,
                         );
 
@@ -1344,8 +1344,8 @@ mod deneb_only {
                         *blobs.index_mut(0) = Some(child_blob);
                         bl.search_child_block(
                             child_root,
-                            Some(CachedChildComponents::new(None, Some(blobs))),
-                            &[PeerShouldHave::Neither(peer_id)],
+                            CachedChildComponents::new(None, Some(blobs)),
+                            PeerShouldHave::Neither(peer_id),
                             &mut cx,
                         );
 

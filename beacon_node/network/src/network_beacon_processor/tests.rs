@@ -1,3 +1,4 @@
+#![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
 use crate::{
@@ -10,7 +11,7 @@ use crate::{
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconChain, ChainConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use beacon_chain::{BeaconChain, ChainConfig, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
@@ -221,7 +222,7 @@ impl TestRig {
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
 
-        BeaconProcessor {
+        let beacon_processor = BeaconProcessor {
             network_globals,
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
@@ -235,7 +236,10 @@ impl TestRig {
             work_reprocessing_rx,
             Some(work_journal_tx),
             harness.chain.slot_clock.clone(),
+            chain.spec.maximum_gossip_clock_disparity(),
         );
+
+        assert!(!beacon_processor.is_err());
 
         Self {
             chain,
@@ -339,7 +343,7 @@ impl TestRig {
         self.network_beacon_processor
             .send_blobs_by_range_request(
                 PeerId::random(),
-                (ConnectionId::new(42), SubstreamId::new(24)),
+                (ConnectionId::new_unchecked(42), SubstreamId::new(24)),
                 BlobsByRangeRequest {
                     start_slot: 0,
                     count,
@@ -559,7 +563,7 @@ async fn import_gossip_block_acceptably_early() {
 
     rig.chain
         .slot_clock
-        .set_current_time(slot_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
 
     assert_eq!(
         rig.chain.slot().unwrap(),
@@ -614,9 +618,9 @@ async fn import_gossip_block_unacceptably_early() {
         .start_of(rig.next_block.slot())
         .unwrap();
 
-    rig.chain
-        .slot_clock
-        .set_current_time(slot_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY - Duration::from_millis(1));
+    rig.chain.slot_clock.set_current_time(
+        slot_start - rig.chain.spec.maximum_gossip_clock_disparity() - Duration::from_millis(1),
+    );
 
     assert_eq!(
         rig.chain.slot().unwrap(),

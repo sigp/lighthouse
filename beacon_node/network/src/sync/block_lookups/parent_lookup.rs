@@ -193,11 +193,11 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     ) -> Result<Option<R::VerifiedResponseType>, ParentVerifyError> {
         let expected_block_root = self.current_parent_request.block_root();
         let request_state = R::request_state_mut(&mut self.current_parent_request);
-        let root_and_block = request_state.verify_response(expected_block_root, block)?;
+        let root_and_verified = request_state.verify_response(expected_block_root, block)?;
 
         // check if the parent of this block isn't in the failed cache. If it is, this chain should
         // be dropped and the peer downscored.
-        if let Some(parent_root) = root_and_block
+        if let Some(parent_root) = root_and_verified
             .as_ref()
             .and_then(|block| R::get_parent_root(block))
         {
@@ -207,7 +207,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             }
         }
 
-        Ok(root_and_block)
+        Ok(root_and_verified)
     }
 
     pub fn add_peers(&mut self, peer_source: &[PeerShouldHave]) {

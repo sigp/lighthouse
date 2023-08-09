@@ -977,7 +977,9 @@ fn run<T: EthSpec>(
                 .map_err(|e| format!("Failed to skip slots: {}", e))
         }
         ("pretty-ssz", Some(matches)) => {
-            run_parse_ssz::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
+            let network_config = get_network_config()?;
+            run_parse_ssz::<T>(network_config, matches)
+                .map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
         ("deploy-deposit-contract", Some(matches)) => {
             deploy_deposit_contract::run::<T>(env, matches)
