@@ -1564,9 +1564,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 SwarmEvent::Dialing {
                     peer_id,
                     connection_id: _,
-                } => {
-                    None
-                }
+                } => None,
             };
 
             if let Some(ev) = maybe_event {
