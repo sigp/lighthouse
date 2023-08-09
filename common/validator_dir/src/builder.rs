@@ -1,6 +1,7 @@
 use crate::{Error as DirError, ValidatorDir};
 use bls::get_withdrawal_credentials;
 use deposit_contract::{encode_eth1_tx_data, Error as DepositError};
+use directory::ensure_dir_exists;
 use eth2_keystore::{Error as KeystoreError, Keystore, KeystoreBuilder, PlainText};
 use filesystem::create_with_600_perms;
 use rand::{distributions::Alphanumeric, Rng};
@@ -41,6 +42,7 @@ pub enum Error {
     #[cfg(feature = "insecure_keys")]
     InsecureKeysError(String),
     MissingPasswordDir,
+    UnableToCreatePasswordDir(String),
 }
 
 impl From<KeystoreError> for Error {
@@ -75,6 +77,13 @@ impl<'a> Builder<'a> {
     /// Supply a directory in which to store the passwords for the validator keystores.
     pub fn password_dir<P: Into<PathBuf>>(mut self, password_dir: P) -> Self {
         self.password_dir = Some(password_dir.into());
+        self
+    }
+
+    /// Optionally supply a directory in which to store the passwords for the validator keystores.
+    /// If `None` is provided, do not store the password.
+    pub fn password_dir_opt(mut self, password_dir_opt: Option<PathBuf>) -> Self {
+        self.password_dir = password_dir_opt;
         self
     }
 
@@ -151,6 +160,10 @@ impl<'a> Builder<'a> {
             return Err(Error::DirectoryAlreadyExists(dir));
         } else {
             create_dir_all(&dir).map_err(Error::UnableToCreateDir)?;
+        }
+
+        if let Some(password_dir) = &self.password_dir {
+            ensure_dir_exists(password_dir).map_err(Error::UnableToCreatePasswordDir)?;
         }
 
         // The withdrawal keystore must be initialized in order to store it or create an eth1
@@ -234,7 +247,7 @@ impl<'a> Builder<'a> {
                 if self.store_withdrawal_keystore {
                     // Write the withdrawal password to file.
                     write_password_to_file(
-                        password_dir.join(withdrawal_keypair.pk.as_hex_string()),
+                        keystore_password_path(password_dir, &withdrawal_keystore),
                         withdrawal_password.as_bytes(),
                     )?;
 
@@ -250,7 +263,7 @@ impl<'a> Builder<'a> {
         if let Some(password_dir) = self.password_dir.as_ref() {
             // Write the voting password to file.
             write_password_to_file(
-                password_dir.join(format!("0x{}", voting_keystore.pubkey())),
+                keystore_password_path(password_dir, &voting_keystore),
                 voting_password.as_bytes(),
             )?;
         }
@@ -260,6 +273,12 @@ impl<'a> Builder<'a> {
 
         ValidatorDir::open(dir).map_err(Error::UnableToOpenDir)
     }
+}
+
+pub fn keystore_password_path<P: AsRef<Path>>(password_dir: P, keystore: &Keystore) -> PathBuf {
+    password_dir
+        .as_ref()
+        .join(format!("0x{}", keystore.pubkey()))
 }
 
 /// Writes a JSON keystore to file.

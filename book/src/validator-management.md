@@ -13,6 +13,10 @@ standard directories and do not start their `lighthouse vc` with the
 this document. However, users with more complex needs may find this document
 useful.
 
+The [lighthouse validator-manager](./validator-manager.md) command can be used
+to create and import validators to a Lighthouse VC. It can also be used to move
+validators between two Lighthouse VCs.
+
 ## Introducing the `validator_definitions.yml` file
 
 The `validator_definitions.yml` file is located in the `validator-dir`, which

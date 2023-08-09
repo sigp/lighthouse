@@ -88,21 +88,18 @@ impl<'a> std::fmt::Display for ClearDialError<'a> {
                         }
                         libp2p::TransportError::Other(other_error) => {
                             let inner_error = ClearDialError::most_inner_error(other_error);
-                            write!(f, "A transport level error has ocurred: {inner_error}")?;
+                            write!(f, "Transport error: {inner_error}")?;
                         }
                     }
                 }
                 Ok(())
             }
-            DialError::Banned => write!(f, "The peer is currently banned"),
-            DialError::ConnectionLimit(_) => write!(f, "The configured limit for simultaneous outgoing connections has been reached."),
-            DialError::LocalPeerId =>  write!(f, "The peer being dialed is the local peer and thus the dial was aborted."),
-            DialError::NoAddresses => write!(f, "NetworkBehaviour::addresses_of_peer returned no addresses for the peer to dial."),
-            DialError::DialPeerConditionFalse(_) => write!(f, "The provided dial_opts::PeerCondition evaluated to false and thus the dial was aborted."),
-            DialError::Aborted => write!(f, "Pending connection attempt has been aborted."),
-            DialError::InvalidPeerId(_) => write!(f, "The provided peer identity is invalid."),
-            DialError::WrongPeerId { .. } =>  write!(f, "The peer identity obtained on the connection did not match the one that was expected."),
-            DialError::ConnectionIo(_) => write!(f, "An I/O error occurred on the connection."),
+            DialError::LocalPeerId { .. } => write!(f, "The peer being dialed is the local peer."),
+            DialError::NoAddresses => write!(f, "No addresses for the peer to dial."),
+            DialError::DialPeerConditionFalse(_) => write!(f, "PeerCondition evaluation failed."),
+            DialError::Aborted => write!(f, "Connection aborted."),
+            DialError::WrongPeerId { .. } => write!(f, "Wrong peer id."),
+            DialError::Denied { cause } => write!(f, "Connection denied: {:?}", cause),
         }
     }
 }

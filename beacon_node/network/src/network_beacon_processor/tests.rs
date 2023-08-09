@@ -11,7 +11,7 @@ use crate::{
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconChain, ChainConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use beacon_chain::BeaconChain;
 use beacon_processor::{work_reprocessing_queue::*, *};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
@@ -68,16 +68,21 @@ struct TestRig {
 impl Drop for TestRig {
     fn drop(&mut self) {
         // Causes the beacon processor to shutdown.
-        self.beacon_processor_tx = BeaconProcessorSend(mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN).0);
+        let len = BeaconProcessorConfig::default().max_work_event_queue_len;
+        self.beacon_processor_tx = BeaconProcessorSend(mpsc::channel(len).0);
     }
 }
 
 impl TestRig {
     pub async fn new(chain_length: u64) -> Self {
-        Self::new_with_chain_config(chain_length, ChainConfig::default()).await
+        Self::new_parametric(
+            chain_length,
+            BeaconProcessorConfig::default().enable_backfill_rate_limiting,
+        )
+        .await
     }
 
-    pub async fn new_with_chain_config(chain_length: u64, chain_config: ChainConfig) -> Self {
+    pub async fn new_parametric(chain_length: u64, enable_backfill_rate_limiting: bool) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = E::default_spec();
         spec.shard_committee_period = 2;
@@ -86,7 +91,7 @@ impl TestRig {
             .spec(spec)
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
-            .chain_config(chain_config)
+            .chain_config(<_>::default())
             .build();
 
         harness.advance_slot();
@@ -172,8 +177,15 @@ impl TestRig {
 
         let log = harness.logger().clone();
 
-        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
-        let beacon_processor_tx = BeaconProcessorSend(beacon_processor_tx);
+        let mut beacon_processor_config = BeaconProcessorConfig::default();
+        beacon_processor_config.enable_backfill_rate_limiting = enable_backfill_rate_limiting;
+        let BeaconProcessorChannels {
+            beacon_processor_tx,
+            beacon_processor_rx,
+            work_reprocessing_tx,
+            work_reprocessing_rx,
+        } = BeaconProcessorChannels::new(&beacon_processor_config);
+
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
@@ -196,8 +208,6 @@ impl TestRig {
 
         let executor = harness.runtime.task_executor.clone();
 
-        let (work_reprocessing_tx, work_reprocessing_rx) =
-            mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
         let (work_journal_tx, work_journal_rx) = mpsc::channel(16_364);
 
         let duplicate_cache = DuplicateCache::default();
@@ -215,12 +225,12 @@ impl TestRig {
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
 
-        BeaconProcessor {
+        let beacon_processor = BeaconProcessor {
             network_globals,
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
-            enable_backfill_rate_limiting: harness.chain.config.enable_backfill_rate_limiting,
+            config: beacon_processor_config,
             log: log.clone(),
         }
         .spawn_manager(
@@ -229,7 +239,10 @@ impl TestRig {
             work_reprocessing_rx,
             Some(work_journal_tx),
             harness.chain.slot_clock.clone(),
+            chain.spec.maximum_gossip_clock_disparity(),
         );
+
+        assert!(!beacon_processor.is_err());
 
         Self {
             chain,
@@ -505,7 +518,7 @@ async fn import_gossip_block_acceptably_early() {
 
     rig.chain
         .slot_clock
-        .set_current_time(slot_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
 
     assert_eq!(
         rig.chain.slot().unwrap(),
@@ -552,9 +565,9 @@ async fn import_gossip_block_unacceptably_early() {
         .start_of(rig.next_block.slot())
         .unwrap();
 
-    rig.chain
-        .slot_clock
-        .set_current_time(slot_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY - Duration::from_millis(1));
+    rig.chain.slot_clock.set_current_time(
+        slot_start - rig.chain.spec.maximum_gossip_clock_disparity() - Duration::from_millis(1),
+    );
 
     assert_eq!(
         rig.chain.slot().unwrap(),
@@ -940,11 +953,8 @@ async fn test_backfill_sync_processing() {
 /// Ensure that backfill batches get processed as fast as they can when rate-limiting is disabled.
 #[tokio::test]
 async fn test_backfill_sync_processing_rate_limiting_disabled() {
-    let chain_config = ChainConfig {
-        enable_backfill_rate_limiting: false,
-        ..Default::default()
-    };
-    let mut rig = TestRig::new_with_chain_config(SMALL_CHAIN, chain_config).await;
+    let enable_backfill_rate_limiting = false;
+    let mut rig = TestRig::new_parametric(SMALL_CHAIN, enable_backfill_rate_limiting).await;
 
     for _ in 0..3 {
         rig.enqueue_backfill_batch();
