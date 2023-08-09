@@ -4985,7 +4985,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let expected_kzg_commitments =
                     block.body().blob_kzg_commitments().map_err(|_| {
                         BlockProductionError::InvalidBlockVariant(
-                            "DENEB block does not contain kzg commitments".to_string(),
+                            "deneb block does not contain kzg commitments".to_string(),
                         )
                     })?;
 
