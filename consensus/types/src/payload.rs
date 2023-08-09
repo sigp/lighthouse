@@ -109,7 +109,7 @@ pub trait AbstractExecPayload<T: EthSpec>:
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
     fn default_blobs_at_fork(
         fork_name: ForkName,
-    ) -> Result<<Self::Sidecar as Sidecar<T>>::RawBlobs, Error>;
+    ) -> Result<<Self::Sidecar as Sidecar<T>>::BlobItems, Error>;
 }
 
 #[superstruct(
@@ -400,7 +400,7 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
             ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
         }
     }
-    fn default_blobs_at_fork(_fork_name: ForkName) -> Result<Blobs<T>, Error> {
+    fn default_blobs_at_fork(_fork_name: ForkName) -> Result<BlobsList<T>, Error> {
         Ok(VariableList::default())
     }
 }
@@ -918,7 +918,7 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
             ForkName::Deneb => Ok(BlindedPayloadDeneb::default().into()),
         }
     }
-    fn default_blobs_at_fork(_fork_name: ForkName) -> Result<BlobRoots<T>, Error> {
+    fn default_blobs_at_fork(_fork_name: ForkName) -> Result<BlobRootsList<T>, Error> {
         Ok(VariableList::default())
     }
 }
@@ -1050,5 +1050,5 @@ pub struct BlobsBundle<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
     pub proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
-    pub blobs: Blobs<E>,
+    pub blobs: BlobsList<E>,
 }

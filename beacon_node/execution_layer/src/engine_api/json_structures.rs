@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::Blobs;
+use types::blob_sidecar::BlobsList;
 use types::{
     BlobsBundle, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
     ExecutionPayloadDeneb, ExecutionPayloadMerge, FixedVector, Transactions, Unsigned,
@@ -423,7 +423,7 @@ pub struct JsonBlobsBundleV1<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
     pub proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
-    pub blobs: Blobs<E>,
+    pub blobs: BlobsList<E>,
 }
 
 impl<E: EthSpec> From<BlobsBundle<E>> for JsonBlobsBundleV1<E> {

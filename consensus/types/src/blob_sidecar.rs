@@ -39,30 +39,30 @@ pub trait Sidecar<E: EthSpec>:
     + Send
     + for<'a> arbitrary::Arbitrary<'a>
 {
-    type RawBlobs: RawBlobs<E>;
+    type BlobItems: BlobItems<E>;
     fn slot(&self) -> Slot;
     fn build_sidecar<Payload: AbstractExecPayload<E>>(
-        a: Self::RawBlobs,
+        blob_items: Self::BlobItems,
         block: &BeaconBlock<E, Payload>,
         expected_kzg_commitments: &KzgCommitments<E>,
         kzg_proofs: Vec<KzgProof>,
     ) -> Result<SidecarList<E, Self>, String>;
 }
 
-pub trait RawBlobs<T: EthSpec>: Sync + Send + Sized {
-    fn try_from_blob_roots(roots: BlobRoots<T>) -> Result<Self, String>;
-    fn try_from_blobs(blobs: Blobs<T>) -> Result<Self, String>;
+pub trait BlobItems<T: EthSpec>: Sync + Send + Sized {
+    fn try_from_blob_roots(roots: BlobRootsList<T>) -> Result<Self, String>;
+    fn try_from_blobs(blobs: BlobsList<T>) -> Result<Self, String>;
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
-    fn blobs(&self) -> Option<&Blobs<T>>;
+    fn blobs(&self) -> Option<&BlobsList<T>>;
 }
 
-impl<T: EthSpec> RawBlobs<T> for Blobs<T> {
-    fn try_from_blob_roots(_roots: BlobRoots<T>) -> Result<Self, String> {
+impl<T: EthSpec> BlobItems<T> for BlobsList<T> {
+    fn try_from_blob_roots(_roots: BlobRootsList<T>) -> Result<Self, String> {
         Err("Unexpected conversion from blob roots to blobs".to_string())
     }
 
-    fn try_from_blobs(blobs: Blobs<T>) -> Result<Self, String> {
+    fn try_from_blobs(blobs: BlobsList<T>) -> Result<Self, String> {
         Ok(blobs)
     }
 
@@ -74,17 +74,17 @@ impl<T: EthSpec> RawBlobs<T> for Blobs<T> {
         VariableList::is_empty(self)
     }
 
-    fn blobs(&self) -> Option<&Blobs<T>> {
+    fn blobs(&self) -> Option<&BlobsList<T>> {
         Some(self)
     }
 }
 
-impl<T: EthSpec> RawBlobs<T> for BlobRoots<T> {
-    fn try_from_blob_roots(roots: BlobRoots<T>) -> Result<Self, String> {
+impl<T: EthSpec> BlobItems<T> for BlobRootsList<T> {
+    fn try_from_blob_roots(roots: BlobRootsList<T>) -> Result<Self, String> {
         Ok(roots)
     }
 
-    fn try_from_blobs(_blobs: Blobs<T>) -> Result<Self, String> {
+    fn try_from_blobs(_blobs: BlobsList<T>) -> Result<Self, String> {
         // It is possible to convert from blobs to blob roots, however this should be done using
         // `From` or `Into` instead of this generic implementation; this function implementation
         // should be unreachable, and attempt to use this indicates a bug somewhere.
@@ -99,7 +99,7 @@ impl<T: EthSpec> RawBlobs<T> for BlobRoots<T> {
         VariableList::is_empty(self)
     }
 
-    fn blobs(&self) -> Option<&Blobs<T>> {
+    fn blobs(&self) -> Option<&BlobsList<T>> {
         None
     }
 }
@@ -156,14 +156,14 @@ pub struct BlobSidecar<T: EthSpec> {
 }
 
 impl<E: EthSpec> Sidecar<E> for BlobSidecar<E> {
-    type RawBlobs = Blobs<E>;
+    type BlobItems = BlobsList<E>;
 
     fn slot(&self) -> Slot {
         self.slot
     }
 
     fn build_sidecar<Payload: AbstractExecPayload<E>>(
-        blobs: Blobs<E>,
+        blobs: BlobsList<E>,
         block: &BeaconBlock<E, Payload>,
         expected_kzg_commitments: &KzgCommitments<E>,
         kzg_proofs: Vec<KzgProof>,
@@ -336,14 +336,14 @@ pub struct BlindedBlobSidecar {
 impl SignedRoot for BlindedBlobSidecar {}
 
 impl<E: EthSpec> Sidecar<E> for BlindedBlobSidecar {
-    type RawBlobs = BlobRoots<E>;
+    type BlobItems = BlobRootsList<E>;
 
     fn slot(&self) -> Slot {
         self.slot
     }
 
     fn build_sidecar<Payload: AbstractExecPayload<E>>(
-        blob_roots: BlobRoots<E>,
+        blob_roots: BlobRootsList<E>,
         block: &BeaconBlock<E, Payload>,
         expected_kzg_commitments: &KzgCommitments<E>,
         kzg_proofs: Vec<KzgProof>,
@@ -390,5 +390,5 @@ pub type BlindedBlobSidecarList<T> = SidecarList<T, BlindedBlobSidecar>;
 pub type FixedBlobSidecarList<T> =
     FixedVector<Option<Arc<BlobSidecar<T>>>, <T as EthSpec>::MaxBlobsPerBlock>;
 
-pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
-pub type BlobRoots<T> = VariableList<Hash256, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type BlobsList<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type BlobRootsList<T> = VariableList<Hash256, <T as EthSpec>::MaxBlobsPerBlock>;
