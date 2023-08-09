@@ -1,8 +1,8 @@
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::payload::FullPayloadContents;
 use eth2::types::{
-    AbstractExecPayload, BlindedPayload, EthSpec, ExecutionBlockHash, ForkVersionedResponse,
-    PublicKeyBytes, SignedBlockContents, SignedValidatorRegistrationData, Slot,
+    BlindedPayload, EthSpec, ExecutionBlockHash, ForkVersionedResponse, PublicKeyBytes,
+    SignedBlockContents, SignedValidatorRegistrationData, Slot,
 };
 pub use eth2::Error;
 use eth2::{ok_or_error, StatusCode};
@@ -163,12 +163,12 @@ impl BuilderHttpClient {
     }
 
     /// `GET /eth/v1/builder/header`
-    pub async fn get_builder_header<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    pub async fn get_builder_header<E: EthSpec>(
         &self,
         slot: Slot,
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
-    ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E, Payload>>>, Error> {
+    ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()

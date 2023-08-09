@@ -1,7 +1,8 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
-    AbstractExecPayload, BlobRootsList, ChainSpec, EthSpec, ExecPayload, ForkName,
-    ForkVersionDeserialize, KzgProofs, SignedRoot, Uint256,
+    BlobRootsList, ChainSpec, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
+    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ForkName, ForkVersionDeserialize,
+    KzgProofs, SignedRoot, Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -22,26 +23,20 @@ pub struct BlindedBlobsBundle<E: EthSpec> {
     variants(Merge, Capella, Deneb),
     variant_attributes(
         derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone),
-        serde(
-            bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
-            deny_unknown_fields
-        )
-    )
+        serde(bound = "E: EthSpec", deny_unknown_fields)
+    ),
+    map_ref_into(ExecutionPayloadHeaderRef)
 )]
 #[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
-#[serde(
-    bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
-    deny_unknown_fields,
-    untagged
-)]
+#[serde(bound = "E: EthSpec", deny_unknown_fields, untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
+pub struct BuilderBid<E: EthSpec> {
     #[superstruct(only(Merge), partial_getter(rename = "header_merge"))]
-    pub header: Payload::Merge,
+    pub header: ExecutionPayloadHeaderMerge<E>,
     #[superstruct(only(Capella), partial_getter(rename = "header_capella"))]
-    pub header: Payload::Capella,
+    pub header: ExecutionPayloadHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
-    pub header: Payload::Deneb,
+    pub header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(only(Deneb))]
     pub blinded_blobs_bundle: BlindedBlobsBundle<E>,
     #[serde(with = "serde_utils::quoted_u256")]
@@ -49,35 +44,31 @@ pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
     pub pubkey: PublicKeyBytes,
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> BuilderBid<E, Payload> {
-    pub fn header(&self) -> Payload::Ref<'_> {
+impl<E: EthSpec> BuilderBid<E> {
+    pub fn header(&self) -> ExecutionPayloadHeaderRef<'_, E> {
         self.to_ref().header()
     }
 }
 
-impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BuilderBidRef<'a, T, Payload> {
-    pub fn header(&self) -> Payload::Ref<'a> {
-        match self {
-            Self::Merge(bid) => Payload::Ref::from(&bid.header),
-            Self::Capella(bid) => Payload::Ref::from(&bid.header),
-            Self::Deneb(bid) => Payload::Ref::from(&bid.header),
-        }
+impl<'a, E: EthSpec> BuilderBidRef<'a, E> {
+    pub fn header(&self) -> ExecutionPayloadHeaderRef<'a, E> {
+        map_builder_bid_ref_into_execution_payload_header_ref!(&'a _, self, |bid, cons| cons(
+            &bid.header
+        ))
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BuilderBid<E, Payload> {}
+impl<E: EthSpec> SignedRoot for BuilderBid<E> {}
 
 /// Validator registration, for use in interacting with servers implementing the builder API.
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-#[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
-pub struct SignedBuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
-    pub message: BuilderBid<E, Payload>,
+#[serde(bound = "E: EthSpec")]
+pub struct SignedBuilderBid<E: EthSpec> {
+    pub message: BuilderBid<E>,
     pub signature: Signature,
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
-    for BuilderBid<T, Payload>
-{
+impl<T: EthSpec> ForkVersionDeserialize for BuilderBid<T> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,
@@ -99,9 +90,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
-    for SignedBuilderBid<T, Payload>
-{
+impl<T: EthSpec> ForkVersionDeserialize for SignedBuilderBid<T> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,
@@ -120,7 +109,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBuilderBid<E, Payload> {
+impl<E: EthSpec> SignedBuilderBid<E> {
     pub fn verify_signature(&self, spec: &ChainSpec) -> bool {
         self.message
             .pubkey()

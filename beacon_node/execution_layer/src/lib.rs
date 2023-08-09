@@ -89,23 +89,29 @@ pub enum ProvenancedPayload<P> {
     Builder(P),
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<BuilderBid<E, Payload>>
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<BuilderBid<E>>
     for ProvenancedPayload<BlockProposalContents<E, Payload>>
 {
     type Error = Error;
 
-    fn try_from(value: BuilderBid<E, Payload>) -> Result<Self, Error> {
+    fn try_from(value: BuilderBid<E>) -> Result<Self, Error> {
         let block_proposal_contents = match value {
             BuilderBid::Merge(builder_bid) => BlockProposalContents::Payload {
-                payload: builder_bid.header.into(),
+                payload: ExecutionPayloadHeader::Merge(builder_bid.header)
+                    .try_into()
+                    .map_err(|_| Error::InvalidPayloadConversion)?,
                 block_value: builder_bid.value,
             },
             BuilderBid::Capella(builder_bid) => BlockProposalContents::Payload {
-                payload: builder_bid.header.into(),
+                payload: ExecutionPayloadHeader::Capella(builder_bid.header)
+                    .try_into()
+                    .map_err(|_| Error::InvalidPayloadConversion)?,
                 block_value: builder_bid.value,
             },
             BuilderBid::Deneb(builder_bid) => BlockProposalContents::PayloadAndBlobs {
-                payload: builder_bid.header.into(),
+                payload: ExecutionPayloadHeader::Deneb(builder_bid.header)
+                    .try_into()
+                    .map_err(|_| Error::InvalidPayloadConversion)?,
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blinded_blobs_bundle.commitments,
                 blobs: BlobItems::try_from_blob_roots(builder_bid.blinded_blobs_bundle.blob_roots)
@@ -138,6 +144,7 @@ pub enum Error {
     InvalidJWTSecret(String),
     InvalidForkForPayload,
     InvalidPayloadBody(String),
+    InvalidPayloadConversion,
     InvalidBlobConversion(String),
     BeaconStateError(BeaconStateError),
 }
@@ -844,7 +851,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     let ((relay_result, relay_duration), (local_result, local_duration)) = tokio::join!(
                         timed_future(metrics::GET_BLINDED_PAYLOAD_BUILDER, async {
                             builder
-                                .get_builder_header::<T, Payload>(slot, parent_hash, &pubkey)
+                                .get_builder_header::<T>(slot, parent_hash, &pubkey)
                                 .await
                         }),
                         timed_future(metrics::GET_BLINDED_PAYLOAD_LOCAL, async {
@@ -1991,8 +1998,8 @@ impl fmt::Display for InvalidBuilderPayload {
 }
 
 /// Perform some cursory, non-exhaustive validation of the bid returned from the builder.
-fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
-    bid: &ForkVersionedResponse<SignedBuilderBid<T, Payload>>,
+fn verify_builder_bid<T: EthSpec>(
+    bid: &ForkVersionedResponse<SignedBuilderBid<T>>,
     parent_hash: ExecutionBlockHash,
     payload_attributes: &PayloadAttributes,
     block_number: Option<u64>,
@@ -2019,7 +2026,7 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
         .ok()
         .cloned()
         .map(|withdrawals| Withdrawals::<T>::from(withdrawals).tree_hash_root());
-    let payload_withdrawals_root = header.withdrawals_root().ok();
+    let payload_withdrawals_root = header.withdrawals_root().ok().copied();
 
     if *payload_value < profit_threshold {
         Err(Box::new(InvalidBuilderPayload::LowValue {
