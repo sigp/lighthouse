@@ -36,8 +36,8 @@ use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::{
-    Address, BeaconState, BlindedPayload, ChainSpec, EthSpec, ExecPayload, ForkName, Hash256, Slot,
-    Uint256,
+    Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
+    ExecutionPayloadHeader, ForkName, Hash256, Slot, Uint256,
 };
 
 #[derive(Clone)]
@@ -402,13 +402,23 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
         let prev_randao = head_state
             .get_randao_mix(head_state.current_epoch())
             .map_err(convert_err)?;
+        let parent_root = head_state.latest_block_header().parent_root;
 
         let payload_attributes = match fork {
-            ForkName::Merge => PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None),
-            // the withdrawals root is filled in by operations
-            ForkName::Capella | ForkName::Deneb => {
-                PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]))
+            ForkName::Merge => {
+                PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None, None)
             }
+            // the withdrawals root is filled in by operations
+            ForkName::Capella => {
+                PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]), None)
+            }
+            ForkName::Deneb => PayloadAttributes::new(
+                timestamp,
+                *prev_randao,
+                fee_recipient,
+                Some(vec![]),
+                Some(parent_root),
+            ),
             ForkName::Base | ForkName::Altair => {
                 return Err(MevError::InvalidFork);
             }
@@ -425,9 +435,9 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
             finalized_hash: Some(finalized_execution_hash),
         };
 
-        let payload = self
+        let payload: ExecutionPayload<E> = self
             .el
-            .get_full_payload_caching::<BlindedPayload<E>>(
+            .get_full_payload_caching(
                 head_execution_hash,
                 &payload_attributes,
                 forkchoice_update_params,
@@ -435,10 +445,17 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
             )
             .await
             .map_err(convert_err)?
-            .to_payload()
-            .to_execution_payload_header();
+            .into();
 
-        let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
+        let header: ExecutionPayloadHeader<E> = match payload {
+            ExecutionPayload::Merge(payload) => ExecutionPayloadHeader::Merge((&payload).into()),
+            ExecutionPayload::Capella(payload) => {
+                ExecutionPayloadHeader::Capella((&payload).into())
+            }
+            ExecutionPayload::Deneb(payload) => ExecutionPayloadHeader::Deneb((&payload).into()),
+        };
+
+        let json_payload = serde_json::to_string(&header).map_err(convert_err)?;
         let mut message = match fork {
             ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
                 header: serde_json::from_str(json_payload.as_str()).map_err(convert_err)?,

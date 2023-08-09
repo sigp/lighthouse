@@ -926,7 +926,7 @@ pub struct SseLateHead {
 }
 
 #[superstruct(
-    variants(V1, V2),
+    variants(V1, V2, V3),
     variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize))
 )]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -939,8 +939,10 @@ pub struct SsePayloadAttributes {
     pub prev_randao: Hash256,
     #[superstruct(getter(copy))]
     pub suggested_fee_recipient: Address,
-    #[superstruct(only(V2))]
+    #[superstruct(only(V2, V3))]
     pub withdrawals: Vec<Withdrawal>,
+    #[superstruct(only(V3), partial_getter(copy))]
+    pub parent_beacon_block_root: Hash256,
 }
 
 #[derive(PartialEq, Debug, Deserialize, Serialize, Clone)]

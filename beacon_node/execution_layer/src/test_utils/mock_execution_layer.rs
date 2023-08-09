@@ -110,7 +110,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             timestamp,
             prev_randao,
             Address::repeat_byte(42),
-            // FIXME: think about how to handle different forks / withdrawals here..
+            // FIXME: think about how to handle different forks here..
+            None,
             None,
         );
 
@@ -140,7 +141,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         };
         let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
         let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
         let payload: ExecutionPayload<T> = self
             .el
             .get_payload::<FullPayload<T>>(
@@ -148,7 +149,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
-                // FIXME: do we need to consider other forks somehow? What about withdrawals?
+                // FIXME: do we need to consider other forks somehow?
                 ForkName::Merge,
                 &self.spec,
             )
@@ -175,7 +176,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         };
         let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
         let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
         let payload_header = self
             .el
             .get_payload::<BlindedPayload<T>>(
@@ -204,7 +205,12 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             Some(payload.clone())
         );
 
-        let status = self.el.notify_new_payload(&payload, None).await.unwrap();
+        // TODO: again consider forks
+        let status = self
+            .el
+            .notify_new_payload(payload.try_into().unwrap())
+            .await
+            .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
 
         // Use junk values for slot/head-root to ensure there is no payload supplied.

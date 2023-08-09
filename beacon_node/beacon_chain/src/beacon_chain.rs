@@ -237,6 +237,7 @@ pub struct PrePayloadAttributes {
     /// The parent block number is not part of the payload attributes sent to the EL, but *is*
     /// sent to builders via SSE.
     pub parent_block_number: u64,
+    pub parent_beacon_block_root: Hash256,
 }
 
 /// Information about a state/block at a specific slot.
@@ -4200,6 +4201,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposer_index,
             prev_randao,
             parent_block_number,
+            parent_beacon_block_root: parent_block_root,
         }))
     }
 
@@ -5260,7 +5262,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             payload_attributes
         } else {
-            let withdrawals = match self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot) {
+            let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
+            let withdrawals = match prepare_slot_fork {
                 ForkName::Base | ForkName::Altair | ForkName::Merge => None,
                 ForkName::Capella | ForkName::Deneb => {
                     let chain = self.clone();
@@ -5275,6 +5278,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             };
 
+            let parent_beacon_block_root = match prepare_slot_fork {
+                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => None,
+                ForkName::Deneb => Some(pre_payload_attributes.parent_beacon_block_root),
+            };
+
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -5283,6 +5291,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 pre_payload_attributes.prev_randao,
                 execution_layer.get_suggested_fee_recipient(proposer).await,
                 withdrawals.map(Into::into),
+                parent_beacon_block_root,
             );
 
             execution_layer

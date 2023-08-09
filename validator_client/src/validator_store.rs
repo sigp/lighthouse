@@ -21,12 +21,12 @@ use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, BlobSidecarList, ChainSpec,
-    ContributionAndProof, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes,
-    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecar,
-    SignedBlobSidecarList, SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
-    VoluntaryExit,
+    ContributionAndProof, Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, Keypair,
+    PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBlobSidecar, SignedBlobSidecarList, SignedContributionAndProof, SignedRoot,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    ValidatorRegistrationData, VoluntaryExit,
 };
 use validator_dir::ValidatorDir;
 
@@ -371,11 +371,35 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     fn signing_context(&self, domain: Domain, signing_epoch: Epoch) -> SigningContext {
-        SigningContext {
-            domain,
-            epoch: signing_epoch,
-            fork: self.fork(signing_epoch),
-            genesis_validators_root: self.genesis_validators_root,
+        if domain == Domain::VoluntaryExit {
+            match self.spec.fork_name_at_epoch(signing_epoch) {
+                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                    SigningContext {
+                        domain,
+                        epoch: signing_epoch,
+                        fork: self.fork(signing_epoch),
+                        genesis_validators_root: self.genesis_validators_root,
+                    }
+                }
+                // EIP-7044
+                ForkName::Deneb => SigningContext {
+                    domain,
+                    epoch: signing_epoch,
+                    fork: Fork {
+                        previous_version: self.spec.capella_fork_version,
+                        current_version: self.spec.capella_fork_version,
+                        epoch: signing_epoch,
+                    },
+                    genesis_validators_root: self.genesis_validators_root,
+                },
+            }
+        } else {
+            SigningContext {
+                domain,
+                epoch: signing_epoch,
+                fork: self.fork(signing_epoch),
+                genesis_validators_root: self.genesis_validators_root,
+            }
         }
     }
 

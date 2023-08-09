@@ -1663,14 +1663,13 @@ where
 
     pub fn make_voluntary_exit(&self, validator_index: u64, epoch: Epoch) -> SignedVoluntaryExit {
         let sk = &self.validator_keypairs[validator_index as usize].sk;
-        let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         VoluntaryExit {
             epoch,
             validator_index,
         }
-        .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
+        .sign(sk, genesis_validators_root, &self.chain.spec)
     }
 
     pub fn add_proposer_slashing(&self, validator_index: u64) -> Result<(), String> {
