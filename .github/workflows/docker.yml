@@ -13,6 +13,8 @@ env:
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
     IMAGE_NAME: ${{ github.repository_owner}}/lighthouse
     LCLI_IMAGE_NAME: ${{ github.repository_owner }}/lcli
+    # Enable self-hosted runners for the sigp repo only.
+    SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
 
 jobs:
     # Extract the VERSION which is either `latest` or `vX.Y.Z`, and the VERSION_SUFFIX
@@ -44,7 +46,8 @@ jobs:
             VERSION_SUFFIX: ${{ env.VERSION_SUFFIX }}
     build-docker-single-arch:
         name: build-docker-${{ matrix.binary }}${{ matrix.features.version_suffix }}
-        runs-on: ubuntu-22.04
+        # Use self-hosted runners only on the sigp repo.
+        runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-22.04'  }}
         strategy:
             matrix:
                 binary: [aarch64,
@@ -68,24 +71,25 @@ jobs:
         steps:
             - uses: actions/checkout@v3
             - name: Update Rust
+              if: env.SELF_HOSTED_RUNNERS == false
               run: rustup update stable
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
             - name: Cross build Lighthouse binary
+              if: env.SELF_HOSTED_RUNNERS == false
               run: |
                   cargo install cross
                   env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ matrix.features.env }} make build-${{ matrix.binary }}
+            - name: Make bin dir
+              if: env.SELF_HOSTED_RUNNERS == false
+              run: mkdir ./bin
             - name: Move cross-built binary into Docker scope (if ARM)
               if: startsWith(matrix.binary, 'aarch64')
-              run: |
-                  mkdir ./bin;
-                  mv ./target/aarch64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin;
+              run: mv ./target/aarch64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin
             - name: Move cross-built binary into Docker scope (if x86_64)
               if: startsWith(matrix.binary, 'x86_64')
-              run: |
-                  mkdir ./bin;
-                  mv ./target/x86_64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin;
+              run: mv ./target/x86_64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin
             - name: Map aarch64 to arm64 short arch
               if: startsWith(matrix.binary, 'aarch64')
               run: echo "SHORT_ARCH=arm64" >> $GITHUB_ENV
