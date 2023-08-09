@@ -2983,7 +2983,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET validator/blocks/{slot}
-    let get_validator_blocks_v3 = any_version
+    let get_validator_blocks = any_version
         .and(warp::path("validator"))
         .and(warp::path("blocks"))
         .and(warp::path::param::<Slot>().or_else(|_| async {
@@ -3025,138 +3025,6 @@ pub fn serve<T: BeaconChainTypes>(
                                 .await
                         }
                     }
-                })
-            },
-        );
-
-    // GET validator/blocks/{slot}
-    let get_validator_blocks = any_version
-        .and(warp::path("validator"))
-        .and(warp::path("blocks"))
-        .and(warp::path::param::<Slot>().or_else(|_| async {
-            Err(warp_utils::reject::custom_bad_request(
-                "Invalid slot".to_string(),
-            ))
-        }))
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(warp::query::<api_types::ValidatorBlocksQuery>())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
-        .and_then(
-            |endpoint_version: EndpointVersion,
-             slot: Slot,
-             query: api_types::ValidatorBlocksQuery,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             log: Logger| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    debug!(
-                        log,
-                        "Block production request from HTTP API";
-                        "slot" => slot
-                    );
-
-                    let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "randao reveal is not a valid BLS signature: {:?}",
-                            e
-                        ))
-                    })?;
-
-                    let randao_verification =
-                        if query.skip_randao_verification == SkipRandaoVerification::Yes {
-                            if !randao_reveal.is_infinity() {
-                                return Err(warp_utils::reject::custom_bad_request(
-                                "randao_reveal must be point-at-infinity if verification is skipped"
-                                    .into(),
-                            ));
-                            }
-                            ProduceBlockVerification::NoVerification
-                        } else {
-                            ProduceBlockVerification::VerifyRandao
-                        };
-
-                    let (block, _) = chain
-                        .produce_block_with_verification::<FullPayload<T::EthSpec>>(
-                            randao_reveal,
-                            slot,
-                            query.graffiti.map(Into::into),
-                            randao_verification,
-                        )
-                        .await
-                        .map_err(warp_utils::reject::block_production_error)?;
-                    let fork_name = block
-                        .to_ref()
-                        .fork_name(&chain.spec)
-                        .map_err(inconsistent_fork_rejection)?;
-
-                    fork_versioned_response(endpoint_version, fork_name, block)
-                        .map(|response| warp::reply::json(&response).into_response())
-                        .map(|res| add_consensus_version_header(res, fork_name))
-                })
-            },
-        );
-
-    // GET validator/blinded_blocks/{slot}
-    let get_validator_blinded_blocks = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("blinded_blocks"))
-        .and(warp::path::param::<Slot>().or_else(|_| async {
-            Err(warp_utils::reject::custom_bad_request(
-                "Invalid slot".to_string(),
-            ))
-        }))
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(warp::query::<api_types::ValidatorBlocksQuery>())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and_then(
-            |slot: Slot,
-             query: api_types::ValidatorBlocksQuery,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "randao reveal is not a valid BLS signature: {:?}",
-                            e
-                        ))
-                    })?;
-
-                    let randao_verification =
-                        if query.skip_randao_verification == SkipRandaoVerification::Yes {
-                            if !randao_reveal.is_infinity() {
-                                return Err(warp_utils::reject::custom_bad_request(
-                                "randao_reveal must be point-at-infinity if verification is skipped"
-                                    .into()
-                            ));
-                            }
-                            ProduceBlockVerification::NoVerification
-                        } else {
-                            ProduceBlockVerification::VerifyRandao
-                        };
-
-                    let (block, _) = chain
-                        .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
-                            randao_reveal,
-                            slot,
-                            query.graffiti.map(Into::into),
-                            randao_verification,
-                        )
-                        .await
-                        .map_err(warp_utils::reject::block_production_error)?;
-                    let fork_name = block
-                        .to_ref()
-                        .fork_name(&chain.spec)
-                        .map_err(inconsistent_fork_rejection)?;
-
-                    // Pose as a V2 endpoint so we return the fork `version`.
-                    fork_versioned_response(V2, fork_name, block)
-                        .map(|response| warp::reply::json(&response).into_response())
-                        .map(|res| add_consensus_version_header(res, fork_name))
                 })
             },
         );
@@ -4533,7 +4401,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_node_peer_count)
                 .uor(get_validator_duties_proposer)
                 .uor(get_validator_blocks)
-                .uor(get_validator_blinded_blocks)
                 .uor(get_validator_attestation_data)
                 .uor(get_validator_aggregate_attestation)
                 .uor(get_validator_sync_committee_contribution)
