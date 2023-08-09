@@ -25,6 +25,8 @@ mod validator;
 mod validator_inclusion;
 mod version;
 
+use crate::validator::{produce_block_json, produce_block_ssz};
+
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
@@ -68,8 +70,8 @@ use tokio::sync::{
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    BlindedPayload, BlockType, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
+    FullPayload, ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
     SyncCommitteeMessage, SyncContributionData,
@@ -2976,6 +2978,53 @@ pub fn serve<T: BeaconChainTypes>(
              log: Logger| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     proposer_duties::proposer_duties(epoch, &chain, &log)
+                })
+            },
+        );
+
+    // GET validator/blocks/{slot}
+    let get_validator_blocks_v3 = any_version
+        .and(warp::path("validator"))
+        .and(warp::path("blocks"))
+        .and(warp::path::param::<Slot>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid slot".to_string(),
+            ))
+        }))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and(not_while_syncing_filter.clone())
+        .and(warp::query::<api_types::ValidatorBlocksQuery>())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |endpoint_version: EndpointVersion,
+             slot: Slot,
+             accept_header: Option<api_types::Accept>,
+             query: api_types::ValidatorBlocksQuery,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             log: Logger| {
+                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    debug!(
+                        log,
+                        "Block production request from HTTP API";
+                        "slot" => slot
+                    );
+
+                    let block_type = BlockType::Blinded;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => {
+                            produce_block_ssz(endpoint_version, chain, slot, query, block_type)
+                                .await
+                        }
+                        _ => {
+                            produce_block_json(endpoint_version, chain, slot, query, block_type)
+                                .await
+                        }
+                    }
                 })
             },
         );

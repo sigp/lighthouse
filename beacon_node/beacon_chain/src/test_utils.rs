@@ -770,7 +770,7 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-        let (block, state) = self
+        let (block, state, _) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -819,7 +819,7 @@ where
 
         let pre_state = state.clone();
 
-        let (block, state) = self
+        let (block, state, _) = self
             .chain
             .produce_block_on_state(
                 state,
