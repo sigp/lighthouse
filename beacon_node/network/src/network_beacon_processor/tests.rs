@@ -30,7 +30,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, Epoch, Hash256, MainnetEthSpec, ProposerSlashing,
+    Attestation, AttesterSlashing, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot,
     SubnetId,
 };
@@ -90,6 +90,7 @@ impl TestRig {
 
     pub async fn new_parametric(chain_length: u64, enable_backfill_rate_limiting: bool) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
+        let mut spec = E::default_spec();
         spec.shard_committee_period = 2;
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
