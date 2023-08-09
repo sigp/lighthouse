@@ -7068,6 +7068,7 @@ dependencies = [
 name = "slasher"
 version = "0.1.0"
 dependencies = [
+ "base64 0.21.2",
  "bincode",
  "byteorder",
  "ethereum_ssz",
@@ -7085,6 +7086,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "rand 0.8.5",
  "rayon",
+ "rusqlite",
  "safe_arith",
  "serde",
  "serde_derive",

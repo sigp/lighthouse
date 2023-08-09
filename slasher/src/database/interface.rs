@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use crate::database::lmdb_impl;
 #[cfg(feature = "mdbx")]
 use crate::database::mdbx_impl;
+#[cfg(feature = "rusqlite")]
+use crate::database::sqlite_impl;
 
 #[derive(Debug)]
 pub enum Environment {
@@ -14,6 +16,8 @@ pub enum Environment {
     Mdbx(mdbx_impl::Environment),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::Environment),
+    #[cfg(feature = "rusqlite")]
+    Sqlite(sqlite_impl::Environment),
     Disabled,
 }
 
@@ -23,6 +27,8 @@ pub enum RwTransaction<'env> {
     Mdbx(mdbx_impl::RwTransaction<'env>),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::RwTransaction<'env>),
+    #[cfg(feature = "rusqlite")]
+    Sqlite(sqlite_impl::RwTransaction<'env>),
     Disabled(PhantomData<&'env ()>),
 }
 
@@ -32,6 +38,8 @@ pub enum Database<'env> {
     Mdbx(mdbx_impl::Database<'env>),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::Database<'env>),
+    #[cfg(feature = "rusqlite")]
+    Sqlite(sqlite_impl::Database<'env>),
     Disabled(PhantomData<&'env ()>),
 }
 
@@ -54,6 +62,8 @@ pub enum Cursor<'env> {
     Mdbx(mdbx_impl::Cursor<'env>),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::Cursor<'env>),
+    #[cfg(feature = "rusqlite")]
+    Sqlite(sqlite_impl::Cursor<'env>),
     Disabled(PhantomData<&'env ()>),
 }
 
@@ -67,6 +77,8 @@ impl Environment {
             DatabaseBackend::Mdbx => mdbx_impl::Environment::new(config).map(Environment::Mdbx),
             #[cfg(feature = "lmdb")]
             DatabaseBackend::Lmdb => lmdb_impl::Environment::new(config).map(Environment::Lmdb),
+            #[cfg(feature = "rusqlite")]
+            DatabaseBackend::Sqlite => sqlite_impl::Environment::new(config).map(Environment::Sqlite),
             DatabaseBackend::Disabled => Err(Error::SlasherDatabaseBackendDisabled),
         }
     }
@@ -114,6 +126,8 @@ impl<'env> RwTransaction<'env> {
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.get(db, key),
             #[cfg(feature = "lmdb")]
             (Self::Lmdb(txn), Database::Lmdb(db)) => txn.get(db, key),
+            #[cfg(feature = "rusqlite")]
+            (Self::Sqlite(txn), Database::Sqlite(db)) => txn.get(db, key),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }

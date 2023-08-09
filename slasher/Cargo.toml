@@ -5,7 +5,7 @@ authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = "2021"
 
 [features]
-default = ["lmdb"]
+default = ["rusqlite"]
 mdbx = ["dep:mdbx"]
 lmdb = ["lmdb-rkv", "lmdb-rkv-sys"]
 
@@ -30,6 +30,9 @@ tree_hash = "0.5.0"
 tree_hash_derive = "0.5.0"
 types = { path = "../consensus/types" }
 strum = { version = "0.24.1", features = ["derive"] }
+
+base64 = "0.21.2"
+rusqlite = { version = "*", optional = true}
 
 # MDBX is pinned at the last version with Windows and macOS support.
 mdbx = { package = "libmdbx", git = "https://github.com/sigp/libmdbx-rs", tag = "v0.1.4", optional = true }
