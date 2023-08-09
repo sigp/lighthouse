@@ -84,6 +84,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
             .chain_spec(spec)
+            .beacon_processor(client_config.beacon_processor.clone())
             .http_api_config(client_config.http_api.clone())
             .disk_store(
                 &db_path,

@@ -606,7 +606,9 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_network",
  "logging",
+ "num_cpus",
  "parking_lot 0.12.1",
+ "serde",
  "slog",
  "slot_clock",
  "strum",
@@ -3334,6 +3336,7 @@ name = "http_api"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
+ "beacon_processor",
  "bs58 0.4.0",
  "bytes",
  "directory",
@@ -4407,6 +4410,7 @@ dependencies = [
  "account_manager",
  "account_utils",
  "beacon_node",
+ "beacon_processor",
  "bls",
  "boot_node",
  "clap",
@@ -8984,6 +8988,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "task_executor",
  "testcontainers",
  "tokio",
  "tokio-postgres",

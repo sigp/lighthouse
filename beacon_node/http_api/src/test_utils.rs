@@ -3,6 +3,7 @@ use beacon_chain::{
     test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
+use beacon_processor::{BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig};
 use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::{
@@ -24,7 +25,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
-use tokio::sync::oneshot;
+use task_executor::test_utils::TestRuntime;
 use types::{ChainSpec, EthSpec};
 
 pub const TCP_PORT: u16 = 42;
@@ -37,7 +38,6 @@ pub struct InteractiveTester<E: EthSpec> {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub client: BeaconNodeHttpClient,
     pub network_rx: NetworkReceivers<E>,
-    _server_shutdown: oneshot::Sender<()>,
 }
 
 /// The result of calling `create_api_server`.
@@ -46,7 +46,6 @@ pub struct InteractiveTester<E: EthSpec> {
 pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub server: SFut,
     pub listening_socket: SocketAddr,
-    pub shutdown_tx: oneshot::Sender<()>,
     pub network_rx: NetworkReceivers<E>,
     pub local_enr: Enr,
     pub external_peer_id: PeerId,
@@ -93,10 +92,14 @@ impl<E: EthSpec> InteractiveTester<E> {
         let ApiServer {
             server,
             listening_socket,
-            shutdown_tx: _server_shutdown,
             network_rx,
             ..
-        } = create_api_server(harness.chain.clone(), harness.logger().clone()).await;
+        } = create_api_server(
+            harness.chain.clone(),
+            &harness.runtime,
+            harness.logger().clone(),
+        )
+        .await;
 
         tokio::spawn(server);
 
@@ -114,22 +117,23 @@ impl<E: EthSpec> InteractiveTester<E> {
             harness,
             client,
             network_rx,
-            _server_shutdown,
         }
     }
 }
 
 pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
+    test_runtime: &TestRuntime,
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
     // Get a random unused port.
     let port = unused_port::unused_tcp4_port().unwrap();
-    create_api_server_on_port(chain, log, port).await
+    create_api_server_on_port(chain, test_runtime, log, port).await
 }
 
 pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
+    test_runtime: &TestRuntime,
     log: Logger,
     port: u16,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
@@ -177,6 +181,37 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let eth1_service =
         eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone()).unwrap();
 
+    let beacon_processor_config = BeaconProcessorConfig::default();
+    let BeaconProcessorChannels {
+        beacon_processor_tx,
+        beacon_processor_rx,
+        work_reprocessing_tx,
+        work_reprocessing_rx,
+    } = BeaconProcessorChannels::new(&beacon_processor_config);
+
+    let beacon_processor_send = beacon_processor_tx;
+    BeaconProcessor {
+        network_globals: network_globals.clone(),
+        executor: test_runtime.task_executor.clone(),
+        // The number of workers must be greater than one. Tests which use the
+        // builder workflow sometimes require an internal HTTP request in order
+        // to fulfill an already in-flight HTTP request, therefore having only
+        // one worker will result in a deadlock.
+        max_workers: 2,
+        current_workers: 0,
+        config: beacon_processor_config,
+        log: log.clone(),
+    }
+    .spawn_manager(
+        beacon_processor_rx,
+        work_reprocessing_tx,
+        work_reprocessing_rx,
+        None,
+        chain.slot_clock.clone(),
+        chain.spec.maximum_gossip_clock_disparity(),
+    )
+    .unwrap();
+
     let ctx = Arc::new(Context {
         config: Config {
             enabled: true,
@@ -187,26 +222,22 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
             allow_sync_stalled: false,
             data_dir: std::path::PathBuf::from(DEFAULT_ROOT_DIR),
             spec_fork_name: None,
+            enable_beacon_processor: true,
         },
         chain: Some(chain),
         network_senders: Some(network_senders),
         network_globals: Some(network_globals),
+        beacon_processor_send: Some(beacon_processor_send),
         eth1_service: Some(eth1_service),
         sse_logging_components: None,
         log,
     });
 
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let server_shutdown = async {
-        // It's not really interesting why this triggered, just that it happened.
-        let _ = shutdown_rx.await;
-    };
-    let (listening_socket, server) = crate::serve(ctx, server_shutdown).unwrap();
+    let (listening_socket, server) = crate::serve(ctx, test_runtime.task_executor.exit()).unwrap();
 
     ApiServer {
         server,
         listening_socket,
-        shutdown_tx,
         network_rx: network_receivers,
         local_enr: enr,
         external_peer_id: peer_id,
