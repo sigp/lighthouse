@@ -939,6 +939,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .lock()
                 .put_state(*state_root, block_root, state)?
         {
+            debug!(
+                self.log,
+                "Skipping storage of cached state";
+                "slot" => state.slot()
+            );
             return Ok(());
         }
 
@@ -1119,7 +1124,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             // If the prior state is the split state and it isn't cached then load it in
             // entirety from disk. This should only happen on first start up.
-            if prior_state_root == split_read_lock.state_root {
+            if prior_state_root == split_read_lock.state_root || prior_summary.slot == 0 {
                 debug!(
                     self.log,
                     "Using split state as base state for replay";
@@ -1317,7 +1322,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         if slot >= split.slot {
             Ok(state_root == split.state_root
-                || self.spec.fork_activated_at_slot::<E>(slot).is_some())
+                || self.spec.fork_activated_at_slot::<E>(slot).is_some()
+                || slot == 0)
         } else {
             Err(Error::SlotIsBeforeSplit { slot })
         }

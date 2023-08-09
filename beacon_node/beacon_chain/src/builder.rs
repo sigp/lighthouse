@@ -337,12 +337,13 @@ where
             .build_caches(&self.spec)
             .map_err(|e| format!("Failed to build genesis state caches: {:?}", e))?;
 
-        store
-            .update_finalized_state(beacon_state_root, beacon_block_root, beacon_state.clone())
-            .map_err(|e| format!("Failed to set genesis state as finalized state: {:?}", e))?;
+        info!(store.log, "Storing genesis state"; "state_root" => ?beacon_state_root);
         store
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
+        store
+            .update_finalized_state(beacon_state_root, beacon_block_root, beacon_state.clone())
+            .map_err(|e| format!("Failed to set genesis state as finalized state: {:?}", e))?;
 
         // Store the genesis block's execution payload (if any) in the hot database.
         if let Some(execution_payload) = &payload {
