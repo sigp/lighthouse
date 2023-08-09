@@ -94,8 +94,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
             info!(
                 log,
                 "No validators present";
-                "msg" => "see `lighthouse account validator create --help` \
-                or the HTTP API documentation"
+                "msg" => "see `lighthouse vm create --help` or the HTTP API documentation"
             )
         } else if total_validators == attesting_validators {
             info!(

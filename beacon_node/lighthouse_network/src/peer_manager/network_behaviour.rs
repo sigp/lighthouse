@@ -1,12 +1,14 @@
+//! Implementation of [`NetworkBehaviour`] for the [`PeerManager`].
+
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
 use libp2p::core::ConnectedPoint;
+use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
-use libp2p::PeerId;
+use libp2p::swarm::{ConnectionId, NetworkBehaviour, PollParameters, ToSwarm};
 use slog::{debug, error};
 use types::EthSpec;
 
@@ -19,20 +21,24 @@ use super::{ConnectingType, PeerManager, PeerManagerEvent, ReportSource};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     type ConnectionHandler = ConnectionHandler;
-
-    type OutEvent = PeerManagerEvent;
+    type ToSwarm = PeerManagerEvent;
 
     /* Required trait members */
 
-    fn new_handler(&mut self) -> Self::ConnectionHandler {
-        ConnectionHandler
+    fn on_connection_handler_event(
+        &mut self,
+        _peer_id: PeerId,
+        _connection_id: ConnectionId,
+        _event: libp2p::swarm::THandlerOutEvent<Self>,
+    ) {
+        // no events from the dummy handler
     }
 
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
         _params: &mut impl PollParameters,
-    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
+    ) -> Poll<ToSwarm<Self::ToSwarm, void::Void>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
@@ -84,19 +90,17 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         }
 
         if !self.events.is_empty() {
-            return Poll::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
+            return Poll::Ready(ToSwarm::GenerateEvent(self.events.remove(0)));
         } else {
             self.events.shrink_to_fit();
         }
 
         if let Some((peer_id, maybe_enr)) = self.peers_to_dial.pop_first() {
             self.inject_peer_connection(&peer_id, ConnectingType::Dialing, maybe_enr);
-            let handler = self.new_handler();
-            return Poll::Ready(NetworkBehaviourAction::Dial {
+            return Poll::Ready(ToSwarm::Dial {
                 opts: DialOpts::peer_id(peer_id)
                     .condition(PeerCondition::Disconnected)
                     .build(),
-                handler,
             });
         }
 
@@ -110,13 +114,31 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 endpoint,
                 other_established,
                 ..
-            }) => self.on_connection_established(peer_id, endpoint, other_established),
+            }) => {
+                // NOTE: We still need to handle the [`ConnectionEstablished`] because the
+                // [`NetworkBehaviour::handle_established_inbound_connection`] and
+                // [`NetworkBehaviour::handle_established_outbound_connection`] are fallible. This
+                // means another behaviour can kill the connection early, and we can't assume a
+                // peer as connected until this event is received.
+                self.on_connection_established(peer_id, endpoint, other_established)
+            }
             FromSwarm::ConnectionClosed(ConnectionClosed {
                 peer_id,
                 remaining_established,
                 ..
             }) => self.on_connection_closed(peer_id, remaining_established),
-            FromSwarm::DialFailure(DialFailure { peer_id, .. }) => self.on_dial_failure(peer_id),
+            FromSwarm::DialFailure(DialFailure {
+                peer_id,
+                error,
+                connection_id: _,
+            }) => {
+                debug!(self.log, "Failed to dial peer"; "peer_id"=> ?peer_id, "error" => %error);
+                self.on_dial_failure(peer_id);
+            }
+            FromSwarm::ExternalAddrConfirmed(_) => {
+                // TODO: we likely want to check this against our assumed external tcp
+                // address
+            }
             FromSwarm::AddressChange(_)
             | FromSwarm::ListenFailure(_)
             | FromSwarm::NewListener(_)
@@ -124,12 +146,34 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             | FromSwarm::ExpiredListenAddr(_)
             | FromSwarm::ListenerError(_)
             | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddr(_)
-            | FromSwarm::ExpiredExternalAddr(_) => {
+            | FromSwarm::NewExternalAddrCandidate(_)
+            | FromSwarm::ExternalAddrExpired(_) => {
                 // The rest of the events we ignore since they are handled in their associated
                 // `SwarmEvent`
             }
         }
+    }
+
+    fn handle_established_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _local_addr: &libp2p::Multiaddr,
+        _remote_addr: &libp2p::Multiaddr,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        // TODO: we might want to check if we accept this peer or not in the future.
+        Ok(ConnectionHandler)
+    }
+
+    fn handle_established_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _addr: &libp2p::Multiaddr,
+        _role_override: libp2p::core::Endpoint,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        // TODO: we might want to check if we accept this peer or not in the future.
+        Ok(ConnectionHandler)
     }
 }
 

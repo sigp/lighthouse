@@ -5,7 +5,7 @@ use crate::{
     signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
     Config,
 };
-use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
+use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
@@ -170,7 +170,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub async fn add_validator_keystore<P: AsRef<Path>>(
         &self,
         voting_keystore_path: P,
-        password: ZeroizeString,
+        password_storage: PasswordStorage,
         enable: bool,
         graffiti: Option<GraffitiString>,
         suggested_fee_recipient: Option<Address>,
@@ -179,7 +179,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
-            Some(password),
+            password_storage,
             graffiti.map(Into::into),
             suggested_fee_recipient,
             gas_limit,

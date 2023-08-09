@@ -64,7 +64,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
     }
 
     /// Checks if the rate limiter allows the request. If it's allowed, returns the
-    /// [`NetworkBehaviourAction`] that should be emitted. When not allowed, the request is delayed
+    /// [`ToSwarm`] that should be emitted. When not allowed, the request is delayed
     /// until it can be sent.
     pub fn allows(
         &mut self,
@@ -95,7 +95,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
     }
 
     /// Auxiliary function to deal with self rate limiting outcomes. If the rate limiter allows the
-    /// request, the [`NetworkBehaviourAction`] that should be emitted is returned. If the request
+    /// request, the [`ToSwarm`] that should be emitted is returned. If the request
     /// should be delayed, it's returned with the duration to wait.
     fn try_send_request(
         limiter: &mut RateLimiter,
