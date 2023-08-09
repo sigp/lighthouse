@@ -324,8 +324,6 @@ pub struct ForkChoice<T, E> {
     queued_attestations: Vec<QueuedAttestation>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
-    /// The most recent result of running `Self::get_head`.
-    head_block_root: Hash256,
     _phantom: PhantomData<E>,
 }
 
@@ -410,14 +408,13 @@ where
                 head_hash: None,
                 justified_hash: None,
                 finalized_hash: None,
+                // This will be updated during the next call to `Self::get_head`.
                 head_root: Hash256::zero(),
             },
-            // This will be updated during the next call to `Self::get_head`.
-            head_block_root: Hash256::zero(),
             _phantom: PhantomData,
         };
 
-        // Ensure that `fork_choice.head_block_root` is updated.
+        // Ensure that `fork_choice.forkchoice_update_parameters.head_root` is updated.
         fork_choice.get_head(current_slot, spec)?;
 
         Ok(fork_choice)
@@ -504,8 +501,6 @@ where
             current_slot,
             spec,
         )?;
-
-        self.head_block_root = head_root;
 
         // Cache some values for the next forkchoiceUpdate call to the execution layer.
         let head_hash = self
@@ -610,7 +605,7 @@ where
     /// have *differing* finalized and justified information.
     pub fn cached_fork_choice_view(&self) -> ForkChoiceView {
         ForkChoiceView {
-            head_block_root: self.head_block_root,
+            head_block_root: self.forkchoice_update_parameters.head_root,
             justified_checkpoint: self.justified_checkpoint(),
             finalized_checkpoint: self.finalized_checkpoint(),
         }
@@ -1521,10 +1516,9 @@ where
                 head_hash: None,
                 justified_hash: None,
                 finalized_hash: None,
+                // Will be updated in the following call to `Self::get_head`.
                 head_root: Hash256::zero(),
             },
-            // Will be updated in the following call to `Self::get_head`.
-            head_block_root: Hash256::zero(),
             _phantom: PhantomData,
         };
 
