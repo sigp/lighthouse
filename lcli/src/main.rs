@@ -893,6 +893,7 @@ fn main() {
                         .long("jwt-output-path")
                         .value_name("PATH")
                         .takes_value(true)
+                        .required(true)
                         .help("Path to write the JWT secret."),
                 )
                 .arg(
