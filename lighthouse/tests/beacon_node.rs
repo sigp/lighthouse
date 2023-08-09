@@ -1949,7 +1949,7 @@ fn slasher_backend_override_to_default() {
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config.slasher.as_ref().unwrap();
-            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Lmdb);
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Sqlite);
         });
 }
 

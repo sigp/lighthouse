@@ -7,7 +7,7 @@ autotests = false
 rust-version = "1.68.2"
 
 [features]
-default = ["slasher-lmdb"]
+default = ["slasher-sqlite"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -24,14 +24,16 @@ gnosis = []
 slasher-mdbx = ["slasher/mdbx"]
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]
+# Support slasher LMDB backend.
+slasher-sqlite = ["slasher/sqlite"]
 # Use jemalloc.
 jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
-beacon_node = { "path" = "../beacon_node" }
+beacon_node = { path = "../beacon_node" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = { version = "2.1.1", features = ["json"] }
-types = { "path" = "../consensus/types" }
+types = { path = "../consensus/types" }
 bls = { path = "../crypto/bls" }
 ethereum_hashing = "1.0.0-beta.2"
 clap = "2.33.3"
@@ -39,8 +41,8 @@ env_logger = "0.9.0"
 environment = { path = "./environment" }
 boot_node = { path = "../boot_node" }
 futures = "0.3.7"
-validator_client = { "path" = "../validator_client" }
-account_manager = { "path" = "../account_manager" }
+validator_client = { path = "../validator_client" }
+account_manager = { path = "../account_manager" }
 clap_utils = { path = "../common/clap_utils" }
 eth2_network_config = { path = "../common/eth2_network_config" }
 lighthouse_version = { path = "../common/lighthouse_version" }
