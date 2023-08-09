@@ -919,6 +919,7 @@ fn main() {
                         .help("Controls the response to newPayload and forkchoiceUpdated. \
                             Set to 'true' to return VALID. Set to 'false' to return SYNCING.")
                         .default_value("false")
+                        .hidden(true)
                 )
                 .arg(
                     Arg::with_name("shanghai-time")
