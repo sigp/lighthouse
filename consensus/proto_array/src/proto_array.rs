@@ -226,10 +226,10 @@ impl ProtoArray {
             });
         }
 
-        if justified_checkpoint != self.justified_checkpoint
-            || finalized_checkpoint != self.finalized_checkpoint
-        {
+        if justified_checkpoint != self.justified_checkpoint {
             self.justified_checkpoint = justified_checkpoint;
+        }
+        if finalized_checkpoint != self.finalized_checkpoint {
             self.finalized_checkpoint = finalized_checkpoint;
         }
 
