@@ -17,14 +17,14 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::Blobs;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
     ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions, Uint256, VariableList,
     Withdrawal, Withdrawals,
 };
-use types::{ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, KzgProofs};
+use types::{
+    BlobsBundle, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, KzgProofs,
+};
 
 pub mod auth;
 pub mod http;
@@ -384,7 +384,7 @@ pub struct GetPayloadResponse<T: EthSpec> {
     pub execution_payload: ExecutionPayloadDeneb<T>,
     pub block_value: Uint256,
     #[superstruct(only(Deneb))]
-    pub blobs_bundle: BlobsBundleV1<T>,
+    pub blobs_bundle: BlobsBundle<T>,
 }
 
 impl<'a, T: EthSpec> From<GetPayloadResponseRef<'a, T>> for ExecutionPayloadRef<'a, T> {
@@ -404,7 +404,7 @@ impl<T: EthSpec> From<GetPayloadResponse<T>> for ExecutionPayload<T> {
 }
 
 impl<T: EthSpec> From<GetPayloadResponse<T>>
-    for (ExecutionPayload<T>, Uint256, Option<BlobsBundleV1<T>>)
+    for (ExecutionPayload<T>, Uint256, Option<BlobsBundle<T>>)
 {
     fn from(response: GetPayloadResponse<T>) -> Self {
         match response {
@@ -525,13 +525,6 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
             }
         }
     }
-}
-
-#[derive(Clone, Default, Debug, PartialEq)]
-pub struct BlobsBundleV1<E: EthSpec> {
-    pub commitments: KzgCommitments<E>,
-    pub proofs: KzgProofs<E>,
-    pub blobs: Blobs<E>,
 }
 
 #[derive(Clone, Copy, Debug)]

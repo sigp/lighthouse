@@ -293,7 +293,7 @@ pub enum FailedCondition {
     EpochsSinceFinalization,
 }
 
-type PayloadContentsRefTuple<'a, T> = (ExecutionPayloadRef<'a, T>, Option<&'a BlobsBundleV1<T>>);
+type PayloadContentsRefTuple<'a, T> = (ExecutionPayloadRef<'a, T>, Option<&'a BlobsBundle<T>>);
 
 struct Inner<E: EthSpec> {
     engine: Arc<Engine>,

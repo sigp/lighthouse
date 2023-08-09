@@ -1044,7 +1044,7 @@ pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
     pub blobs_bundle: BlobsBundle<E>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlobsBundle<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
