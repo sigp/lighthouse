@@ -1261,7 +1261,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         // Perform a sanity check on the pre-state.
         let parent_slot = parent.beacon_block.slot();
-        if state.slot() < parent_slot || state.slot() > parent_slot + 1 {
+        if state.slot() < parent_slot || state.slot() > block.slot() {
             return Err(BeaconChainError::BadPreState {
                 parent_root: parent.beacon_block_root,
                 parent_slot,

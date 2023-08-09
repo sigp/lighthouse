@@ -2055,39 +2055,82 @@ async fn garbage_collect_temp_states_from_failed_block() {
 }
 
 #[tokio::test]
-async fn weak_subjectivity_sync() {
+async fn weak_subjectivity_sync_easy() {
+    let num_initial_slots = E::slots_per_epoch() * 11;
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
+    let slots = (1..num_initial_slots).map(Slot::new).collect();
+    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+}
+
+#[tokio::test]
+async fn weak_subjectivity_sync_unaligned_advanced_checkpoint() {
+    let num_initial_slots = E::slots_per_epoch() * 11;
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
+    let slots = (1..num_initial_slots)
+        .map(Slot::new)
+        .filter(|&slot| {
+            // Skip 3 slots leading up to the checkpoint slot.
+            slot <= checkpoint_slot - 3 || slot > checkpoint_slot
+        })
+        .collect();
+    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+}
+
+#[tokio::test]
+async fn weak_subjectivity_sync_unaligned_unadvanced_checkpoint() {
+    let num_initial_slots = E::slots_per_epoch() * 11;
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9 - 3);
+    let slots = (1..num_initial_slots)
+        .map(Slot::new)
+        .filter(|&slot| {
+            // Skip 3 slots after the checkpoint slot.
+            slot <= checkpoint_slot || slot > checkpoint_slot + 3
+        })
+        .collect();
+    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+}
+
+async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     // Build an initial chain on one harness, representing a synced node with full history.
-    let num_initial_blocks = E::slots_per_epoch() * 11;
     let num_final_blocks = E::slots_per_epoch() * 2;
 
     let temp1 = tempdir().unwrap();
     let full_store = get_store(&temp1);
     let harness = get_harness(full_store.clone(), LOW_VALIDATOR_COUNT);
 
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
     harness
-        .extend_chain(
-            num_initial_blocks as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
+        .add_attested_blocks_at_slots(
+            genesis_state.clone(),
+            genesis_state_root,
+            &slots,
+            &all_validators,
         )
         .await;
 
-    let genesis_state = full_store
-        .get_state(&harness.chain.genesis_state_root, Some(Slot::new(0)))
+    let wss_block_root = harness
+        .chain
+        .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
         .unwrap()
         .unwrap();
-    let wss_checkpoint = harness.finalized_checkpoint();
+    let wss_state_root = harness
+        .chain
+        .state_root_at_slot(checkpoint_slot)
+        .unwrap()
+        .unwrap();
+
     let wss_block = harness
         .chain
         .store
-        .get_full_block(&wss_checkpoint.root)
+        .get_full_block(&wss_block_root)
         .unwrap()
         .unwrap();
     let wss_state = full_store
-        .get_state(&wss_block.state_root(), None)
+        .get_state(&wss_state_root, Some(checkpoint_slot))
         .unwrap()
         .unwrap();
-    let wss_slot = wss_block.slot();
 
     // Add more blocks that advance finalization further.
     harness.advance_slot();
@@ -2133,9 +2176,9 @@ async fn weak_subjectivity_sync() {
 
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
-    let new_blocks = &chain_dump[wss_slot.as_usize() + 1..];
-
-    assert_eq!(new_blocks[0].beacon_block.slot(), wss_slot + 1);
+    let new_blocks = chain_dump
+        .iter()
+        .filter(|snapshot| snapshot.beacon_block.slot() > checkpoint_slot);
 
     for snapshot in new_blocks {
         let full_block = harness
@@ -2221,13 +2264,17 @@ async fn weak_subjectivity_sync() {
     assert_eq!(forwards, expected);
 
     // All blocks can be loaded.
+    let mut prev_block_root = Hash256::zero();
     for (block_root, slot) in beacon_chain
         .forwards_iter_block_roots(Slot::new(0))
         .unwrap()
         .map(Result::unwrap)
     {
         let block = store.get_blinded_block(&block_root).unwrap().unwrap();
-        assert_eq!(block.slot(), slot);
+        if block_root != prev_block_root {
+            assert_eq!(block.slot(), slot);
+        }
+        prev_block_root = block_root;
     }
 
     // All states from the oldest state slot can be loaded.
@@ -2242,8 +2289,8 @@ async fn weak_subjectivity_sync() {
         assert_eq!(state.canonical_root(), state_root);
     }
 
-    // Anchor slot is still set to the starting slot.
-    assert_eq!(store.get_anchor_slot(), Some(wss_slot));
+    // Anchor slot is still set to the slot of the checkpoint block.
+    assert_eq!(store.get_anchor_slot(), Some(wss_block.slot()));
 
     // Reconstruct states.
     store.clone().reconstruct_historic_states().unwrap();
