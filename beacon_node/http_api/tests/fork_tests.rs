@@ -1,11 +1,11 @@
 //! Tests for API behaviour across fork boundaries.
-use crate::common::*;
 use beacon_chain::{
     test_utils::{RelativeSyncCommittee, DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME},
     StateSkipConfig,
 };
 use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
 use genesis::{bls_withdrawal_credentials, interop_genesis_state_with_withdrawal_credentials};
+use http_api::test_utils::*;
 use std::collections::HashSet;
 use types::{
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
@@ -326,11 +326,8 @@ async fn sync_committee_indices_across_fork() {
 
 /// Assert that an HTTP API error has the given status code and indexed errors for the given indices.
 fn assert_server_indexed_error(error: eth2::Error, status_code: u16, indices: Vec<usize>) {
-    let eth2::Error::ServerIndexedMessage(IndexedErrorMessage {
-        code,
-        failures,
-        ..
-    }) = error else {
+    let eth2::Error::ServerIndexedMessage(IndexedErrorMessage { code, failures, .. }) = error
+    else {
         panic!("wrong error, expected ServerIndexedMessage, got: {error:?}")
     };
     assert_eq!(code, status_code);

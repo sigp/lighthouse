@@ -3,7 +3,7 @@
 #![cfg_attr(
     not(test),
     deny(
-        clippy::integer_arithmetic,
+        clippy::arithmetic_side_effects,
         clippy::disallowed_methods,
         clippy::indexing_slicing
     )
@@ -71,6 +71,7 @@ pub mod sync_duty;
 pub mod validator;
 pub mod validator_subscription;
 pub mod voluntary_exit;
+pub mod withdrawal_credentials;
 #[macro_use]
 pub mod slot_epoch_macros;
 pub mod config_and_preset;
@@ -143,9 +144,7 @@ pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
 pub use crate::fork_name::{ForkName, InconsistentFork};
-pub use crate::fork_versioned_response::{
-    ExecutionOptimisticForkVersionedResponse, ForkVersionDeserialize, ForkVersionedResponse,
-};
+pub use crate::fork_versioned_response::{ForkVersionDeserialize, ForkVersionedResponse};
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
@@ -191,6 +190,7 @@ pub use crate::validator_registration_data::*;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
 pub use crate::withdrawal::Withdrawal;
+pub use crate::withdrawal_credentials::WithdrawalCredentials;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;

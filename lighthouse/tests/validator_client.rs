@@ -103,10 +103,8 @@ fn beacon_nodes_flag() {
 
 #[test]
 fn allow_unsynced_flag() {
-    CommandLineTest::new()
-        .flag("allow-unsynced", None)
-        .run()
-        .with_config(|config| assert!(config.allow_unsynced_beacon_node));
+    // No-op, but doesn't crash.
+    CommandLineTest::new().flag("allow-unsynced", None).run();
 }
 
 #[test]
@@ -311,6 +309,32 @@ fn http_allow_origin_all_flag() {
         .run()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
+#[test]
+fn http_allow_keystore_export_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.http_api.allow_keystore_export));
+}
+#[test]
+fn http_allow_keystore_export_present() {
+    CommandLineTest::new()
+        .flag("http-allow-keystore-export", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.allow_keystore_export));
+}
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.http_api.store_passwords_in_secrets_dir));
+}
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_present() {
+    CommandLineTest::new()
+        .flag("http-store-passwords-in-secrets-dir", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.store_passwords_in_secrets_dir));
+}
 
 // Tests for Metrics flags.
 #[test]
@@ -500,4 +524,25 @@ fn latency_measurement_service() {
         .with_config(|config| {
             assert!(!config.enable_latency_measurement_service);
         });
+}
+
+#[test]
+fn validator_registration_batch_size() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.validator_registration_batch_size, 500);
+    });
+    CommandLineTest::new()
+        .flag("validator-registration-batch-size", Some("100"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.validator_registration_batch_size, 100);
+        });
+}
+
+#[test]
+#[should_panic]
+fn validator_registration_batch_size_zero_value() {
+    CommandLineTest::new()
+        .flag("validator-registration-batch-size", Some("0"))
+        .run();
 }

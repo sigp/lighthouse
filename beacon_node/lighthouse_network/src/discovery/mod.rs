@@ -16,19 +16,20 @@ pub use enr::{
     Eth2Enr,
 };
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
-pub use libp2p::core::identity::{Keypair, PublicKey};
+pub use libp2p::identity::{Keypair, PublicKey};
 
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
-use libp2p::swarm::AddressScore;
+use libp2p::swarm::THandlerInEvent;
 pub use libp2p::{
-    core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
+    core::{ConnectedPoint, Multiaddr},
+    identity::PeerId,
     swarm::{
-        dummy::ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction as NBAction,
-        NotifyHandler, PollParameters, SubstreamProtocol,
+        dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour, NotifyHandler,
+        PollParameters, SubstreamProtocol, ToSwarm,
     },
 };
 use lru::LruCache;
@@ -191,7 +192,7 @@ pub struct Discovery<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Discovery<TSpec> {
     /// NOTE: Creating discovery requires running within a tokio execution environment.
     pub async fn new(
-        local_key: &Keypair,
+        local_key: Keypair,
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
@@ -207,15 +208,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let local_node_id = local_enr.node_id();
 
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
-              "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp6()
+              "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6()
         );
-        let listen_socket = match config.listen_addrs() {
-            crate::listen_addr::ListenAddress::V4(v4_addr) => v4_addr.udp_socket_addr(),
-            crate::listen_addr::ListenAddress::V6(v6_addr) => v6_addr.udp_socket_addr(),
-            crate::listen_addr::ListenAddress::DualStack(_v4_addr, v6_addr) => {
-                v6_addr.udp_socket_addr()
-            }
-        };
 
         // convert the keypair into an ENR key
         let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
@@ -251,10 +245,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // Start the discv5 service and obtain an event stream
         let event_stream = if !config.disable_discovery {
-            discv5
-                .start(listen_socket)
-                .map_err(|e| e.to_string())
-                .await?;
+            discv5.start().map_err(|e| e.to_string()).await?;
             debug!(log, "Discovery service started");
             EventStream::Awaiting(Box::pin(discv5.event_stream()))
         } else {
@@ -413,7 +404,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// If the external address needs to be modified, use `update_enr_udp_socket.
     pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
         self.discv5
-            .enr_insert("tcp", &port.to_be_bytes())
+            .enr_insert("tcp", &port)
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
@@ -428,29 +419,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// This is with caution. Discovery should automatically maintain this. This should only be
     /// used when automatic discovery is disabled.
     pub fn update_enr_udp_socket(&mut self, socket_addr: SocketAddr) -> Result<(), String> {
-        match socket_addr {
-            SocketAddr::V4(socket) => {
-                self.discv5
-                    .enr_insert("ip", &socket.ip().octets())
-                    .map_err(|e| format!("{:?}", e))?;
-                self.discv5
-                    .enr_insert("udp", &socket.port().to_be_bytes())
-                    .map_err(|e| format!("{:?}", e))?;
-            }
-            SocketAddr::V6(socket) => {
-                self.discv5
-                    .enr_insert("ip6", &socket.ip().octets())
-                    .map_err(|e| format!("{:?}", e))?;
-                self.discv5
-                    .enr_insert("udp6", &socket.port().to_be_bytes())
-                    .map_err(|e| format!("{:?}", e))?;
-            }
+        const IS_TCP: bool = false;
+        if self.discv5.update_local_enr_socket(socket_addr, IS_TCP) {
+            // persist modified enr to disk
+            enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         }
-
-        // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
-        // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         Ok(())
     }
 
@@ -952,22 +926,51 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     // Discovery is not a real NetworkBehaviour...
     type ConnectionHandler = ConnectionHandler;
-    type OutEvent = DiscoveredPeers;
+    type ToSwarm = DiscoveredPeers;
 
-    fn new_handler(&mut self) -> Self::ConnectionHandler {
-        ConnectionHandler
+    fn handle_established_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _local_addr: &Multiaddr,
+        _remote_addr: &Multiaddr,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        // TODO: we might want to check discovery's banned ips here in the future.
+        Ok(ConnectionHandler)
     }
 
-    // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
-    fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        if let Some(enr) = self.enr_of_peer(peer_id) {
+    fn handle_established_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _addr: &Multiaddr,
+        _role_override: libp2p::core::Endpoint,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        Ok(ConnectionHandler)
+    }
+
+    fn on_connection_handler_event(
+        &mut self,
+        _peer_id: PeerId,
+        _connection_id: ConnectionId,
+        _event: void::Void,
+    ) {
+    }
+
+    fn handle_pending_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        maybe_peer: Option<PeerId>,
+        _addresses: &[Multiaddr],
+        _effective_role: libp2p::core::Endpoint,
+    ) -> Result<Vec<Multiaddr>, libp2p::swarm::ConnectionDenied> {
+        if let Some(enr) = maybe_peer.and_then(|peer_id| self.enr_of_peer(&peer_id)) {
             // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
             // port is removed, which is assumed to be associated with the discv5 protocol (and
             // therefore irrelevant for other libp2p components).
-            enr.multiaddr_tcp()
+            Ok(enr.multiaddr_tcp())
         } else {
-            // PeerId is not known
-            Vec::new()
+            Ok(vec![])
         }
     }
 
@@ -976,7 +979,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<NBAction<Self::OutEvent, Self::ConnectionHandler>> {
+    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if !self.started {
             return Poll::Pending;
         }
@@ -987,7 +990,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         // Drive the queries and return any results from completed queries
         if let Some(peers) = self.poll_queries(cx) {
             // return the result to the peer manager
-            return Poll::Ready(NBAction::GenerateEvent(DiscoveredPeers { peers }));
+            return Poll::Ready(ToSwarm::GenerateEvent(DiscoveredPeers { peers }));
         }
 
         // Process the server event stream
@@ -1061,10 +1064,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             if let Some(address) = addr {
                                 // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
                                 // should handle this.
-                                return Poll::Ready(NBAction::ReportObservedAddr {
-                                    address,
-                                    score: AddressScore::Finite(1),
-                                });
+                                return Poll::Ready(ToSwarm::NewExternalAddrCandidate(address));
                             }
                         }
                         Discv5Event::EnrAdded { .. }
@@ -1092,8 +1092,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
             | FromSwarm::ExpiredListenAddr(_)
             | FromSwarm::ListenerError(_)
             | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddr(_)
-            | FromSwarm::ExpiredExternalAddr(_) => {
+            | FromSwarm::NewExternalAddrCandidate(_)
+            | FromSwarm::ExternalAddrExpired(_)
+            | FromSwarm::ExternalAddrConfirmed(_) => {
                 // Ignore events not relevant to discovery
             }
         }
@@ -1104,10 +1105,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
         if let Some(peer_id) = peer_id {
             match error {
-                DialError::Banned
-                | DialError::LocalPeerId
-                | DialError::InvalidPeerId(_)
-                | DialError::ConnectionIo(_)
+                DialError::LocalPeerId { .. }
+                | DialError::Denied { .. }
                 | DialError::NoAddresses
                 | DialError::Transport(_)
                 | DialError::WrongPeerId { .. } => {
@@ -1115,9 +1114,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
                     self.disconnect_peer(&peer_id);
                 }
-                DialError::ConnectionLimit(_)
-                | DialError::DialPeerConditionFalse(_)
-                | DialError::Aborted => {}
+                DialError::DialPeerConditionFalse(_) | DialError::Aborted => {}
             }
         }
     }
@@ -1128,6 +1125,7 @@ mod tests {
     use super::*;
     use crate::rpc::methods::{MetaData, MetaDataV2};
     use enr::EnrBuilder;
+    use libp2p::identity::secp256k1;
     use slog::{o, Drain};
     use types::{BitVector, MinimalEthSpec, SubnetId};
 
@@ -1146,10 +1144,10 @@ mod tests {
     }
 
     async fn build_discovery() -> Discovery<E> {
-        let keypair = libp2p::identity::Keypair::generate_secp256k1();
+        let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
         config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
-        let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
+        let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
@@ -1162,9 +1160,11 @@ mod tests {
                 syncnets: Default::default(),
             }),
             vec![],
+            false,
             &log,
         );
-        Discovery::new(&keypair, &config, Arc::new(globals), &log)
+        let keypair = keypair.into();
+        Discovery::new(keypair, &config, Arc::new(globals), &log)
             .await
             .unwrap()
     }
@@ -1210,8 +1210,8 @@ mod tests {
 
     fn make_enr(subnet_ids: Vec<usize>) -> Enr {
         let mut builder = EnrBuilder::new("v4");
-        let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
+        let keypair = secp256k1::Keypair::generate();
+        let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
 
         // set the "attnets" field on our ENR
         let mut bitfield = BitVector::<ssz_types::typenum::U64>::new();

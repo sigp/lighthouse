@@ -1,4 +1,5 @@
 use super::sync::manager::RequestId as SyncId;
+use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::SyncCommitteeService;
@@ -8,11 +9,13 @@ use crate::{
     NetworkConfig,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
 use lighthouse_network::service::Network;
+use lighthouse_network::types::GossipKind;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode},
@@ -23,7 +26,7 @@ use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
-use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
+use std::{collections::HashSet, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
 use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
@@ -222,10 +225,18 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
         gossipsub_registry: Option<&'_ mut Registry>,
+        beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
         let network_log = executor.log().clone();
         // build the channels for external comms
         let (network_senders, network_recievers) = NetworkSenders::new();
+
+        #[cfg(feature = "disable-backfill")]
+        warn!(
+            network_log,
+            "Backfill is disabled. DO NOT RUN IN PRODUCTION"
+        );
 
         // try and construct UPnP port mappings if required.
         if let Some(upnp_config) = crate::nat::UPnPConfig::from_config(config) {
@@ -294,6 +305,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
         }
 
+        let invalid_block_storage = config
+            .invalid_block_storage
+            .clone()
+            .map(InvalidBlockStorage::Enabled)
+            .unwrap_or(InvalidBlockStorage::Disabled);
+
         // launch derived network services
 
         // router task
@@ -302,14 +319,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_globals.clone(),
             network_senders.network_send(),
             executor.clone(),
+            invalid_block_storage,
+            beacon_processor_send,
+            beacon_processor_reprocess_tx,
             network_log.clone(),
         )?;
 
         // attestation subnet service
         let attestation_service = AttestationService::new(
             beacon_chain.clone(),
-            #[cfg(feature = "deterministic_long_lived_attnets")]
-            network_globals.local_enr().node_id().raw().into(),
+            network_globals.local_enr().node_id(),
             config,
             &network_log,
         );
@@ -474,10 +493,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                 self.send_to_router(RouterMessage::StatusPeer(peer_id));
             }
-            NetworkEvent::PeerConnectedIncoming(_)
-            | NetworkEvent::PeerBanned(_)
-            | NetworkEvent::PeerUnbanned(_) => {
-                // No action required for these events.
+            NetworkEvent::PeerConnectedIncoming(_) => {
+                // No action required for this event.
             }
             NetworkEvent::PeerDisconnected(peer_id) => {
                 self.send_to_router(RouterMessage::PeerDisconnected(peer_id));
@@ -671,6 +688,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 source,
             } => self.libp2p.goodbye_peer(&peer_id, reason, source),
             NetworkMessage::SubscribeCoreTopics => {
+                if self.subscribed_core_topics() {
+                    return;
+                }
+
                 if self.shutdown_after_sync {
                     if let Err(e) = shutdown_sender
                         .send(ShutdownReason::Success(
@@ -908,6 +929,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         } else {
             crit!(self.log, "Unknown new enr fork id"; "new_fork_id" => ?new_enr_fork_id);
         }
+    }
+
+    fn subscribed_core_topics(&self) -> bool {
+        let core_topics = core_topics_to_subscribe(self.fork_context.current_fork());
+        let core_topics: HashSet<&GossipKind> = HashSet::from_iter(&core_topics);
+        let subscriptions = self.network_globals.gossipsub_subscriptions.read();
+        let subscribed_topics: HashSet<&GossipKind> =
+            subscriptions.iter().map(|topic| topic.kind()).collect();
+
+        core_topics.is_subset(&subscribed_topics)
     }
 }
 

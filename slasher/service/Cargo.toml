@@ -9,7 +9,7 @@ beacon_chain = { path = "../../beacon_node/beacon_chain" }
 directory = { path = "../../common/directory" }
 lighthouse_network = { path = "../../beacon_node/lighthouse_network" }
 network = { path = "../../beacon_node/network" }
-slasher = { path = "..", default-features = false }
+slasher = { path = ".." }
 slog = "2.5.2"
 slot_clock = { path = "../../common/slot_clock" }
 state_processing = { path = "../../consensus/state_processing" }

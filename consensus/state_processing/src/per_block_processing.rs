@@ -39,7 +39,11 @@ mod verify_exit;
 mod verify_proposer_slashing;
 
 use crate::common::decrease_balance;
+use crate::StateProcessingStrategy;
 
+use crate::common::update_progressive_balances_cache::{
+    initialize_progressive_balances_cache, update_progressive_balances_metrics,
+};
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 
@@ -96,6 +100,7 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     signed_block: &SignedBeaconBlock<T, Payload>,
     block_signature_strategy: BlockSignatureStrategy,
+    state_processing_strategy: StateProcessingStrategy,
     verify_block_root: VerifyBlockRoot,
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
@@ -111,6 +116,8 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentStateFork)?;
+
+    initialize_progressive_balances_cache(state, None, spec)?;
 
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {
@@ -160,7 +167,9 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     // previous block.
     if is_execution_enabled(state, block.body()) {
         let payload = block.body().execution_payload()?;
-        process_withdrawals::<T, Payload>(state, payload, spec)?;
+        if state_processing_strategy == StateProcessingStrategy::Accurate {
+            process_withdrawals::<T, Payload>(state, payload, spec)?;
+        }
         process_execution_payload::<T, Payload>(state, payload, spec)?;
     }
 
@@ -176,6 +185,10 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
             verify_signatures,
             spec,
         )?;
+    }
+
+    if is_progressive_balances_enabled(state) {
+        update_progressive_balances_metrics(state.progressive_balances_cache())?;
     }
 
     Ok(())

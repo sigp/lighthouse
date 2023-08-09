@@ -38,11 +38,11 @@ use tokio::{
 };
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
-use types::{AbstractExecPayload, BeaconStateError, ExecPayload, Withdrawals};
+use types::{AbstractExecPayload, BeaconStateError, ExecPayload};
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadMerge, ForkName, ForkVersionedResponse,
-    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Uint256,
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
+    ForkVersionedResponse, ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock,
+    Slot,
 };
 
 mod block_hash;
@@ -74,8 +74,6 @@ const EXECUTION_BLOCKS_LRU_CACHE_SIZE: usize = 128;
 const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
-const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(60);
-
 /// A payload alongside some information about where it came from.
 pub enum ProvenancedPayload<P> {
     /// A good ol' fashioned farm-to-table payload from your local EE.
@@ -103,6 +101,8 @@ pub enum Error {
         transactions_root: Hash256,
     },
     InvalidJWTSecret(String),
+    InvalidForkForPayload,
+    InvalidPayloadBody(String),
     BeaconStateError(BeaconStateError),
 }
 
@@ -161,7 +161,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 BlockProposalContents::Payload {
                     payload: Payload::default_at_fork(fork_name)?,
                     block_value: Uint256::zero(),
-                    _phantom: PhantomData::default(),
+                    _phantom: PhantomData,
                 }
             }
         })
@@ -220,6 +220,11 @@ struct Inner<E: EthSpec> {
     builder_profit_threshold: Uint256,
     log: Logger,
     always_prefer_builder_payload: bool,
+    /// Track whether the last `newPayload` call errored.
+    ///
+    /// This is used *only* in the informational sync status endpoint, so that a VC using this
+    /// node can prefer another node with a healthier EL.
+    last_new_payload_errored: RwLock<bool>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -228,6 +233,8 @@ pub struct Config {
     pub execution_endpoints: Vec<SensitiveUrl>,
     /// Endpoint urls for services providing the builder api.
     pub builder_url: Option<SensitiveUrl>,
+    /// User agent to send with requests to the builder API.
+    pub builder_user_agent: Option<String>,
     /// JWT secrets for the above endpoints running the engine api.
     pub secret_files: Vec<PathBuf>,
     /// The default fee recipient to use on the beacon node if none if provided from
@@ -258,6 +265,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let Config {
             execution_endpoints: urls,
             builder_url,
+            builder_user_agent,
             secret_files,
             suggested_fee_recipient,
             jwt_id,
@@ -318,12 +326,17 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         let builder = builder_url
             .map(|url| {
-                let builder_client = BuilderHttpClient::new(url.clone()).map_err(Error::Builder);
-                info!(log,
-                    "Connected to external block builder";
+                let builder_client = BuilderHttpClient::new(url.clone(), builder_user_agent)
+                    .map_err(Error::Builder)?;
+
+                info!(
+                    log,
+                    "Using external block builder";
                     "builder_url" => ?url,
-                    "builder_profit_threshold" => builder_profit_threshold);
-                builder_client
+                    "builder_profit_threshold" => builder_profit_threshold,
+                    "local_user_agent" => builder_client.get_user_agent(),
+                );
+                Ok::<_, Error>(builder_client)
             })
             .transpose()?;
 
@@ -340,6 +353,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             builder_profit_threshold: Uint256::from(builder_profit_threshold),
             log,
             always_prefer_builder_payload,
+            last_new_payload_errored: RwLock::new(false),
         };
 
         Ok(Self {
@@ -364,7 +378,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
     /// Attempt to retrieve a full payload from the payload cache by the payload root
     pub fn get_payload_by_root(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
-        self.inner.payload_cache.pop(root)
+        self.inner.payload_cache.get(root)
     }
 
     pub fn executor(&self) -> &TaskExecutor {
@@ -486,24 +500,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.spawn(preparation_cleaner, "exec_preparation_cleanup");
     }
 
-    /// Spawns a routine that polls the `exchange_transition_configuration` endpoint.
-    pub fn spawn_transition_configuration_poll(&self, spec: ChainSpec) {
-        let routine = |el: ExecutionLayer<T>| async move {
-            loop {
-                if let Err(e) = el.exchange_transition_configuration(&spec).await {
-                    error!(
-                        el.log(),
-                        "Failed to check transition config";
-                        "error" => ?e
-                    );
-                }
-                sleep(CONFIG_POLL_INTERVAL).await;
-            }
-        };
-
-        self.spawn(routine, "exec_config_poll");
-    }
-
     /// Returns `true` if the execution engine is synced and reachable.
     pub async fn is_synced(&self) -> bool {
         self.engine().is_synced().await
@@ -530,6 +526,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
             }
         }
         synced
+    }
+
+    /// Return `true` if the execution layer is offline or returning errors on `newPayload`.
+    ///
+    /// This function should never be used to prevent any operation in the beacon node, but can
+    /// be used to give an indication on the HTTP API that the node's execution layer is struggling,
+    /// which can in turn be used by the VC.
+    pub async fn is_offline_or_erroring(&self) -> bool {
+        self.engine().is_offline().await || *self.inner.last_new_payload_errored.read().await
     }
 
     /// Updates the proposer preparation data provided by validators
@@ -801,16 +806,23 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                             let relay_value = relay.data.message.value;
                             let local_value = *local.block_value();
-                            if !self.inner.always_prefer_builder_payload
-                                && local_value >= relay_value
-                            {
-                                info!(
-                                    self.log(),
-                                    "Local block is more profitable than relay block";
-                                    "local_block_value" => %local_value,
-                                    "relay_value" => %relay_value
-                                );
-                                return Ok(ProvenancedPayload::Local(local));
+                            if !self.inner.always_prefer_builder_payload {
+                                if local_value >= relay_value {
+                                    info!(
+                                        self.log(),
+                                        "Local block is more profitable than relay block";
+                                        "local_block_value" => %local_value,
+                                        "relay_value" => %relay_value
+                                    );
+                                    return Ok(ProvenancedPayload::Local(local));
+                                } else {
+                                    info!(
+                                        self.log(),
+                                        "Relay block is more profitable than local block";
+                                        "local_block_value" => %local_value,
+                                        "relay_value" => %relay_value
+                                    );
+                                }
                             }
 
                             match verify_builder_bid(
@@ -826,7 +838,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
-                                        _phantom: PhantomData::default(),
+                                        _phantom: PhantomData,
                                     },
                                 )),
                                 Err(reason) if !reason.payload_invalid() => {
@@ -881,7 +893,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
-                                        _phantom: PhantomData::default(),
+                                        _phantom: PhantomData,
                                     },
                                 )),
                                 // If the payload is valid then use it. The local EE failed
@@ -890,7 +902,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
-                                        _phantom: PhantomData::default(),
+                                        _phantom: PhantomData,
                                     },
                                 )),
                                 Err(reason) => {
@@ -1097,7 +1109,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 Ok(BlockProposalContents::Payload {
                     payload: execution_payload.into(),
                     block_value,
-                    _phantom: PhantomData::default(),
+                    _phantom: PhantomData,
                 })
             })
             .await
@@ -1106,18 +1118,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.
-    ///
-    /// ## Fallback Behaviour
-    ///
-    /// The request will be broadcast to all nodes, simultaneously. It will await a response (or
-    /// failure) from all nodes and then return based on the first of these conditions which
-    /// returns true:
-    ///
-    /// - Error::ConsensusFailure if some nodes return valid and some return invalid
-    /// - Valid, if any nodes return valid.
-    /// - Invalid, if any nodes return invalid.
-    /// - Syncing, if any nodes return syncing.
-    /// - An error, if all nodes return an error.
     pub async fn notify_new_payload(
         &self,
         execution_payload: &ExecutionPayload<T>,
@@ -1146,10 +1146,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 &["new_payload", status.status.into()],
             );
         }
+        *self.inner.last_new_payload_errored.write().await = result.is_err();
 
         process_payload_status(execution_payload.block_hash(), result, self.log())
             .map_err(Box::new)
             .map_err(Error::EngineError)
+    }
+
+    /// Update engine sync status.
+    pub async fn upcheck(&self) {
+        self.engine().upcheck().await;
     }
 
     /// Register that the given `validator_index` is going to produce a block at `slot`.
@@ -1211,18 +1217,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
-    ///
-    /// ## Fallback Behaviour
-    ///
-    /// The request will be broadcast to all nodes, simultaneously. It will await a response (or
-    /// failure) from all nodes and then return based on the first of these conditions which
-    /// returns true:
-    ///
-    /// - Error::ConsensusFailure if some nodes return valid and some return invalid
-    /// - Valid, if any nodes return valid.
-    /// - Invalid, if any nodes return invalid.
-    /// - Syncing, if any nodes return syncing.
-    /// - An error, if all nodes return an error.
     pub async fn notify_forkchoice_updated(
         &self,
         head_block_hash: ExecutionBlockHash,
@@ -1302,53 +1296,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         )
         .map_err(Box::new)
         .map_err(Error::EngineError)
-    }
-
-    pub async fn exchange_transition_configuration(&self, spec: &ChainSpec) -> Result<(), Error> {
-        let local = TransitionConfigurationV1 {
-            terminal_total_difficulty: spec.terminal_total_difficulty,
-            terminal_block_hash: spec.terminal_block_hash,
-            terminal_block_number: 0,
-        };
-
-        let result = self
-            .engine()
-            .request(|engine| engine.api.exchange_transition_configuration_v1(local))
-            .await;
-
-        match result {
-            Ok(remote) => {
-                if local.terminal_total_difficulty != remote.terminal_total_difficulty
-                    || local.terminal_block_hash != remote.terminal_block_hash
-                {
-                    error!(
-                        self.log(),
-                        "Execution client config mismatch";
-                        "msg" => "ensure lighthouse and the execution client are up-to-date and \
-                                  configured consistently",
-                        "remote" => ?remote,
-                        "local" => ?local,
-                    );
-                    Err(Error::EngineError(Box::new(EngineError::Api {
-                        error: ApiError::TransitionConfigurationMismatch,
-                    })))
-                } else {
-                    debug!(
-                        self.log(),
-                        "Execution client config is OK";
-                    );
-                    Ok(())
-                }
-            }
-            Err(e) => {
-                error!(
-                    self.log(),
-                    "Unable to get transition config";
-                    "error" => ?e,
-                );
-                Err(Error::EngineError(Box::new(e)))
-            }
-        }
     }
 
     /// Returns the execution engine capabilities resulting from a call to
@@ -1602,14 +1549,59 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .map_err(Error::EngineError)
     }
 
-    pub async fn get_payload_by_block_hash(
+    /// Fetch a full payload from the execution node.
+    ///
+    /// This will fail if the payload is not from the finalized portion of the chain.
+    pub async fn get_payload_for_header(
+        &self,
+        header: &ExecutionPayloadHeader<T>,
+        fork: ForkName,
+    ) -> Result<Option<ExecutionPayload<T>>, Error> {
+        let hash = header.block_hash();
+        let block_number = header.block_number();
+
+        // Handle default payload body.
+        if header.block_hash() == ExecutionBlockHash::zero() {
+            let payload = match fork {
+                ForkName::Merge => ExecutionPayloadMerge::default().into(),
+                ForkName::Capella => ExecutionPayloadCapella::default().into(),
+                ForkName::Base | ForkName::Altair => {
+                    return Err(Error::InvalidForkForPayload);
+                }
+            };
+            return Ok(Some(payload));
+        }
+
+        // Use efficient payload bodies by range method if supported.
+        let capabilities = self.get_engine_capabilities(None).await?;
+        if capabilities.get_payload_bodies_by_range_v1 {
+            let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
+
+            if payload_bodies.len() != 1 {
+                return Ok(None);
+            }
+
+            let opt_payload_body = payload_bodies.pop().flatten();
+            opt_payload_body
+                .map(|body| {
+                    body.to_payload(header.clone())
+                        .map_err(Error::InvalidPayloadBody)
+                })
+                .transpose()
+        } else {
+            // Fall back to eth_blockByHash.
+            self.get_payload_by_hash_legacy(hash, fork).await
+        }
+    }
+
+    pub async fn get_payload_by_hash_legacy(
         &self,
         hash: ExecutionBlockHash,
         fork: ForkName,
     ) -> Result<Option<ExecutionPayload<T>>, Error> {
         self.engine()
             .request(|engine| async move {
-                self.get_payload_by_block_hash_from_engine(engine, hash, fork)
+                self.get_payload_by_hash_from_engine(engine, hash, fork)
                     .await
             })
             .await
@@ -1617,7 +1609,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .map_err(Error::EngineError)
     }
 
-    async fn get_payload_by_block_hash_from_engine(
+    async fn get_payload_by_hash_from_engine(
         &self,
         engine: &Engine,
         hash: ExecutionBlockHash,
@@ -1630,7 +1622,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 ForkName::Merge => Ok(Some(ExecutionPayloadMerge::default().into())),
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
                 ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
-                    format!("called get_payload_by_block_hash_from_engine with {}", fork),
+                    format!("called get_payload_by_hash_from_engine with {}", fork),
                 )),
             };
         }
@@ -1959,6 +1951,22 @@ async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, 
     (result, duration)
 }
 
+fn noop<T: EthSpec>(
+    _: &ExecutionLayer<T>,
+    _: ExecutionPayloadRef<T>,
+) -> Option<ExecutionPayload<T>> {
+    None
+}
+
+#[cfg(test)]
+/// Returns the duration since the unix epoch.
+fn timestamp_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs()
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -2104,20 +2112,4 @@ mod test {
             })
             .await;
     }
-}
-
-fn noop<T: EthSpec>(
-    _: &ExecutionLayer<T>,
-    _: ExecutionPayloadRef<T>,
-) -> Option<ExecutionPayload<T>> {
-    None
-}
-
-#[cfg(test)]
-/// Returns the duration since the unix epoch.
-fn timestamp_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0))
-        .as_secs()
 }

@@ -6,6 +6,9 @@ use beacon_node::{get_data_dir, get_slots_per_restore_point, ClientConfig};
 use clap::{App, Arg, ArgMatches};
 use environment::{Environment, RuntimeContext};
 use slog::{info, Logger};
+use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
 use store::{
     errors::Error,
     metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION},
@@ -56,6 +59,13 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Select the type of output to show")
                 .default_value("sizes")
                 .possible_values(InspectTarget::VARIANTS),
+        )
+        .arg(
+            Arg::with_name("output-dir")
+                .long("output-dir")
+                .value_name("DIR")
+                .help("Base directory for the output files. Defaults to the current directory")
+                .takes_value(true),
         )
 }
 
@@ -154,18 +164,27 @@ pub enum InspectTarget {
     ValueSizes,
     #[strum(serialize = "total")]
     ValueTotal,
+    #[strum(serialize = "values")]
+    Values,
 }
 
 pub struct InspectConfig {
     column: DBColumn,
     target: InspectTarget,
+    /// Configures where the inspect output should be stored.
+    output_dir: PathBuf,
 }
 
 fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> {
     let column = clap_utils::parse_required(cli_args, "column")?;
     let target = clap_utils::parse_required(cli_args, "output")?;
-
-    Ok(InspectConfig { column, target })
+    let output_dir: PathBuf =
+        clap_utils::parse_optional(cli_args, "output-dir")?.unwrap_or_else(PathBuf::new);
+    Ok(InspectConfig {
+        column,
+        target,
+        output_dir,
+    })
 }
 
 pub fn inspect_db<E: EthSpec>(
@@ -173,7 +192,7 @@ pub fn inspect_db<E: EthSpec>(
     client_config: ClientConfig,
     runtime_context: &RuntimeContext<E>,
     log: Logger,
-) -> Result<(), Error> {
+) -> Result<(), String> {
     let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
@@ -185,12 +204,19 @@ pub fn inspect_db<E: EthSpec>(
         client_config.store,
         spec,
         log,
-    )?;
+    )
+    .map_err(|e| format!("{:?}", e))?;
 
     let mut total = 0;
+    let base_path = &inspect_config.output_dir;
+
+    if let InspectTarget::Values = inspect_config.target {
+        fs::create_dir_all(base_path)
+            .map_err(|e| format!("Unable to create import directory: {:?}", e))?;
+    }
 
     for res in db.hot_db.iter_column(inspect_config.column) {
-        let (key, value) = res?;
+        let (key, value) = res.map_err(|e| format!("{:?}", e))?;
 
         match inspect_config.target {
             InspectTarget::ValueSizes => {
@@ -200,11 +226,32 @@ pub fn inspect_db<E: EthSpec>(
             InspectTarget::ValueTotal => {
                 total += value.len();
             }
+            InspectTarget::Values => {
+                let file_path =
+                    base_path.join(format!("{}_{}.ssz", inspect_config.column.as_str(), key));
+
+                let write_result = fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .open(&file_path)
+                    .map_err(|e| format!("Failed to open file: {:?}", e))
+                    .map(|mut file| {
+                        file.write_all(&value)
+                            .map_err(|e| format!("Failed to write file: {:?}", e))
+                    });
+                if let Err(e) = write_result {
+                    println!("Error writing values to file {:?}: {:?}", file_path, e);
+                } else {
+                    println!("Successfully saved values to file: {:?}", file_path);
+                }
+
+                total += value.len();
+            }
         }
     }
 
     match inspect_config.target {
-        InspectTarget::ValueSizes | InspectTarget::ValueTotal => {
+        InspectTarget::ValueSizes | InspectTarget::ValueTotal | InspectTarget::Values => {
             println!("Total: {} bytes", total);
         }
     }
@@ -292,21 +339,23 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
     let client_config = parse_client_config(cli_args, &env)?;
     let context = env.core_context();
     let log = context.log().clone();
+    let format_err = |e| format!("Fatal error: {:?}", e);
 
     match cli_args.subcommand() {
-        ("version", Some(_)) => display_db_version(client_config, &context, log),
+        ("version", Some(_)) => {
+            display_db_version(client_config, &context, log).map_err(format_err)
+        }
         ("migrate", Some(cli_args)) => {
             let migrate_config = parse_migrate_config(cli_args)?;
-            migrate_db(migrate_config, client_config, &context, log)
+            migrate_db(migrate_config, client_config, &context, log).map_err(format_err)
         }
         ("inspect", Some(cli_args)) => {
             let inspect_config = parse_inspect_config(cli_args)?;
             inspect_db(inspect_config, client_config, &context, log)
         }
-        ("prune_payloads", Some(_)) => prune_payloads(client_config, &context, log),
-        _ => {
-            return Err("Unknown subcommand, for help `lighthouse database_manager --help`".into())
+        ("prune_payloads", Some(_)) => {
+            prune_payloads(client_config, &context, log).map_err(format_err)
         }
+        _ => Err("Unknown subcommand, for help `lighthouse database_manager --help`".into()),
     }
-    .map_err(|e| format!("Fatal error: {:?}", e))
 }

@@ -86,9 +86,6 @@ pub enum MergeReadiness {
         #[serde(serialize_with = "serialize_uint256")]
         current_difficulty: Option<Uint256>,
     },
-    /// The transition configuration with the EL failed, there might be a problem with
-    /// connectivity, authentication or a difference in configuration.
-    ExchangeTransitionConfigurationFailed { error: String },
     /// The EL can be reached and has the correct configuration, however it's not yet synced.
     NotSynced,
     /// The user has not configured this node to use an execution endpoint.
@@ -109,12 +106,6 @@ impl fmt::Display for MergeReadiness {
                     params, current_difficulty
                 )
             }
-            MergeReadiness::ExchangeTransitionConfigurationFailed { error } => write!(
-                f,
-                "Could not confirm the transition configuration with the \
-                    execution endpoint: {:?}",
-                error
-            ),
             MergeReadiness::NotSynced => write!(
                 f,
                 "The execution endpoint is connected and configured, \
@@ -155,14 +146,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Attempts to connect to the EL and confirm that it is ready for the merge.
     pub async fn check_merge_readiness(&self) -> MergeReadiness {
         if let Some(el) = self.execution_layer.as_ref() {
-            if let Err(e) = el.exchange_transition_configuration(&self.spec).await {
-                // The EL was either unreachable, responded with an error or has a different
-                // configuration.
-                return MergeReadiness::ExchangeTransitionConfigurationFailed {
-                    error: format!("{:?}", e),
-                };
-            }
-
             if !el.is_synced_for_notifier().await {
                 // The EL is not synced.
                 return MergeReadiness::NotSynced;

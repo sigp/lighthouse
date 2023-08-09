@@ -1,5 +1,5 @@
 use beacon_chain::chain_config::{
-    ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+    DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
 };
 use clap::ArgMatches;
@@ -329,6 +329,9 @@ pub fn get_config<E: EthSpec>(
             let payload_builder =
                 parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder", log)?;
             el_config.builder_url = Some(payload_builder);
+
+            el_config.builder_user_agent =
+                clap_utils::parse_optional(cli_args, "builder-user-agent")?;
         }
 
         // Set config values from parse values.
@@ -380,6 +383,12 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
+    if let Some(historic_state_cache_size) = cli_args.value_of("historic-state-cache-size") {
+        client_config.store.historic_state_cache_size = historic_state_cache_size
+            .parse()
+            .map_err(|_| "historic-state-cache-size is not a valid integer".to_string())?;
+    }
+
     client_config.store.compact_on_init = cli_args.is_present("compact-db");
     if let Some(compact_on_prune) = cli_args.value_of("auto-compact-db") {
         client_config.store.compact_on_prune = compact_on_prune
@@ -389,6 +398,12 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(prune_payloads) = clap_utils::parse_optional(cli_args, "prune-payloads")? {
         client_config.store.prune_payloads = prune_payloads;
+    }
+
+    if let Some(epochs_per_migration) =
+        clap_utils::parse_optional(cli_args, "epochs-per-migration")?
+    {
+        client_config.chain.epochs_per_migration = epochs_per_migration;
     }
 
     /*
@@ -499,6 +514,7 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("reconstruct-historic-states") {
         client_config.chain.reconstruct_historic_states = true;
+        client_config.chain.genesis_backfill = true;
     }
 
     let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
@@ -565,8 +581,10 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
-    client_config.chain.max_network_size =
-        lighthouse_network::gossip_max_size(spec.bellatrix_fork_epoch.is_some());
+    client_config.chain.max_network_size = lighthouse_network::gossip_max_size(
+        spec.bellatrix_fork_epoch.is_some(),
+        spec.gossip_max_size as usize,
+    );
 
     if cli_args.is_present("slasher") {
         let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
@@ -623,7 +641,9 @@ pub fn get_config<E: EthSpec>(
             slasher_config.validator_chunk_size = validator_chunk_size;
         }
 
-        slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
+        if let Some(broadcast) = clap_utils::parse_optional(cli_args, "slasher-broadcast")? {
+            slasher_config.broadcast = broadcast;
+        }
 
         if let Some(backend) = clap_utils::parse_optional(cli_args, "slasher-backend")? {
             slasher_config.backend = backend;
@@ -686,6 +706,23 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.re_org_max_epochs_since_finalization =
             clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
                 .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
+        client_config.chain.re_org_cutoff_millis =
+            clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
+
+        if let Some(disallowed_offsets_str) =
+            clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
+        {
+            let disallowed_offsets = disallowed_offsets_str
+                .split(',')
+                .map(|s| {
+                    s.parse()
+                        .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))
+                })
+                .collect::<Result<Vec<u64>, _>>()?;
+            client_config.chain.re_org_disallowed_offsets =
+                DisallowedReOrgOffsets::new::<E>(disallowed_offsets)
+                    .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))?;
+        }
     }
 
     // Note: This overrides any previous flags that enable this option.
@@ -754,9 +791,27 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.optimistic_finalized_sync =
         !cli_args.is_present("disable-optimistic-finalized-sync");
 
+    if cli_args.is_present("genesis-backfill") {
+        client_config.chain.genesis_backfill = true;
+    }
     // Payload selection configs
     if cli_args.is_present("always-prefer-builder-payload") {
         client_config.always_prefer_builder_payload = true;
+    }
+
+    // Backfill sync rate-limiting
+    client_config.chain.enable_backfill_rate_limiting =
+        !cli_args.is_present("disable-backfill-rate-limiting");
+
+    if let Some(path) = clap_utils::parse_optional(cli_args, "invalid-gossip-verified-blocks-path")?
+    {
+        client_config.network.invalid_block_storage = Some(path);
+    }
+
+    if let Some(progressive_balances_mode) =
+        clap_utils::parse_optional(cli_args, "progressive-balances")?
+    {
+        client_config.chain.progressive_balances_mode = progressive_balances_mode;
     }
 
     Ok(client_config)
@@ -955,10 +1010,13 @@ pub fn set_network_config(
 
     config.set_listening_addr(parse_listening_addresses(cli_args, log)?);
 
+    // A custom target-peers command will overwrite the --proposer-only default.
     if let Some(target_peers_str) = cli_args.value_of("target-peers") {
         config.target_peers = target_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
+    } else {
+        config.target_peers = 80; // default value
     }
 
     if let Some(value) = cli_args.value_of("network-load") {
@@ -1004,6 +1062,10 @@ pub fn set_network_config(
             .collect::<Result<Vec<Multiaddr>, _>>()?;
     }
 
+    if cli_args.is_present("disable-peer-scoring") {
+        config.disable_peer_scoring = true;
+    }
+
     if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {
         config.trusted_peers = trusted_peers_str
             .split(',')
@@ -1013,6 +1075,9 @@ pub fn set_network_config(
                     .map_err(|_| format!("Invalid trusted peer id: {}", peer_id))
             })
             .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
+        if config.trusted_peers.len() >= config.target_peers {
+            slog::warn!(log, "More trusted peers than the target peer limit. This will prevent efficient peer selection criteria."; "target_peers" => config.target_peers, "trusted_peers" => config.trusted_peers.len());
+        }
     }
 
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
@@ -1183,6 +1248,7 @@ pub fn set_network_config(
     // Light client server config.
     config.enable_light_client_server = cli_args.is_present("light-client-server");
 
+    // The self limiter is disabled by default.
     // This flag can be used both with or without a value. Try to parse it first with a value, if
     // no value is defined but the flag is present, use the default params.
     config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
@@ -1190,6 +1256,35 @@ pub fn set_network_config(
         config.outbound_rate_limiter_config = Some(Default::default());
     }
 
+    // Proposer-only mode overrides a number of previous configuration parameters.
+    // Specifically, we avoid subscribing to long-lived subnets and wish to maintain a minimal set
+    // of peers.
+    if cli_args.is_present("proposer-only") {
+        config.subscribe_all_subnets = false;
+
+        if cli_args.value_of("target-peers").is_none() {
+            // If a custom value is not set, change the default to 15
+            config.target_peers = 15;
+        }
+        config.proposer_only = true;
+        warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
+    }
+    // The inbound rate limiter is enabled by default unless `disabled` is passed to the
+    // `inbound-rate-limiter` flag. Any other value should be parsed as a configuration string.
+    config.inbound_rate_limiter_config = match cli_args.value_of("inbound-rate-limiter") {
+        None => {
+            // Enabled by default, with default values
+            Some(Default::default())
+        }
+        Some("disabled") => {
+            // Explicitly disabled
+            None
+        }
+        Some(config_str) => {
+            // Enabled with a custom configuration
+            Some(config_str.parse()?)
+        }
+    };
     Ok(())
 }
 

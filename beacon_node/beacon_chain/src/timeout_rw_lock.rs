@@ -5,7 +5,7 @@ use std::time::Duration;
 /// A simple wrapper around `parking_lot::RwLock` that only permits read/write access with a
 /// time-out (i.e., no indefinitely-blocking operations).
 ///
-/// Timeouts can be optionally be disabled at runtime for all instances of this type by calling
+/// Timeouts can be optionally disabled at runtime for all instances of this type by calling
 /// `TimeoutRwLock::disable_timeouts()`.
 pub struct TimeoutRwLock<T>(RwLock<T>);
 

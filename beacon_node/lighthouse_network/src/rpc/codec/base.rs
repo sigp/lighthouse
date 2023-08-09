@@ -214,13 +214,15 @@ mod tests {
         let mut buf = BytesMut::new();
         buf.extend_from_slice(&message);
 
-        let snappy_protocol_id =
-            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
+        let snappy_protocol_id = ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy);
 
         let fork_context = Arc::new(fork_context(ForkName::Base));
+
+        let chain_spec = Spec::default_spec();
+
         let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
             snappy_protocol_id,
-            max_rpc_size(&fork_context),
+            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
             fork_context,
         );
 
@@ -249,13 +251,15 @@ mod tests {
         // Insert length-prefix
         uvi_codec.encode(len, &mut dst).unwrap();
 
-        let snappy_protocol_id =
-            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
+        let snappy_protocol_id = ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy);
 
         let fork_context = Arc::new(fork_context(ForkName::Base));
+
+        let chain_spec = Spec::default_spec();
+
         let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
             snappy_protocol_id,
-            max_rpc_size(&fork_context),
+            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
             fork_context,
         );
 
@@ -277,12 +281,14 @@ mod tests {
             dst
         }
 
-        let protocol_id =
-            ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy);
+        let protocol_id = ProtocolId::new(SupportedProtocol::BlocksByRangeV1, Encoding::SSZSnappy);
 
         // Response limits
         let fork_context = Arc::new(fork_context(ForkName::Base));
-        let max_rpc_size = max_rpc_size(&fork_context);
+
+        let chain_spec = Spec::default_spec();
+
+        let max_rpc_size = max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize);
         let limit = protocol_id.rpc_response_limits::<Spec>(&fork_context);
         let mut max = encode_len(limit.max + 1);
         let mut codec = SSZSnappyOutboundCodec::<Spec>::new(

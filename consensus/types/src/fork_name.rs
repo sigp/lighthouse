@@ -24,6 +24,11 @@ impl ForkName {
         ]
     }
 
+    pub fn latest() -> ForkName {
+        // This unwrap is safe as long as we have 1+ forks. It is tested below.
+        *ForkName::list_all().last().unwrap()
+    }
+
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
     /// is the only fork in effect from genesis.
     pub fn make_genesis_spec(&self, mut spec: ChainSpec) -> ChainSpec {
@@ -178,7 +183,7 @@ mod test {
 
     #[test]
     fn previous_and_next_fork_consistent() {
-        assert_eq!(ForkName::Capella.next_fork(), None);
+        assert_eq!(ForkName::latest().next_fork(), None);
         assert_eq!(ForkName::Base.previous_fork(), None);
 
         for (prev_fork, fork) in ForkName::list_all().into_iter().tuple_windows() {
@@ -210,5 +215,16 @@ mod test {
         assert_eq!(ForkName::from_str("bellatrix"), Ok(ForkName::Merge));
         assert_eq!(ForkName::from_str("merge"), Ok(ForkName::Merge));
         assert_eq!(ForkName::Merge.to_string(), "bellatrix");
+    }
+
+    #[test]
+    fn fork_name_latest() {
+        assert_eq!(ForkName::latest(), *ForkName::list_all().last().unwrap());
+
+        let mut fork = ForkName::Base;
+        while let Some(next_fork) = fork.next_fork() {
+            fork = next_fork;
+        }
+        assert_eq!(ForkName::latest(), fork);
     }
 }

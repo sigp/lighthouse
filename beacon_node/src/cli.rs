@@ -1,5 +1,6 @@
 use clap::{App, Arg};
 use strum::VariantNames;
+use types::ProgressiveBalancesMode;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -116,14 +117,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("PORT")
                 .help("The UDP port that discovery will listen on over IpV6 if listening over \
                       both Ipv4 and IpV6. Defaults to `port6`")
-                .hidden(true) // TODO: implement dual stack via two sockets in discv5.
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("target-peers")
                 .long("target-peers")
                 .help("The target number of peers.")
-                .default_value("80")
                 .takes_value(true),
         )
         .arg(
@@ -199,7 +198,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       discovery. Set this only if you are sure other nodes can connect to your \
                       local node on this address. This will update the `ip4` or `ip6` ENR fields \
                       accordingly. To update both, set this flag twice with the different values.")
-                .requires("enr-udp-port")
                 .multiple(true)
                 .max_values(2)
                 .takes_value(true),
@@ -234,11 +232,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("disable-peer-scoring")
+                .long("disable-peer-scoring")
+                .help("Disables peer scoring in lighthouse. WARNING: This is a dev only flag is only meant to be used in local testing scenarios \
+                        Using this flag on a real network may cause your node to become eclipsed and see a different view of the network")
+                .takes_value(false)
+                .hidden(true),
+        )
+        .arg(
             Arg::with_name("trusted-peers")
                 .long("trusted-peers")
                 .value_name("TRUSTED_PEERS")
                 .help("One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system.")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("genesis-backfill")
+                .long("genesis-backfill")
+                .help("Attempts to download blocks all the way back to genesis when checkpoint syncing.")
+                .takes_value(false),
         )
         .arg(
             Arg::with_name("enable-private-discovery")
@@ -260,6 +272,39 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             )
             .min_values(0)
             .hidden(true)
+        )
+        .arg(
+            Arg::with_name("proposer-only")
+                .long("proposer-only")
+                .help("Sets this beacon node at be a block proposer only node. \
+                       This will run the beacon node in a minimal configuration that is sufficient for block publishing only. This flag should be used \
+                       for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("inbound-rate-limiter")
+            .long("inbound-rate-limiter")
+            .help(
+                "Configures the inbound rate limiter (requests received by this node).\
+                \
+                Rate limit quotas per protocol can be set in the form of \
+                <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
+                separate them by ';'. If the inbound rate limiter is enabled and a protocol is not \
+                present in the configuration, the default quotas will be used. \
+                \
+                This is enabled by default, using default quotas. To disable rate limiting pass \
+                `disabled` to this option instead."
+            )
+            .takes_value(true)
+            .hidden(true)
+        )
+        .arg(
+            Arg::with_name("disable-backfill-rate-limiting")
+                .long("disable-backfill-rate-limiting")
+                .help("Disable the backfill sync rate-limiting. This allow users to just sync the entire chain as fast \
+                    as possible, however it can result in resource contention which degrades staking performance. Stakers \
+                    should generally choose to avoid this flag since backfill sync is not required for staking.")
+                .takes_value(false),
         )
         /* REST API related arguments */
         .arg(
@@ -489,10 +534,27 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("epochs-per-migration")
+                .long("epochs-per-migration")
+                .value_name("N")
+                .help("The number of epochs to wait between running the migration of data from the \
+                       hot DB to the cold DB. Less frequent runs can be useful for minimizing disk \
+                       writes")
+                .default_value("1")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("block-cache-size")
                 .long("block-cache-size")
                 .value_name("SIZE")
                 .help("Specifies how many blocks the database should cache in memory [default: 5]")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("historic-state-cache-size")
+                .long("historic-state-cache-size")
+                .value_name("SIZE")
+                .help("Specifies how many states from the freezer database should cache in memory [default: 1]")
                 .takes_value(true)
         )
         /*
@@ -634,7 +696,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("max-skip-slots")
                 .long("max-skip-slots")
                 .help(
-                    "Refuse to skip more than this many slots when processing a block or attestation. \
+                    "Refuse to skip more than this many slots when processing an attestation. \
                     This prevents nodes on minority forks from wasting our time and disk space, \
                     but could also cause unnecessary consensus failures, so is disabled by default."
                 )
@@ -739,8 +801,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slasher-broadcast")
                 .long("slasher-broadcast")
                 .help("Broadcast slashings found by the slasher to the rest of the network \
-                       [disabled by default].")
-                .requires("slasher")
+                       [Enabled by default].")
+                .takes_value(true)
+                .default_value("true")
         )
         .arg(
             Arg::with_name("slasher-backend")
@@ -795,12 +858,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint.")
                 .value_name("SECONDS")
                 .takes_value(true)
-                .default_value("60")
+                .default_value("180")
         )
         .arg(
             Arg::with_name("reconstruct-historic-states")
                 .long("reconstruct-historic-states")
-                .help("After a checkpoint sync, reconstruct historic states in the database.")
+                .help("After a checkpoint sync, reconstruct historic states in the database. This requires syncing all the way back to genesis.")
                 .takes_value(false)
         )
         .arg(
@@ -867,6 +930,28 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("EPOCHS")
                 .help("Maximum number of epochs since finalization at which proposer reorgs are \
                        allowed. Default: 2")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-cutoff")
+                .long("proposer-reorg-cutoff")
+                .value_name("MILLISECONDS")
+                .help("Maximum delay after the start of the slot at which to propose a reorging \
+                       block. Lower values can prevent failed reorgs by ensuring the block has \
+                       ample time to propagate and be processed by the network. The default is \
+                       1/12th of a slot (1 second on mainnet)")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-disallowed-offsets")
+                .long("proposer-reorg-disallowed-offsets")
+                .value_name("N1,N2,...")
+                .help("Comma-separated list of integer offsets which can be used to avoid \
+                       proposing reorging blocks at certain slots. An offset of N means that \
+                       reorging proposals will not be attempted at any slot such that \
+                       `slot % SLOTS_PER_EPOCH == N`. By default only re-orgs at offset 0 will be \
+                       avoided. Any offsets supplied with this flag will impose additional \
+                       restrictions.")
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(
@@ -963,6 +1048,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("builder-user-agent")
+                .long("builder-user-agent")
+                .value_name("STRING")
+                .help("The HTTP user agent to send alongside requests to the builder URL. The \
+                       default is Lighthouse's version string.")
+                .requires("builder")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)
@@ -1013,7 +1107,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("gui")
                 .hidden(true)
                 .help("Enable the graphical user interface and all its requirements. \
-                      This is equivalent to --http and --validator-monitor-auto.")
+                      This enables --http and --validator-monitor-auto and enables SSE logging.")
                 .takes_value(false)
         )
         .arg(
@@ -1024,5 +1118,27 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             // to local payloads, therefore it fundamentally conflicts with
             // always using the builder.
             .conflicts_with("builder-profit-threshold")
+        )
+        .arg(
+            Arg::with_name("invalid-gossip-verified-blocks-path")
+            .long("invalid-gossip-verified-blocks-path")
+            .value_name("PATH")
+            .help("If a block succeeds gossip validation whilst failing full validation, store \
+                    the block SSZ as a file at this path. This feature is only recommended for \
+                    developers. This directory is not pruned, users should be careful to avoid \
+                    filling up their disks.")
+        )
+        .arg(
+            Arg::with_name("progressive-balances")
+                .long("progressive-balances")
+                .value_name("MODE")
+                .help("Options to enable or disable the progressive balances cache for \
+                        unrealized FFG progression calculation. The default `checked` mode compares \
+                        the progressive balances from the cache against results from the existing \
+                        method. If there is a mismatch, it falls back to the existing method. The \
+                        optimized mode (`fast`) is faster but is still experimental, and is \
+                        not recommended for mainnet usage at this time.")
+                .takes_value(true)
+                .possible_values(ProgressiveBalancesMode::VARIANTS)
         )
 }

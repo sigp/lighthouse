@@ -3,7 +3,7 @@
 use crate::state_id::StateId;
 use beacon_chain::{
     beacon_proposer_cache::{compute_proposer_duties_from_head, ensure_state_is_in_epoch},
-    BeaconChain, BeaconChainError, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use eth2::types::{self as api_types};
 use safe_arith::SafeArith;
@@ -33,7 +33,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
     // will equal `current_epoch + 1`
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
         .ok_or_else(|| warp_utils::reject::custom_server_error("unable to read slot clock".into()))?
         .epoch(T::EthSpec::slots_per_epoch());
 
@@ -209,7 +209,9 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
                 .map_err(warp_utils::reject::beacon_chain_error)?;
             (state, execution_optimistic)
         } else {
-            StateId::from_slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?
+            let (state, execution_optimistic, _finalized) =
+                StateId::from_slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?;
+            (state, execution_optimistic)
         };
 
     // Ensure the state lookup was correct.

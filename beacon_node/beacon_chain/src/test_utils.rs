@@ -1,3 +1,4 @@
+use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     attestation_verification::Error as AttestationError,
@@ -22,11 +23,11 @@ use execution_layer::{
     },
     ExecutionLayer,
 };
-use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::MerkleTree;
+use operation_pool::ReceivedPreCapella;
 use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
 use rand::rngs::StdRng;
@@ -39,7 +40,7 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::{
     state_advance::{complete_state_advance, partial_state_advance},
-    StateRootStrategy,
+    StateProcessingStrategy,
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -63,7 +64,7 @@ const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 //
 // You should mutate the `ChainSpec` prior to initialising the harness if you would like to use
 // a different value.
-pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::max_value();
+pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
 pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>;
@@ -84,7 +85,7 @@ pub type AddBlocksResult<E> = (
     BeaconState<E>,
 );
 
-/// Deprecated: Indicates how the `BeaconChainHarness` should produce blocks.
+/// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
 pub enum BlockStrategy {
     /// Produce blocks upon the canonical head (normal case).
@@ -100,7 +101,7 @@ pub enum BlockStrategy {
     },
 }
 
-/// Deprecated: Indicates how the `BeaconChainHarness` should produce attestations.
+/// Indicates how the `BeaconChainHarness` should produce attestations.
 #[derive(Clone, Debug)]
 pub enum AttestationStrategy {
     /// All validators attest to whichever block the `BeaconChainHarness` has produced.
@@ -527,18 +528,23 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
+        let chain_config = self.chain_config.unwrap_or_default();
 
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
             .logger(log.clone())
             .custom_spec(spec)
             .store(self.store.expect("cannot build without store"))
-            .store_migrator_config(MigratorConfig::default().blocking())
+            .store_migrator_config(
+                MigratorConfig::default()
+                    .blocking()
+                    .epochs_per_migration(chain_config.epochs_per_migration),
+            )
             .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
             .dummy_eth1_backend()
             .expect("should build dummy backend")
             .shutdown_sender(shutdown_tx)
-            .chain_config(self.chain_config.unwrap_or_default())
+            .chain_config(chain_config)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(
                 log.clone(),
                 5,
@@ -721,7 +727,7 @@ where
     pub fn get_hot_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
         self.chain
             .store
-            .load_hot_state(&state_hash.into(), StateRootStrategy::Accurate)
+            .load_hot_state(&state_hash.into(), StateProcessingStrategy::Accurate)
             .unwrap()
     }
 
@@ -744,6 +750,16 @@ where
         state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
     }
 
+    pub async fn make_blinded_block(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+    ) -> (SignedBlindedBeaconBlock<E>, BeaconState<E>) {
+        let (unblinded, new_state) = self.make_block(state, slot).await;
+        (unblinded.into(), new_state)
+    }
+
+    /// Returns a newly created block, signed by the proposer for the given slot.
     pub async fn make_block(
         &self,
         mut state: BeaconState<E>,
@@ -755,9 +771,7 @@ where
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
-        state
-            .build_all_caches(&self.spec)
-            .expect("should build caches");
+        state.build_caches(&self.spec).expect("should build caches");
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
@@ -804,9 +818,7 @@ where
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
-        state
-            .build_all_caches(&self.spec)
-            .expect("should build caches");
+        state.build_caches(&self.spec).expect("should build caches");
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
@@ -950,31 +962,31 @@ where
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
     ) -> Vec<CommitteeAttestations<E>> {
-        self.make_unaggregated_attestations_with_limit(
+        let fork = self
+            .spec
+            .fork_at_epoch(attestation_slot.epoch(E::slots_per_epoch()));
+        self.make_unaggregated_attestations_with_opts(
             attesting_validators,
             state,
             state_root,
             head_block_root,
             attestation_slot,
-            None,
+            MakeAttestationOptions { limit: None, fork },
         )
         .0
     }
 
-    pub fn make_unaggregated_attestations_with_limit(
+    pub fn make_unaggregated_attestations_with_opts(
         &self,
         attesting_validators: &[usize],
         state: &BeaconState<E>,
         state_root: Hash256,
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
-        limit: Option<usize>,
+        opts: MakeAttestationOptions,
     ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
+        let MakeAttestationOptions { limit, fork } = opts;
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
-        let fork = self
-            .spec
-            .fork_at_epoch(attestation_slot.epoch(E::slots_per_epoch()));
-
         let attesters = Mutex::new(vec![]);
 
         let attestations = state
@@ -1104,8 +1116,6 @@ where
             .collect()
     }
 
-    /// Deprecated: Use make_unaggregated_attestations() instead.
-    ///
     /// A list of attestations for each committee for the given slot.
     ///
     /// The first layer of the Vec is organised per committee. For example, if the return value is
@@ -1163,16 +1173,35 @@ where
         slot: Slot,
         limit: Option<usize>,
     ) -> (HarnessAttestations<E>, Vec<usize>) {
-        let (unaggregated_attestations, attesters) = self
-            .make_unaggregated_attestations_with_limit(
-                attesting_validators,
-                state,
-                state_root,
-                block_hash,
-                slot,
-                limit,
-            );
         let fork = self.spec.fork_at_epoch(slot.epoch(E::slots_per_epoch()));
+        self.make_attestations_with_opts(
+            attesting_validators,
+            state,
+            state_root,
+            block_hash,
+            slot,
+            MakeAttestationOptions { limit, fork },
+        )
+    }
+
+    pub fn make_attestations_with_opts(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        block_hash: SignedBeaconBlockHash,
+        slot: Slot,
+        opts: MakeAttestationOptions,
+    ) -> (HarnessAttestations<E>, Vec<usize>) {
+        let MakeAttestationOptions { fork, .. } = opts;
+        let (unaggregated_attestations, attesters) = self.make_unaggregated_attestations_with_opts(
+            attesting_validators,
+            state,
+            state_root,
+            block_hash,
+            slot,
+            opts,
+        );
 
         let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> =
             unaggregated_attestations
@@ -1506,6 +1535,56 @@ where
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
     }
 
+    pub fn add_proposer_slashing(&self, validator_index: u64) -> Result<(), String> {
+        let propposer_slashing = self.make_proposer_slashing(validator_index);
+        if let ObservationOutcome::New(verified_proposer_slashing) = self
+            .chain
+            .verify_proposer_slashing_for_gossip(propposer_slashing)
+            .expect("should verify proposer slashing for gossip")
+        {
+            self.chain
+                .import_proposer_slashing(verified_proposer_slashing);
+            Ok(())
+        } else {
+            Err("should observe new proposer slashing".to_string())
+        }
+    }
+
+    pub fn add_attester_slashing(&self, validator_indices: Vec<u64>) -> Result<(), String> {
+        let attester_slashing = self.make_attester_slashing(validator_indices);
+        if let ObservationOutcome::New(verified_attester_slashing) = self
+            .chain
+            .verify_attester_slashing_for_gossip(attester_slashing)
+            .expect("should verify attester slashing for gossip")
+        {
+            self.chain
+                .import_attester_slashing(verified_attester_slashing);
+            Ok(())
+        } else {
+            Err("should observe new attester slashing".to_string())
+        }
+    }
+
+    pub fn add_bls_to_execution_change(
+        &self,
+        validator_index: u64,
+        address: Address,
+    ) -> Result<(), String> {
+        let signed_bls_change = self.make_bls_to_execution_change(validator_index, address);
+        if let ObservationOutcome::New(verified_bls_change) = self
+            .chain
+            .verify_bls_to_execution_change_for_gossip(signed_bls_change)
+            .expect("should verify BLS to execution change for gossip")
+        {
+            self.chain
+                .import_bls_to_execution_change(verified_bls_change, ReceivedPreCapella::No)
+                .then_some(())
+                .ok_or("should import BLS to execution change to the op pool".to_string())
+        } else {
+            Err("should observe new BLS to execution change".to_string())
+        }
+    }
+
     pub fn make_bls_to_execution_change(
         &self,
         validator_index: u64,
@@ -1667,8 +1746,8 @@ where
             .process_block(
                 block_root,
                 Arc::new(block),
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await?
             .into();
@@ -1685,8 +1764,8 @@ where
             .process_block(
                 block.canonical_root(),
                 Arc::new(block),
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await?
             .into();
@@ -2024,9 +2103,6 @@ where
             .collect()
     }
 
-    /// Deprecated: Do not modify the slot clock manually; rely on add_attested_blocks_at_slots()
-    ///             instead
-    ///
     /// Advance the slot of the `BeaconChain`.
     ///
     /// Does not produce blocks or attestations.
@@ -2038,18 +2114,6 @@ where
     pub fn advance_to_slot_lookahead(&self, slot: Slot, lookahead: Duration) {
         let time = self.chain.slot_clock.start_of(slot).unwrap() - lookahead;
         self.chain.slot_clock.set_current_time(time);
-    }
-
-    /// Deprecated: Use make_block() instead
-    ///
-    /// Returns a newly created block, signed by the proposer for the given slot.
-    pub async fn build_block(
-        &self,
-        state: BeaconState<E>,
-        slot: Slot,
-        _block_strategy: BlockStrategy,
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
-        self.make_block(state, slot).await
     }
 
     /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.
@@ -2087,8 +2151,6 @@ where
         .await
     }
 
-    /// Deprecated: Use add_attested_blocks_at_slots() instead
-    ///
     /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
     /// last-produced block (the head of the chain).
     ///
@@ -2243,4 +2305,11 @@ impl<T: BeaconChainTypes> fmt::Debug for BeaconChainHarness<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BeaconChainHarness")
     }
+}
+
+pub struct MakeAttestationOptions {
+    /// Produce exactly `limit` attestations.
+    pub limit: Option<usize>,
+    /// Fork to use for signing attestations.
+    pub fork: Fork,
 }

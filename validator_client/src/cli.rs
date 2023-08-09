@@ -27,6 +27,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("proposer-nodes")
+                .long("proposer-nodes")
+                .value_name("NETWORK_ADDRESSES")
+                .help("Comma-separated addresses to one or more beacon node HTTP APIs. \
+                These specify nodes that are used to send beacon block proposals. A failure will revert back to the standard beacon nodes specified in --beacon-nodes."
+                )
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("disable-run-on-all")
                 .long("disable-run-on-all")
                 .value_name("DISABLE_RUN_ON_ALL")
@@ -100,10 +109,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("allow-unsynced")
                 .long("allow-unsynced")
-                .help(
-                    "If present, the validator client will still poll for duties if the beacon
-                      node is not synced.",
-                ),
+                .help("DEPRECATED: this flag does nothing"),
         )
         .arg(
             Arg::with_name("use-long-timeouts")
@@ -118,7 +124,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("CERTIFICATE-FILES")
                 .takes_value(true)
                 .help("Comma-separated paths to custom TLS certificates to use when connecting \
-                        to a beacon node. These certificates must be in PEM format and are used \
+                        to a beacon node (and/or proposer node). These certificates must be in PEM format and are used \
                         in addition to the OS trust store. Commas must only be used as a \
                         delimiter, and must not be part of the certificate path.")
         )
@@ -197,6 +203,26 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5062).")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("http-allow-keystore-export")
+                .long("http-allow-keystore-export")
+                .help("If present, allow access to the DELETE /lighthouse/keystores HTTP \
+                    API method, which allows exporting keystores and passwords to HTTP API \
+                    consumers who have access to the API token. This method is useful for \
+                    exporting validators, however it should be used with caution since it \
+                    exposes private key data to authorized users.")
+                .required(false)
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("http-store-passwords-in-secrets-dir")
+                .long("http-store-passwords-in-secrets-dir")
+                .help("If present, any validators created via the HTTP will have keystore \
+                    passwords stored in the secrets-dir rather than the validator \
+                    definitions file.")
+                .required(false)
+                .takes_value(false),
         )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
@@ -325,6 +351,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Set to 'true' to enable a service that periodically attempts to measure latency to BNs. \
                     Set to 'false' to disable.")
                 .default_value("true")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("validator-registration-batch-size")
+                .long("validator-registration-batch-size")
+                .value_name("INTEGER")
+                .help("Defines the number of validators per \
+                    validator/register_validator request sent to the BN. This value \
+                    can be reduced to avoid timeouts from builders.")
+                .default_value("500")
                 .takes_value(true),
         )
         /*

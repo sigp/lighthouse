@@ -21,7 +21,7 @@ use tree_hash_derive::TreeHash;
     TestRandom,
 )]
 pub struct BlsToExecutionChange {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     pub from_bls_pubkey: PublicKeyBytes,
     pub to_execution_address: Address,

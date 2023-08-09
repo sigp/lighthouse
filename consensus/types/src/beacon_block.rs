@@ -58,7 +58,7 @@ pub struct BeaconBlock<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload
     #[superstruct(getter(copy))]
     pub slot: Slot,
     #[superstruct(getter(copy))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
     #[superstruct(getter(copy))]
     pub parent_root: Hash256,

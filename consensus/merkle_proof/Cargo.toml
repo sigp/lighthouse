@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 ethereum-types = "0.14.1"
-eth2_hashing = "0.3.0"
+ethereum_hashing = "1.0.0-beta.2"
 lazy_static = "1.4.0"
 safe_arith = { path = "../safe_arith" }
 

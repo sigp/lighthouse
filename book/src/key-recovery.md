@@ -1,8 +1,8 @@
-# Key recovery
+# Key Recovery
 
 
 Generally, validator keystore files are generated alongside a *mnemonic*. If
-the keystore and/or the keystore password are lost this mnemonic can
+the keystore and/or the keystore password are lost, this mnemonic can
 regenerate a new, equivalent keystore with a new password.
 
 There are two ways to recover keys using the `lighthouse` CLI:
@@ -48,7 +48,7 @@ which contains all the information necessary to run a validator using the
 `lighthouse vc` command. The password to this new keystore will be placed in
 the `--secrets-dir` (default `~/.lighthouse/{network}/secrets`).
 
-where `network` is the name of the consensus layer network passed in the `--network` parameter (default is `mainnet`).
+where `{network}` is the name of the consensus layer network passed in the `--network` parameter (default is `mainnet`).
 
 ## Recover a EIP-2386 wallet
 

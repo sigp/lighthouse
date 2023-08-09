@@ -205,16 +205,6 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let account2 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT2).unwrap());
 
         /*
-         * Check the transition config endpoint.
-         */
-        for ee in [&self.ee_a, &self.ee_b] {
-            ee.execution_layer
-                .exchange_transition_configuration(&self.spec)
-                .await
-                .unwrap();
-        }
-
-        /*
          * Read the terminal block hash from both pairs, check it's equal.
          */
 
@@ -626,9 +616,10 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
     ee: &ExecutionPair<E, MainnetEthSpec>,
     payload: &ExecutionPayload<MainnetEthSpec>,
 ) {
+    // check via legacy eth_getBlockByHash
     let reconstructed = ee
         .execution_layer
-        .get_payload_by_block_hash(payload.block_hash(), payload.fork_name())
+        .get_payload_by_hash_legacy(payload.block_hash(), payload.fork_name())
         .await
         .unwrap()
         .unwrap();
