@@ -3242,7 +3242,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(blobs) = blobs {
             if !blobs.is_empty() {
-                info!(
+                debug!(
                     self.log, "Writing blobs to store";
                     "block_root" => %block_root,
                     "count" => blobs.len(),
