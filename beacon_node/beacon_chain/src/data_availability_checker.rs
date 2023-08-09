@@ -164,7 +164,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Option<Vec<BlobIdentifier>> {
         let epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
 
-        self.da_check_required(epoch).then(|| {
+        self.da_check_required_for_epoch(epoch).then(|| {
             block_opt
                 .map(|block| {
                     block.get_filtered_blob_ids(Some(block_root), |i, _| {
@@ -282,7 +282,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Determines the blob requirements for a block. Answers the question: "Does this block require
     /// blobs?".
     fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
-        let block_within_da_period = self.da_check_required(block.epoch());
+        let block_within_da_period = self.da_check_required_for_epoch(block.epoch());
         let block_has_kzg_commitments = block
             .message()
             .body()
@@ -308,7 +308,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 
     /// Returns true if the given epoch lies within the da boundary and false otherwise.
-    pub fn da_check_required(&self, block_epoch: Epoch) -> bool {
+    pub fn da_check_required_for_epoch(&self, block_epoch: Epoch) -> bool {
         self.data_availability_boundary()
             .map_or(false, |da_epoch| block_epoch >= da_epoch)
     }

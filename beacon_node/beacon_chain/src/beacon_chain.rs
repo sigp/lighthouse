@@ -6280,31 +6280,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        self.spec.deneb_fork_epoch.and_then(|fork_epoch| {
-            self.epoch().ok().map(|current_epoch| {
-                std::cmp::max(
-                    fork_epoch,
-                    current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
-                )
-            })
-        })
-    }
-
-    /// Returns true if the given epoch lies within the da boundary and false otherwise.
-    pub fn block_needs_da_check(&self, block_epoch: Epoch) -> bool {
-        self.data_availability_boundary()
-            .map_or(false, |da_epoch| block_epoch >= da_epoch)
-    }
-
-    /// Returns `true` if we are at or past the `Deneb` fork. This will always return `false` if
-    /// the `Deneb` fork is disabled.
-    pub fn is_data_availability_check_required(&self) -> Result<bool, Error> {
-        let current_epoch = self.epoch()?;
-        Ok(self
-            .spec
-            .deneb_fork_epoch
-            .map(|fork_epoch| fork_epoch <= current_epoch)
-            .unwrap_or(false))
+        self.data_availability_checker.data_availability_boundary()
     }
 }
 
