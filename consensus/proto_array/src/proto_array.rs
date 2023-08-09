@@ -286,11 +286,15 @@ impl ProtoArray {
                     // Invalid nodes (or their ancestors) should not receive a proposer boost.
                     && !execution_status_is_invalid
                 {
-                    proposer_score = calculate_committee_fraction::<E>(
-                        new_justified_balances,
-                        proposer_score_boost,
-                    )
-                    .ok_or(Error::ProposerBoostOverflow(node_index))?;
+                    // only compute `proposer_score` once
+                    if proposer_score == 0 {
+                        proposer_score = calculate_committee_fraction::<E>(
+                            new_justified_balances,
+                            proposer_score_boost,
+                        )
+                        .ok_or(Error::ProposerBoostOverflow(node_index))?;
+                    }
+
                     node_delta = node_delta
                         .checked_add(proposer_score as i64)
                         .ok_or(Error::DeltaOverflow(node_index))?;
