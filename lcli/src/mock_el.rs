@@ -37,6 +37,10 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let server: MockServer<T> = MockServer::new_with_config(&handle, config);
 
     if all_payloads_valid {
+        eprintln!(
+            "Using --all-payloads-valid=true can be dangerous. \
+            Never use this flag when operating validators."
+        );
         // Indicate that all payloads are valid.
         server.all_payloads_valid();
     }

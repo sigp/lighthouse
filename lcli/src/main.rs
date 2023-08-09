@@ -916,9 +916,9 @@ fn main() {
                     Arg::with_name("all-payloads-valid")
                         .long("all-payloads-valid")
                         .takes_value(true)
-                        .help("When set to true, the server will indicate that all payloads are \
-                            valid.")
-                        .default_value("true")
+                        .help("Controls the response to newPayload and forkchoiceUpdated. \
+                            Set to 'true' to return VALID. Set to 'false' to return SYNCING.")
+                        .default_value("false")
                 )
                 .arg(
                     Arg::with_name("shanghai-time")
