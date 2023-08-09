@@ -16,11 +16,12 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let listen_addr: Ipv4Addr = parse_required(matches, "listen-address")?;
     let listen_port: u16 = parse_required(matches, "listen-port")?;
     let all_payloads_valid: bool = parse_required(matches, "all-payloads-valid")?;
+    let shanghai_time = parse_required(matches, "shanghai-time")?;
 
     let handle = env.core_context().executor.handle().unwrap();
     let spec = &T::default_spec();
     let jwt_key = JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap();
-    std::fs::write(&jwt_path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
+    std::fs::write(jwt_path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
 
     let config = MockExecutionConfig {
         server_config: Config {
@@ -31,6 +32,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         terminal_difficulty: spec.terminal_total_difficulty,
         terminal_block: DEFAULT_TERMINAL_BLOCK,
         terminal_block_hash: spec.terminal_block_hash,
+        shanghai_time: Some(shanghai_time),
     };
     let server: MockServer<T> = MockServer::new_with_config(&handle, config);
 
@@ -39,7 +41,10 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         server.all_payloads_valid();
     }
 
-    eprintln!("This tool is for TESTING PURPOSES ONLY. Do not use in production or on mainnet.");
+    eprintln!(
+        "This tool is for TESTING PURPOSES ONLY. Do not use in production or on mainnet. \
+        It cannot perform validator duties. It may cause nodes to follow an invalid chain."
+    );
     eprintln!("Server listening on {}:{}", listen_addr, listen_port);
 
     let shutdown_reason = env.block_until_shutdown_requested()?;

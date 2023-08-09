@@ -10,8 +10,8 @@ mod generate_bootnode_enr;
 mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
-mod mock_el;
 mod mnemonic_validators;
+mod mock_el;
 mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
@@ -887,7 +887,7 @@ fn main() {
             SubCommand::with_name("mock-el")
                 .about("Creates a mock execution layer server. This is NOT SAFE and should only \
                 be used for testing and development on testnets. Do not use in production. Do not \
-                use on mainnet.")
+                use on mainnet. It cannot perform validator duties.")
                 .arg(
                     Arg::with_name("jwt-output-path")
                         .long("jwt-output-path")
@@ -918,7 +918,15 @@ fn main() {
                         .help("When set to true, the server will indicate that all payloads are \
                             valid.")
                         .default_value("true")
-
+                )
+                .arg(
+                    Arg::with_name("shanghai-time")
+                        .long("shanghai-time")
+                        .value_name("UNIX_TIMESTAMP")
+                        .takes_value(true)
+                        .help("The payload timestamp that enables Shanghai. Defaults to the mainnet value.")
+                        .default_value("1681338479")
+                )
         )
         .get_matches();
 
