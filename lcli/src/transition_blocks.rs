@@ -71,10 +71,12 @@ use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
+use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
+use state_processing::state_advance::complete_state_advance;
 use state_processing::{
-    block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
-    BlockSignatureStrategy, VerifyBlockRoot,
+    block_signature_verifier::BlockSignatureVerifier, per_block_processing, BlockSignatureStrategy,
+    ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -94,8 +96,12 @@ struct Config {
     exclude_post_block_thc: bool,
 }
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
-    let spec = &T::default_spec();
+pub fn run<T: EthSpec>(
+    env: Environment<T>,
+    network_config: Eth2NetworkConfig,
+    matches: &ArgMatches,
+) -> Result<(), String> {
+    let spec = &network_config.chain_spec::<T>()?;
     let executor = env.core_context().executor;
 
     /*
@@ -205,7 +211,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     if config.exclude_cache_builds {
         pre_state
-            .build_all_caches(spec)
+            .build_caches(spec)
             .map_err(|e| format!("Unable to build caches: {:?}", e))?;
         let state_root = pre_state
             .update_tree_hash_cache()
@@ -303,7 +309,7 @@ fn do_transition<T: EthSpec>(
     if !config.exclude_cache_builds {
         let t = Instant::now();
         pre_state
-            .build_all_caches(spec)
+            .build_caches(spec)
             .map_err(|e| format!("Unable to build caches: {:?}", e))?;
         debug!("Build caches: {:?}", t.elapsed());
 
@@ -327,17 +333,19 @@ fn do_transition<T: EthSpec>(
 
     // Transition the parent state to the block slot.
     let t = Instant::now();
-    for i in pre_state.slot().as_u64()..block.slot().as_u64() {
-        per_slot_processing(&mut pre_state, Some(state_root), spec)
-            .map_err(|e| format!("Failed to advance slot on iteration {}: {:?}", i, e))?;
-    }
+    complete_state_advance(&mut pre_state, Some(state_root), block.slot(), spec)
+        .map_err(|e| format!("Unable to perform complete advance: {e:?}"))?;
     debug!("Slot processing: {:?}", t.elapsed());
 
     let t = Instant::now();
     pre_state
-        .build_all_caches(spec)
+        .build_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
     debug!("Build all caches (again): {:?}", t.elapsed());
+
+    let mut ctxt = ConsensusContext::new(pre_state.slot())
+        .set_current_block_root(block_root)
+        .set_proposer_index(block.message().proposer_index());
 
     if !config.no_signature_verification {
         let get_pubkey = move |validator_index| {
@@ -359,20 +367,27 @@ fn do_transition<T: EthSpec>(
             get_pubkey,
             decompressor,
             &block,
-            Some(block_root),
+            &mut ctxt,
             spec,
         )
         .map_err(|e| format!("Invalid block signature: {:?}", e))?;
         debug!("Batch verify block signatures: {:?}", t.elapsed());
+
+        // Signature verification should prime the indexed attestation cache.
+        assert_eq!(
+            ctxt.num_cached_indexed_attestations(),
+            block.message().body().attestations().len()
+        );
     }
 
     let t = Instant::now();
     per_block_processing(
         &mut pre_state,
         &block,
-        None,
         BlockSignatureStrategy::NoVerification,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
+        &mut ctxt,
         spec,
     )
     .map_err(|e| format!("State transition failed: {:?}", e))?;

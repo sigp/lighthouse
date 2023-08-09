@@ -27,7 +27,7 @@ impl From<jsonwebtoken::errors::Error> for Error {
 /// Provides wrapper around `[u8; JWT_SECRET_LENGTH]` that implements `Zeroize`.
 #[derive(Zeroize, Clone)]
 #[zeroize(drop)]
-pub struct JwtKey([u8; JWT_SECRET_LENGTH as usize]);
+pub struct JwtKey([u8; JWT_SECRET_LENGTH]);
 
 impl JwtKey {
     /// Wrap given slice in `Self`. Returns an error if slice.len() != `JWT_SECRET_LENGTH`.

@@ -34,7 +34,7 @@ INFO Loaded checkpoint block and state       state_root: 0xe8252c68784a8d5cc7e54
 ```
 
 > **Security Note**: You should cross-reference the `block_root` and `slot` of the loaded checkpoint
-> against a trusted source like a friend's node, or a block explorer.
+> against a trusted source like a friend's node, a block explorer or some [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/).
 
 Once the checkpoint is loaded Lighthouse will sync forwards to the head of the chain.
 
@@ -48,16 +48,16 @@ The Ethereum community provides various [public endpoints](https://eth-clients.g
 lighthouse bn --checkpoint-sync-url https://example.com/ ...
 ```
 
-### Use Infura as a remote beacon node provider
+### Adjusting the timeout
 
-You can use Infura as the remote beacon node provider to load the initial checkpoint state.
+If the beacon node fails to start due to a timeout from the checkpoint sync server, you can try
+running it again with a longer timeout by adding the flag `--checkpoint-sync-url-timeout`.
 
-1. Sign up for the free Infura ETH2 API using the `Create new project tab` on the [Infura dashboard](https://infura.io/dashboard).
-2. Copy the HTTPS endpoint for the required network (Mainnet/Prater).
-3. Use it as the url for the `--checkpoint-sync-url` flag.  e.g.
 ```
-lighthouse bn --checkpoint-sync-url https://<PROJECT-ID>:<PROJECT-SECRET>@eth2-beacon-mainnet.infura.io ...
+lighthouse bn --checkpoint-sync-url-timeout 300 --checkpoint-sync-url https://example.com/ ...
 ```
+
+The flag takes a value in seconds. For more information see `lighthouse bn --help`.
 
 ## Backfilling Blocks
 
@@ -72,6 +72,10 @@ INFO Downloading historical blocks  est_time: 5 hrs 0 mins, speed: 111.96 slots/
 ```
 
 Once backfill is complete, a `INFO Historical block download complete` log will be emitted.
+
+> Note: Since [v4.1.0](https://github.com/sigp/lighthouse/releases/tag/v4.1.0), Lighthouse implements rate-limited backfilling to mitigate validator performance issues after a recent checkpoint sync. This means that the speed at which historical blocks are downloaded is limited, typically to less than 20 slots/sec. This will not affect validator performance. However, if you would still prefer to sync the chain as fast as possible, you can add the flag `--disable-backfill-rate-limiting` to the beacon node.
+
+> Note: Since [v4.2.0](https://github.com/sigp/lighthouse/releases/tag/v4.2.0), Lighthouse limits the backfill sync to only sync backwards to the weak subjectivity point (approximately 5 months). This will help to save disk space. However, if you would like to sync back to the genesis, you can add the flag `--genesis-backfill` to the beacon node.   
 
 ## FAQ
 
@@ -108,7 +112,7 @@ You can opt-in to reconstructing all of the historic states by providing the
 The database keeps track of three markers to determine the availability of historic blocks and
 states:
 
-* `oldest_block_slot`: All blocks with slots less than or equal to this value are available in the
+* `oldest_block_slot`: All blocks with slots greater than or equal to this value are available in the
   database. Additionally, the genesis block is always available.
 * `state_lower_limit`: All states with slots _less than or equal to_ this value are available in
   the database. The minimum value is 0, indicating that the genesis state is always available.

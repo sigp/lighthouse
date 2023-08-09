@@ -45,7 +45,7 @@ impl HeadTracker {
     /// Returns a `SszHeadTracker`, which contains all necessary information to restore the state
     /// of `Self` at some later point.
     pub fn to_ssz_container(&self) -> SszHeadTracker {
-        SszHeadTracker::from_map(&*self.0.read())
+        SszHeadTracker::from_map(&self.0.read())
     }
 
     /// Creates a new `Self` from the given `SszHeadTracker`, restoring `Self` to the same state of

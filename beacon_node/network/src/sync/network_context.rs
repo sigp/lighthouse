@@ -3,7 +3,7 @@
 
 use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ChainId};
-use crate::beacon_processor::WorkEvent;
+use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChainTypes, EngineState};
@@ -20,9 +20,6 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
 
-    /// Access to the network global vars.
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-
     /// A sequential ID for all RPC requests.
     request_id: Id,
 
@@ -36,8 +33,8 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// `beacon_processor_send`.
     execution_engine_state: EngineState,
 
-    /// Channel to send work to the beacon processor.
-    beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
+    /// Sends work to the beacon processor via a channel.
+    network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
 
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
@@ -46,25 +43,27 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn new(
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-        beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
+        network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         log: slog::Logger,
     ) -> Self {
         Self {
             network_send,
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
-            network_globals,
             request_id: 1,
             range_requests: FnvHashMap::default(),
             backfill_requests: FnvHashMap::default(),
-            beacon_processor_send,
+            network_beacon_processor,
             log,
         }
     }
 
+    pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
+        &self.network_beacon_processor.network_globals
+    }
+
     /// Returns the Client type of the peer if known
     pub fn client_type(&self, peer_id: &PeerId) -> Client {
-        self.network_globals
+        self.network_globals()
             .peers
             .read()
             .peer_info(peer_id)
@@ -112,7 +111,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRange Request";
             "method" => "BlocksByRange",
-            "count" => request.count,
+            "count" => request.count(),
             "peer" => %peer_id,
         );
         let request = Request::BlocksByRange(request);
@@ -138,7 +137,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending backfill BlocksByRange Request";
             "method" => "BlocksByRange",
-            "count" => request.count,
+            "count" => request.count(),
             "peer" => %peer_id,
         );
         let request = Request::BlocksByRange(request);
@@ -185,7 +184,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
+            "count" => request.block_roots().len(),
             "peer" => %peer_id
         );
         let request = Request::BlocksByRoot(request);
@@ -209,7 +208,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
+            "count" => request.block_roots().len(),
             "peer" => %peer_id
         );
         let request = Request::BlocksByRoot(request);
@@ -242,7 +241,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 source: ReportSource::SyncService,
             })
             .unwrap_or_else(|_| {
-                warn!(self.log, "Could not report peer, channel failed");
+                warn!(self.log, "Could not report peer: channel failed");
             });
     }
 
@@ -257,7 +256,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 msg,
             })
             .unwrap_or_else(|e| {
-                warn!(self.log, "Could not report peer, channel failed"; "error"=> %e);
+                warn!(self.log, "Could not report peer: channel failed"; "error"=> %e);
             });
     }
 
@@ -278,13 +277,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })
     }
 
-    pub fn processor_channel_if_enabled(&self) -> Option<&mpsc::Sender<WorkEvent<T>>> {
+    pub fn beacon_processor_if_enabled(&self) -> Option<&Arc<NetworkBeaconProcessor<T>>> {
         self.is_execution_engine_online()
-            .then_some(&self.beacon_processor_send)
+            .then_some(&self.network_beacon_processor)
     }
 
-    pub fn processor_channel(&self) -> &mpsc::Sender<WorkEvent<T>> {
-        &self.beacon_processor_send
+    pub fn beacon_processor(&self) -> &Arc<NetworkBeaconProcessor<T>> {
+        &self.network_beacon_processor
     }
 
     fn next_id(&mut self) -> Id {

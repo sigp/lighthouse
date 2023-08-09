@@ -23,21 +23,24 @@ For details, see [Portability](#portability).
 ## Usage
 
 Each binary is contained in a `.tar.gz` archive. For this example, lets assume the user needs
-a portable `x86_64` binary.
+a `x86_64` binary.
 
 ### Steps
 
 1. Go to the [Releases](https://github.com/sigp/lighthouse/releases) page and
    select the latest release.
-1. Download the `lighthouse-${VERSION}-x86_64-unknown-linux-gnu-portable.tar.gz` binary.
-1. Extract the archive:
-    1. `cd Downloads`
-    1. `tar -xvf lighthouse-${VERSION}-x86_64-unknown-linux-gnu.tar.gz`
+1. Download the `lighthouse-${VERSION}-x86_64-unknown-linux-gnu.tar.gz` binary. For example, to obtain the binary file for v4.0.1 (the latest version at the time of writing), a user can run the following commands in a linux terminal:
+    ```bash
+    cd ~
+    curl -LO https://github.com/sigp/lighthouse/releases/download/v4.0.1/lighthouse-v4.0.1-x86_64-unknown-linux-gnu.tar.gz
+    tar -xvf lighthouse-v4.0.1-x86_64-unknown-linux-gnu.tar.gz
+    ```
 1. Test the binary with `./lighthouse --version` (it should print the version).
-1. (Optional) Move the `lighthouse` binary to a location in your `PATH`, so the `lighthouse` command can be called from anywhere.
-    - E.g., `cp lighthouse /usr/bin`
+1. (Optional) Move the `lighthouse` binary to a location in your `PATH`, so the `lighthouse` command can be called from anywhere. For example, to copy `lighthouse` from the current directory to `usr/bin`, run `sudo cp lighthouse /usr/bin`.
 
-> Windows users will need to execute the commands in Step 3 from PowerShell.
+
+
+> Windows users will need to execute the commands in Step 2 from PowerShell.
 
 ## Portability
 
@@ -64,4 +67,4 @@ WARN CPU seems incompatible with optimized Lighthouse build, advice: If you get 
 
 On some VPS providers, the virtualization can make it appear as if CPU features are not available,
 even when they are. In this case you might see the warning above, but so long as the client
-continues to function it's nothing to worry about.
+continues to function, it's nothing to worry about.

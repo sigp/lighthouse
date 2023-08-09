@@ -4,7 +4,7 @@ use lru::LruCache;
 use slog::{debug, warn, Logger};
 use state_processing::BlockReplayer;
 use std::sync::Arc;
-use types::BlindedBeaconBlock;
+use types::beacon_block::BlindedBeaconBlock;
 use warp_utils::reject::{
     beacon_chain_error, beacon_state_error, custom_bad_request, custom_server_error,
 };
@@ -49,7 +49,7 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
         .map_err(beacon_chain_error)?;
 
     state
-        .build_all_caches(&chain.spec)
+        .build_caches(&chain.spec)
         .map_err(beacon_state_error)?;
 
     let mut reward_cache = Default::default();

@@ -5,7 +5,7 @@ use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
-    VerifyBlockRoot,
+    ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
 };
 use types::{BeaconState, EthSpec, ForkName, RelativeEpoch, SignedBeaconBlock};
 
@@ -67,7 +67,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
         let spec = &testing_spec::<E>(fork_name);
 
         // Processing requires the epoch cache.
-        bulk_state.build_all_caches(spec).unwrap();
+        bulk_state.build_caches(spec).unwrap();
 
         // Spawning a second state to call the VerifyIndiviual strategy to avoid bitrot.
         // See https://github.com/sigp/lighthouse/issues/742.
@@ -91,26 +91,30 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     .build_committee_cache(RelativeEpoch::Current, spec)
                     .unwrap();
 
+                let mut ctxt = ConsensusContext::new(indiv_state.slot());
                 per_block_processing(
                     &mut indiv_state,
                     signed_block,
-                    None,
                     BlockSignatureStrategy::VerifyIndividual,
+                    StateProcessingStrategy::Accurate,
                     VerifyBlockRoot::True,
+                    &mut ctxt,
                     spec,
                 )?;
 
+                let mut ctxt = ConsensusContext::new(indiv_state.slot());
                 per_block_processing(
                     &mut bulk_state,
                     signed_block,
-                    None,
                     BlockSignatureStrategy::VerifyBulk,
+                    StateProcessingStrategy::Accurate,
                     VerifyBlockRoot::True,
+                    &mut ctxt,
                     spec,
                 )?;
 
-                if block.state_root() == bulk_state.canonical_root()
-                    && block.state_root() == indiv_state.canonical_root()
+                if block.state_root() == bulk_state.update_tree_hash_cache().unwrap()
+                    && block.state_root() == indiv_state.update_tree_hash_cache().unwrap()
                 {
                     Ok(())
                 } else {

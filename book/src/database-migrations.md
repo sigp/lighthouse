@@ -19,14 +19,24 @@ validator client or the slasher**.
 | v2.0.0             | Oct 2021     | v5             | no                   |
 | v2.1.0             | Jan 2022     | v8             | no                   |
 | v2.2.0             | Apr 2022     | v8             | no                   |
-| v2.3.0             | May 2022     | v9             | yes (pre Bellatrix)  |
-| v2.4.0             | Jul 2022     | v9             | yes (pre Bellatrix)  |
+| v2.3.0             | May 2022     | v9             | yes from <= v3.3.0   |
+| v2.4.0             | Jul 2022     | v9             | yes from <= v3.3.0   |
 | v2.5.0             | Aug 2022     | v11            | yes                  |
 | v3.0.0             | Aug 2022     | v11            | yes                  |
 | v3.1.0             | Sep 2022     | v12            | yes                  |
+| v3.2.0             | Oct 2022     | v12            | yes                  |
+| v3.3.0             | Nov 2022     | v13            | yes                  |
+| v3.4.0             | Jan 2023     | v13            | yes                  |
+| v3.5.0             | Feb 2023     | v15            | yes before Capella   |
+| v4.0.1             | Mar 2023     | v16            | yes before Capella   |
+| v4.2.0             | May 2023     | v17            | yes                  |
 
 > **Note**: All point releases (e.g. v2.3.1) are schema-compatible with the prior minor release
 > (e.g. v2.3.0).
+
+> **Note**: Support for old schemas is gradually removed from newer versions of Lighthouse. We
+usually do this after a major version has been out for a while and everyone has upgraded. In this
+case the above table will continue to record the deprecated schema changes for reference.
 
 ## How to apply a database downgrade
 
@@ -73,23 +83,36 @@ on downgrades above.
 To check the schema version of a running Lighthouse instance you can use the HTTP API:
 
 ```bash
-curl "http://localhost:5052/lighthouse/database/info"
+curl "http://localhost:5052/lighthouse/database/info" | jq
 ```
 
 ```json
 {
-  "schema_version": 8,
+  "schema_version": 16,
   "config": {
     "slots_per_restore_point": 8192,
-    "slots_per_restore_point_set_explicitly": true,
+    "slots_per_restore_point_set_explicitly": false,
     "block_cache_size": 5,
+    "historic_state_cache_size": 1,
     "compact_on_init": false,
-    "compact_on_prune": true
+    "compact_on_prune": true,
+    "prune_payloads": true
+  },
+  "split": {
+    "slot": "5485952",
+    "state_root": "0xcfe5d41e6ab5a9dab0de00d89d97ae55ecaeed3b08e4acda836e69b2bef698b4"
+  },
+  "anchor": {
+    "anchor_slot": "5414688",
+    "oldest_block_slot": "0",
+    "oldest_block_parent": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "state_upper_limit": "5414912",
+    "state_lower_limit": "8192"
   }
 }
 ```
 
-The `schema_version` key indicates that this database is using schema version 8.
+The `schema_version` key indicates that this database is using schema version 16.
 
 Alternatively, you can check the schema version with the `lighthouse db` command.
 
@@ -108,7 +131,7 @@ Several conditions need to be met in order to run `lighthouse db`:
 2. The command must run as the user that owns the beacon node database. If you are using systemd then
    your beacon node might run as a user called `lighthousebeacon`.
 3. The `--datadir` flag must be set to the location of the Lighthouse data directory.
-4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `prater` or `ropsten`.
+4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `goerli` or `sepolia`.
 
 The general form for a `lighthouse db` command is:
 

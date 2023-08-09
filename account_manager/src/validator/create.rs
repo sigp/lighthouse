@@ -114,7 +114,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 
 pub fn cli_run<T: EthSpec>(
     matches: &ArgMatches,
-    mut env: Environment<T>,
+    env: Environment<T>,
     validator_dir: PathBuf,
 ) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;

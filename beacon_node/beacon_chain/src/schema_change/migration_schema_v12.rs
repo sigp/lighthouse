@@ -168,16 +168,14 @@ pub fn downgrade_from_v12<T: BeaconChainTypes>(
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     // Load a V12 op pool and transform it to V5.
-    let PersistedOperationPoolV12 {
+    let PersistedOperationPoolV12::<T::EthSpec> {
         attestations,
         sync_contributions,
         attester_slashings,
         proposer_slashings,
         voluntary_exits,
-    } = if let Some(PersistedOperationPool::<T::EthSpec>::V12(op_pool)) =
-        db.get_item(&OP_POOL_DB_KEY)?
-    {
-        op_pool
+    } = if let Some(op_pool_v12) = db.get_item(&OP_POOL_DB_KEY)? {
+        op_pool_v12
     } else {
         debug!(log, "Nothing to do, no operation pool stored");
         return Ok(vec![]);

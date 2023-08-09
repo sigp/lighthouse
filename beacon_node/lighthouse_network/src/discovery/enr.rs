@@ -7,7 +7,7 @@ use super::ENR_FILENAME;
 use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
 use discv5::enr::EnrKey;
-use libp2p::core::identity::Keypair;
+use libp2p::identity::Keypair;
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
@@ -133,7 +133,7 @@ pub fn build_or_load_enr<T: EthSpec>(
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers, if the CLI doesn't expressly forbid it.
-    let enr_key = CombinedKey::from_libp2p(&local_key)?;
+    let enr_key = CombinedKey::from_libp2p(local_key)?;
     let mut local_enr = build_enr::<T>(&enr_key, config, enr_fork_id)?;
 
     use_or_load_enr(&enr_key, &mut local_enr, config, log)?;
@@ -145,16 +145,39 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
     enable_tcp: bool,
 ) -> EnrBuilder<T> {
     let mut builder = EnrBuilder::new("v4");
-    if let Some(enr_address) = config.enr_address {
-        builder.ip(enr_address);
+    let (maybe_ipv4_address, maybe_ipv6_address) = &config.enr_address;
+
+    if let Some(ip) = maybe_ipv4_address {
+        builder.ip4(*ip);
     }
-    if let Some(udp_port) = config.enr_udp_port {
-        builder.udp(udp_port);
+
+    if let Some(ip) = maybe_ipv6_address {
+        builder.ip6(*ip);
     }
-    // we always give it our listening tcp port
+
+    if let Some(udp4_port) = config.enr_udp4_port {
+        builder.udp4(udp4_port);
+    }
+
+    if let Some(udp6_port) = config.enr_udp6_port {
+        builder.udp6(udp6_port);
+    }
+
     if enable_tcp {
-        let tcp_port = config.enr_tcp_port.unwrap_or(config.libp2p_port);
-        builder.tcp(tcp_port);
+        // If the ENR port is not set, and we are listening over that ip version, use the listening port instead.
+        let tcp4_port = config
+            .enr_tcp4_port
+            .or_else(|| config.listen_addrs().v4().map(|v4_addr| v4_addr.tcp_port));
+        if let Some(tcp4_port) = tcp4_port {
+            builder.tcp4(tcp4_port);
+        }
+
+        let tcp6_port = config
+            .enr_tcp6_port
+            .or_else(|| config.listen_addrs().v6().map(|v6_addr| v6_addr.tcp_port));
+        if let Some(tcp6_port) = tcp6_port {
+            builder.tcp6(tcp6_port);
+        }
     }
     builder
 }
@@ -189,14 +212,18 @@ pub fn build_enr<T: EthSpec>(
 /// If this function returns true, we use the `disk_enr`.
 fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
     // take preference over disk_enr address if one is not specified
-    (local_enr.ip().is_none() || local_enr.ip() == disk_enr.ip())
+    (local_enr.ip4().is_none() || local_enr.ip4() == disk_enr.ip4())
+        &&
+    (local_enr.ip6().is_none() || local_enr.ip6() == disk_enr.ip6())
         // tcp ports must match
-        && local_enr.tcp() == disk_enr.tcp()
+        && local_enr.tcp4() == disk_enr.tcp4()
+        && local_enr.tcp6() == disk_enr.tcp6()
         // must match on the same fork
         && local_enr.get(ETH2_ENR_KEY) == disk_enr.get(ETH2_ENR_KEY)
         // take preference over disk udp port if one is not specified
-        && (local_enr.udp().is_none() || local_enr.udp() == disk_enr.udp())
-        // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY key to match, 
+        && (local_enr.udp4().is_none() || local_enr.udp4() == disk_enr.udp4())
+        && (local_enr.udp6().is_none() || local_enr.udp6() == disk_enr.udp6())
+        // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY key to match,
         // otherwise we use a new ENR. This will likely only be true for non-validating nodes
         && local_enr.get(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get(ATTESTATION_BITFIELD_ENR_KEY)
         && local_enr.get(SYNC_COMMITTEE_BITFIELD_ENR_KEY) == disk_enr.get(SYNC_COMMITTEE_BITFIELD_ENR_KEY)

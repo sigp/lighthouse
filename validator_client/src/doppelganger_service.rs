@@ -441,7 +441,7 @@ impl DoppelgangerService {
         }
 
         // Get a list of indices to provide to the BN API.
-        let indices_only = indices_map.iter().map(|(index, _)| *index).collect();
+        let indices_only = indices_map.keys().copied().collect();
 
         // Pull the liveness responses from the BN.
         let request_epoch = request_slot.epoch(E::slots_per_epoch());
@@ -971,16 +971,16 @@ mod test {
         LivenessResponses {
             current_epoch_responses: detection_indices
                 .iter()
-                .map(|i| LivenessResponseData {
-                    index: *i as u64,
+                .map(|&index| LivenessResponseData {
+                    index,
                     epoch: current_epoch,
                     is_live: false,
                 })
                 .collect(),
             previous_epoch_responses: detection_indices
                 .iter()
-                .map(|i| LivenessResponseData {
-                    index: *i as u64,
+                .map(|&index| LivenessResponseData {
+                    index,
                     epoch: current_epoch - 1,
                     is_live: false,
                 })

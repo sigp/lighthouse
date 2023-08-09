@@ -103,10 +103,8 @@ fn beacon_nodes_flag() {
 
 #[test]
 fn allow_unsynced_flag() {
-    CommandLineTest::new()
-        .flag("allow-unsynced", None)
-        .run()
-        .with_config(|config| assert!(config.allow_unsynced_beacon_node));
+    // No-op, but doesn't crash.
+    CommandLineTest::new().flag("allow-unsynced", None).run();
 }
 
 #[test]
@@ -311,6 +309,32 @@ fn http_allow_origin_all_flag() {
         .run()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
+#[test]
+fn http_allow_keystore_export_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.http_api.allow_keystore_export));
+}
+#[test]
+fn http_allow_keystore_export_present() {
+    CommandLineTest::new()
+        .flag("http-allow-keystore-export", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.allow_keystore_export));
+}
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.http_api.store_passwords_in_secrets_dir));
+}
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_present() {
+    CommandLineTest::new()
+        .flag("http-store-passwords-in-secrets-dir", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.store_passwords_in_secrets_dir));
+}
 
 // Tests for Metrics flags.
 #[test]
@@ -389,6 +413,24 @@ fn no_doppelganger_protection_flag() {
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
 #[test]
+fn block_delay_ms() {
+    CommandLineTest::new()
+        .flag("block-delay-ms", Some("2000"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.block_delay,
+                Some(std::time::Duration::from_millis(2000))
+            )
+        });
+}
+#[test]
+fn no_block_delay_ms() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.block_delay, None));
+}
+#[test]
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
@@ -441,4 +483,66 @@ fn monitoring_endpoint() {
             assert_eq!(api_conf.monitoring_endpoint.as_str(), "http://example:8000");
             assert_eq!(api_conf.update_period_secs, Some(30));
         });
+}
+#[test]
+fn disable_run_on_all_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(!config.disable_run_on_all);
+    });
+}
+
+#[test]
+fn disable_run_on_all() {
+    CommandLineTest::new()
+        .flag("disable-run-on-all", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.disable_run_on_all);
+        });
+}
+
+#[test]
+fn latency_measurement_service() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_latency_measurement_service);
+    });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.enable_latency_measurement_service);
+        });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", Some("true"))
+        .run()
+        .with_config(|config| {
+            assert!(config.enable_latency_measurement_service);
+        });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", Some("false"))
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_latency_measurement_service);
+        });
+}
+
+#[test]
+fn validator_registration_batch_size() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.validator_registration_batch_size, 500);
+    });
+    CommandLineTest::new()
+        .flag("validator-registration-batch-size", Some("100"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.validator_registration_batch_size, 100);
+        });
+}
+
+#[test]
+#[should_panic]
+fn validator_registration_batch_size_zero_value() {
+    CommandLineTest::new()
+        .flag("validator-registration-batch-size", Some("0"))
+        .run();
 }

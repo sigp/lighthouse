@@ -7,8 +7,8 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-use crate::behaviour::TARGET_SUBNET_PEERS;
 use crate::metrics;
+use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
@@ -16,16 +16,20 @@ pub use enr::{
     Eth2Enr,
 };
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
-pub use libp2p::core::identity::{Keypair, PublicKey};
+pub use libp2p::identity::{Keypair, PublicKey};
 
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
+use libp2p::multiaddr::Protocol;
+use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
+use libp2p::swarm::THandlerInEvent;
 pub use libp2p::{
-    core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
+    core::{ConnectedPoint, Multiaddr},
+    identity::PeerId,
     swarm::{
-        handler::ConnectionHandler, DialError, NetworkBehaviour,
-        NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
+        dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour, NotifyHandler,
+        PollParameters, SubstreamProtocol, ToSwarm,
     },
 };
 use lru::LruCache;
@@ -67,13 +71,11 @@ pub const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 /// The threshold for updating `min_ttl` on a connected peer.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 
-/// The events emitted by polling discovery.
-pub enum DiscoveryEvent {
-    /// A query has completed. This result contains a mapping of discovered peer IDs to the `min_ttl`
-    /// of the peer if it is specified.
-    QueryResult(HashMap<PeerId, Option<Instant>>),
-    /// This indicates that our local UDP socketaddr has been updated and we should inform libp2p.
-    SocketUpdated(SocketAddr),
+/// A query has completed. This result contains a mapping of discovered peer IDs to the `min_ttl`
+/// of the peer if it is specified.
+#[derive(Debug)]
+pub struct DiscoveredPeers {
+    pub peers: HashMap<PeerId, Option<Instant>>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -176,6 +178,13 @@ pub struct Discovery<TSpec: EthSpec> {
     /// always false.
     pub started: bool,
 
+    /// This keeps track of whether an external UDP port change should also indicate an internal
+    /// TCP port change. As we cannot detect our external TCP port, we assume that the external UDP
+    /// port is also our external TCP port. This assumption only holds if the user has not
+    /// explicitly set their ENR TCP port via the CLI config. The first indicates tcp4 and the
+    /// second indicates tcp6.
+    update_tcp_port: (bool, bool),
+
     /// Logger for the discovery behaviour.
     log: slog::Logger,
 }
@@ -183,7 +192,7 @@ pub struct Discovery<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Discovery<TSpec> {
     /// NOTE: Creating discovery requires running within a tokio execution environment.
     pub async fn new(
-        local_key: &Keypair,
+        local_key: Keypair,
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
@@ -196,10 +205,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         };
 
         let local_enr = network_globals.local_enr.read().clone();
+        let local_node_id = local_enr.node_id();
 
-        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(), "ip" => ?local_enr.ip(), "udp"=> ?local_enr.udp(), "tcp" => ?local_enr.tcp());
-
-        let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
+        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
+              "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6()
+        );
 
         // convert the keypair into an ENR key
         let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
@@ -209,14 +219,18 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // Add bootnodes to routing table
         for bootnode_enr in config.boot_nodes_enr.clone() {
+            if bootnode_enr.node_id() == local_node_id {
+                // If we are a boot node, ignore adding it to the routing table
+                continue;
+            }
             debug!(
                 log,
                 "Adding node to routing table";
                 "node_id" => %bootnode_enr.node_id(),
                 "peer_id" => %bootnode_enr.peer_id(),
-                "ip" => ?bootnode_enr.ip(),
-                "udp" => ?bootnode_enr.udp(),
-                "tcp" => ?bootnode_enr.tcp()
+                "ip" => ?bootnode_enr.ip4(),
+                "udp" => ?bootnode_enr.udp4(),
+                "tcp" => ?bootnode_enr.tcp4()
             );
             let repr = bootnode_enr.to_string();
             let _ = discv5.add_enr(bootnode_enr).map_err(|e| {
@@ -231,10 +245,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // Start the discv5 service and obtain an event stream
         let event_stream = if !config.disable_discovery {
-            discv5
-                .start(listen_socket)
-                .map_err(|e| e.to_string())
-                .await?;
+            discv5.start().map_err(|e| e.to_string()).await?;
             debug!(log, "Discovery service started");
             EventStream::Awaiting(Box::pin(discv5.event_stream()))
         } else {
@@ -268,9 +279,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         "Adding node to routing table";
                         "node_id" => %enr.node_id(),
                         "peer_id" => %enr.peer_id(),
-                        "ip" => ?enr.ip(),
-                        "udp" => ?enr.udp(),
-                        "tcp" => ?enr.tcp()
+                        "ip" => ?enr.ip4(),
+                        "udp" => ?enr.udp4(),
+                        "tcp" => ?enr.tcp4()
                     );
                     let _ = discv5.add_enr(enr).map_err(|e| {
                         error!(
@@ -287,6 +298,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
         }
 
+        let update_tcp_port = (
+            config.enr_tcp4_port.is_none(),
+            config.enr_tcp6_port.is_none(),
+        );
+
         Ok(Self {
             cached_enrs: LruCache::new(50),
             network_globals,
@@ -296,6 +312,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             discv5,
             event_stream,
             started: !config.disable_discovery,
+            update_tcp_port,
             log,
             enr_dir,
         })
@@ -362,7 +379,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Returns an iterator over all enr entries in the DHT.
-    pub fn table_entries_enr(&mut self) -> Vec<Enr> {
+    pub fn table_entries_enr(&self) -> Vec<Enr> {
         self.discv5.table_entries_enr()
     }
 
@@ -387,7 +404,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// If the external address needs to be modified, use `update_enr_udp_socket.
     pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
         self.discv5
-            .enr_insert("tcp", &port.to_be_bytes())
+            .enr_insert("tcp", &port)
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
@@ -402,29 +419,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// This is with caution. Discovery should automatically maintain this. This should only be
     /// used when automatic discovery is disabled.
     pub fn update_enr_udp_socket(&mut self, socket_addr: SocketAddr) -> Result<(), String> {
-        match socket_addr {
-            SocketAddr::V4(socket) => {
-                self.discv5
-                    .enr_insert("ip", &socket.ip().octets())
-                    .map_err(|e| format!("{:?}", e))?;
-                self.discv5
-                    .enr_insert("udp", &socket.port().to_be_bytes())
-                    .map_err(|e| format!("{:?}", e))?;
-            }
-            SocketAddr::V6(socket) => {
-                self.discv5
-                    .enr_insert("ip6", &socket.ip().octets())
-                    .map_err(|e| format!("{:?}", e))?;
-                self.discv5
-                    .enr_insert("udp6", &socket.port().to_be_bytes())
-                    .map_err(|e| format!("{:?}", e))?;
-            }
+        const IS_TCP: bool = false;
+        if self.discv5.update_local_enr_socket(socket_addr, IS_TCP) {
+            // persist modified enr to disk
+            enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         }
-
-        // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
-        // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         Ok(())
     }
 
@@ -763,7 +763,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             // we can connect to peers who aren't compatible with an upcoming fork.
             // `fork_digest` **must** be same.
             enr.eth2().map(|e| e.fork_digest) == Ok(enr_fork_id.fork_digest)
-                && (enr.tcp().is_some() || enr.tcp6().is_some())
+                && (enr.tcp4().is_some() || enr.tcp6().is_some())
         };
 
         // General predicate
@@ -832,6 +832,17 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
                         // Map each subnet query's min_ttl to the set of ENR's returned for that subnet.
                         queries.iter().for_each(|query| {
+                            let query_str = match query.subnet {
+                                Subnet::Attestation(_) => "attestation",
+                                Subnet::SyncCommittee(_) => "sync_committee",
+                            };
+
+                            if let Some(v) = metrics::get_int_counter(
+                                &metrics::TOTAL_SUBNET_QUERIES,
+                                &[query_str],
+                            ) {
+                                v.inc();
+                            }
                             // A subnet query has completed. Add back to the queue, incrementing retries.
                             self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
 
@@ -843,6 +854,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                                 .filter(|enr| subnet_predicate(enr))
                                 .map(|enr| enr.peer_id())
                                 .for_each(|peer_id| {
+                                    if let Some(v) = metrics::get_int_counter(
+                                        &metrics::SUBNET_PEERS_FOUND,
+                                        &[query_str],
+                                    ) {
+                                        v.inc();
+                                    }
                                     let other_min_ttl = mapped_results.get_mut(&peer_id);
 
                                     // map peer IDs to the min_ttl furthest in the future
@@ -908,57 +925,52 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
 impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     // Discovery is not a real NetworkBehaviour...
-    type ConnectionHandler = libp2p::swarm::handler::DummyConnectionHandler;
-    type OutEvent = DiscoveryEvent;
+    type ConnectionHandler = ConnectionHandler;
+    type ToSwarm = DiscoveredPeers;
 
-    fn new_handler(&mut self) -> Self::ConnectionHandler {
-        libp2p::swarm::handler::DummyConnectionHandler::default()
+    fn handle_established_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _local_addr: &Multiaddr,
+        _remote_addr: &Multiaddr,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        // TODO: we might want to check discovery's banned ips here in the future.
+        Ok(ConnectionHandler)
     }
 
-    // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
-    fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        if let Some(enr) = self.enr_of_peer(peer_id) {
+    fn handle_established_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _addr: &Multiaddr,
+        _role_override: libp2p::core::Endpoint,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        Ok(ConnectionHandler)
+    }
+
+    fn on_connection_handler_event(
+        &mut self,
+        _peer_id: PeerId,
+        _connection_id: ConnectionId,
+        _event: void::Void,
+    ) {
+    }
+
+    fn handle_pending_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        maybe_peer: Option<PeerId>,
+        _addresses: &[Multiaddr],
+        _effective_role: libp2p::core::Endpoint,
+    ) -> Result<Vec<Multiaddr>, libp2p::swarm::ConnectionDenied> {
+        if let Some(enr) = maybe_peer.and_then(|peer_id| self.enr_of_peer(&peer_id)) {
             // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
             // port is removed, which is assumed to be associated with the discv5 protocol (and
             // therefore irrelevant for other libp2p components).
-            enr.multiaddr_tcp()
+            Ok(enr.multiaddr_tcp())
         } else {
-            // PeerId is not known
-            Vec::new()
-        }
-    }
-
-    fn inject_event(
-        &mut self,
-        _: PeerId,
-        _: ConnectionId,
-        _: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
-    ) {
-    }
-
-    fn inject_dial_failure(
-        &mut self,
-        peer_id: Option<PeerId>,
-        _handler: Self::ConnectionHandler,
-        error: &DialError,
-    ) {
-        if let Some(peer_id) = peer_id {
-            match error {
-                DialError::Banned
-                | DialError::LocalPeerId
-                | DialError::InvalidPeerId(_)
-                | DialError::ConnectionIo(_)
-                | DialError::NoAddresses
-                | DialError::Transport(_)
-                | DialError::WrongPeerId { .. } => {
-                    // set peer as disconnected in discovery DHT
-                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
-                    self.disconnect_peer(&peer_id);
-                }
-                DialError::ConnectionLimit(_)
-                | DialError::DialPeerConditionFalse(_)
-                | DialError::Aborted => {}
-            }
+            Ok(vec![])
         }
     }
 
@@ -967,7 +979,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<NBAction<Self::OutEvent, Self::ConnectionHandler>> {
+    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if !self.started {
             return Poll::Pending;
         }
@@ -976,11 +988,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         self.process_queue();
 
         // Drive the queries and return any results from completed queries
-        if let Some(results) = self.poll_queries(cx) {
+        if let Some(peers) = self.poll_queries(cx) {
             // return the result to the peer manager
-            return Poll::Ready(NBAction::GenerateEvent(DiscoveryEvent::QueryResult(
-                results,
-            )));
+            return Poll::Ready(ToSwarm::GenerateEvent(DiscoveredPeers { peers }));
         }
 
         // Process the server event stream
@@ -1019,28 +1029,94 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             }
                             */
                         }
-                        Discv5Event::SocketUpdated(socket) => {
-                            info!(self.log, "Address updated"; "ip" => %socket.ip(), "udp_port" => %socket.port());
+                        Discv5Event::SocketUpdated(socket_addr) => {
+                            info!(self.log, "Address updated"; "ip" => %socket_addr.ip(), "udp_port" => %socket_addr.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             metrics::check_nat();
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
+
+                            if (self.update_tcp_port.0 && socket_addr.is_ipv4())
+                                || (self.update_tcp_port.1 && socket_addr.is_ipv6())
+                            {
+                                // Update the TCP port in the ENR
+                                self.discv5.update_local_enr_socket(socket_addr, true);
+                            }
                             let enr = self.discv5.local_enr();
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
                             // update  network globals
                             *self.network_globals.local_enr.write() = enr;
-                            return Poll::Ready(NBAction::GenerateEvent(
-                                DiscoveryEvent::SocketUpdated(socket),
-                            ));
+                            // A new UDP socket has been detected.
+                            // Build a multiaddr to report to libp2p
+                            let addr = match socket_addr.ip() {
+                                IpAddr::V4(v4_addr) => {
+                                    self.network_globals.listen_port_tcp4().map(|tcp4_port| {
+                                        Multiaddr::from(v4_addr).with(Protocol::Tcp(tcp4_port))
+                                    })
+                                }
+                                IpAddr::V6(v6_addr) => {
+                                    self.network_globals.listen_port_tcp6().map(|tcp6_port| {
+                                        Multiaddr::from(v6_addr).with(Protocol::Tcp(tcp6_port))
+                                    })
+                                }
+                            };
+
+                            if let Some(address) = addr {
+                                // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
+                                // should handle this.
+                                return Poll::Ready(ToSwarm::NewExternalAddrCandidate(address));
+                            }
                         }
                         Discv5Event::EnrAdded { .. }
                         | Discv5Event::TalkRequest(_)
-                        | Discv5Event::NodeInserted { .. } => {} // Ignore all other discv5 server events
+                        | Discv5Event::NodeInserted { .. }
+                        | Discv5Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
                     }
                 }
             }
         }
         Poll::Pending
+    }
+
+    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+        match event {
+            FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
+                self.on_dial_failure(peer_id, error)
+            }
+            FromSwarm::ConnectionEstablished(_)
+            | FromSwarm::ConnectionClosed(_)
+            | FromSwarm::AddressChange(_)
+            | FromSwarm::ListenFailure(_)
+            | FromSwarm::NewListener(_)
+            | FromSwarm::NewListenAddr(_)
+            | FromSwarm::ExpiredListenAddr(_)
+            | FromSwarm::ListenerError(_)
+            | FromSwarm::ListenerClosed(_)
+            | FromSwarm::NewExternalAddrCandidate(_)
+            | FromSwarm::ExternalAddrExpired(_)
+            | FromSwarm::ExternalAddrConfirmed(_) => {
+                // Ignore events not relevant to discovery
+            }
+        }
+    }
+}
+
+impl<TSpec: EthSpec> Discovery<TSpec> {
+    fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
+        if let Some(peer_id) = peer_id {
+            match error {
+                DialError::LocalPeerId { .. }
+                | DialError::Denied { .. }
+                | DialError::NoAddresses
+                | DialError::Transport(_)
+                | DialError::WrongPeerId { .. } => {
+                    // set peer as disconnected in discovery DHT
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+                    self.disconnect_peer(&peer_id);
+                }
+                DialError::DialPeerConditionFalse(_) | DialError::Aborted => {}
+            }
+        }
     }
 }
 
@@ -1049,9 +1125,9 @@ mod tests {
     use super::*;
     use crate::rpc::methods::{MetaData, MetaDataV2};
     use enr::EnrBuilder;
+    use libp2p::identity::secp256k1;
     use slog::{o, Drain};
     use types::{BitVector, MinimalEthSpec, SubnetId};
-    use unused_port::unused_udp_port;
 
     type E = MinimalEthSpec;
 
@@ -1068,27 +1144,27 @@ mod tests {
     }
 
     async fn build_discovery() -> Discovery<E> {
-        let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let config = NetworkConfig {
-            discovery_port: unused_udp_port().unwrap(),
-            ..Default::default()
-        };
-        let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
+        let keypair = secp256k1::Keypair::generate();
+        let mut config = NetworkConfig::default();
+        config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
+        let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,
-            9000,
-            9000,
+            Some(9000),
+            None,
             MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
                 syncnets: Default::default(),
             }),
             vec![],
+            false,
             &log,
         );
-        Discovery::new(&keypair, &config, Arc::new(globals), &log)
+        let keypair = keypair.into();
+        Discovery::new(keypair, &config, Arc::new(globals), &log)
             .await
             .unwrap()
     }
@@ -1134,8 +1210,8 @@ mod tests {
 
     fn make_enr(subnet_ids: Vec<usize>) -> Enr {
         let mut builder = EnrBuilder::new("v4");
-        let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
+        let keypair = secp256k1::Keypair::generate();
+        let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
 
         // set the "attnets" field on our ENR
         let mut bitfield = BitVector::<ssz_types::typenum::U64>::new();

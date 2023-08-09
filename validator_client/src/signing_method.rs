@@ -34,7 +34,7 @@ pub enum Error {
 }
 
 /// Enumerates all messages that can be signed by a validator.
-pub enum SignableMessage<'a, T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
+pub enum SignableMessage<'a, T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     RandaoReveal(Epoch),
     BeaconBlock(&'a BeaconBlock<T, Payload>),
     AttestationData(&'a AttestationData),
@@ -47,9 +47,10 @@ pub enum SignableMessage<'a, T: EthSpec, Payload: ExecPayload<T> = FullPayload<T
     },
     SignedContributionAndProof(&'a ContributionAndProof<T>),
     ValidatorRegistration(&'a ValidatorRegistrationData),
+    VoluntaryExit(&'a VoluntaryExit),
 }
 
-impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignableMessage<'a, T, Payload> {
+impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> SignableMessage<'a, T, Payload> {
     /// Returns the `SignedRoot` for the contained message.
     ///
     /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
@@ -67,6 +68,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignableMessage<'a, T, Payload> {
             } => beacon_block_root.signing_root(domain),
             SignableMessage::SignedContributionAndProof(c) => c.signing_root(domain),
             SignableMessage::ValidatorRegistration(v) => v.signing_root(domain),
+            SignableMessage::VoluntaryExit(exit) => exit.signing_root(domain),
         }
     }
 }
@@ -116,7 +118,7 @@ impl SigningContext {
 
 impl SigningMethod {
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
-    pub async fn get_signature<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn get_signature<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         signable_message: SignableMessage<'_, T, Payload>,
         signing_context: SigningContext,
@@ -141,7 +143,7 @@ impl SigningMethod {
             .await
     }
 
-    pub async fn get_signature_from_root<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn get_signature_from_root<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         signable_message: SignableMessage<'_, T, Payload>,
         signing_root: Hash256,
@@ -203,6 +205,7 @@ impl SigningMethod {
                     SignableMessage::ValidatorRegistration(v) => {
                         Web3SignerObject::ValidatorRegistration(v)
                     }
+                    SignableMessage::VoluntaryExit(e) => Web3SignerObject::VoluntaryExit(e),
                 };
 
                 // Determine the Web3Signer message type.

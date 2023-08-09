@@ -27,13 +27,16 @@
 //!                                ▼
 //!                  impl VerifiedAttestation
 //! ```
+
+// Ignore this lint for `AttestationSlashInfo` which is of comparable size to the non-error types it
+// is returned alongside.
+#![allow(clippy::result_large_err)]
+
 mod batch;
 
 use crate::{
-    beacon_chain::{MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
-    metrics,
-    observed_aggregates::ObserveOutcome,
-    observed_attesters::Error as ObservedAttestersError,
+    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT, metrics,
+    observed_aggregates::ObserveOutcome, observed_attesters::Error as ObservedAttestersError,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
@@ -52,8 +55,8 @@ use std::borrow::Cow;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, BeaconCommittee, CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation,
-    SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
+    Attestation, BeaconCommittee, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256,
+    IndexedAttestation, SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -112,14 +115,14 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     AggregatorPubkeyUnknown(u64),
-    /// The attestation has been seen before; either in a block, on the gossip network or from a
-    /// local validator.
+    /// The attestation or a superset of this attestation's aggregations bits for the same data
+    /// has been seen before; either in a block, on the gossip network or from a local validator.
     ///
     /// ## Peer scoring
     ///
     /// It's unclear if this attestation is valid, however we have already observed it and do not
     /// need to observe it again.
-    AttestationAlreadyKnown(Hash256),
+    AttestationSupersetKnown(Hash256),
     /// There has already been an aggregation observed for this validator, we refuse to process a
     /// second.
     ///
@@ -263,7 +266,7 @@ enum CheckAttestationSignature {
 struct IndexedAggregatedAttestation<'a, T: BeaconChainTypes> {
     signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
-    attestation_root: Hash256,
+    attestation_data_root: Hash256,
 }
 
 /// Wraps a `Attestation` that has been verified up until the point that an `IndexedAttestation` can
@@ -449,7 +452,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation)?;
+        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
 
         // Check the attestation's epoch matches its target.
         if attestation.data.slot.epoch(T::EthSpec::slots_per_epoch())
@@ -462,14 +465,17 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         }
 
         // Ensure the valid aggregated attestation has not already been seen locally.
-        let attestation_root = attestation.tree_hash_root();
+        let attestation_data = &attestation.data;
+        let attestation_data_root = attestation_data.tree_hash_root();
+
         if chain
             .observed_attestations
             .write()
-            .is_known(attestation, attestation_root)
+            .is_known_subset(attestation, attestation_data_root)
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
-            return Err(Error::AttestationAlreadyKnown(attestation_root));
+            metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_SUBSETS);
+            return Err(Error::AttestationSupersetKnown(attestation_data_root));
         }
 
         let aggregator_index = signed_aggregate.message.aggregator_index;
@@ -515,7 +521,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         if attestation.aggregation_bits.is_zero() {
             Err(Error::EmptyAggregationBitfield)
         } else {
-            Ok(attestation_root)
+            Ok(attestation_data_root)
         }
     }
 
@@ -528,7 +534,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
 
         let attestation = &signed_aggregate.message.aggregate;
         let aggregator_index = signed_aggregate.message.aggregator_index;
-        let attestation_root = match Self::verify_early_checks(signed_aggregate, chain) {
+        let attestation_data_root = match Self::verify_early_checks(signed_aggregate, chain) {
             Ok(root) => root,
             Err(e) => return Err(SignatureNotChecked(&signed_aggregate.message.aggregate, e)),
         };
@@ -563,7 +569,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         Ok(IndexedAggregatedAttestation {
             signed_aggregate,
             indexed_attestation,
-            attestation_root,
+            attestation_data_root,
         })
     }
 }
@@ -572,7 +578,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
     /// Run the checks that happen after the indexed attestation and signature have been checked.
     fn verify_late_checks(
         signed_aggregate: &SignedAggregateAndProof<T::EthSpec>,
-        attestation_root: Hash256,
+        attestation_data_root: Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<(), Error> {
         let attestation = &signed_aggregate.message.aggregate;
@@ -582,13 +588,14 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
         //
         // It's important to double check that the attestation is not already known, otherwise two
         // attestations processed at the same time could be published.
-        if let ObserveOutcome::AlreadyKnown = chain
+        if let ObserveOutcome::Subset = chain
             .observed_attestations
             .write()
-            .observe_item(attestation, Some(attestation_root))
+            .observe_item(attestation, Some(attestation_data_root))
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
-            return Err(Error::AttestationAlreadyKnown(attestation_root));
+            metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_SUBSETS);
+            return Err(Error::AttestationSupersetKnown(attestation_data_root));
         }
 
         // Observe the aggregator so we don't process another aggregate from them.
@@ -648,7 +655,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
         let IndexedAggregatedAttestation {
             signed_aggregate,
             indexed_attestation,
-            attestation_root,
+            attestation_data_root,
         } = signed_aggregate;
 
         match check_signature {
@@ -672,7 +679,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
             CheckAttestationSignature::No => (),
         };
 
-        if let Err(e) = Self::verify_late_checks(signed_aggregate, attestation_root, chain) {
+        if let Err(e) = Self::verify_late_checks(signed_aggregate, attestation_data_root, chain) {
             return Err(SignatureValid(indexed_attestation, e));
         }
 
@@ -713,7 +720,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation)?;
+        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
@@ -1028,11 +1035,11 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     slot_clock: &S,
     attestation: &Attestation<E>,
+    spec: &ChainSpec,
 ) -> Result<(), Error> {
     let attestation_slot = attestation.data.slot;
-
     let latest_permissible_slot = slot_clock
-        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if attestation_slot > latest_permissible_slot {
         return Err(Error::FutureSlot {
@@ -1043,7 +1050,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
 
     // Taking advantage of saturating subtraction on `Slot`.
     let earliest_permissible_slot = slot_clock
-        .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?
         - E::slots_per_epoch();
     if attestation_slot < earliest_permissible_slot {

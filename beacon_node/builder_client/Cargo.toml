@@ -10,3 +10,4 @@ sensitive_url = { path = "../../common/sensitive_url" }
 eth2 = { path = "../../common/eth2" }
 serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.58"
+lighthouse_version = { path = "../../common/lighthouse_version" }

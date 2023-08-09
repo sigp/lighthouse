@@ -4,12 +4,15 @@ mod tests {
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
+    use beacon_processor::{
+        BeaconProcessorSend, MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
+    };
     use lighthouse_network::Enr;
     use slog::{o, Drain, Level, Logger};
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
-    use tokio::runtime::Runtime;
+    use tokio::{runtime::Runtime, sync::mpsc};
     use types::MinimalEthSpec;
 
     fn get_logger(actual_log: bool) -> Logger {
@@ -59,19 +62,28 @@ mod tests {
         );
 
         let mut config = NetworkConfig::default();
+        config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21212, 21212);
         config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
-        config.libp2p_port = 21212;
         config.upnp_enabled = false;
-        config.discovery_port = 21212;
         config.boot_nodes_enr = enrs.clone();
         runtime.block_on(async move {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
-            let _network_service =
-                NetworkService::start(beacon_chain.clone(), &config, executor, None)
-                    .await
-                    .unwrap();
+            let (beacon_processor_send, _beacon_processor_receive) =
+                mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
+            let (beacon_processor_reprocess_tx, _beacon_processor_reprocess_rx) =
+                mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
+            let _network_service = NetworkService::start(
+                beacon_chain.clone(),
+                &config,
+                executor,
+                None,
+                BeaconProcessorSend(beacon_processor_send),
+                beacon_processor_reprocess_tx,
+            )
+            .await
+            .unwrap();
             drop(signal);
         });
 

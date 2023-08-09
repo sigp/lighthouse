@@ -1,11 +1,12 @@
 use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
+use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::shuffling_cache::ShufflingCache;
+use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::ValidatorMonitor;
@@ -21,6 +22,7 @@ use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
+use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
 use slog::{crit, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -30,8 +32,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, Checkpoint, EthSpec, Graffiti, Hash256, PublicKeyBytes,
-    Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256,
+    PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -158,6 +160,30 @@ where
         self
     }
 
+    /// Sets the proposer re-org threshold.
+    pub fn proposer_re_org_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
+        self.chain_config.re_org_threshold = threshold;
+        self
+    }
+
+    /// Sets the proposer re-org max epochs since finalization.
+    pub fn proposer_re_org_max_epochs_since_finalization(
+        mut self,
+        epochs_since_finalization: Epoch,
+    ) -> Self {
+        self.chain_config.re_org_max_epochs_since_finalization = epochs_since_finalization;
+        self
+    }
+
+    /// Sets the proposer re-org disallowed offsets list.
+    pub fn proposer_re_org_disallowed_offsets(
+        mut self,
+        disallowed_offsets: DisallowedReOrgOffsets,
+    ) -> Self {
+        self.chain_config.re_org_disallowed_offsets = disallowed_offsets;
+        self
+    }
+
     /// Sets the store (database).
     ///
     /// Should generally be called early in the build chain.
@@ -248,7 +274,6 @@ where
                 ResetPayloadStatuses::always_reset_conditionally(
                     self.chain_config.always_reset_payload_statuses,
                 ),
-                self.chain_config.count_unrealized_full,
                 &self.spec,
                 log,
             )
@@ -313,7 +338,7 @@ where
         let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
 
         beacon_state
-            .build_all_caches(&self.spec)
+            .build_caches(&self.spec)
             .map_err(|e| format!("Failed to build genesis state caches: {:?}", e))?;
 
         let beacon_state_root = beacon_block.message().state_root();
@@ -357,7 +382,8 @@ where
         let (genesis, updated_builder) = self.set_genesis_state(beacon_state)?;
         self = updated_builder;
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis);
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
+            .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
         let current_slot = None;
 
         let fork_choice = ForkChoice::from_anchor(
@@ -366,7 +392,6 @@ where
             &genesis.beacon_block,
             &genesis.beacon_state,
             current_slot,
-            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -412,7 +437,7 @@ where
         // Prime all caches before storing the state in the database and computing the tree hash
         // root.
         weak_subj_state
-            .build_all_caches(&self.spec)
+            .build_caches(&self.spec)
             .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
 
         let computed_state_root = weak_subj_state
@@ -475,7 +500,8 @@ where
             beacon_state: weak_subj_state,
         };
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot);
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot)
+            .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
 
         let current_slot = Some(snapshot.beacon_block.slot());
         let fork_choice = ForkChoice::from_anchor(
@@ -484,7 +510,6 @@ where
             &snapshot.beacon_block,
             &snapshot.beacon_state,
             current_slot,
-            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -560,11 +585,13 @@ where
         mut self,
         auto_register: bool,
         validators: Vec<PublicKeyBytes>,
+        individual_metrics_threshold: usize,
         log: Logger,
     ) -> Self {
         self.validator_monitor = Some(ValidatorMonitor::new(
             validators,
             auto_register,
+            individual_metrics_threshold,
             log.clone(),
         ));
         self
@@ -660,10 +687,12 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
-                self.chain_config.count_unrealized.into(),
-                self.chain_config.count_unrealized_full,
+                self.chain_config.progressive_balances_mode,
+                &log,
             )?;
         }
+
+        let head_shuffling_ids = BlockShufflingIds::try_from_head(head_block_root, &head_state)?;
 
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
@@ -673,7 +702,7 @@ where
 
         head_snapshot
             .beacon_state
-            .build_all_caches(&self.spec)
+            .build_caches(&self.spec)
             .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
 
         // Perform a check to ensure that the finalization points of the head and fork choice are
@@ -744,6 +773,30 @@ where
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let head_for_snapshot_cache = head_snapshot.clone();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
+        let shuffling_cache_size = self.chain_config.shuffling_cache_size;
+
+        // Calculate the weak subjectivity point in which to backfill blocks to.
+        let genesis_backfill_slot = if self.chain_config.genesis_backfill {
+            Slot::new(0)
+        } else {
+            let backfill_epoch_range = (self.spec.min_validator_withdrawability_delay
+                + self.spec.churn_limit_quotient)
+                .as_u64()
+                / 2;
+            match slot_clock.now() {
+                Some(current_slot) => {
+                    let genesis_backfill_epoch = current_slot
+                        .epoch(TEthSpec::slots_per_epoch())
+                        .saturating_sub(backfill_epoch_range);
+                    genesis_backfill_epoch.start_slot(TEthSpec::slots_per_epoch())
+                }
+                None => {
+                    // The slot clock cannot derive the current slot. We therefore assume we are
+                    // at or prior to genesis and backfill should sync all the way to genesis.
+                    Slot::new(0)
+                }
+            }
+        };
 
         let beacon_chain = BeaconChain {
             spec: self.spec,
@@ -775,10 +828,12 @@ where
             observed_sync_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
-            // TODO: allow for persisting and loading the pool from disk.
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
+            observed_bls_to_execution_changes: <_>::default(),
+            latest_seen_finality_update: <_>::default(),
+            latest_seen_optimistic_update: <_>::default(),
             eth1_chain: self.eth1_chain,
             execution_layer: self.execution_layer,
             genesis_validators_root,
@@ -794,7 +849,12 @@ where
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
                 head_for_snapshot_cache,
             )),
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
+            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
+                shuffling_cache_size,
+                head_shuffling_ids,
+                log.clone(),
+            )),
+            eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
@@ -808,6 +868,7 @@ where
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
+            genesis_backfill_slot,
         };
 
         let head = beacon_chain.head_snapshot();
@@ -897,7 +958,7 @@ where
             .ok_or("dummy_eth1_backend requires a log")?;
 
         let backend =
-            CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone());
+            CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone())?;
 
         self.eth1_chain = Some(Eth1Chain::new_dummy(backend));
 
@@ -967,7 +1028,8 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
-    use eth2_hashing::hash;
+    use crate::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
+    use ethereum_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
     };
@@ -1023,7 +1085,12 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
-            .monitor_validators(true, vec![], log.clone())
+            .monitor_validators(
+                true,
+                vec![],
+                DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+                log.clone(),
+            )
             .build()
             .expect("should build");
 

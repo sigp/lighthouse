@@ -161,6 +161,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     DeleteBlock(Hash256),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
+    KeyValueOp(KeyValueStoreOp),
 }
 
 /// A unique column identifier.
@@ -211,6 +212,8 @@ pub enum DBColumn {
     /// For Optimistically Imported Merge Transition Blocks
     #[strum(serialize = "otb")]
     OptimisticTransitionBlock,
+    #[strum(serialize = "bhs")]
+    BeaconHistoricalSummaries,
 }
 
 /// A block from the database, which might have an execution payload or not.

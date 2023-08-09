@@ -1,4 +1,4 @@
-# MEV and Lighthouse
+# Maximal Extractable Value (MEV)
 
 Lighthouse is able to interact with servers that implement the [builder
 API](https://github.com/ethereum/builder-specs), allowing it to produce blocks without having
@@ -45,24 +45,24 @@ relays, run one of the following services and configure lighthouse to use it wit
 
 ## Validator Client Configuration
 
-In the validator client you can configure gas limit and fee recipient on a per-validator basis. If no gas limit is 
-configured, Lighthouse will use a default gas limit of 30,000,000, which is the current default value used in execution 
-engines.  You can also enable or disable use of external builders on a per-validator basis rather than using 
+In the validator client you can configure gas limit and fee recipient on a per-validator basis. If no gas limit is
+configured, Lighthouse will use a default gas limit of 30,000,000, which is the current default value used in execution
+engines.  You can also enable or disable use of external builders on a per-validator basis rather than using
 `--builder-proposals`, which enables external builders for all validators. In order to manage these configurations
 per-validator, you can either make updates to the `validator_definitions.yml` file or you can use the HTTP requests
 described below.
 
 Both the gas limit and fee recipient will be passed along as suggestions to connected builders. If there is a discrepancy
 in either, it will *not* keep you from proposing a block with the builder. This is because the bounds on gas limit are
-calculated based on prior execution blocks, so an honest external builder will make sure that even if your 
-requested gas limit value is out of the specified range, a valid gas limit in the direction of your request will be 
+calculated based on prior execution blocks, so an honest external builder will make sure that even if your
+requested gas limit value is out of the specified range, a valid gas limit in the direction of your request will be
 used in constructing the block. Depending on the connected relay, payment to the proposer might be in the form of a
-transaction within the block to the fee recipient, so a discrepancy in fee recipient might not indicate that there 
-is something afoot. 
+transaction within the block to the fee recipient, so a discrepancy in fee recipient might not indicate that there
+is something afoot.
 
-> Note: The gas limit configured here is effectively a vote on block size, so the configuration should not be taken lightly. 
+> Note: The gas limit configured here is effectively a vote on block size, so the configuration should not be taken lightly.
 > 30,000,000 is currently seen as a value balancing block size with how expensive it is for
-> the network to validate blocks. So if you don't feel comfortable making an informed "vote", using the default value is 
+> the network to validate blocks. So if you don't feel comfortable making an informed "vote", using the default value is
 > encouraged. We will update the default value if the community reaches a rough consensus on a new value.
 
 ### Set Gas Limit via HTTP
@@ -103,11 +103,32 @@ Each field is optional.
 }
 ```
 
+Command: 
+
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde" \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
+-H "Content-Type: application/json" \
+-d '{
+    "builder_proposals": true,
+    "gas_limit": 30000001
+}' | jq
+```
+If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`
+
 #### Example Response Body
 
 ```json
 null
 ```
+
+A `null` response indicates that the request is successful. At the same time, `lighthouse vc` will show a log which looks like:
+
+```
+INFO Published validator registrations to the builder network, count: 3, service: preparation
+```
+
 ### Fee Recipient
 
 Refer to [suggested fee recipient](suggested-fee-recipient.md) documentation.
@@ -157,19 +178,85 @@ By default, Lighthouse is strict with these conditions, but we encourage users t
 - `--builder-fallback-disable-checks` - This flag disables all checks related to chain health. This means the builder
   API will always be used for payload construction, regardless of recent chain conditions.
 
-## Builder Profit Threshold 
+## Builder Profit Threshold
 
 If you are generally uneasy with the risks associated with outsourced payload production (liveness/censorship) but would
 consider using it for the chance of out-sized rewards, this flag may be useful:
 
 `--builder-profit-threshold <WEI_VALUE>`
 
-The number provided indicates the minimum reward that an external payload must provide the proposer for it to be considered 
+The number provided indicates the minimum reward that an external payload must provide the proposer for it to be considered
 for inclusion in a proposal. For example, if you'd only like to use an external payload for a reward of >= 0.25 ETH, you
-would provide your beacon node with `--builder-profit-threshold 250000000000000000`. If it's your turn to propose and the 
-most valuable payload offered by builders is only 0.1 ETH, the local execution engine's payload will be used. Currently,
-this threshold just looks at the value of the external payload. No comparison to the local payload is made, although 
-this feature will likely be added in the future.
+would provide your beacon node with `--builder-profit-threshold 250000000000000000`. If it's your turn to propose and the
+most valuable payload offered by builders is only 0.1 ETH, the local execution engine's payload will be used.
+
+Since the [Capella](https://ethereum.org/en/history/#capella) upgrade, a comparison of the external payload and local payload will be made according to the [engine_getPayloadV2](https://github.com/ethereum/execution-apis/blob/main/src/engine/shanghai.md#engine_getpayloadv2) API. The logic is as follows:
+
+```
+if local payload value >= builder payload value:
+   use local payload
+else if builder payload value >= builder_profit_threshold or builder_profit_threshold == 0:
+   use builder payload
+else:
+   use local payload
+```
+
+If you would like to always use the builder payload, you can add the flag `--always-prefer-builder-payload` to the beacon node.
+
+## Checking your builder config
+
+You can check that your builder is configured correctly by looking for these log messages.
+
+On start-up, the beacon node will log if a builder is configured:
+
+```
+INFO Using external block builder
+```
+
+At regular intervals the validator client will log that it successfully registered its validators
+with the builder network:
+
+```
+INFO Published validator registrations to the builder network
+```
+
+When you successfully propose a block using a builder, you will see this log on the beacon node:
+
+```
+INFO Successfully published a block to the builder network
+```
+
+If you don't see that message around the time of your proposals, check your beacon node logs
+for `INFO` and `WARN` messages indicating why the builder was not used.
+
+Examples of messages indicating fallback to a locally produced block are:
+
+```
+INFO Builder did not return a payload
+```
+
+```
+WARN Builder error when requesting payload
+```
+
+```
+WARN Builder returned invalid payload
+```
+
+```
+INFO Builder payload ignored
+```
+
+```
+INFO Chain is unhealthy, using local payload
+```
+
+In case of fallback you should see a log indicating that the locally produced payload was
+used in place of one from the builder:
+
+```
+INFO Reconstructing a full block using a local payload
+```
 
 [mev-rs]: https://github.com/ralexstokes/mev-rs
 [mev-boost]: https://github.com/flashbots/mev-boost

@@ -8,7 +8,7 @@ There are three places in Lighthouse where redundancy is notable:
 1. ❌ NOT SUPPORTED: Using a redundant execution node in `lighthouse bn --execution-endpoint`
 1. ☠️ BAD: Running redundant `lighthouse vc` instances with overlapping keypairs.
 
-I mention (3) since it is unsafe and should not be confused with the other two
+We mention (3) since it is unsafe and should not be confused with the other two
 uses of redundancy. **Running the same validator keypair in more than one
 validator client (Lighthouse, or otherwise) will eventually lead to slashing.**
 See [Slashing Protection](./slashing-protection.md) for more information.
@@ -49,48 +49,33 @@ There are a few interesting properties about the list of `--beacon-nodes`:
 > provided (if it is desired). It will only be used as default if no `--beacon-nodes` flag is
 > provided at all.
 
+
 ### Configuring a redundant Beacon Node
 
 In our previous example, we listed `http://192.168.1.1:5052` as a redundant
 node. Apart from having sufficient resources, the backup node should have the
 following flags:
 
-- `--staking`: starts the HTTP API server and ensures the execution chain is synced.
-- `--http-address 0.0.0.0`: this allows *any* external IP address to access the
-	HTTP server (a firewall should be configured to deny unauthorized access to port
-	`5052`). This is only required if your backup node is on a different host.
-- `--subscribe-all-subnets`: ensures that the beacon node subscribes to *all*
-	subnets, not just on-demand requests from validators.
-- `--import-all-attestations`: ensures that the beacon node performs
-	aggregation on all seen attestations.
+- `--http`: starts the HTTP API server.
+- `--http-address local_IP`: where `local_IP` is the private IP address of the computer running the beacon node. This is only required if your backup beacon node is on a different host.
+ > Note: You could also use `--http-address 0.0.0.0`, but this allows *any* external IP address to access the HTTP server. As such, a firewall should be configured to deny unauthorized access to port `5052`.
+ - `--execution-endpoint`: see [Merge Migration](./merge-migration.md).
+- `--execution-jwt`: see [Merge Migration](./merge-migration.md).
 
-Subsequently, one could use the following command to provide a backup beacon
-node:
+For example one could use the following command to provide a backup beacon node:
 
 ```bash
 lighthouse bn \
-  --staking \
-  --http-address 0.0.0.0 \
-  --subscribe-all-subnets \
-  --import-all-attestations
+  --http \
+  --http-address local_IP \
+  --execution-endpoint http://localhost:8551 \
+  --execution-jwt /secrets/jwt.hex
 ```
 
-### Resource usage of redundant Beacon Nodes
-
-The `--subscribe-all-subnets` and `--import-all-attestations` flags typically
-cause a significant increase in resource consumption. A doubling in CPU
-utilization and RAM consumption is expected.
-
-The increase in resource consumption is due to the fact that the beacon node is
-now processing, validating, aggregating and forwarding *all* attestations,
-whereas previously it was likely only doing a fraction of this work. Without
-these flags, subscription to attestation subnets and aggregation of
-attestations is only performed for validators which [explicitly request
-subscriptions][subscribe-api].
-
-There are 64 subnets and each validator will result in a subscription to *at
-least* one subnet. So, using the two aforementioned flags will result in
-resource consumption akin to running 64+ validators.
+Prior to v3.2.0 fallback beacon nodes also required the `--subscribe-all-subnets` and
+`--import-all-attestations` flags. These flags are no longer required as the validator client will
+now broadcast subscriptions to all connected beacon nodes by default. This broadcast behaviour
+can be disabled using the `--disable-run-on-all` flag for `lighthouse vc`.
 
 ## Redundant execution nodes
 

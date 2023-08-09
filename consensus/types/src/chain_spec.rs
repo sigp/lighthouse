@@ -1,16 +1,18 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::*;
-use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use int_to_bytes::int_to_bytes4;
 use serde::{Deserializer, Serialize, Serializer};
 use serde_derive::Deserialize;
+use serde_utils::quoted_u64::MaybeQuoted;
 use std::fs::File;
 use std::path::Path;
+use std::time::Duration;
 use tree_hash::TreeHash;
 
 /// Each of the BLS signature domains.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Domain {
+    BlsToExecutionChange,
     BeaconProposer,
     BeaconAttester,
     Randao,
@@ -27,8 +29,7 @@ pub enum Domain {
 /// Lighthouse's internal configuration struct.
 ///
 /// Contains a mixture of "preset" and "config" values w.r.t to the EF definitions.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Debug, Clone)]
+#[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
      * Config name
@@ -71,6 +72,7 @@ pub struct ChainSpec {
      */
     pub genesis_fork_version: [u8; 4],
     pub bls_withdrawal_prefix_byte: u8,
+    pub eth1_address_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
@@ -151,6 +153,14 @@ pub struct ChainSpec {
     pub safe_slots_to_import_optimistically: u64,
 
     /*
+     * Capella hard fork params
+     */
+    pub capella_fork_version: [u8; 4],
+    /// The Capella fork epoch is optional, with `None` representing "Capella never happens".
+    pub capella_fork_epoch: Option<Epoch>,
+    pub max_validators_per_withdrawals_sweep: u64,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -159,13 +169,27 @@ pub struct ChainSpec {
     pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
     pub attestation_subnet_count: u64,
-    pub random_subnets_per_validator: u64,
-    pub epochs_per_random_subnet_subscription: u64,
+    pub subnets_per_node: u8,
+    pub epochs_per_subnet_subscription: u64,
+    pub gossip_max_size: u64,
+    pub min_epochs_for_block_requests: u64,
+    pub max_chunk_size: u64,
+    pub ttfb_timeout: u64,
+    pub resp_timeout: u64,
+    pub message_domain_invalid_snappy: [u8; 4],
+    pub message_domain_valid_snappy: [u8; 4],
+    pub attestation_subnet_extra_bits: u8,
+    pub attestation_subnet_prefix_bits: u8,
 
     /*
      * Application params
      */
     pub(crate) domain_application_mask: u32,
+
+    /*
+     * Capella params
+     */
+    pub(crate) domain_bls_to_execution_change: u32,
 }
 
 impl ChainSpec {
@@ -230,11 +254,14 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.bellatrix_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-            _ => match self.altair_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                _ => ForkName::Base,
+        match self.capella_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+            _ => match self.bellatrix_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+                _ => match self.altair_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                    _ => ForkName::Base,
+                },
             },
         }
     }
@@ -245,6 +272,7 @@ impl ChainSpec {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
             ForkName::Merge => self.bellatrix_fork_version,
+            ForkName::Capella => self.capella_fork_version,
         }
     }
 
@@ -254,6 +282,7 @@ impl ChainSpec {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
             ForkName::Merge => self.bellatrix_fork_epoch,
+            ForkName::Capella => self.capella_fork_epoch,
         }
     }
 
@@ -263,6 +292,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.inactivity_penalty_quotient,
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
             BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
+            BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -275,6 +305,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.proportional_slashing_multiplier,
             BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
             BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
+            BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -287,6 +318,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.min_slashing_penalty_quotient,
             BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
             BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
+            BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -334,6 +366,7 @@ impl ChainSpec {
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
             Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
+            Domain::BlsToExecutionChange => self.domain_bls_to_execution_change,
         }
     }
 
@@ -427,6 +460,18 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
+    pub fn maximum_gossip_clock_disparity(&self) -> Duration {
+        Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
+    }
+
+    pub fn ttfb_timeout(&self) -> Duration {
+        Duration::from_secs(self.ttfb_timeout)
+    }
+
+    pub fn resp_timeout(&self) -> Duration {
+        Duration::from_secs(self.resp_timeout)
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
@@ -480,7 +525,8 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_fork_version: [0; 4],
-            bls_withdrawal_prefix_byte: 0,
+            bls_withdrawal_prefix_byte: 0x00,
+            eth1_address_withdrawal_prefix_byte: 0x01,
 
             /*
              * Time parameters
@@ -569,21 +615,41 @@ impl ChainSpec {
             safe_slots_to_import_optimistically: 128u64,
 
             /*
+             * Capella hard fork params
+             */
+            capella_fork_version: [0x03, 00, 00, 00],
+            capella_fork_epoch: Some(Epoch::new(194048)),
+            max_validators_per_withdrawals_sweep: 16384,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
             network_id: 1, // mainnet network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
-            random_subnets_per_validator: 1,
+            subnets_per_node: 2,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
-            epochs_per_random_subnet_subscription: 256,
-
+            epochs_per_subnet_subscription: 256,
+            gossip_max_size: default_gossip_max_size(),
+            min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
+            max_chunk_size: default_max_chunk_size(),
+            ttfb_timeout: default_ttfb_timeout(),
+            resp_timeout: default_resp_timeout(),
+            message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
+            message_domain_valid_snappy: default_message_domain_valid_snappy(),
+            attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
+            attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
             /*
              * Application specific
              */
             domain_application_mask: APPLICATION_DOMAIN_BUILDER,
+
+            /*
+             * Capella params
+             */
+            domain_bls_to_execution_change: 10,
         }
     }
 
@@ -623,6 +689,10 @@ impl ChainSpec {
                 // `Uint256::MAX` which is `2*256- 1`.
                 .checked_add(Uint256::one())
                 .expect("addition does not overflow"),
+            // Capella
+            capella_fork_version: [0x03, 0x00, 0x00, 0x01],
+            capella_fork_epoch: None,
+            max_validators_per_withdrawals_sweep: 16,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -685,7 +755,8 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_fork_version: [0x00, 0x00, 0x00, 0x64],
-            bls_withdrawal_prefix_byte: 0,
+            bls_withdrawal_prefix_byte: 0x00,
+            eth1_address_withdrawal_prefix_byte: 0x01,
 
             /*
              * Time parameters
@@ -755,7 +826,7 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x64],
-            altair_fork_epoch: Some(Epoch::new(256)),
+            altair_fork_epoch: Some(Epoch::new(512)),
 
             /*
              * Merge hard fork params
@@ -766,17 +837,21 @@ impl ChainSpec {
                 .expect("pow does not overflow"),
             proportional_slashing_multiplier_bellatrix: 3,
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x64],
-            bellatrix_fork_epoch: None,
-            terminal_total_difficulty: Uint256::MAX
-                .checked_sub(Uint256::from(2u64.pow(10)))
-                .expect("subtraction does not overflow")
-                // Add 1 since the spec declares `2**256 - 2**10` and we use
-                // `Uint256::MAX` which is `2*256- 1`.
-                .checked_add(Uint256::one())
-                .expect("addition does not overflow"),
+            bellatrix_fork_epoch: Some(Epoch::new(385536)),
+            terminal_total_difficulty: Uint256::from_dec_str(
+                "8626000000000000000000058750000000000000000000",
+            )
+            .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
             safe_slots_to_import_optimistically: 128u64,
+
+            /*
+             * Capella hard fork params
+             */
+            capella_fork_version: [0x03, 0x00, 0x00, 0x64],
+            capella_fork_epoch: Some(Epoch::new(648704)),
+            max_validators_per_withdrawals_sweep: 8192,
 
             /*
              * Network specific
@@ -785,15 +860,29 @@ impl ChainSpec {
             network_id: 100, // Gnosis Chain network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
-            random_subnets_per_validator: 1,
+            subnets_per_node: 4, // Make this larger than usual to avoid network damage
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
-            epochs_per_random_subnet_subscription: 256,
+            epochs_per_subnet_subscription: 256,
+            gossip_max_size: default_gossip_max_size(),
+            min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
+            max_chunk_size: default_max_chunk_size(),
+            ttfb_timeout: default_ttfb_timeout(),
+            resp_timeout: default_resp_timeout(),
+            message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
+            message_domain_valid_snappy: default_message_domain_valid_snappy(),
+            attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
+            attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
 
             /*
              * Application specific
              */
             domain_application_mask: APPLICATION_DOMAIN_BUILDER,
+
+            /*
+             * Capella params
+             */
+            domain_bls_to_execution_change: 10,
         }
     }
 }
@@ -820,73 +909,117 @@ pub struct Config {
     pub preset_base: String,
 
     #[serde(default = "default_terminal_total_difficulty")]
-    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[serde(with = "serde_utils::quoted_u256")]
     pub terminal_total_difficulty: Uint256,
     #[serde(default = "default_terminal_block_hash")]
     pub terminal_block_hash: ExecutionBlockHash,
     #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
     #[serde(default = "default_safe_slots_to_import_optimistically")]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub safe_slots_to_import_optimistically: u64,
 
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     min_genesis_time: u64,
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     genesis_fork_version: [u8; 4],
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     genesis_delay: u64,
 
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     altair_fork_version: [u8; 4],
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(default = "default_bellatrix_fork_version")]
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     bellatrix_fork_version: [u8; 4],
     #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub bellatrix_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
-    seconds_per_slot: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
-    seconds_per_eth1_block: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
-    min_validator_withdrawability_delay: Epoch,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
-    shard_committee_period: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
-    eth1_follow_distance: u64,
+    #[serde(default = "default_capella_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    capella_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub capella_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    seconds_per_slot: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    seconds_per_eth1_block: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_validator_withdrawability_delay: Epoch,
+    #[serde(with = "serde_utils::quoted_u64")]
+    shard_committee_period: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    eth1_follow_distance: u64,
+    #[serde(default = "default_subnets_per_node")]
+    #[serde(with = "serde_utils::quoted_u8")]
+    subnets_per_node: u8,
+
+    #[serde(with = "serde_utils::quoted_u64")]
     inactivity_score_bias: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     inactivity_score_recovery_rate: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     ejection_balance: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     churn_limit_quotient: u64,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
 
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
+
+    #[serde(default = "default_gossip_max_size")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    gossip_max_size: u64,
+    #[serde(default = "default_min_epochs_for_block_requests")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_epochs_for_block_requests: u64,
+    #[serde(default = "default_max_chunk_size")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_chunk_size: u64,
+    #[serde(default = "default_ttfb_timeout")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    ttfb_timeout: u64,
+    #[serde(default = "default_resp_timeout")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    resp_timeout: u64,
+    #[serde(default = "default_message_domain_invalid_snappy")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    message_domain_invalid_snappy: [u8; 4],
+    #[serde(default = "default_message_domain_valid_snappy")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    message_domain_valid_snappy: [u8; 4],
+    #[serde(default = "default_attestation_subnet_extra_bits")]
+    #[serde(with = "serde_utils::quoted_u8")]
+    attestation_subnet_extra_bits: u8,
+    #[serde(default = "default_attestation_subnet_prefix_bits")]
+    #[serde(with = "serde_utils::quoted_u8")]
+    attestation_subnet_prefix_bits: u8,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_capella_fork_version() -> [u8; 4] {
+    // TODO: determine if the bellatrix example should be copied like this
     [0xff, 0xff, 0xff, 0xff]
 }
 
@@ -912,6 +1045,46 @@ fn default_terminal_block_hash_activation_epoch() -> Epoch {
 
 fn default_safe_slots_to_import_optimistically() -> u64 {
     128u64
+}
+
+fn default_subnets_per_node() -> u8 {
+    2u8
+}
+
+const fn default_gossip_max_size() -> u64 {
+    10485760
+}
+
+const fn default_min_epochs_for_block_requests() -> u64 {
+    33024
+}
+
+const fn default_max_chunk_size() -> u64 {
+    10485760
+}
+
+const fn default_ttfb_timeout() -> u64 {
+    5
+}
+
+const fn default_resp_timeout() -> u64 {
+    10
+}
+
+const fn default_message_domain_invalid_snappy() -> [u8; 4] {
+    [0, 0, 0, 0]
+}
+
+const fn default_message_domain_valid_snappy() -> [u8; 4] {
+    [1, 0, 0, 0]
+}
+
+const fn default_attestation_subnet_extra_bits() -> u8 {
+    0
+}
+
+const fn default_attestation_subnet_prefix_bits() -> u8 {
+    6
 }
 
 impl Default for Config {
@@ -986,12 +1159,17 @@ impl Config {
             bellatrix_fork_epoch: spec
                 .bellatrix_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+            capella_fork_version: spec.capella_fork_version,
+            capella_fork_epoch: spec
+                .capella_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
             shard_committee_period: spec.shard_committee_period,
             eth1_follow_distance: spec.eth1_follow_distance,
+            subnets_per_node: spec.subnets_per_node,
 
             inactivity_score_bias: spec.inactivity_score_bias,
             inactivity_score_recovery_rate: spec.inactivity_score_recovery_rate,
@@ -1004,6 +1182,16 @@ impl Config {
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
+
+            gossip_max_size: spec.gossip_max_size,
+            min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
+            max_chunk_size: spec.max_chunk_size,
+            ttfb_timeout: spec.ttfb_timeout,
+            resp_timeout: spec.resp_timeout,
+            message_domain_invalid_snappy: spec.message_domain_invalid_snappy,
+            message_domain_valid_snappy: spec.message_domain_valid_snappy,
+            attestation_subnet_extra_bits: spec.attestation_subnet_extra_bits,
+            attestation_subnet_prefix_bits: spec.attestation_subnet_prefix_bits,
         }
     }
 
@@ -1031,11 +1219,14 @@ impl Config {
             altair_fork_epoch,
             bellatrix_fork_epoch,
             bellatrix_fork_version,
+            capella_fork_epoch,
+            capella_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
             eth1_follow_distance,
+            subnets_per_node,
             inactivity_score_bias,
             inactivity_score_recovery_rate,
             ejection_balance,
@@ -1045,6 +1236,15 @@ impl Config {
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
+            gossip_max_size,
+            min_epochs_for_block_requests,
+            max_chunk_size,
+            ttfb_timeout,
+            resp_timeout,
+            message_domain_invalid_snappy,
+            message_domain_valid_snappy,
+            attestation_subnet_extra_bits,
+            attestation_subnet_prefix_bits,
         } = self;
 
         if preset_base != T::spec_name().to_string().as_str() {
@@ -1061,11 +1261,14 @@ impl Config {
             altair_fork_epoch: altair_fork_epoch.map(|q| q.value),
             bellatrix_fork_epoch: bellatrix_fork_epoch.map(|q| q.value),
             bellatrix_fork_version,
+            capella_fork_epoch: capella_fork_epoch.map(|q| q.value),
+            capella_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
             eth1_follow_distance,
+            subnets_per_node,
             inactivity_score_bias,
             inactivity_score_recovery_rate,
             ejection_balance,
@@ -1079,6 +1282,15 @@ impl Config {
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
             safe_slots_to_import_optimistically,
+            gossip_max_size,
+            min_epochs_for_block_requests,
+            max_chunk_size,
+            ttfb_timeout,
+            resp_timeout,
+            message_domain_invalid_snappy,
+            message_domain_valid_snappy,
+            attestation_subnet_extra_bits,
+            attestation_subnet_prefix_bits,
             ..chain_spec.clone()
         })
     }
@@ -1152,6 +1364,12 @@ mod tests {
             apply_bit_mask(builder_domain_pre_mask, &spec),
             &spec,
         );
+
+        test_domain(
+            Domain::BlsToExecutionChange,
+            spec.domain_bls_to_execution_change,
+            &spec,
+        );
     }
 
     fn apply_bit_mask(domain_bytes: [u8; 4], spec: &ChainSpec) -> u32 {
@@ -1210,6 +1428,7 @@ mod tests {
 #[cfg(test)]
 mod yaml_tests {
     use super::*;
+    use paste::paste;
     use tempfile::NamedTempFile;
 
     #[test]
@@ -1314,29 +1533,35 @@ mod yaml_tests {
         "#;
 
         let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
-        assert_eq!(
-            chain_spec.terminal_total_difficulty,
-            default_terminal_total_difficulty()
-        );
-        assert_eq!(
-            chain_spec.terminal_block_hash,
-            default_terminal_block_hash()
-        );
-        assert_eq!(
-            chain_spec.terminal_block_hash_activation_epoch,
-            default_terminal_block_hash_activation_epoch()
-        );
-        assert_eq!(
-            chain_spec.safe_slots_to_import_optimistically,
-            default_safe_slots_to_import_optimistically()
-        );
+
+        // Asserts that `chain_spec.$name` and `default_$name()` are equal.
+        macro_rules! check_default {
+            ($name: ident) => {
+                paste! {
+                    assert_eq!(
+                        chain_spec.$name,
+                        [<default_ $name>](),
+                        "{} does not match default", stringify!($name));
+                }
+            };
+        }
+
+        check_default!(terminal_total_difficulty);
+        check_default!(terminal_block_hash);
+        check_default!(terminal_block_hash_activation_epoch);
+        check_default!(safe_slots_to_import_optimistically);
+        check_default!(bellatrix_fork_version);
+        check_default!(gossip_max_size);
+        check_default!(min_epochs_for_block_requests);
+        check_default!(max_chunk_size);
+        check_default!(ttfb_timeout);
+        check_default!(resp_timeout);
+        check_default!(message_domain_invalid_snappy);
+        check_default!(message_domain_valid_snappy);
+        check_default!(attestation_subnet_extra_bits);
+        check_default!(attestation_subnet_prefix_bits);
 
         assert_eq!(chain_spec.bellatrix_fork_epoch, None);
-
-        assert_eq!(
-            chain_spec.bellatrix_fork_version,
-            default_bellatrix_fork_version()
-        );
     }
 
     #[test]

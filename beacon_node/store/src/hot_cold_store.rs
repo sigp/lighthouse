@@ -1,5 +1,5 @@
 use crate::chunked_vector::{
-    store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
+    store_updated_vector, BlockRoots, HistoricalRoots, HistoricalSummaries, RandaoMixes, StateRoots,
 };
 use crate::config::{
     OnDiskStoreConfig, StoreConfig, DEFAULT_SLOTS_PER_RESTORE_POINT,
@@ -30,7 +30,7 @@ use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
-    BlockProcessingError, BlockReplayer, SlotProcessingError, StateRootStrategy,
+    BlockProcessingError, BlockReplayer, SlotProcessingError, StateProcessingStrategy,
 };
 use std::cmp::min;
 use std::convert::TryInto;
@@ -62,6 +62,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pub hot_db: Hot,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
+    /// LRU cache of replayed states.
+    state_cache: Mutex<LruCache<Slot, BeaconState<E>>>,
     /// Chain spec.
     pub(crate) spec: ChainSpec,
     /// Logger.
@@ -129,6 +131,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             cold_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
             config,
             spec,
             log,
@@ -162,6 +165,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
             config,
             spec,
             log,
@@ -354,7 +358,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else if !self.config.prune_payloads {
             // If payload pruning is disabled there's a chance we may have the payload of
             // this finalized block. Attempt to load it but don't error in case it's missing.
-            if let Some(payload) = self.get_execution_payload(block_root)? {
+            let fork_name = blinded_block.fork_name(&self.spec)?;
+            if let Some(payload) = self.get_execution_payload(block_root, fork_name)? {
                 DatabaseBlock::Full(
                     blinded_block
                         .try_into_full_block(Some(payload))
@@ -386,16 +391,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Get a schema V8 or earlier full block by reading it and its payload from disk.
-    pub fn get_full_block_prior_to_v9(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<E>>, Error> {
-        self.get_block_with(block_root, |bytes| {
-            SignedBeaconBlock::from_ssz_bytes(bytes, &self.spec)
-        })
-    }
-
     /// Convert a blinded block into a full block by loading its execution payload if necessary.
     pub fn make_full_block(
         &self,
@@ -403,8 +398,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blinded_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     ) -> Result<SignedBeaconBlock<E>, Error> {
         if blinded_block.message().execution_payload().is_ok() {
+            let fork_name = blinded_block.fork_name(&self.spec)?;
             let execution_payload = self
-                .get_execution_payload(block_root)?
+                .get_execution_payload(block_root, fork_name)?
                 .ok_or(HotColdDBError::MissingExecutionPayload(*block_root))?;
             blinded_block.try_into_full_block(Some(execution_payload))
         } else {
@@ -423,7 +419,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch a block from the store, ignoring which fork variant it *should* be for.
-    pub fn get_block_any_variant<Payload: ExecPayload<E>>(
+    pub fn get_block_any_variant<Payload: AbstractExecPayload<E>>(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedBeaconBlock<E, Payload>>, Error> {
@@ -434,7 +430,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// This is useful for e.g. ignoring the slot-indicated fork to forcefully load a block as if it
     /// were for a different fork.
-    pub fn get_block_with<Payload: ExecPayload<E>>(
+    pub fn get_block_with<Payload: AbstractExecPayload<E>>(
         &self,
         block_root: &Hash256,
         decoder: impl FnOnce(&[u8]) -> Result<SignedBeaconBlock<E, Payload>, ssz::DecodeError>,
@@ -447,7 +443,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Load the execution payload for a block from disk.
+    /// This method deserializes with the proper fork.
     pub fn get_execution_payload(
+        &self,
+        block_root: &Hash256,
+        fork_name: ForkName,
+    ) -> Result<Option<ExecutionPayload<E>>, Error> {
+        let column = ExecutionPayload::<E>::db_column().into();
+        let key = block_root.as_bytes();
+
+        match self.hot_db.get_bytes(column, key)? {
+            Some(bytes) => Ok(Some(ExecutionPayload::from_ssz_bytes(&bytes, fork_name)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Load the execution payload for a block from disk.
+    /// DANGEROUS: this method just guesses the fork.
+    pub fn get_execution_payload_dangerous_fork_agnostic(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<ExecutionPayload<E>>, Error> {
@@ -518,10 +531,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 // chain. This way we avoid returning a state that doesn't match `state_root`.
                 self.load_cold_state(state_root)
             } else {
-                self.load_hot_state(state_root, StateRootStrategy::Accurate)
+                self.load_hot_state(state_root, StateProcessingStrategy::Accurate)
             }
         } else {
-            match self.load_hot_state(state_root, StateRootStrategy::Accurate)? {
+            match self.load_hot_state(state_root, StateProcessingStrategy::Accurate)? {
                 Some(state) => Ok(Some(state)),
                 None => self.load_cold_state(state_root),
             }
@@ -559,7 +572,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
             .into())
         } else {
-            self.load_hot_state(state_root, StateRootStrategy::Inconsistent)
+            self.load_hot_state(state_root, StateProcessingStrategy::Inconsistent)
         }
     }
 
@@ -649,10 +662,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         {
             // NOTE: minor inefficiency here because we load an unnecessary hot state summary
             //
-            // `StateRootStrategy` should be irrelevant here since we never replay blocks for an epoch
+            // `StateProcessingStrategy` should be irrelevant here since we never replay blocks for an epoch
             // boundary state in the hot DB.
             let state = self
-                .load_hot_state(&epoch_boundary_state_root, StateRootStrategy::Accurate)?
+                .load_hot_state(
+                    &epoch_boundary_state_root,
+                    StateProcessingStrategy::Accurate,
+                )?
                 .ok_or(HotColdDBError::MissingEpochBoundaryState(
                     epoch_boundary_state_root,
                 ))?;
@@ -737,6 +753,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     let key = get_key_for_col(DBColumn::ExecPayload.into(), block_root.as_bytes());
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
                 }
+
+                StoreOp::KeyValueOp(kv_op) => {
+                    key_value_batch.push(kv_op);
+                }
             }
         }
         Ok(key_value_batch)
@@ -768,6 +788,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::DeleteState(_, _) => (),
 
                 StoreOp::DeleteExecutionPayload(_) => (),
+
+                StoreOp::KeyValueOp(_) => (),
             }
         }
 
@@ -815,7 +837,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn load_hot_state(
         &self,
         state_root: &Hash256,
-        state_root_strategy: StateRootStrategy,
+        state_processing_strategy: StateProcessingStrategy,
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
@@ -848,7 +870,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     blocks,
                     slot,
                     no_state_root_iter(),
-                    state_root_strategy,
+                    state_processing_strategy,
                 )?
             };
 
@@ -891,6 +913,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         store_updated_vector(StateRoots, db, state, &self.spec, ops)?;
         store_updated_vector(HistoricalRoots, db, state, &self.spec, ops)?;
         store_updated_vector(RandaoMixes, db, state, &self.spec, ops)?;
+        store_updated_vector(HistoricalSummaries, db, state, &self.spec, ops)?;
 
         // 3. Store restore point.
         let restore_point_index = state.slot().as_u64() / self.config.slots_per_restore_point;
@@ -945,6 +968,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         partial_state.load_state_roots(&self.cold_db, &self.spec)?;
         partial_state.load_historical_roots(&self.cold_db, &self.spec)?;
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
+        partial_state.load_historical_summaries(&self.cold_db, &self.spec)?;
 
         partial_state.try_into()
     }
@@ -960,40 +984,70 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Load a frozen state that lies between restore points.
     fn load_cold_intermediate_state(&self, slot: Slot) -> Result<BeaconState<E>, Error> {
+        if let Some(state) = self.state_cache.lock().get(&slot) {
+            return Ok(state.clone());
+        }
+
         // 1. Load the restore points either side of the intermediate state.
         let low_restore_point_idx = slot.as_u64() / self.config.slots_per_restore_point;
         let high_restore_point_idx = low_restore_point_idx + 1;
 
+        // Use low restore point as the base state.
+        let mut low_slot: Slot =
+            Slot::new(low_restore_point_idx * self.config.slots_per_restore_point);
+        let mut low_state: Option<BeaconState<E>> = None;
+
+        // Try to get a more recent state from the cache to avoid massive blocks replay.
+        for (s, state) in self.state_cache.lock().iter() {
+            if s.as_u64() / self.config.slots_per_restore_point == low_restore_point_idx
+                && *s < slot
+                && low_slot < *s
+            {
+                low_slot = *s;
+                low_state = Some(state.clone());
+            }
+        }
+
+        // If low_state is still None, use load_restore_point_by_index to load the state.
+        let low_state = match low_state {
+            Some(state) => state,
+            None => self.load_restore_point_by_index(low_restore_point_idx)?,
+        };
+
         // Acquire the read lock, so that the split can't change while this is happening.
         let split = self.split.read_recursive();
 
-        let low_restore_point = self.load_restore_point_by_index(low_restore_point_idx)?;
         let high_restore_point = self.get_restore_point(high_restore_point_idx, &split)?;
 
-        // 2. Load the blocks from the high restore point back to the low restore point.
+        // 2. Load the blocks from the high restore point back to the low point.
         let blocks = self.load_blocks_to_replay(
-            low_restore_point.slot(),
+            low_slot,
             slot,
             self.get_high_restore_point_block_root(&high_restore_point, slot)?,
         )?;
 
-        // 3. Replay the blocks on top of the low restore point.
+        // 3. Replay the blocks on top of the low point.
         // Use a forwards state root iterator to avoid doing any tree hashing.
         // The state root of the high restore point should never be used, so is safely set to 0.
         let state_root_iter = self.forwards_state_roots_iterator_until(
-            low_restore_point.slot(),
+            low_slot,
             slot,
             || (high_restore_point, Hash256::zero()),
             &self.spec,
         )?;
 
-        self.replay_blocks(
-            low_restore_point,
+        let state = self.replay_blocks(
+            low_state,
             blocks,
             slot,
             Some(state_root_iter),
-            StateRootStrategy::Accurate,
-        )
+            StateProcessingStrategy::Accurate,
+        )?;
+
+        // If state is not error, put it in the cache.
+        self.state_cache.lock().put(slot, state.clone());
+
+        Ok(state)
     }
 
     /// Get the restore point with the given index, or if it is out of bounds, the split state.
@@ -1079,10 +1133,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blocks: Vec<SignedBeaconBlock<E, BlindedPayload<E>>>,
         target_slot: Slot,
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
-        state_root_strategy: StateRootStrategy,
+        state_processing_strategy: StateProcessingStrategy,
     ) -> Result<BeaconState<E>, Error> {
         let mut block_replayer = BlockReplayer::new(state, &self.spec)
-            .state_root_strategy(state_root_strategy)
+            .state_processing_strategy(state_processing_strategy)
             .no_signature_verification()
             .minimal_block_root_verification();
 
@@ -1109,6 +1163,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Get a reference to the `ChainSpec` used by the database.
     pub fn get_chain_spec(&self) -> &ChainSpec {
         &self.spec
+    }
+
+    /// Get a reference to the `Logger` used by the database.
+    pub fn logger(&self) -> &Logger {
+        &self.log
     }
 
     /// Fetch a copy of the current split slot from memory.
@@ -1719,7 +1778,7 @@ fn no_state_root_iter() -> Option<std::iter::Empty<Result<(Hash256, Slot), Error
 /// Allows full reconstruction by replaying blocks.
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 pub struct HotStateSummary {
-    slot: Slot,
+    pub slot: Slot,
     pub latest_block_root: Hash256,
     epoch_boundary_state_root: Hash256,
 }

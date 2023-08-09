@@ -44,3 +44,9 @@ in `lighthouse/target/aarch64-unknown-linux-gnu/release`.
 When using the makefile the set of features used for building can be controlled with
 the environment variable `CROSS_FEATURES`. See [Feature
  Flags](./installation-source.md#feature-flags) for available features.
+
+## Compilation Profiles
+
+When using the makefile the build profile can be controlled with the environment variable
+`CROSS_PROFILE`. See [Compilation Profiles](./installation-source.md#compilation-profiles) for
+available profiles.

@@ -1,16 +1,19 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
-use fork_choice::{CountUnrealized, ForkChoice, PayloadVerificationStatus};
+use fork_choice::{ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
-use proto_array::CountUnrealizedFull;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
-    per_block_processing, per_block_processing::BlockSignatureStrategy, VerifyBlockRoot,
+    per_block_processing, per_block_processing::BlockSignatureStrategy, ConsensusContext,
+    StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::sync::Arc;
 use std::time::Duration;
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
-use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    BeaconState, ChainSpec, EthSpec, ForkName, Hash256, ProgressiveBalancesMode, SignedBeaconBlock,
+    Slot,
+};
 
 const CORRUPT_DB_MESSAGE: &str = "The database could be corrupt. Check its file permissions or \
                                   consider deleting it by running with the --purge-db flag.";
@@ -100,8 +103,8 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     store: Arc<HotColdDB<E, Hot, Cold>>,
     current_slot: Option<Slot>,
     spec: &ChainSpec,
-    count_unrealized_config: CountUnrealized,
-    count_unrealized_full_config: CountUnrealizedFull,
+    progressive_balances_mode: ProgressiveBalancesMode,
+    log: &Logger,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
     let finalized_checkpoint = head_state.finalized_checkpoint();
@@ -146,7 +149,8 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         beacon_state: finalized_state,
     };
 
-    let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &finalized_snapshot);
+    let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &finalized_snapshot)
+        .map_err(|e| format!("Unable to reset fork choice store for revert: {e:?}"))?;
 
     let mut fork_choice = ForkChoice::from_anchor(
         fc_store,
@@ -154,7 +158,6 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         &finalized_snapshot.beacon_block,
         &finalized_snapshot.beacon_state,
         current_slot,
-        count_unrealized_full_config,
         spec,
     )
     .map_err(|e| format!("Unable to reset fork choice for revert: {:?}", e))?;
@@ -167,17 +170,19 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         .map_err(|e| format!("Error loading blocks to replay for fork choice: {:?}", e))?;
 
     let mut state = finalized_snapshot.beacon_state;
-    let blocks_len = blocks.len();
-    for (i, block) in blocks.into_iter().enumerate() {
+    for block in blocks {
         complete_state_advance(&mut state, None, block.slot(), spec)
             .map_err(|e| format!("State advance failed: {:?}", e))?;
 
+        let mut ctxt = ConsensusContext::new(block.slot())
+            .set_proposer_index(block.message().proposer_index());
         per_block_processing(
             &mut state,
             &block,
-            None,
             BlockSignatureStrategy::NoVerification,
+            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
+            &mut ctxt,
             spec,
         )
         .map_err(|e| format!("Error replaying block: {:?}", e))?;
@@ -188,15 +193,6 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         // This scenario is so rare that it seems OK to double-verify some blocks.
         let payload_verification_status = PayloadVerificationStatus::Optimistic;
 
-        // Because we are replaying a single chain of blocks, we only need to calculate unrealized
-        // justification for the last block in the chain.
-        let is_last_block = i + 1 == blocks_len;
-        let count_unrealized = if is_last_block {
-            count_unrealized_config
-        } else {
-            CountUnrealized::False
-        };
-
         fork_choice
             .on_block(
                 block.slot(),
@@ -206,8 +202,9 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
                 Duration::from_secs(0),
                 &state,
                 payload_verification_status,
+                progressive_balances_mode,
                 spec,
-                count_unrealized,
+                log,
             )
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
     }

@@ -1,8 +1,6 @@
 #![cfg(test)]
 use lighthouse_network::rpc::methods::*;
-use lighthouse_network::{
-    rpc::max_rpc_size, BehaviourEvent, Libp2pEvent, ReportSource, Request, Response,
-};
+use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
 use slog::{debug, warn, Level};
 use ssz::Encode;
 use ssz_types::VariableList;
@@ -11,8 +9,9 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Epoch, EthSpec, ForkContext,
-    ForkName, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, ChainSpec, EmptyBlock,
+    Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock,
+    Slot,
 };
 
 mod common;
@@ -20,30 +19,30 @@ mod common;
 type E = MinimalEthSpec;
 
 /// Merge block with length < max_rpc_size.
-fn merge_block_small(fork_context: &ForkContext) -> BeaconBlock<E> {
-    let mut block = BeaconBlockMerge::<E>::empty(&E::default_spec());
+fn merge_block_small(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBlock<E> {
+    let mut block = BeaconBlockMerge::<E>::empty(spec);
     let tx = VariableList::from(vec![0; 1024]);
     let txs = VariableList::from(std::iter::repeat(tx).take(5000).collect::<Vec<_>>());
 
     block.body.execution_payload.execution_payload.transactions = txs;
 
     let block = BeaconBlock::Merge(block);
-    assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context));
+    assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, spec.max_chunk_size as usize));
     block
 }
 
 /// Merge block with length > MAX_RPC_SIZE.
 /// The max limit for a merge block is in the order of ~16GiB which wouldn't fit in memory.
 /// Hence, we generate a merge block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
-fn merge_block_large(fork_context: &ForkContext) -> BeaconBlock<E> {
-    let mut block = BeaconBlockMerge::<E>::empty(&E::default_spec());
+fn merge_block_large(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBlock<E> {
+    let mut block = BeaconBlockMerge::<E>::empty(spec);
     let tx = VariableList::from(vec![0; 1024]);
     let txs = VariableList::from(std::iter::repeat(tx).take(100000).collect::<Vec<_>>());
 
     block.body.execution_payload.execution_payload.transactions = txs;
 
     let block = BeaconBlock::Merge(block);
-    assert!(block.ssz_bytes_len() > max_rpc_size(fork_context));
+    assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, spec.max_chunk_size as usize));
     block
 }
 
@@ -59,10 +58,12 @@ fn test_status_rpc() {
 
     let log = common::build_log(log_level, enable_logging);
 
+    let spec = E::default_spec();
+
     rt.block_on(async {
         // get sender/receiver
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
 
         // Dummy STATUS RPC message
         let rpc_request = Request::Status(StatusMessage {
@@ -86,19 +87,16 @@ fn test_status_rpc() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender
-                            .swarm
-                            .behaviour_mut()
-                            .send_request(peer_id, 10, rpc_request.clone());
+                        sender.send_request(peer_id, 10, rpc_request.clone());
                     }
-                    Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
+                    NetworkEvent::ResponseReceived {
                         peer_id: _,
                         id: 10,
                         response,
-                    }) => {
+                    } => {
                         // Should receive the RPC response
                         debug!(log, "Sender Received");
                         assert_eq!(response, rpc_response.clone());
@@ -114,19 +112,15 @@ fn test_status_rpc() {
         let receiver_future = async {
             loop {
                 match receiver.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::RequestReceived {
+                    NetworkEvent::RequestReceived {
                         peer_id,
                         id,
                         request,
-                    }) => {
+                    } => {
                         if request == rpc_request {
                             // send the response
                             debug!(log, "Receiver Received");
-                            receiver.swarm.behaviour_mut().send_successful_response(
-                                peer_id,
-                                id,
-                                rpc_response.clone(),
-                            );
+                            receiver.send_response(peer_id, id, rpc_response.clone());
                         }
                     }
                     _ => {} // Ignore other events
@@ -158,16 +152,15 @@ fn test_blocks_by_range_chunked_rpc() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
+    let spec = E::default_spec();
+
     rt.block_on(async {
         // get sender/receiver
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge, &spec).await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
-            start_slot: 0,
-            count: messages_to_send,
-        });
+        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
 
         let spec = E::default_spec();
 
@@ -180,7 +173,7 @@ fn test_blocks_by_range_chunked_rpc() {
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_altair = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
-        let full_block = merge_block_small(&common::fork_context(ForkName::Merge));
+        let full_block = merge_block_small(&common::fork_context(ForkName::Merge), &spec);
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_merge_small = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
@@ -191,20 +184,16 @@ fn test_blocks_by_range_chunked_rpc() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.behaviour_mut().send_request(
-                            peer_id,
-                            request_id,
-                            rpc_request.clone(),
-                        );
+                        sender.send_request(peer_id, request_id, rpc_request.clone());
                     }
-                    Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
+                    NetworkEvent::ResponseReceived {
                         peer_id: _,
                         id: _,
                         response,
-                    }) => {
+                    } => {
                         warn!(log, "Sender received a response");
                         match response {
                             Response::BlocksByRange(Some(_)) => {
@@ -236,11 +225,11 @@ fn test_blocks_by_range_chunked_rpc() {
         let receiver_future = async {
             loop {
                 match receiver.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::RequestReceived {
+                    NetworkEvent::RequestReceived {
                         peer_id,
                         id,
                         request,
-                    }) => {
+                    } => {
                         if request == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
@@ -254,18 +243,10 @@ fn test_blocks_by_range_chunked_rpc() {
                                 } else {
                                     rpc_response_merge_small.clone()
                                 };
-                                receiver.swarm.behaviour_mut().send_successful_response(
-                                    peer_id,
-                                    id,
-                                    rpc_response.clone(),
-                                );
+                                receiver.send_response(peer_id, id, rpc_response.clone());
                             }
                             // send the stream termination
-                            receiver.swarm.behaviour_mut().send_successful_response(
-                                peer_id,
-                                id,
-                                Response::BlocksByRange(None),
-                            );
+                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
                         }
                     }
                     _ => {} // Ignore other events
@@ -297,19 +278,18 @@ fn test_blocks_by_range_over_limit() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
+    let spec = E::default_spec();
+
     rt.block_on(async {
         // get sender/receiver
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge, &spec).await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
-            start_slot: 0,
-            count: messages_to_send,
-        });
+        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
 
         // BlocksByRange Response
-        let full_block = merge_block_large(&common::fork_context(ForkName::Merge));
+        let full_block = merge_block_large(&common::fork_context(ForkName::Merge), &spec);
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_merge_large = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
@@ -318,17 +298,13 @@ fn test_blocks_by_range_over_limit() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.behaviour_mut().send_request(
-                            peer_id,
-                            request_id,
-                            rpc_request.clone(),
-                        );
+                        sender.send_request(peer_id, request_id, rpc_request.clone());
                     }
                     // The request will fail because the sender will refuse to send anything > MAX_RPC_SIZE
-                    Libp2pEvent::Behaviour(BehaviourEvent::RPCFailed { id, .. }) => {
+                    NetworkEvent::RPCFailed { id, .. } => {
                         assert_eq!(id, request_id);
                         return;
                     }
@@ -341,28 +317,20 @@ fn test_blocks_by_range_over_limit() {
         let receiver_future = async {
             loop {
                 match receiver.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::RequestReceived {
+                    NetworkEvent::RequestReceived {
                         peer_id,
                         id,
                         request,
-                    }) => {
+                    } => {
                         if request == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
                             for _ in 0..messages_to_send {
                                 let rpc_response = rpc_response_merge_large.clone();
-                                receiver.swarm.behaviour_mut().send_successful_response(
-                                    peer_id,
-                                    id,
-                                    rpc_response.clone(),
-                                );
+                                receiver.send_response(peer_id, id, rpc_response.clone());
                             }
                             // send the stream termination
-                            receiver.swarm.behaviour_mut().send_successful_response(
-                                peer_id,
-                                id,
-                                Response::BlocksByRange(None),
-                            );
+                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
                         }
                     }
                     _ => {} // Ignore other events
@@ -394,16 +362,15 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
+    let spec = E::default_spec();
+
     rt.block_on(async {
         // get sender/receiver
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
-            start_slot: 0,
-            count: messages_to_send,
-        });
+        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
 
         // BlocksByRange Response
         let spec = E::default_spec();
@@ -418,20 +385,16 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.behaviour_mut().send_request(
-                            peer_id,
-                            request_id,
-                            rpc_request.clone(),
-                        );
+                        sender.send_request(peer_id, request_id, rpc_request.clone());
                     }
-                    Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
+                    NetworkEvent::ResponseReceived {
                         peer_id: _,
                         id: _,
                         response,
-                    }) =>
+                    } =>
                     // Should receive the RPC response
                     {
                         debug!(log, "Sender received a response");
@@ -469,11 +432,11 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                 .await
                 {
                     futures::future::Either::Left((
-                        Libp2pEvent::Behaviour(BehaviourEvent::RequestReceived {
+                        NetworkEvent::RequestReceived {
                             peer_id,
                             id,
                             request,
-                        }),
+                        },
                         _,
                     )) => {
                         if request == rpc_request {
@@ -490,11 +453,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                 if message_info.is_some() {
                     messages_sent += 1;
                     let (peer_id, stream_id) = message_info.as_ref().unwrap();
-                    receiver.swarm.behaviour_mut().send_successful_response(
-                        *peer_id,
-                        *stream_id,
-                        rpc_response.clone(),
-                    );
+                    receiver.send_response(*peer_id, *stream_id, rpc_response.clone());
                     debug!(log, "Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
@@ -525,16 +484,15 @@ fn test_blocks_by_range_single_empty_rpc() {
     let log = common::build_log(log_level, enable_logging);
     let rt = Arc::new(Runtime::new().unwrap());
 
+    let spec = E::default_spec();
+
     rt.block_on(async {
         // get sender/receiver
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
-            start_slot: 0,
-            count: 10,
-        });
+        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, 10));
 
         // BlocksByRange Response
         let spec = E::default_spec();
@@ -550,19 +508,16 @@ fn test_blocks_by_range_single_empty_rpc() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender
-                            .swarm
-                            .behaviour_mut()
-                            .send_request(peer_id, 10, rpc_request.clone());
+                        sender.send_request(peer_id, 10, rpc_request.clone());
                     }
-                    Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
+                    NetworkEvent::ResponseReceived {
                         peer_id: _,
                         id: 10,
                         response,
-                    }) => match response {
+                    } => match response {
                         Response::BlocksByRange(Some(_)) => {
                             assert_eq!(response, rpc_response.clone());
                             messages_received += 1;
@@ -585,28 +540,20 @@ fn test_blocks_by_range_single_empty_rpc() {
         let receiver_future = async {
             loop {
                 match receiver.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::RequestReceived {
+                    NetworkEvent::RequestReceived {
                         peer_id,
                         id,
                         request,
-                    }) => {
+                    } => {
                         if request == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
 
                             for _ in 1..=messages_to_send {
-                                receiver.swarm.behaviour_mut().send_successful_response(
-                                    peer_id,
-                                    id,
-                                    rpc_response.clone(),
-                                );
+                                receiver.send_response(peer_id, id, rpc_response.clone());
                             }
                             // send the stream termination
-                            receiver.swarm.behaviour_mut().send_successful_response(
-                                peer_id,
-                                id,
-                                Response::BlocksByRange(None),
-                            );
+                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
                         }
                     }
                     _ => {} // Ignore other events
@@ -643,19 +590,18 @@ fn test_blocks_by_root_chunked_rpc() {
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge, &spec).await;
 
         // BlocksByRoot Request
-        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest {
-            block_roots: VariableList::from(vec![
+        let rpc_request =
+            Request::BlocksByRoot(BlocksByRootRequest::new(VariableList::from(vec![
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
-            ]),
-        });
+            ])));
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
@@ -666,7 +612,7 @@ fn test_blocks_by_root_chunked_rpc() {
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_altair = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
-        let full_block = merge_block_small(&common::fork_context(ForkName::Merge));
+        let full_block = merge_block_small(&common::fork_context(ForkName::Merge), &spec);
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_merge_small = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
@@ -676,19 +622,16 @@ fn test_blocks_by_root_chunked_rpc() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender
-                            .swarm
-                            .behaviour_mut()
-                            .send_request(peer_id, 6, rpc_request.clone());
+                        sender.send_request(peer_id, 6, rpc_request.clone());
                     }
-                    Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
+                    NetworkEvent::ResponseReceived {
                         peer_id: _,
                         id: 6,
                         response,
-                    }) => match response {
+                    } => match response {
                         Response::BlocksByRoot(Some(_)) => {
                             if messages_received < 2 {
                                 assert_eq!(response, rpc_response_base.clone());
@@ -717,11 +660,11 @@ fn test_blocks_by_root_chunked_rpc() {
         let receiver_future = async {
             loop {
                 match receiver.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::RequestReceived {
+                    NetworkEvent::RequestReceived {
                         peer_id,
                         id,
                         request,
-                    }) => {
+                    } => {
                         if request == rpc_request {
                             // send the response
                             debug!(log, "Receiver got request");
@@ -735,19 +678,11 @@ fn test_blocks_by_root_chunked_rpc() {
                                 } else {
                                     rpc_response_merge_small.clone()
                                 };
-                                receiver.swarm.behaviour_mut().send_successful_response(
-                                    peer_id,
-                                    id,
-                                    rpc_response,
-                                );
+                                receiver.send_response(peer_id, id, rpc_response);
                                 debug!(log, "Sending message");
                             }
                             // send the stream termination
-                            receiver.swarm.behaviour_mut().send_successful_response(
-                                peer_id,
-                                id,
-                                Response::BlocksByRange(None),
-                            );
+                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
                             debug!(log, "Send stream term");
                         }
                     }
@@ -782,11 +717,11 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
 
         // BlocksByRoot Request
-        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest {
-            block_roots: VariableList::from(vec![
+        let rpc_request =
+            Request::BlocksByRoot(BlocksByRootRequest::new(VariableList::from(vec![
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
@@ -797,8 +732,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
-            ]),
-        });
+            ])));
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
@@ -811,19 +745,16 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender
-                            .swarm
-                            .behaviour_mut()
-                            .send_request(peer_id, 10, rpc_request.clone());
+                        sender.send_request(peer_id, 10, rpc_request.clone());
                     }
-                    Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
+                    NetworkEvent::ResponseReceived {
                         peer_id: _,
                         id: 10,
                         response,
-                    }) => {
+                    } => {
                         debug!(log, "Sender received a response");
                         match response {
                             Response::BlocksByRoot(Some(_)) => {
@@ -861,11 +792,11 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
                 .await
                 {
                     futures::future::Either::Left((
-                        Libp2pEvent::Behaviour(BehaviourEvent::RequestReceived {
+                        NetworkEvent::RequestReceived {
                             peer_id,
                             id,
                             request,
-                        }),
+                        },
                         _,
                     )) => {
                         if request == rpc_request {
@@ -882,11 +813,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
                 if message_info.is_some() {
                     messages_sent += 1;
                     let (peer_id, stream_id) = message_info.as_ref().unwrap();
-                    receiver.swarm.behaviour_mut().send_successful_response(
-                        *peer_id,
-                        *stream_id,
-                        rpc_response.clone(),
-                    );
+                    receiver.send_response(*peer_id, *stream_id, rpc_response.clone());
                     debug!(log, "Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
@@ -917,25 +844,28 @@ fn test_goodbye_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
+
+    let spec = E::default_spec();
+
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
 
         // build the sender future
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a goodbye and disconnect
                         debug!(log, "Sending RPC");
-                        sender.swarm.behaviour_mut().goodbye_peer(
+                        sender.goodbye_peer(
                             &peer_id,
                             GoodbyeReason::IrrelevantNetwork,
                             ReportSource::SyncService,
                         );
                     }
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDisconnected(_)) => {
+                    NetworkEvent::PeerDisconnected(_) => {
                         return;
                     }
                     _ => {} // Ignore other RPC messages
@@ -947,7 +877,7 @@ fn test_goodbye_rpc() {
         let receiver_future = async {
             loop {
                 match receiver.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDisconnected(_)) => {
+                    NetworkEvent::PeerDisconnected(_) => {
                         // Should receive sent RPC request
                         return;
                     }

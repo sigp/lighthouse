@@ -4,6 +4,7 @@ members = [
 
     "beacon_node",
     "beacon_node/beacon_chain",
+    "beacon_node/beacon_processor",
     "beacon_node/builder_client",
     "beacon_node/client",
     "beacon_node/eth1",
@@ -34,15 +35,17 @@ members = [
     "common/logging",
     "common/lru_cache",
     "common/malloc_utils",
+    "common/oneshot_broadcast",
+    "common/pretty_reqwest_error",
     "common/sensitive_url",
     "common/slot_clock",
+    "common/system_health",
     "common/task_executor",
     "common/target_check",
     "common/test_random_derive",
     "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
-    "common/fallback",
     "common/monitoring_api",
 
     "database_manager",
@@ -52,17 +55,10 @@ members = [
     "consensus/fork_choice",
     "consensus/proto_array",
     "consensus/safe_arith",
-    "consensus/ssz",
-    "consensus/ssz_derive",
-    "consensus/ssz_types",
-    "consensus/serde_utils",
     "consensus/state_processing",
     "consensus/swap_or_not_shuffle",
-    "consensus/tree_hash",
-    "consensus/tree_hash_derive",
 
     "crypto/bls",
-    "crypto/eth2_hashing",
     "crypto/eth2_key_derivation",
     "crypto/eth2_keystore",
     "crypto/eth2_wallet",
@@ -86,16 +82,19 @@ members = [
 
     "validator_client",
     "validator_client/slashing_protection",
+
+    "validator_manager",
+
+    "watch",
 ]
+resolver = "2"
 
 [patch]
 [patch.crates-io]
-fixed-hash = { git = "https://github.com/paritytech/parity-common", rev="df638ab0885293d21d656dc300d39236b69ce57d" }
 warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
-eth2_ssz = { path = "consensus/ssz" }
-eth2_ssz_derive = { path = "consensus/ssz_derive" }
-eth2_ssz_types = { path = "consensus/ssz_types" }
-eth2_hashing = { path = "crypto/eth2_hashing" }
-tree_hash = { path = "consensus/tree_hash" }
-tree_hash_derive = { path = "consensus/tree_hash_derive" }
-eth2_serde_utils = { path = "consensus/serde_utils" }
+
+[profile.maxperf]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+incremental = false

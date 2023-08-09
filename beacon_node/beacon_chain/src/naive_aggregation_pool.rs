@@ -402,7 +402,7 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
 
     /// Returns the total number of items stored in `self`.
     pub fn num_items(&self) -> usize {
-        self.maps.iter().map(|(_, map)| map.len()).sum()
+        self.maps.values().map(T::len).sum()
     }
 
     /// Returns an aggregated `T::Value` with the given `T::Data`, if any.
@@ -448,11 +448,7 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
         // If we have too many maps, remove the lowest amount to ensure we only have
         // `SLOTS_RETAINED` left.
         if self.maps.len() > SLOTS_RETAINED {
-            let mut slots = self
-                .maps
-                .iter()
-                .map(|(slot, _map)| *slot)
-                .collect::<Vec<_>>();
+            let mut slots = self.maps.keys().copied().collect::<Vec<_>>();
             // Sort is generally pretty slow, however `SLOTS_RETAINED` is quite low so it should be
             // negligible.
             slots.sort_unstable();

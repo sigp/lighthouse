@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #
 # Deletes all files associated with the local testnet.
@@ -9,5 +9,5 @@ set -Eeuo pipefail
 source ./vars.env
 
 if [ -d $DATADIR ]; then
-  rm -r $DATADIR
+  rm -rf $DATADIR
 fi

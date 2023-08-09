@@ -12,18 +12,18 @@ use beacon_chain::{
     StateSkipConfig, WhenSlotSkipped,
 };
 use fork_choice::{
-    CountUnrealized, ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus,
-    QueuedAttestation,
+    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
 };
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
-    Epoch, EthSpec, Hash256, IndexedAttestation, MainnetEthSpec, SignedBeaconBlock, Slot, SubnetId,
+    Epoch, EthSpec, ForkName, Hash256, IndexedAttestation, MainnetEthSpec, ProgressiveBalancesMode,
+    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
 };
 
 pub type E = MainnetEthSpec;
 
-pub const VALIDATOR_COUNT: usize = 32;
+pub const VALIDATOR_COUNT: usize = 64;
 
 /// Defines some delay between when an attestation is created and when it is mutated.
 pub enum MutationDelay {
@@ -69,6 +69,24 @@ impl ForkChoiceTest {
         Self { harness }
     }
 
+    /// Creates a new tester with the specified `ProgressiveBalancesMode` and genesis from latest fork.
+    fn new_with_progressive_balances_mode(mode: ProgressiveBalancesMode) -> ForkChoiceTest {
+        // genesis with latest fork (at least altair required to test the cache)
+        let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .spec(spec)
+            .chain_config(ChainConfig {
+                progressive_balances_mode: mode,
+                ..ChainConfig::default()
+            })
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+
+        Self { harness }
+    }
+
     /// Get a value from the `ForkChoice` instantiation.
     fn get<T, U>(&self, func: T) -> U
     where
@@ -100,16 +118,6 @@ impl ForkChoiceTest {
             self.get(|fc_store| fc_store.justified_checkpoint().epoch),
             Epoch::new(epoch),
             "justified_epoch"
-        );
-        self
-    }
-
-    /// Assert the epochs match.
-    pub fn assert_best_justified_epoch(self, epoch: u64) -> Self {
-        assert_eq!(
-            self.get(|fc_store| fc_store.best_justified_checkpoint().epoch),
-            Epoch::new(epoch),
-            "best_justified_epoch"
         );
         self
     }
@@ -151,7 +159,7 @@ impl ForkChoiceTest {
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .update_time(self.harness.chain.slot().unwrap(), &self.harness.spec)
+            .update_time(self.harness.chain.slot().unwrap())
             .unwrap();
         func(
             self.harness
@@ -223,6 +231,39 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Slash a validator from the previous epoch committee.
+    pub async fn add_previous_epoch_attester_slashing(self) -> Self {
+        let state = self.harness.get_current_state();
+        let previous_epoch_shuffling = state.get_shuffling(RelativeEpoch::Previous).unwrap();
+        let validator_indices = previous_epoch_shuffling
+            .iter()
+            .map(|idx| *idx as u64)
+            .take(1)
+            .collect();
+
+        self.harness
+            .add_attester_slashing(validator_indices)
+            .unwrap();
+
+        self
+    }
+
+    /// Slash the proposer of a block in the previous epoch.
+    pub async fn add_previous_epoch_proposer_slashing(self, slots_per_epoch: u64) -> Self {
+        let previous_epoch_slot = self.harness.get_current_slot() - slots_per_epoch;
+        let previous_epoch_block = self
+            .harness
+            .chain
+            .block_at_slot(previous_epoch_slot, WhenSlotSkipped::None)
+            .unwrap()
+            .unwrap();
+        let proposer_index: u64 = previous_epoch_block.message().proposer_index();
+
+        self.harness.add_proposer_slashing(proposer_index).unwrap();
+
+        self
+    }
+
     /// Apply `count` blocks to the chain (without attestations).
     pub async fn apply_blocks_without_new_attestations(self, count: usize) -> Self {
         self.harness.advance_slot();
@@ -241,6 +282,11 @@ impl ForkChoiceTest {
     ///
     /// If the chain is presently in an unsafe period, transition through it and the following safe
     /// period.
+    ///
+    /// Note: the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` variable has been removed
+    /// from the fork choice spec in Q1 2023. We're still leaving references to
+    /// it in our tests because (a) it's easier and (b) it allows us to easily
+    /// test for the absence of that parameter.
     pub fn move_to_next_unsafe_period(self) -> Self {
         self.move_inside_safe_to_update()
             .move_outside_safe_to_update()
@@ -292,8 +338,9 @@ impl ForkChoiceTest {
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
+                self.harness.chain.config.progressive_balances_mode,
                 &self.harness.chain.spec,
-                CountUnrealized::True,
+                self.harness.logger(),
             )
             .unwrap();
         self
@@ -335,8 +382,9 @@ impl ForkChoiceTest {
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
+                self.harness.chain.config.progressive_balances_mode,
                 &self.harness.chain.spec,
-                CountUnrealized::True,
+                self.harness.logger(),
             )
             .err()
             .expect("on_block did not return an error");
@@ -378,9 +426,13 @@ impl ForkChoiceTest {
 
         assert_eq!(
             &balances[..],
-            fc.fc_store().justified_balances(),
+            &fc.fc_store().justified_balances().effective_balances,
             "balances should match"
-        )
+        );
+        assert_eq!(
+            balances.iter().sum::<u64>(),
+            fc.fc_store().justified_balances().total_effective_balance
+        );
     }
 
     /// Returns an attestation that is valid for some slot in the given `chain`.
@@ -530,7 +582,6 @@ async fn justified_checkpoint_updates_with_descendent_outside_safe_slots() {
         .unwrap()
         .move_outside_safe_to_update()
         .assert_justified_epoch(2)
-        .assert_best_justified_epoch(2)
         .apply_blocks(1)
         .await
         .assert_justified_epoch(3);
@@ -547,11 +598,9 @@ async fn justified_checkpoint_updates_first_justification_outside_safe_to_update
         .unwrap()
         .move_to_next_unsafe_period()
         .assert_justified_epoch(0)
-        .assert_best_justified_epoch(0)
         .apply_blocks(1)
         .await
-        .assert_justified_epoch(2)
-        .assert_best_justified_epoch(2);
+        .assert_justified_epoch(2);
 }
 
 /// - The new justified checkpoint **does not** descend from the current.
@@ -579,8 +628,7 @@ async fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_with
                 .unwrap();
         })
         .await
-        .assert_justified_epoch(3)
-        .assert_best_justified_epoch(3);
+        .assert_justified_epoch(3);
 }
 
 /// - The new justified checkpoint **does not** descend from the current.
@@ -608,8 +656,9 @@ async fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_wit
                 .unwrap();
         })
         .await
-        .assert_justified_epoch(2)
-        .assert_best_justified_epoch(3);
+        // Now that `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` has been removed, the new
+        // block should have updated the justified checkpoint.
+        .assert_justified_epoch(3);
 }
 
 /// - The new justified checkpoint **does not** descend from the current.
@@ -637,8 +686,7 @@ async fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_wit
                 .unwrap();
         })
         .await
-        .assert_justified_epoch(3)
-        .assert_best_justified_epoch(3);
+        .assert_justified_epoch(3);
 }
 
 /// Check that the balances are obtained correctly.
@@ -1294,4 +1342,50 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
         .unwrap_err()
         .assert_finalized_epoch_is_less_than(checkpoint.epoch)
         .assert_shutdown_signal_sent();
+}
+
+/// Checks that `ProgressiveBalancesCache` is updated correctly after an attester slashing event,
+/// where the slashed validator is a target attester in previous / current epoch.
+#[tokio::test]
+async fn progressive_balances_cache_attester_slashing() {
+    ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Strict)
+        // first two epochs
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_attester_slashing()
+        .await
+        // expect fork choice to import blocks successfully after a previous epoch attester is
+        // slashed, i.e. the slashed attester's balance is correctly excluded from
+        // the previous epoch total balance in `ProgressiveBalancesCache`.
+        .apply_blocks(1)
+        .await
+        // expect fork choice to import another epoch of blocks successfully - the slashed
+        // attester's balance should be excluded from the current epoch total balance in
+        // `ProgressiveBalancesCache` as well.
+        .apply_blocks(MainnetEthSpec::slots_per_epoch() as usize)
+        .await;
+}
+
+/// Checks that `ProgressiveBalancesCache` is updated correctly after a proposer slashing event,
+/// where the slashed validator is a target attester in previous / current epoch.
+#[tokio::test]
+async fn progressive_balances_cache_proposer_slashing() {
+    ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Strict)
+        // first two epochs
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_proposer_slashing(MainnetEthSpec::slots_per_epoch())
+        .await
+        // expect fork choice to import blocks successfully after a previous epoch proposer is
+        // slashed, i.e. the slashed proposer's balance is correctly excluded from
+        // the previous epoch total balance in `ProgressiveBalancesCache`.
+        .apply_blocks(1)
+        .await
+        // expect fork choice to import another epoch of blocks successfully - the slashed
+        // proposer's balance should be excluded from the current epoch total balance in
+        // `ProgressiveBalancesCache` as well.
+        .apply_blocks(MainnetEthSpec::slots_per_epoch() as usize)
+        .await;
 }

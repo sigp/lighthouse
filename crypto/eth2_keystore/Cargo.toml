@@ -11,7 +11,7 @@ rand = "0.8.5"
 hmac = "0.11.0"
 pbkdf2 = { version = "0.8.0", default-features = false }
 scrypt = { version = "0.7.0", default-features = false }
-sha2 = "0.9.1"
+sha2 = "0.9.2"
 uuid = { version = "0.8.1", features = ["serde", "v4"] }
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 serde = "1.0.116"

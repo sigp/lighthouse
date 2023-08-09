@@ -4,8 +4,8 @@ use account_utils::{
     eth2_keystore::Keystore,
     read_password_from_user,
     validator_definitions::{
-        recursively_find_voting_keystores, ValidatorDefinition, ValidatorDefinitions,
-        CONFIG_FILENAME,
+        recursively_find_voting_keystores, PasswordStorage, ValidatorDefinition,
+        ValidatorDefinitions, CONFIG_FILENAME,
     },
     ZeroizeString,
 };
@@ -176,7 +176,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
             let password = match keystore_password_path.as_ref() {
                 Some(path) => {
-                    let password_from_file: ZeroizeString = fs::read_to_string(&path)
+                    let password_from_file: ZeroizeString = fs::read_to_string(path)
                         .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))?
                         .into();
                     password_from_file.without_newlines()
@@ -256,7 +256,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             .ok_or_else(|| format!("Badly formatted file name: {:?}", src_keystore))?;
 
         // Copy the keystore to the new location.
-        fs::copy(&src_keystore, &dest_keystore)
+        fs::copy(src_keystore, &dest_keystore)
             .map_err(|e| format!("Unable to copy keystore: {:?}", e))?;
 
         // Register with slashing protection.
@@ -277,7 +277,9 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         let suggested_fee_recipient = None;
         let validator_def = ValidatorDefinition::new_keystore_with_password(
             &dest_keystore,
-            password_opt,
+            password_opt
+                .map(PasswordStorage::ValidatorDefinitions)
+                .unwrap_or(PasswordStorage::None),
             graffiti,
             suggested_fee_recipient,
             None,

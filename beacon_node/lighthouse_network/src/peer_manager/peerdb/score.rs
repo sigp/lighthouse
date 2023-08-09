@@ -5,7 +5,7 @@
 //! As the logic develops this documentation will advance.
 //!
 //! The scoring algorithms are currently experimental.
-use crate::behaviour::gossipsub_scoring_parameters::GREYLIST_THRESHOLD as GOSSIPSUB_GREYLIST_THRESHOLD;
+use crate::service::gossipsub_scoring_parameters::GREYLIST_THRESHOLD as GOSSIPSUB_GREYLIST_THRESHOLD;
 use serde::Serialize;
 use std::time::Instant;
 use strum::AsRefStr;
@@ -186,14 +186,7 @@ impl RealScore {
 
     /// Add an f64 to the score abiding by the limits.
     fn add(&mut self, score: f64) {
-        let mut new_score = self.lighthouse_score + score;
-        if new_score > MAX_SCORE {
-            new_score = MAX_SCORE;
-        }
-        if new_score < MIN_SCORE {
-            new_score = MIN_SCORE;
-        }
-
+        let new_score = (self.lighthouse_score + score).clamp(MIN_SCORE, MAX_SCORE);
         self.set_lighthouse_score(new_score);
     }
 

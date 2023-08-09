@@ -1,4 +1,4 @@
-///! The subnet predicate used for searching for a particular subnet.
+//! The subnet predicate used for searching for a particular subnet.
 use super::*;
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use slog::trace;

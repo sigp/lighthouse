@@ -1,0 +1,16 @@
+version: "3"
+
+services:
+    postgres:
+        image: postgres:12.3-alpine
+        restart: always
+        environment:
+            POSTGRES_PASSWORD: postgres
+            POSTGRES_USER: postgres
+        volumes:
+            - postgres:/var/lib/postgresql/data
+        ports:
+            - 127.0.0.1:5432:5432
+
+volumes:
+    postgres:

@@ -115,11 +115,7 @@ impl Comparison {
         let mut children = vec![];
 
         for i in 0..std::cmp::max(a.len(), b.len()) {
-            children.push(FieldComparison::new(
-                format!("{:}", i),
-                &a.get(i),
-                &b.get(i),
-            ));
+            children.push(FieldComparison::new(format!("{i}"), &a.get(i), &b.get(i)));
         }
 
         Self::parent(field_name, a == b, children)
@@ -164,8 +160,8 @@ impl FieldComparison {
         Self {
             field_name,
             equal: a == b,
-            a: format!("{:?}", a),
-            b: format!("{:?}", b),
+            a: format!("{a:?}"),
+            b: format!("{b:?}"),
         }
     }
 

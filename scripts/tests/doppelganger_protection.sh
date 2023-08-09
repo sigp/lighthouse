@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-# Requires `lighthouse`, ``lcli`, `ganache`, `curl`, `jq`
+# Requires `lighthouse`, `lcli`, `geth`, `bootnode`, `curl`, `jq`
+
 
 BEHAVIOR=$1
 
@@ -9,50 +10,56 @@ if [[ "$BEHAVIOR" != "success" ]] && [[ "$BEHAVIOR" != "failure" ]]; then
     exit 1
 fi
 
+exit_if_fails() {
+    echo $@
+    $@
+    EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 1 ]]; then
+        exit 1
+    fi
+}
+genesis_file=$2
+
 source ./vars.env
 
-../local_testnet/clean.sh
+exit_if_fails ../local_testnet/clean.sh
 
-echo "Starting ganache"
-
-../local_testnet/ganache_test_node.sh &> /dev/null &
-GANACHE_PID=$!
-
-# Wait for ganache to start
-sleep 5
 
 echo "Setting up local testnet"
 
-../local_testnet/setup.sh
+exit_if_fails ../local_testnet/setup.sh
 
 # Duplicate this directory so slashing protection doesn't keep us from re-using validator keys
-cp -R $HOME/.lighthouse/local-testnet/node_1 $HOME/.lighthouse/local-testnet/node_1_doppelganger
+exit_if_fails cp -R $HOME/.lighthouse/local-testnet/node_1 $HOME/.lighthouse/local-testnet/node_1_doppelganger
 
 echo "Starting bootnode"
 
-../local_testnet/bootnode.sh &> /dev/null &
-BOOT_PID=$!
+exit_if_fails ../local_testnet/bootnode.sh &> /dev/null &
+
+exit_if_fails ../local_testnet/el_bootnode.sh &> /dev/null &
 
 # wait for the bootnode to start
 sleep 10
 
+echo "Starting local execution nodes"
+
+exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir1 7000 6000 5000 $genesis_file &> geth.log &
+exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir2 7100 6100 5100 $genesis_file &> /dev/null &
+exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir3 7200 6200 5200 $genesis_file &> /dev/null &
+
+sleep 20
+
 echo "Starting local beacon nodes"
 
-../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000 &> /dev/null &
-BEACON_PID=$!
-../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 9100 8100 &> /dev/null &
-BEACON_PID2=$!
-../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_3 9200 8200 &> /dev/null &
-BEACON_PID3=$!
+exit_if_fails ../local_testnet/beacon_node.sh -d debug $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:5000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> beacon1.log &
+exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 9100 8100 http://localhost:5100 $HOME/.lighthouse/local-testnet/geth_datadir2/geth/jwtsecret &> /dev/null &
+exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_3 9200 8200 http://localhost:5200 $HOME/.lighthouse/local-testnet/geth_datadir3/geth/jwtsecret &> /dev/null &
 
 echo "Starting local validator clients"
 
-../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8000 &> /dev/null &
-VALIDATOR_1_PID=$!
-../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_2 http://localhost:8100 &> /dev/null &
-VALIDATOR_2_PID=$!
-../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_3 http://localhost:8200 &> /dev/null &
-VALIDATOR_3_PID=$!
+exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8000 &> /dev/null &
+exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_2 http://localhost:8100 &> /dev/null &
+exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_3 http://localhost:8200 &> /dev/null &
 
 echo "Waiting an epoch before starting the next validator client"
 sleep $(( $SECONDS_PER_SLOT * 32 ))
@@ -61,7 +68,7 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
 
     echo "Starting the doppelganger validator client"
 
-    # Use same keys as keys from VC1, but connect to BN2
+    # Use same keys as keys from VC1 and connect to BN2
     # This process should not last longer than 2 epochs
     timeout $(( $SECONDS_PER_SLOT * 32 * 2 )) ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
     DOPPELGANGER_EXIT=$?
@@ -69,13 +76,20 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
     echo "Shutting down"
 
     # Cleanup
-    kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID
+    killall geth
+    killall lighthouse
+    killall bootnode
 
     echo "Done"
 
-    if [[ $DOPPELGANGER_EXIT -eq 124 ]]; then
+    # We expect to find a doppelganger, exit with success error code if doppelganger was found
+    # and failure if no doppelganger was found.
+    if [[ $DOPPELGANGER_EXIT -eq 1 ]]; then
+        exit 0
+    else
         exit 1
     fi
+
 fi
 
 if [[ "$BEHAVIOR" == "success" ]]; then
@@ -83,7 +97,6 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     echo "Starting the last validator client"
 
     ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:8100 &
-    VALIDATOR_4_PID=$!
     DOPPELGANGER_FAILURE=0
 
     # Sleep three epochs, then make sure all validators were active in epoch 2. Use
@@ -129,7 +142,10 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     # Cleanup
     cd $PREVIOUS_DIR
-    kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID $VALIDATOR_4_PID
+
+    killall geth
+    killall lighthouse
+    killall bootnode
 
     echo "Done"
 

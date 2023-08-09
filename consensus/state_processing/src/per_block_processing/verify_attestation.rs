@@ -1,7 +1,7 @@
 use super::errors::{AttestationInvalid as Invalid, BlockOperationError};
 use super::VerifySignatures;
-use crate::common::get_indexed_attestation;
 use crate::per_block_processing::is_valid_indexed_attestation;
+use crate::ConsensusContext;
 use safe_arith::SafeArith;
 use types::*;
 
@@ -15,12 +15,13 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// to `state`. Otherwise, returns a descriptive `Err`.
 ///
 /// Optionally verifies the aggregate signature, depending on `verify_signatures`.
-pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
+pub fn verify_attestation_for_block_inclusion<'ctxt, T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
+    ctxt: &'ctxt mut ConsensusContext<T>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<IndexedAttestation<T>> {
+) -> Result<&'ctxt IndexedAttestation<T>> {
     let data = &attestation.data;
 
     verify!(
@@ -39,7 +40,7 @@ pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
         }
     );
 
-    verify_attestation_for_state(state, attestation, verify_signatures, spec)
+    verify_attestation_for_state(state, attestation, ctxt, verify_signatures, spec)
 }
 
 /// Returns `Ok(())` if `attestation` is a valid attestation to the chain that precedes the given
@@ -49,12 +50,13 @@ pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
 /// prior blocks in `state`.
 ///
 /// Spec v0.12.1
-pub fn verify_attestation_for_state<T: EthSpec>(
+pub fn verify_attestation_for_state<'ctxt, T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
+    ctxt: &'ctxt mut ConsensusContext<T>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<IndexedAttestation<T>> {
+) -> Result<&'ctxt IndexedAttestation<T>> {
     let data = &attestation.data;
 
     verify!(
@@ -66,9 +68,8 @@ pub fn verify_attestation_for_state<T: EthSpec>(
     verify_casper_ffg_vote(attestation, state)?;
 
     // Check signature and bitfields
-    let committee = state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
-    let indexed_attestation = get_indexed_attestation(committee.committee, attestation)?;
-    is_valid_indexed_attestation(state, &indexed_attestation, verify_signatures, spec)?;
+    let indexed_attestation = ctxt.get_indexed_attestation(state, attestation)?;
+    is_valid_indexed_attestation(state, indexed_attestation, verify_signatures, spec)?;
 
     Ok(indexed_attestation)
 }

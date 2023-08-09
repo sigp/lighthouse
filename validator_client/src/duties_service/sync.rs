@@ -1,7 +1,8 @@
-use crate::beacon_node_fallback::OfflineOnFailure;
+use crate::beacon_node_fallback::{OfflineOnFailure, RequireSynced};
 use crate::{
     doppelganger_service::DoppelgangerStatus,
     duties_service::{DutiesService, Error},
+    validator_store::Error as ValidatorStoreError,
 };
 use futures::future::join_all;
 use itertools::Itertools;
@@ -422,7 +423,7 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
     let duties_response = duties_service
         .beacon_nodes
         .first_success(
-            duties_service.require_synced,
+            RequireSynced::No,
             OfflineOnFailure::Yes,
             |beacon_node| async move {
                 beacon_node
@@ -539,6 +540,18 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                         .await
                     {
                         Ok(proof) => proof,
+                        Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                            // A pubkey can be missing when a validator was recently
+                            // removed via the API.
+                            debug!(
+                                log,
+                                "Missing pubkey for sync selection proof";
+                                "pubkey" => ?pubkey,
+                                "pubkey" => ?duty.pubkey,
+                                "slot" => slot,
+                            );
+                            return None;
+                        }
                         Err(e) => {
                             warn!(
                                 log,

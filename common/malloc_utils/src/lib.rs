@@ -2,17 +2,17 @@
 //!
 //! ## Conditional Compilation
 //!
-//! Presently, only configuration for "The GNU Allocator" from `glibc` is supported. All other
-//! allocators are ignored.
+//! This crate can be compiled with different feature flags to support different allocators:
 //!
-//! It is assumed that if the following two statements are correct then we should expect to
-//! configure `glibc`:
+//! - Jemalloc, via the `jemalloc` feature.
+//! - GNU malloc, if no features are set and the system supports it.
+//! - The system allocator, if no features are set and the allocator is not GNU malloc.
+//!
+//! It is assumed that if Jemalloc is not in use, and the following two statements are correct then
+//! we should expect to configure `glibc`:
 //!
 //! - `target_os = linux`
 //! - `target_env != musl`
-//!
-//! In all other cases this library will not attempt to do anything (i.e., all functions are
-//! no-ops).
 //!
 //! If the above conditions are fulfilled but `glibc` still isn't present at runtime then a panic
 //! may be triggered. It is understood that there's no way to be certain that a compatible `glibc`
@@ -24,18 +24,42 @@
 //! detecting `glibc` are best-effort. If this crate throws errors about undefined external
 //! functions, then try to compile with the `not_glibc_interface` module.
 
-#[cfg(all(target_os = "linux", not(target_env = "musl")))]
+#[cfg(all(
+    target_os = "linux",
+    not(target_env = "musl"),
+    not(feature = "jemalloc")
+))]
 mod glibc;
+
+#[cfg(feature = "jemalloc")]
+mod jemalloc;
 
 pub use interface::*;
 
-#[cfg(all(target_os = "linux", not(target_env = "musl")))]
+#[cfg(all(
+    target_os = "linux",
+    not(target_env = "musl"),
+    not(feature = "jemalloc")
+))]
 mod interface {
     pub use crate::glibc::configure_glibc_malloc as configure_memory_allocator;
     pub use crate::glibc::scrape_mallinfo_metrics as scrape_allocator_metrics;
 }
 
-#[cfg(any(not(target_os = "linux"), target_env = "musl"))]
+#[cfg(feature = "jemalloc")]
+mod interface {
+    #[allow(dead_code)]
+    pub fn configure_memory_allocator() -> Result<(), String> {
+        Ok(())
+    }
+
+    pub use crate::jemalloc::scrape_jemalloc_metrics as scrape_allocator_metrics;
+}
+
+#[cfg(all(
+    any(not(target_os = "linux"), target_env = "musl"),
+    not(feature = "jemalloc")
+))]
 mod interface {
     #[allow(dead_code, clippy::unnecessary_wraps)]
     pub fn configure_memory_allocator() -> Result<(), String> {

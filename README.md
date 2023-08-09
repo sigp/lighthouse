@@ -10,7 +10,7 @@ An open-source Ethereum consensus client, written in Rust and maintained by Sigm
 [Book Link]: https://lighthouse-book.sigmaprime.io
 [stable]: https://github.com/sigp/lighthouse/tree/stable
 [unstable]: https://github.com/sigp/lighthouse/tree/unstable
-[blog]: https://lighthouse.sigmaprime.io
+[blog]: https://lighthouse-blog.sigmaprime.io
 
 [Documentation](https://lighthouse-book.sigmaprime.io)
 
@@ -66,7 +66,7 @@ of the Lighthouse book.
 The best place for discussion is the [Lighthouse Discord
 server](https://discord.gg/cyAszAh).
 
-Sign up to the [Lighthouse Development Updates](http://eepurl.com/dh9Lvb) mailing list for email
+Sign up to the [Lighthouse Development Updates](https://eepurl.com/dh9Lvb) mailing list for email
 notifications about releases, network status and other important information.
 
 Encrypt sensitive messages using our [PGP
