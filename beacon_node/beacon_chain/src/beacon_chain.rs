@@ -5571,14 +5571,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
                 (state, state_root)
             } else {
-                let state_root = head_block.state_root;
-                let state = self
+                let block_state_root = head_block.state_root;
+                let max_slot = shuffling_epoch.start_slot(T::EthSpec::slots_per_epoch());
+                let (state_root, state) = self
                     .store
                     .get_inconsistent_state_for_attestation_verification_only(
-                        &state_root,
-                        Some(head_block.slot),
+                        &head_block_root,
+                        Some(max_slot),
+                        Some(block_state_root),
                     )?
-                    .ok_or(Error::MissingBeaconState(head_block.state_root))?;
+                    .ok_or(Error::MissingBeaconState(block_state_root))?;
                 (state, state_root)
             };
 

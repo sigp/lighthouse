@@ -298,10 +298,9 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         let beacon_block = store
             .get_full_block(&beacon_block_root)?
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
-        let beacon_state_root = beacon_block.state_root();
-        let beacon_state = store
-            .get_state(&beacon_state_root, Some(beacon_block.slot()))?
-            .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+        let (_, beacon_state) = store
+            .get_advanced_state(beacon_block_root, None, Some(beacon_block.state_root()))?
+            .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
         let snapshot = BeaconSnapshot {
             beacon_block_root,
@@ -669,10 +668,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .get_full_block(&new_view.head_block_root)?
                         .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
-                    let beacon_state_root = beacon_block.state_root();
-                    let beacon_state: BeaconState<T::EthSpec> = self
-                        .get_state(&beacon_state_root, Some(beacon_block.slot()))?
-                        .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+                    let (_, beacon_state) = self
+                        .store
+                        .get_advanced_state(
+                            new_view.head_block_root,
+                            Some(current_slot),
+                            Some(beacon_block.state_root()),
+                        )?
+                        .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
                     Ok(BeaconSnapshot {
                         beacon_block: Arc::new(beacon_block),

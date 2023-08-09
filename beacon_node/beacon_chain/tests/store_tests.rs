@@ -460,13 +460,15 @@ async fn block_replay_with_inaccurate_state_roots() {
         .await;
 
     // Slot must not be 0 mod 32 or else no blocks will be replayed.
-    let (mut head_state, head_root) = harness.get_current_state_and_root();
+    let (mut head_state, head_state_root) = harness.get_current_state_and_root();
+    let head_block_root = harness.head_block_root();
     assert_ne!(head_state.slot() % 32, 0);
 
-    let mut fast_head_state = store
+    let (_, mut fast_head_state) = store
         .get_inconsistent_state_for_attestation_verification_only(
-            &head_root,
+            &head_block_root,
             Some(head_state.slot()),
+            Some(head_state_root),
         )
         .unwrap()
         .unwrap();
@@ -2110,9 +2112,9 @@ async fn weak_subjectivity_sync() {
             .store(store.clone())
             .custom_spec(test_spec::<E>())
             .task_executor(harness.chain.task_executor.clone())
-            .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
-            .unwrap()
             .logger(log.clone())
+            .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state, false)
+            .unwrap()
             .store_migrator_config(MigratorConfig::default().blocking())
             .dummy_eth1_backend()
             .expect("should build dummy backend")

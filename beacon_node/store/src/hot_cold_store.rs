@@ -112,8 +112,8 @@ pub enum HotColdDBError {
     },
     AttestationStateIsFinalized {
         split_slot: Slot,
-        request_slot: Option<Slot>,
-        state_root: Hash256,
+        request_slot: Slot,
+        block_root: Hash256,
     },
 }
 
@@ -545,7 +545,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// upon that state (e.g., state roots). Additionally, only states from the hot store are
     /// returned.
     ///
-    /// See `Self::get_state` for information about `slot`.
+    /// See `Self::get_advanced_state` for information about `max_slot`.
     ///
     /// ## Warning
     ///
@@ -557,32 +557,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// - `state.block_roots`
     pub fn get_inconsistent_state_for_attestation_verification_only(
         &self,
-        state_root: &Hash256,
-        slot: Option<Slot>,
-    ) -> Result<Option<BeaconState<E>>, Error> {
+        block_root: &Hash256,
+        max_slot: Option<Slot>,
+        opt_state_root: Option<Hash256>,
+    ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
-
-        let split_slot = self.get_split_slot();
-
-        if slot.map_or(false, |slot| slot < split_slot) {
-            Err(HotColdDBError::AttestationStateIsFinalized {
-                split_slot,
-                request_slot: slot,
-                state_root: *state_root,
-            }
-            .into())
-        } else {
-            self.load_hot_state(state_root, StateProcessingStrategy::Inconsistent)
-        }
+        self.get_advanced_state_with_strategy(
+            *block_root,
+            max_slot,
+            opt_state_root,
+            StateProcessingStrategy::Inconsistent,
+        )
     }
 
     /// Get a state with `latest_block_root == block_root` advanced through to at most `max_slot`.
     ///
-    /// If no `slot` is provided, then the lowest-slot state for `block_root` is returned. This is
-    /// usually the post-state of the block root, unless that state is the, in which case it
-    /// will
+    /// If no `max_slot` is provided, then the lowest-slot state for `block_root` is returned. This
+    /// is usually the post-state of the block, unless the block is the split point, in which
+    /// case the split state will be returned (the post-state advanced through to an epoch
+    /// boundary).
     ///
-    /// The `state_root` argument is used to look up the block's un-advanced state in case the
+    /// The `opt_state_root` argument is used to look up the block's un-advanced state in case the
     /// advanced state is not found. If no advanced state is found and no state root is provided
     /// then `Ok(None)` will be returned.
     pub fn get_advanced_state(
@@ -591,9 +586,36 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         max_slot: Option<Slot>,
         opt_state_root: Option<Hash256>,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
+        self.get_advanced_state_with_strategy(
+            block_root,
+            max_slot,
+            opt_state_root,
+            StateProcessingStrategy::Accurate,
+        )
+    }
+
+    pub fn get_advanced_state_with_strategy(
+        &self,
+        block_root: Hash256,
+        max_slot: Option<Slot>,
+        opt_state_root: Option<Hash256>,
+        state_processing_strategy: StateProcessingStrategy,
+    ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
         // Hold a read lock on the split point so it can't move while we're trying to load the
         // state.
         let split = self.split.read_recursive();
+
+        // Sanity check max-slot against the split slot.
+        if let Some(slot) = max_slot {
+            if slot < split.slot {
+                return Err(HotColdDBError::AttestationStateIsFinalized {
+                    split_slot: split.slot,
+                    request_slot: slot,
+                    block_root,
+                }
+                .into());
+            }
+        }
 
         let state_root = if block_root == split.block_root
             && max_slot.map_or(true, |max_slot| split.slot <= max_slot)
@@ -605,7 +627,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(None);
         };
         let state = self
-            .load_hot_state(&state_root, StateProcessingStrategy::Accurate)?
+            .load_hot_state(&state_root, state_processing_strategy)?
             .map(|state| (state_root, state));
         drop(split);
         Ok(state)
