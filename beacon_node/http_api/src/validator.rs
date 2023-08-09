@@ -48,7 +48,7 @@ pub async fn produce_block_json<T: BeaconChainTypes>(
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
 
-    let (block, fork_name, block_value) = match block_type {
+    match block_type {
         BlockType::Blinded => {
             let (block, _, block_value) = chain
                 .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
@@ -65,7 +65,11 @@ pub async fn produce_block_json<T: BeaconChainTypes>(
                 .fork_name(&chain.spec)
                 .map_err(inconsistent_fork_rejection)?;
 
-            (block, fork_name, block_value);
+            fork_versioned_response(endpoint_version, fork_name, block)
+                .map(|response| warp::reply::json(&response).into_response())
+                .map(|res| add_consensus_version_header(res, fork_name))
+                .map(|res| add_execution_payload_blinded_header(res, true))
+                .map(|res: Response<Body>| add_execution_payload_value_header(res, block_value))
         }
         BlockType::Full => {
             let (block, _, block_value) = chain
@@ -83,15 +87,13 @@ pub async fn produce_block_json<T: BeaconChainTypes>(
                 .fork_name(&chain.spec)
                 .map_err(inconsistent_fork_rejection)?;
 
-            (block, fork_name, block_value);
+            fork_versioned_response(endpoint_version, fork_name, block)
+                .map(|response| warp::reply::json(&response).into_response())
+                .map(|res| add_consensus_version_header(res, fork_name))
+                .map(|res| add_execution_payload_blinded_header(res, true))
+                .map(|res: Response<Body>| add_execution_payload_value_header(res, block_value))
         }
-    };
-
-    fork_versioned_response(endpoint_version, fork_name, block)
-        .map(|response| warp::reply::json(&response).into_response())
-        .map(|res| add_consensus_version_header(res, fork_name))
-        .map(|res| add_execution_payload_blinded_header(res, true))
-        .map(|res: Response<Body>| add_execution_payload_value_header(res, block_value))
+    }
 }
 
 pub async fn produce_block_ssz<T: BeaconChainTypes>(
@@ -126,8 +128,6 @@ pub async fn produce_block_ssz<T: BeaconChainTypes>(
                 .to_ref()
                 .fork_name(&chain.spec)
                 .map_err(inconsistent_fork_rejection)?;
-
-            let payload = block.body().execution_payload()?;
 
             (block.as_ssz_bytes(), fork_name, block_value, true)
         }
