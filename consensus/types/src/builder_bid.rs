@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use serde::{Deserialize as De, Deserializer, Serialize as Ser, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use serde_with::{As, DeserializeAs, SerializeAs};
-use ssz_types::VariableList;
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
@@ -12,8 +11,8 @@ use bls::Signature;
 
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
-    AbstractExecPayload, ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader, ForkName,
-    ForkVersionDeserialize, Hash256, KzgProofs, SignedRoot, Uint256,
+    AbstractExecPayload, BlobRootsList, ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader,
+    ForkName, ForkVersionDeserialize, KzgProofs, SignedRoot, Uint256,
 };
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
@@ -21,7 +20,7 @@ use crate::{
 pub struct BlindedBlobsBundle<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
     pub proofs: KzgProofs<E>,
-    pub blob_roots: VariableList<Hash256, E::MaxBlobsPerBlock>,
+    pub blob_roots: BlobRootsList<E>,
 }
 
 #[superstruct(
