@@ -58,17 +58,23 @@ pub struct Config {
     /// that no discovery address has been set in the CLI args.
     pub enr_address: (Option<Ipv4Addr>, Option<Ipv6Addr>),
 
-    /// The disc4 port to broadcast to peers in order to reach back for discovery.
-    pub enr_disc4_port: Option<u16>,
+    /// The udp port to broadcast to peers in order to reach back for discovery.
+    pub enr_udp4_port: Option<u16>,
+
+    /// The UDP port to broadcast to peers in order to reach back for quic libp2p services.
+    pub enr_quic4_port: Option<u16>,
 
     /// The tcp4 port to broadcast to peers in order to reach back for libp2p services.
     pub enr_tcp4_port: Option<u16>,
 
-    /// The disc6 port to broadcast to peers in order to reach back for discovery.
-    pub enr_disc6_port: Option<u16>,
+    /// The udp6 port to broadcast to peers in order to reach back for discovery.
+    pub enr_udp6_port: Option<u16>,
 
     /// The tcp6 port to broadcast to peers in order to reach back for libp2p services.
     pub enr_tcp6_port: Option<u16>,
+
+    /// The UDP port to broadcast to peers in order to reach back for quic libp2p services.
+    pub enr_quic6_port: Option<u16>,
 
     /// Target number of connected peers.
     pub target_peers: usize,
@@ -333,10 +339,11 @@ impl Default for Config {
             network_dir,
             listen_addresses,
             enr_address: (None, None),
-
-            enr_disc4_port: None,
+            enr_udp4_port: None,
+            enr_quic4_port: None,
             enr_tcp4_port: None,
-            enr_disc6_port: None,
+            enr_udp6_port: None,
+            enr_quic6_port: None,
             enr_tcp6_port: None,
             target_peers: 50,
             gs_config,

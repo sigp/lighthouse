@@ -60,26 +60,31 @@ impl ListenAddress {
 
     /// Returns the addresses the Swarm will listen on, given the setup.
     pub fn listen_addresses(&self) -> impl Iterator<Item = Multiaddr> {
-        let v4_tcp_multiaddrs = self
+        let v4_tcp_multiaddr = self
             .v4()
             .map(|v4_addr| Multiaddr::from(v4_addr.addr).with(Protocol::Tcp(v4_addr.tcp_port)));
 
-        let v4_quic_multiaddrs = self.v4().map(|v4_addr| {
+        let v4_quic_multiaddr = self.v4().map(|v4_addr| {
             Multiaddr::from(v4_addr.addr)
                 .with(Protocol::Udp(v4_addr.quic_port))
                 .with(Protocol::QuicV1)
         });
 
-        let v6_tcp_multiaddrs = self
+        let v6_quic_multiaddr = self.v6().map(|v6_addr| {
+            Multiaddr::from(v6_addr.addr)
+                .with(Protocol::Udp(v6_addr.quic_port))
+                .with(Protocol::QuicV1)
+        });
+
+        let v6_tcp_multiaddr = self
             .v6()
             .map(|v6_addr| Multiaddr::from(v6_addr.addr).with(Protocol::Tcp(v6_addr.tcp_port)));
 
-        // TODO: Add QUIC IPv6 multiaddr once it is supported
-
-        v4_tcp_multiaddrs
+        v4_tcp_multiaddr
             .into_iter()
-            .chain(v4_quic_multiaddrs)
-            .chain(v6_tcp_multiaddrs)
+            .chain(v4_quic_multiaddr)
+            .chain(v6_quic_multiaddr)
+            .chain(v6_tcp_multiaddr)
     }
 
     #[cfg(test)]

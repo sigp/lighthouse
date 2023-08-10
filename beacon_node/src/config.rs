@@ -77,6 +77,7 @@ pub fn get_config<E: EthSpec>(
 
     let data_dir_ref = client_config.data_dir().clone();
 
+    println!("SET NETWORK CONFIG");
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref, log)?;
 
     /*
@@ -916,10 +917,18 @@ pub fn set_network_config(
     }
 
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
-        config.enr_disc4_port = Some(
+        config.enr_udp4_port = Some(
             enr_udp_port_str
                 .parse::<u16>()
                 .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+        );
+    }
+
+    if let Some(enr_quic_port_str) = cli_args.value_of("enr-quic-port") {
+        config.enr_quic4_port = Some(
+            enr_quic_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid quic port: {}", enr_quic_port_str))?,
         );
     }
 
@@ -932,10 +941,18 @@ pub fn set_network_config(
     }
 
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp6-port") {
-        config.enr_disc6_port = Some(
+        config.enr_udp6_port = Some(
             enr_udp_port_str
                 .parse::<u16>()
                 .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+        );
+    }
+
+    if let Some(enr_quic_port_str) = cli_args.value_of("enr-quic6-port") {
+        config.enr_quic6_port = Some(
+            enr_quic_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid quic port: {}", enr_quic_port_str))?,
         );
     }
 
@@ -958,7 +975,7 @@ pub fn set_network_config(
                 ipv4_addr.addr
             };
             config.enr_address.0 = Some(ipv4_enr_addr);
-            config.enr_disc4_port = Some(ipv4_addr.disc_port);
+            config.enr_udp4_port = Some(ipv4_addr.disc_port);
         }
 
         if let Some(ipv6_addr) = config.listen_addrs().v6().cloned() {
@@ -968,7 +985,7 @@ pub fn set_network_config(
                 ipv6_addr.addr
             };
             config.enr_address.1 = Some(ipv6_enr_addr);
-            config.enr_disc6_port = Some(ipv6_addr.disc_port);
+            config.enr_udp6_port = Some(ipv6_addr.disc_port);
         }
     }
 
@@ -1132,6 +1149,7 @@ pub fn parse_listening_addresses(
     cli_args: &ArgMatches,
     log: &Logger,
 ) -> Result<ListenAddress, String> {
+    dbg!("PARSE");
     let listen_addresses_str = cli_args
         .values_of("listen-address")
         .expect("--listen_addresses has a default value");
@@ -1215,6 +1233,8 @@ pub fn parse_listening_addresses(
             format!("Failed to parse --quic6-port as an integer: {parse_error}")
         })?;
 
+    println!("{:?}", maybe_disc6_port);
+    println!("{:?}", (maybe_ipv4, maybe_ipv6));
     // Now put everything together
     let listening_addresses = match (maybe_ipv4, maybe_ipv6) {
         (None, None) => {
@@ -1237,18 +1257,9 @@ pub fn parse_listening_addresses(
                 warn!(log, "When listening only over IPv6, use the --discovery-port flag. The value of --discovery-port6 will be ignored.")
             }
 
-            // TODO: Remove this warning once https://github.com/libp2p/rust-libp2p/issues/4165
-            // is resolved.
-            if maybe_quic_port.is_some() || maybe_quic6_port.is_some() {
-                warn!(log, "QUIC is currently disabled over Ipv6.")
-            }
-
-            // TODO: Once QUIC is supported over IPv6, uncomment this.
-            /*
             if maybe_quic6_port.is_some() {
                 warn!(log, "When listening only over IPv6, use the --quic-port flag. The value of --quic-port6 will be ignored.")
             }
-            */
 
             // use zero ports if required. If not, use the specific udp port. If none given, use
             // the tcp port.
@@ -1322,11 +1333,13 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port6);
+            println!("{:?}", maybe_disc6_port);
             let ipv6_disc_port = use_zero_ports
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc6_port)
                 .unwrap_or(ipv6_tcp_port);
+            println!("{:?}", ipv6_disc_port);
             let ipv6_quic_port = use_zero_ports
                 .then(unused_port::unused_udp6_port)
                 .transpose()?

@@ -6,8 +6,8 @@ use libp2p::core::multiaddr::Protocol;
 use libp2p::identity::{ed25519, secp256k1, KeyType, Keypair, PublicKey};
 use tiny_keccak::{Hasher, Keccak};
 
-const QUIC_ENR_KEY: &str = "quic";
-const QUIC6_ENR_KEY: &str = "quic6";
+pub const QUIC_ENR_KEY: &str = "quic";
+pub const QUIC6_ENR_KEY: &str = "quic6";
 
 /// Extend ENR for libp2p types.
 pub trait EnrExt {
