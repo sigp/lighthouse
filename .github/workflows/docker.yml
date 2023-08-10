@@ -109,9 +109,9 @@ jobs:
               with:
                 file: ./Dockerfile.cross
                 context: .
-                platforms: linux/${SHORT_ARCH}
+                platforms: linux/${{ env.SHORT_ARCH }}
                 push: true
-                tags: ${IMAGE_NAME}:${VERSION}-${SHORT_ARCH}${VERSION_SUFFIX}${MODERNITY_SUFFIX}${FEATURE_SUFFIX}
+                tags: ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}${{ env.MODERNITY_SUFFIX }}${{ env.FEATURE_SUFFIX }}
 
     build-docker-multiarch:
         name: build-docker-multiarch${{ matrix.modernity }}
