@@ -1361,27 +1361,40 @@ mod tests {
 }
 
 /// A wrapper over a [`BeaconBlock`] or a [`BeaconBlockAndBlobSidecars`].
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 pub enum BlockContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     BlockAndBlobSidecars(BeaconBlockAndBlobSidecars<T, Payload>),
+    BlindedBlockAndBlobSidecars(BlindedBeaconBlockAndBlobSidecars<T, Payload>),
     Block(BeaconBlock<T, Payload>),
 }
+
+pub type BlockContentsTuple<T, Payload> = (
+    BeaconBlock<T, Payload>,
+    Option<SidecarList<T, <Payload as AbstractExecPayload<T>>::Sidecar>>,
+);
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
     pub fn block(&self) -> &BeaconBlock<T, Payload> {
         match self {
             BlockContents::BlockAndBlobSidecars(block_and_sidecars) => &block_and_sidecars.block,
+            BlockContents::BlindedBlockAndBlobSidecars(block_and_sidecars) => {
+                &block_and_sidecars.blinded_block
+            }
             BlockContents::Block(block) => block,
         }
     }
 
-    pub fn deconstruct(self) -> (BeaconBlock<T, Payload>, Option<BlobSidecarList<T>>) {
+    pub fn deconstruct(self) -> BlockContentsTuple<T, Payload> {
         match self {
             BlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
                 block_and_sidecars.block,
                 Some(block_and_sidecars.blob_sidecars),
+            ),
+            BlockContents::BlindedBlockAndBlobSidecars(block_and_sidecars) => (
+                block_and_sidecars.blinded_block,
+                Some(block_and_sidecars.blinded_blob_sidecars),
             ),
             BlockContents::Block(block) => (block, None),
         }
@@ -1415,14 +1428,17 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> Into<BeaconBlock<T, Payload>>
     fn into(self) -> BeaconBlock<T, Payload> {
         match self {
             Self::BlockAndBlobSidecars(block_and_sidecars) => block_and_sidecars.block,
+            Self::BlindedBlockAndBlobSidecars(block_and_sidecars) => {
+                block_and_sidecars.blinded_block
+            }
             Self::Block(block) => block,
         }
     }
 }
 
-pub type BlockContentsTuple<T, Payload> = (
+pub type SignedBlockContentsTuple<T, Payload> = (
     SignedBeaconBlock<T, Payload>,
-    Option<SignedBlobSidecarList<T>>,
+    Option<SignedSidecarList<T, <Payload as AbstractExecPayload<T>>::Sidecar>>,
 );
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobSidecars`].
@@ -1432,21 +1448,29 @@ pub type BlockContentsTuple<T, Payload> = (
 #[ssz(enum_behaviour = "transparent")]
 pub enum SignedBlockContents<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars<T, Payload>),
+    BlindedBlockAndBlobSidecars(SignedBlindedBeaconBlockAndBlobSidecars<T, Payload>),
     Block(SignedBeaconBlock<T, Payload>),
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload> {
     pub fn new(
         block: SignedBeaconBlock<T, Payload>,
-        blobs: Option<SignedBlobSidecarList<T>>,
+        blobs: Option<SignedSidecarList<T, Payload::Sidecar>>,
     ) -> Self {
-        if let Some(blobs) = blobs {
-            Self::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
-                signed_block: block,
-                signed_blob_sidecars: blobs,
-            })
-        } else {
-            Self::Block(block)
+        match (Payload::block_type(), blobs) {
+            (BlockType::Blinded, Some(blobs)) => {
+                Self::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
+                    signed_block: block,
+                    signed_blob_sidecars: blobs,
+                })
+            }
+            (BlockType::Full, Some(blobs)) => {
+                Self::BlindedBlockAndBlobSidecars(SignedBlindedBeaconBlockAndBlobSidecars {
+                    signed_blinded_block: block,
+                    signed_blinded_blob_sidecars: blobs,
+                })
+            }
+            (_, None) => Self::Block(block),
         }
     }
 
@@ -1462,26 +1486,84 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
                 &block_and_sidecars.signed_block
             }
+            SignedBlockContents::BlindedBlockAndBlobSidecars(block_and_sidecars) => {
+                &block_and_sidecars.signed_blinded_block
+            }
             SignedBlockContents::Block(block) => block,
         }
     }
 
-    pub fn blobs_cloned(&self) -> Option<SignedBlobSidecarList<T>> {
+    pub fn blobs_cloned(&self) -> Option<SignedSidecarList<T, Payload::Sidecar>> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
                 Some(block_and_sidecars.signed_blob_sidecars.clone())
             }
             SignedBlockContents::Block(_block) => None,
+            SignedBlockContents::BlindedBlockAndBlobSidecars(_) => None,
         }
     }
 
-    pub fn deconstruct(self) -> BlockContentsTuple<T, Payload> {
+    pub fn deconstruct(self) -> SignedBlockContentsTuple<T, Payload> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
                 block_and_sidecars.signed_block,
                 Some(block_and_sidecars.signed_blob_sidecars),
             ),
+            SignedBlockContents::BlindedBlockAndBlobSidecars(block_and_sidecars) => (
+                block_and_sidecars.signed_blinded_block,
+                Some(block_and_sidecars.signed_blinded_blob_sidecars),
+            ),
             SignedBlockContents::Block(block) => (block, None),
+        }
+    }
+}
+
+impl<T: EthSpec> SignedBlockContents<T, BlindedPayload<T>> {
+    pub fn try_into_full_block_and_blobs(
+        self,
+        maybe_full_payload_contents: Option<FullPayloadContents<T>>,
+    ) -> Option<SignedBlockContents<T, FullPayload<T>>> {
+        match self {
+            SignedBlockContents::BlindedBlockAndBlobSidecars(blinded_block_and_blob_sidecars) => {
+                maybe_full_payload_contents.and_then(|full_payload_contents| {
+                    match full_payload_contents.deconstruct() {
+                        (full_payload, Some(blobs_bundle)) => {
+                            let maybe_full_block = blinded_block_and_blob_sidecars
+                                .signed_blinded_block
+                                .try_into_full_block(Some(full_payload));
+                            let full_blob_sidecars: Vec<_> = blinded_block_and_blob_sidecars
+                                .signed_blinded_blob_sidecars
+                                .into_iter()
+                                .zip(blobs_bundle.blobs)
+                                .map(|(blinded_blob_sidecar, blob)| {
+                                    blinded_blob_sidecar.into_full_blob_sidecars(blob)
+                                })
+                                .collect();
+
+                            maybe_full_block.map(|signed_block| {
+                                SignedBlockContents::BlockAndBlobSidecars(
+                                    SignedBeaconBlockAndBlobSidecars {
+                                        signed_block,
+                                        signed_blob_sidecars: VariableList::from(
+                                            full_blob_sidecars,
+                                        ),
+                                    },
+                                )
+                            })
+                        }
+                        // Can't build full block contents without full blobs
+                        _ => None,
+                    }
+                })
+            }
+            SignedBlockContents::Block(blinded_block) => {
+                let full_payload_opt = maybe_full_payload_contents.map(|o| o.deconstruct().0);
+                blinded_block
+                    .try_into_full_block(full_payload_opt)
+                    .map(SignedBlockContents::Block)
+            }
+            // Unexpected scenario for blinded block proposal
+            SignedBlockContents::BlockAndBlobSidecars(_) => None,
         }
     }
 }
@@ -1503,18 +1585,26 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> TryFrom<SignedBeaconBlock<T, P
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<BlockContentsTuple<T, Payload>>
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBlockContentsTuple<T, Payload>>
     for SignedBlockContents<T, Payload>
 {
-    fn from(block_contents_tuple: BlockContentsTuple<T, Payload>) -> Self {
+    fn from(block_contents_tuple: SignedBlockContentsTuple<T, Payload>) -> Self {
         match block_contents_tuple {
             (signed_block, None) => SignedBlockContents::Block(signed_block),
-            (signed_block, Some(signed_blob_sidecars)) => {
-                SignedBlockContents::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
-                    signed_block,
-                    signed_blob_sidecars,
-                })
-            }
+            (signed_block, Some(signed_blob_sidecars)) => match Payload::block_type() {
+                BlockType::Blinded => SignedBlockContents::BlindedBlockAndBlobSidecars(
+                    SignedBlindedBeaconBlockAndBlobSidecars {
+                        signed_blinded_block: signed_block,
+                        signed_blinded_blob_sidecars: signed_blob_sidecars,
+                    },
+                ),
+                BlockType::Full => {
+                    SignedBlockContents::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
+                        signed_block,
+                        signed_blob_sidecars,
+                    })
+                }
+            },
         }
     }
 }
@@ -1523,14 +1613,14 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<BlockContentsTuple<T, Pay
 #[serde(bound = "T: EthSpec")]
 pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub signed_block: SignedBeaconBlock<T, Payload>,
-    pub signed_blob_sidecars: SignedBlobSidecarList<T>,
+    pub signed_blob_sidecars: SignedSidecarList<T, Payload::Sidecar>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
 #[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
 pub struct BeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub block: BeaconBlock<T, Payload>,
-    pub blob_sidecars: BlobSidecarList<T>,
+    pub blob_sidecars: SidecarList<T, Payload::Sidecar>,
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
@@ -1541,16 +1631,63 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
-        #[serde(bound = "T: EthSpec")]
-        struct Helper<T: EthSpec> {
+        #[serde(bound = "T: EthSpec, S: Sidecar<T>")]
+        struct Helper<T: EthSpec, S: Sidecar<T>> {
             block: serde_json::Value,
-            blob_sidecars: BlobSidecarList<T>,
+            blob_sidecars: SidecarList<T, S>,
         }
-        let helper: Helper<T> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        let helper: Helper<T, Payload::Sidecar> =
+            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
 
         Ok(Self {
             block: BeaconBlock::deserialize_by_fork::<'de, D>(helper.block, fork_name)?,
             blob_sidecars: helper.blob_sidecars,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Encode)]
+#[serde(bound = "T: EthSpec")]
+pub struct SignedBlindedBeaconBlockAndBlobSidecars<
+    T: EthSpec,
+    Payload: AbstractExecPayload<T> = BlindedPayload<T>,
+> {
+    pub signed_blinded_block: SignedBeaconBlock<T, Payload>,
+    pub signed_blinded_blob_sidecars: SignedSidecarList<T, Payload::Sidecar>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Encode)]
+#[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
+pub struct BlindedBeaconBlockAndBlobSidecars<
+    T: EthSpec,
+    Payload: AbstractExecPayload<T> = BlindedPayload<T>,
+> {
+    pub blinded_block: BeaconBlock<T, Payload>,
+    pub blinded_blob_sidecars: SidecarList<T, Payload::Sidecar>,
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
+    for BlindedBeaconBlockAndBlobSidecars<T, Payload>
+{
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(bound = "T: EthSpec, S: Sidecar<T>")]
+        struct Helper<T: EthSpec, S: Sidecar<T>> {
+            blinded_block: serde_json::Value,
+            blinded_blob_sidecars: SidecarList<T, S>,
+        }
+        let helper: Helper<T, Payload::Sidecar> =
+            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+
+        Ok(Self {
+            blinded_block: BeaconBlock::deserialize_by_fork::<'de, D>(
+                helper.blinded_block,
+                fork_name,
+            )?,
+            blinded_blob_sidecars: helper.blinded_blob_sidecars,
         })
     }
 }

@@ -12,7 +12,6 @@ use beacon_chain::builder::Witness;
 use beacon_chain::eth1_chain::CachingEth1Backend;
 use beacon_chain::test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
-use execution_layer::BlobsBundleV1;
 use lighthouse_network::rpc::RPCResponseErrorCode;
 use lighthouse_network::{NetworkGlobals, Request};
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
@@ -21,8 +20,8 @@ use tokio::sync::mpsc;
 use types::{
     map_fork_name, map_fork_name_with,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconBlock, BlobSidecar, EthSpec, ForkName, FullPayloadDeneb, MinimalEthSpec as E,
-    SignedBeaconBlock,
+    BeaconBlock, BlobSidecar, BlobsBundle, EthSpec, ForkName, FullPayloadDeneb,
+    MinimalEthSpec as E, SignedBeaconBlock,
 };
 
 type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
@@ -126,7 +125,7 @@ impl TestRig {
             }
             message.body.blob_kzg_commitments = bundle.commitments.clone();
 
-            let BlobsBundleV1 {
+            let BlobsBundle {
                 commitments,
                 proofs,
                 blobs,

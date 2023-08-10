@@ -1440,14 +1440,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block: SignedBlockContents<T::EthSpec, BlindedPayload<_>>,
+            |block_contents: SignedBlockContents<T::EthSpec, BlindedPayload<_>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
-                        block,
+                        block_contents,
                         chain,
                         &network_tx,
                         log,
@@ -3065,7 +3065,7 @@ pub fn serve<T: BeaconChainTypes>(
                             ProduceBlockVerification::VerifyRandao
                         };
 
-                    let (block, _) = chain
+                    let (block, _, maybe_blobs) = chain
                         .produce_block_with_verification::<FullPayload<T::EthSpec>>(
                             randao_reveal,
                             slot,
@@ -3080,9 +3080,9 @@ pub fn serve<T: BeaconChainTypes>(
                         .map_err(inconsistent_fork_rejection)?;
 
                     let block_contents =
-                        build_block_contents::build_block_contents(fork_name, chain, block);
+                        build_block_contents::build_block_contents(fork_name, block, maybe_blobs)?;
 
-                    fork_versioned_response(endpoint_version, fork_name, block_contents?)
+                    fork_versioned_response(endpoint_version, fork_name, block_contents)
                         .map(|response| warp::reply::json(&response).into_response())
                         .map(|res| add_consensus_version_header(res, fork_name))
                 })
@@ -3129,7 +3129,7 @@ pub fn serve<T: BeaconChainTypes>(
                             ProduceBlockVerification::VerifyRandao
                         };
 
-                    let (block, _) = chain
+                    let (block, _, maybe_blobs) = chain
                         .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
                             randao_reveal,
                             slot,
@@ -3143,8 +3143,14 @@ pub fn serve<T: BeaconChainTypes>(
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
 
+                    let block_contents = build_block_contents::build_blinded_block_contents(
+                        fork_name,
+                        block,
+                        maybe_blobs,
+                    )?;
+
                     // Pose as a V2 endpoint so we return the fork `version`.
-                    fork_versioned_response(V2, fork_name, block)
+                    fork_versioned_response(V2, fork_name, block_contents)
                         .map(|response| warp::reply::json(&response).into_response())
                         .map(|res| add_consensus_version_header(res, fork_name))
                 })

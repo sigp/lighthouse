@@ -275,20 +275,22 @@ pub enum BlockProductionError {
         blob_block_hash: ExecutionBlockHash,
         payload_block_hash: ExecutionBlockHash,
     },
-    NoBlobsCached,
     FailedToReadFinalizedBlock(store::Error),
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),
     ShuttingDown,
+    MissingBlobs,
     MissingSyncAggregate,
     MissingExecutionPayload,
     MissingKzgCommitment(String),
+    MissingKzgProof(String),
     TokioJoin(tokio::task::JoinError),
     BeaconChain(BeaconChainError),
     InvalidPayloadFork,
     TrustedSetupNotInitialized,
     InvalidBlockVariant(String),
     KzgError(kzg::Error),
+    FailedToBuildBlobSidecars(String),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

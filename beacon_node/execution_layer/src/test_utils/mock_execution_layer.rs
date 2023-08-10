@@ -202,7 +202,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(
             self.el
                 .get_payload_by_root(&payload_header.tree_hash_root()),
-            Some(payload.clone())
+            Some(FullPayloadContents::Payload(payload.clone()))
         );
 
         // TODO: again consider forks
