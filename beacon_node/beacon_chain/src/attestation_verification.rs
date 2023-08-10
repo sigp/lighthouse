@@ -461,7 +461,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         verify_propagation_slot_range::<<T as BeaconChainTypes>::SlotClock, T::EthSpec>(
             &chain.slot_clock,
             attestation.data.slot,
-            &chain.spec
+            &chain.spec,
         )?;
 
         // Check the attestation's epoch matches its target.
@@ -733,7 +733,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         verify_propagation_slot_range::<<T as BeaconChainTypes>::SlotClock, T::EthSpec>(
             &chain.slot_clock,
             attestation.data.slot,
-            &chain.spec
+            &chain.spec,
         )?;
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one

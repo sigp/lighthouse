@@ -2005,7 +2005,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     attestation_verification::verify_propagation_slot_range::<
                         ManualSlotClock,
                         T::EthSpec,
-                    >(seen_clock, failed_att.attestation_slot(), &self.chain.spec);
+                    >(
+                        seen_clock, failed_att.attestation_slot(), &self.chain.spec
+                    );
 
                 // Only penalize the peer if it would have been invalid at the moment we received
                 // it.
@@ -2883,7 +2885,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let is_timely = attestation_verification::verify_propagation_slot_range::<
             <T as BeaconChainTypes>::SlotClock,
             T::EthSpec,
-        >(&self.chain.slot_clock, attestation.data.slot, &self.chain.spec)
+        >(
+            &self.chain.slot_clock,
+            attestation.data.slot,
+            &self.chain.spec,
+        )
         .is_ok();
 
         self.propagate_if_timely(is_timely, message_id, peer_id)
