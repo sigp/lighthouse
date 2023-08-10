@@ -89,11 +89,11 @@ impl ApiSecret {
 
         let sk = fs::read(&sk_path)
             .map_err(|e| format!("cannot read {}: {}", SK_FILENAME, e))
-            .and_then(|bytes| {
+            .then(|bytes| {
                 serde_utils::hex::decode(&String::from_utf8_lossy(&bytes))
                     .map_err(|_| format!("{} should be 0x-prefixed hex", PK_FILENAME))
             })
-            .and_then(|bytes| {
+            .then(|bytes| {
                 if bytes.len() == SK_LEN {
                     let mut array = [0; SK_LEN];
                     array.copy_from_slice(&bytes);
@@ -110,7 +110,7 @@ impl ApiSecret {
 
         let pk = fs::read(&pk_path)
             .map_err(|e| format!("cannot read {}: {}", PK_FILENAME, e))
-            .and_then(|bytes| {
+            .then(|bytes| {
                 let hex =
                     String::from_utf8(bytes).map_err(|_| format!("{} is not utf8", SK_FILENAME))?;
                 if let Some(stripped) = hex.strip_prefix(PK_PREFIX) {
@@ -120,7 +120,7 @@ impl ApiSecret {
                     Err(format!("unable to parse {}", SK_FILENAME))
                 }
             })
-            .and_then(|bytes| {
+            .then(|bytes| {
                 if bytes.len() == PK_LEN {
                     let mut array = [0; PK_LEN];
                     array.copy_from_slice(&bytes);
@@ -186,7 +186,7 @@ impl ApiSecret {
         warp::any()
             .map(move || expected.clone())
             .and(warp::filters::header::header("Authorization"))
-            .and_then(move |expected: Vec<String>, header: String| async move {
+            .then(move |expected: Vec<String>, header: String| async move {
                 if expected.contains(&header) {
                     Ok(())
                 } else {
