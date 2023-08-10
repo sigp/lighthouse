@@ -63,8 +63,6 @@ jobs:
 
         needs: [extract-version]
         env:
-            # We need to enable experimental docker features in order to use `docker buildx`
-            DOCKER_CLI_EXPERIMENTAL: enabled
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
             FEATURE_SUFFIX: ${{ matrix.features.version_suffix }}
@@ -121,20 +119,22 @@ jobs:
             matrix:
                 modernity: ["", "-modern"]
         env:
-            # We need to enable experimental docker features in order to use `docker manifest`
-            DOCKER_CLI_EXPERIMENTAL: enabled
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v2
+
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
+
             - name: Create and push multiarch manifest
               run: |
-                  docker manifest create ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}${{ matrix.modernity }} \
-                      --amend ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX}${{ matrix.modernity }} \
-                      --amend ${IMAGE_NAME}:${VERSION}-amd64${VERSION_SUFFIX}${{ matrix.modernity }};
-                  docker manifest push ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}${{ matrix.modernity }}
+                  docker buildx imagetools create -t ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}${{ matrix.modernity }} \
+                      ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX}${{ matrix.modernity }} \
+                      ${IMAGE_NAME}:${VERSION}-amd64${VERSION_SUFFIX}${{ matrix.modernity }};
+
     build-docker-lcli:
         runs-on: ubuntu-22.04
         needs: [extract-version]
