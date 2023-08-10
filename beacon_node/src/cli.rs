@@ -389,6 +389,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
                     MAINNET.")
         )
+        .arg(
+            Arg::with_name("http-enable-beacon-processor")
+                .long("http-enable-beacon-processor")
+                .value_name("BOOLEAN")
+                .help("The beacon processor is a scheduler which provides quality-of-service and \
+                    DoS protection. When set to \"true\", HTTP API requests will be queued and scheduled \
+                    alongside other tasks. When set to \"false\", HTTP API responses will be executed \
+                    immediately.")
+                .takes_value(true)
+                .default_value("true")
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")
@@ -1090,6 +1101,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("ignore-builder-override-suggestion-threshold")
+                .long("ignore-builder-override-suggestion-threshold")
+                .value_name("PERCENTAGE")
+                .help("When the EE advises Lighthouse to ignore the builder payload, this flag \
+                    specifies a percentage threshold for the difference between the reward from \
+                    the builder payload and the local EE's payload. This threshold must be met \
+                    for Lighthouse to consider ignoring the EE's suggestion. If the reward from \
+                    the builder's payload doesn't exceed the local payload by at least this \
+                    percentage, the local payload will be used. The conditions under which the \
+                    EE may make this suggestion depend on the EE's implementation, with the \
+                    primary intent being to safeguard against potential censorship attacks \
+                    from builders. Setting this flag to 0 will cause Lighthouse to always \
+                    ignore the EE's suggestion. Default: 10.0 (equivalent to 10%).")
+                .default_value("10.0")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("builder-user-agent")
                 .long("builder-user-agent")
                 .value_name("STRING")
@@ -1160,6 +1188,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             // to local payloads, therefore it fundamentally conflicts with
             // always using the builder.
             .conflicts_with("builder-profit-threshold")
+            .conflicts_with("ignore-builder-override-suggestion-threshold")
         )
         .arg(
             Arg::with_name("invalid-gossip-verified-blocks-path")
@@ -1182,5 +1211,56 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         not recommended for mainnet usage at this time.")
                 .takes_value(true)
                 .possible_values(ProgressiveBalancesMode::VARIANTS)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-max-workers")
+                .long("beacon-processor-max-workers")
+                .value_name("INTEGER")
+                .help("Specifies the maximum concurrent tasks for the task scheduler. Increasing \
+                        this value may increase resource consumption. Reducing the value \
+                        may result in decreased resource usage and diminished performance. The \
+                        default value is the number of logical CPU cores on the host.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-work-queue-len")
+                .long("beacon-processor-work-queue-len")
+                .value_name("INTEGER")
+                .help("Specifies the length of the inbound event queue. \
+                        Higher values may prevent messages from being dropped while lower values \
+                        may help protect the node from becoming overwhelmed.")
+                .default_value("16384")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-reprocess-queue-len")
+                .long("beacon-processor-reprocess-queue-len")
+                .value_name("INTEGER")
+                .help("Specifies the length of the queue for messages requiring delayed processing. \
+                        Higher values may prevent messages from being dropped while lower values \
+                        may help protect the node from becoming overwhelmed.")
+                .default_value("12288")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-attestation-batch-size")
+                .long("beacon-processor-attestation-batch-size")
+                .value_name("INTEGER")
+                .help("Specifies the number of gossip attestations in a signature verification batch. \
+                       Higher values may reduce CPU usage in a healthy network whilst lower values may \
+                       increase CPU usage in an unhealthy or hostile network.")
+                .default_value("64")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-aggregate-batch-size")
+                .long("beacon-processor-aggregate-batch-size")
+                .value_name("INTEGER")
+                .help("Specifies the number of gossip aggregate attestations in a signature \
+                       verification batch. \
+                       Higher values may reduce CPU usage in a healthy network while lower values may \
+                       increase CPU usage in an unhealthy or hostile network.")
+                .default_value("64")
+                .takes_value(true)
         )
 }

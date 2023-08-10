@@ -44,10 +44,8 @@ use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobItems;
 use types::builder_bid::BuilderBid;
 use types::{
-    AbstractExecPayload, BeaconStateError, ExecPayload, ExecutionPayloadDeneb, VersionedHash,
-};
-use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
+    AbstractExecPayload, BeaconStateError, BlindedPayload, BlockType, ChainSpec, Epoch,
+    ExecPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge,
 };
 use types::{KzgProofs, Sidecar};
 use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction};
@@ -315,6 +313,7 @@ struct Inner<E: EthSpec> {
     builder_profit_threshold: Uint256,
     log: Logger,
     always_prefer_builder_payload: bool,
+    ignore_builder_override_suggestion_threshold: f32,
     /// Track whether the last `newPayload` call errored.
     ///
     /// This is used *only* in the informational sync status endpoint, so that a VC using this
@@ -345,6 +344,7 @@ pub struct Config {
     pub builder_profit_threshold: u128,
     pub execution_timeout_multiplier: Option<u32>,
     pub always_prefer_builder_payload: bool,
+    pub ignore_builder_override_suggestion_threshold: f32,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -352,6 +352,40 @@ pub struct Config {
 #[derive(Clone)]
 pub struct ExecutionLayer<T: EthSpec> {
     inner: Arc<Inner<T>>,
+}
+
+/// This function will return the percentage difference between 2 U256 values, using `base_value`
+/// as the denominator. It is accurate to 7 decimal places which is about the precision of
+/// an f32.
+///
+/// If some error is encountered in the calculation, None will be returned.
+fn percentage_difference_u256(base_value: Uint256, comparison_value: Uint256) -> Option<f32> {
+    if base_value == Uint256::zero() {
+        return None;
+    }
+    // this is the total supply of ETH in WEI
+    let max_value = Uint256::from(12u8) * Uint256::exp10(25);
+    if base_value > max_value || comparison_value > max_value {
+        return None;
+    }
+
+    // Now we should be able to calculate the difference without division by zero or overflow
+    const PRECISION: usize = 7;
+    let precision_factor = Uint256::exp10(PRECISION);
+    let scaled_difference = if base_value <= comparison_value {
+        (comparison_value - base_value) * precision_factor
+    } else {
+        (base_value - comparison_value) * precision_factor
+    };
+    let scaled_proportion = scaled_difference / base_value;
+    // max value of scaled difference is 1.2 * 10^33, well below the max value of a u128 / f64 / f32
+    let percentage =
+        100.0f64 * scaled_proportion.low_u128() as f64 / precision_factor.low_u128() as f64;
+    if base_value <= comparison_value {
+        Some(percentage as f32)
+    } else {
+        Some(-percentage as f32)
+    }
 }
 
 impl<T: EthSpec> ExecutionLayer<T> {
@@ -369,6 +403,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             builder_profit_threshold,
             execution_timeout_multiplier,
             always_prefer_builder_payload,
+            ignore_builder_override_suggestion_threshold,
         } = config;
 
         if urls.len() > 1 {
@@ -448,6 +483,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             builder_profit_threshold: Uint256::from(builder_profit_threshold),
             log,
             always_prefer_builder_payload,
+            ignore_builder_override_suggestion_threshold,
             last_new_payload_errored: RwLock::new(false),
         };
 
@@ -786,6 +822,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     current_fork,
                 )
                 .await
+                .and_then(GetPayloadResponse::try_into)
                 .map(ProvenancedPayload::Local)
             }
         };
@@ -855,7 +892,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 .await
                         }),
                         timed_future(metrics::GET_BLINDED_PAYLOAD_LOCAL, async {
-                            self.get_full_payload_caching::<Payload>(
+                            self.get_full_payload_caching(
                                 parent_hash,
                                 payload_attributes,
                                 forkchoice_update_params,
@@ -875,7 +912,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         },
                         "relay_response_ms" => relay_duration.as_millis(),
                         "local_fee_recipient" => match &local_result {
-                            Ok(proposal_contents) => format!("{:?}", proposal_contents.payload().fee_recipient()),
+                            Ok(get_payload_response) => format!("{:?}", get_payload_response.fee_recipient()),
                             Err(_) => "request failed".to_string()
                         },
                         "local_response_ms" => local_duration.as_millis(),
@@ -889,20 +926,20 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 "Builder error when requesting payload";
                                 "info" => "falling back to local execution client",
                                 "relay_error" => ?e,
-                                "local_block_hash" => ?local.payload().block_hash(),
+                                "local_block_hash" => ?local.block_hash(),
                                 "parent_hash" => ?parent_hash,
                             );
-                            Ok(ProvenancedPayload::Local(local))
+                            Ok(ProvenancedPayload::Local(local.try_into()?))
                         }
                         (Ok(None), Ok(local)) => {
                             info!(
                                 self.log(),
                                 "Builder did not return a payload";
                                 "info" => "falling back to local execution client",
-                                "local_block_hash" => ?local.payload().block_hash(),
+                                "local_block_hash" => ?local.block_hash(),
                                 "parent_hash" => ?parent_hash,
                             );
-                            Ok(ProvenancedPayload::Local(local))
+                            Ok(ProvenancedPayload::Local(local.try_into()?))
                         }
                         (Ok(Some(relay)), Ok(local)) => {
                             let header = &relay.data.message.header();
@@ -911,12 +948,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 self.log(),
                                 "Received local and builder payloads";
                                 "relay_block_hash" => ?header.block_hash(),
-                                "local_block_hash" => ?local.payload().block_hash(),
+                                "local_block_hash" => ?local.block_hash(),
                                 "parent_hash" => ?parent_hash,
                             );
 
                             let relay_value = relay.data.message.value();
                             let local_value = *local.block_value();
+
                             if !self.inner.always_prefer_builder_payload {
                                 if local_value >= *relay_value {
                                     info!(
@@ -925,7 +963,24 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         "local_block_value" => %local_value,
                                         "relay_value" => %relay_value
                                     );
-                                    return Ok(ProvenancedPayload::Local(local));
+                                    return Ok(ProvenancedPayload::Local(local.try_into()?));
+                                } else if local.should_override_builder().unwrap_or(false) {
+                                    let percentage_difference =
+                                        percentage_difference_u256(local_value, *relay_value);
+                                    if percentage_difference.map_or(false, |percentage| {
+                                        percentage
+                                            < self
+                                                .inner
+                                                .ignore_builder_override_suggestion_threshold
+                                    }) {
+                                        info!(
+                                            self.log(),
+                                            "Using local payload because execution engine suggested we ignore builder payload";
+                                            "local_block_value" => %local_value,
+                                            "relay_value" => %relay_value
+                                        );
+                                        return Ok(ProvenancedPayload::Local(local.try_into()?));
+                                    }
                                 } else {
                                     info!(
                                         self.log(),
@@ -940,7 +995,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 &relay,
                                 parent_hash,
                                 payload_attributes,
-                                Some(local.payload().block_number()),
+                                Some(local.block_number()),
                                 self.inner.builder_profit_threshold,
                                 current_fork,
                                 spec,
@@ -955,7 +1010,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         "relay_block_hash" => ?header.block_hash(),
                                         "parent_hash" => ?parent_hash,
                                     );
-                                    Ok(ProvenancedPayload::Local(local))
+                                    Ok(ProvenancedPayload::Local(local.try_into()?))
                                 }
                                 Err(reason) => {
                                     metrics::inc_counter_vec(
@@ -970,7 +1025,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         "relay_block_hash" => ?header.block_hash(),
                                         "parent_hash" => ?parent_hash,
                                     );
-                                    Ok(ProvenancedPayload::Local(local))
+                                    Ok(ProvenancedPayload::Local(local.try_into()?))
                                 }
                             }
                         }
@@ -1067,17 +1122,18 @@ impl<T: EthSpec> ExecutionLayer<T> {
             current_fork,
         )
         .await
+        .and_then(GetPayloadResponse::try_into)
         .map(ProvenancedPayload::Local)
     }
 
     /// Get a full payload without caching its result in the execution layer's payload cache.
-    async fn get_full_payload<Payload: AbstractExecPayload<T>>(
+    async fn get_full_payload(
         &self,
         parent_hash: ExecutionBlockHash,
         payload_attributes: &PayloadAttributes,
         forkchoice_update_params: ForkchoiceUpdateParameters,
         current_fork: ForkName,
-    ) -> Result<BlockProposalContents<T, Payload>, Error> {
+    ) -> Result<GetPayloadResponse<T>, Error> {
         self.get_full_payload_with(
             parent_hash,
             payload_attributes,
@@ -1089,13 +1145,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Get a full payload and cache its result in the execution layer's payload cache.
-    async fn get_full_payload_caching<Payload: AbstractExecPayload<T>>(
+    async fn get_full_payload_caching(
         &self,
         parent_hash: ExecutionBlockHash,
         payload_attributes: &PayloadAttributes,
         forkchoice_update_params: ForkchoiceUpdateParameters,
         current_fork: ForkName,
-    ) -> Result<BlockProposalContents<T, Payload>, Error> {
+    ) -> Result<GetPayloadResponse<T>, Error> {
         self.get_full_payload_with(
             parent_hash,
             payload_attributes,
@@ -1106,7 +1162,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         .await
     }
 
-    async fn get_full_payload_with<Payload: AbstractExecPayload<T>>(
+    async fn get_full_payload_with(
         &self,
         parent_hash: ExecutionBlockHash,
         payload_attributes: &PayloadAttributes,
@@ -1116,7 +1172,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             &ExecutionLayer<T>,
             PayloadContentsRefTuple<T>,
         ) -> Option<FullPayloadContents<T>>,
-    ) -> Result<BlockProposalContents<T, Payload>, Error> {
+    ) -> Result<GetPayloadResponse<T>, Error> {
         self.engine()
             .request(move |engine| async move {
                 let payload_id = if let Some(id) = engine
@@ -1207,35 +1263,30 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .await
             .map_err(Box::new)
             .map_err(Error::EngineError)
-            .and_then(|payload| payload.try_into())
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.
     pub async fn notify_new_payload(
         &self,
-        execution_payload: &ExecutionPayload<T>,
-        versioned_hashes: Option<Vec<VersionedHash>>,
+        new_payload_request: NewPayloadRequest<T>,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
             &[metrics::NEW_PAYLOAD],
         );
 
+        let block_hash = new_payload_request.block_hash();
         trace!(
             self.log(),
             "Issuing engine_newPayload";
-            "parent_hash" => ?execution_payload.parent_hash(),
-            "block_hash" => ?execution_payload.block_hash(),
-            "block_number" => execution_payload.block_number(),
+            "parent_hash" => ?new_payload_request.parent_hash(),
+            "block_hash" => ?block_hash,
+            "block_number" => ?new_payload_request.block_number(),
         );
 
         let result = self
             .engine()
-            .request(|engine| {
-                engine
-                    .api
-                    .new_payload(execution_payload.clone(), versioned_hashes)
-            })
+            .request(|engine| engine.api.new_payload(new_payload_request))
             .await;
 
         if let Ok(status) = &result {
@@ -1246,7 +1297,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
         *self.inner.last_new_payload_errored.write().await = result.is_err();
 
-        process_payload_status(execution_payload.block_hash(), result, self.log())
+        process_payload_status(block_hash, result, self.log())
             .map_err(Box::new)
             .map_err(Error::EngineError)
     }
@@ -1818,8 +1869,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     block_hash: deneb_block.block_hash,
                     transactions: convert_transactions(deneb_block.transactions)?,
                     withdrawals,
-                    data_gas_used: deneb_block.data_gas_used,
-                    excess_data_gas: deneb_block.excess_data_gas,
+                    blob_gas_used: deneb_block.blob_gas_used,
+                    excess_blob_gas: deneb_block.excess_blob_gas,
                 })
             }
         };
@@ -2319,5 +2370,43 @@ mod test {
                 )
             })
             .await;
+    }
+
+    #[tokio::test]
+    async fn percentage_difference_u256_tests() {
+        // ensure function returns `None` when base value is zero
+        assert_eq!(percentage_difference_u256(0.into(), 1.into()), None);
+        // ensure function returns `None` when either value is greater than 120 Million ETH
+        let max_value = Uint256::from(12u8) * Uint256::exp10(25);
+        assert_eq!(
+            percentage_difference_u256(1u8.into(), max_value + Uint256::from(1u8)),
+            None
+        );
+        assert_eq!(
+            percentage_difference_u256(max_value + Uint256::from(1u8), 1u8.into()),
+            None
+        );
+        // it should work up to max value
+        assert_eq!(
+            percentage_difference_u256(max_value, max_value / Uint256::from(2u8)),
+            Some(-50f32)
+        );
+        // should work when base value is greater than comparison value
+        assert_eq!(
+            percentage_difference_u256(4u8.into(), 3u8.into()),
+            Some(-25f32)
+        );
+        // should work when comparison value is greater than base value
+        assert_eq!(
+            percentage_difference_u256(4u8.into(), 5u8.into()),
+            Some(25f32)
+        );
+        // should be accurate to 7 decimal places
+        let result =
+            percentage_difference_u256(Uint256::from(31415926u64), Uint256::from(13371337u64))
+                .expect("should get percentage");
+        // result = -57.4377116
+        assert!(result > -57.43772);
+        assert!(result <= -57.43771);
     }
 }

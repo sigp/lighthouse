@@ -24,7 +24,7 @@ pub use execution_layer::test_utils::{
 pub use validator_client::Config as ValidatorConfig;
 
 /// The global timeout for HTTP requests to the beacon node.
-const HTTP_TIMEOUT: Duration = Duration::from_secs(4);
+const HTTP_TIMEOUT: Duration = Duration::from_secs(8);
 /// The timeout for a beacon node to start up.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -114,6 +114,11 @@ pub fn testing_client_config() -> ClientConfig {
         validator_count: 8,
         genesis_time: now,
     };
+
+    // Specify a constant count of beacon processor workers. Having this number
+    // too low can cause annoying HTTP timeouts, especially on Github runners
+    // with 2 logical CPUs.
+    client_config.beacon_processor.max_workers = 4;
 
     client_config
 }
