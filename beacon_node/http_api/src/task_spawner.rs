@@ -106,7 +106,7 @@ impl<E: EthSpec> TaskSpawner<E> {
         self.blocking_response_task(priority, func).await
     }
 
-    /// Executes an async task which may return a `warp::Rejection`.
+    /// Executes an async task which may return a `Rejection`, which will be converted to a response.
     pub async fn spawn_async_with_rejection(
         self,
         priority: Priority,
@@ -118,6 +118,10 @@ impl<E: EthSpec> TaskSpawner<E> {
         convert_rejection(result).await
     }
 
+    /// Same as `spawn_async_with_rejection` but returning a result with the unhandled rejection.
+    ///
+    /// If you call this function you MUST convert the rejection to a response and not let it
+    /// propagate into Warp's filters. See `convert_rejection`.
     pub async fn spawn_async_with_rejection_no_conversion(
         self,
         priority: Priority,
