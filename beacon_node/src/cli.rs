@@ -175,7 +175,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-udp-port")
                 .value_name("PORT")
                 .help("The UDP4 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV4.")
+                      can connect to your local node on this port over IPv4.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-quic-port")
+                .long("enr-quic-port")
+                .value_name("PORT")
+                .help("The quic UDP4 port that will be set on the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IPv4.")
                 .takes_value(true),
         )
         .arg(
@@ -183,7 +191,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-udp6-port")
                 .value_name("PORT")
                 .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV6.")
+                      can connect to your local node on this port over IPv6.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-quic6-port")
+                .long("enr-quic6-port")
+                .value_name("PORT")
+                .help("The quic UDP6 port that will be set on the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IPv6.")
                 .takes_value(true),
         )
         .arg(
@@ -191,7 +207,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-tcp-port")
                 .value_name("PORT")
                 .help("The TCP4 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV4. The --port flag is \
+                      can connect to your local node on this port over IPv4. The --port flag is \
                       used if this is not set.")
                 .takes_value(true),
         )
@@ -200,7 +216,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-tcp6-port")
                 .value_name("PORT")
                 .help("The TCP6 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV6. The --port6 flag is \
+                      can connect to your local node on this port over IPv6. The --port6 flag is \
                       used if this is not set.")
                 .takes_value(true),
         )

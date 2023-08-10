@@ -156,7 +156,7 @@ impl<E: EthSpec> LocalNetwork<E> {
                 std::net::Ipv4Addr::UNSPECIFIED,
                 BOOTNODE_PORT + count,
                 BOOTNODE_PORT + count,
-                BOOTNODE_PORT + count + 1,
+                BOOTNODE_PORT + 1000 + count, // Offset the quick ports by 1000
             );
             beacon_config.network.enr_disc4_port = Some(BOOTNODE_PORT + count);
             beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT + count);
