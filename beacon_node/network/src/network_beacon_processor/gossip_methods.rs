@@ -86,11 +86,10 @@ struct RejectedUnaggregate<T: EthSpec> {
     error: AttnError,
 }
 
-type PartitionedPackages<T> = (Vec<(
-                GossipAggregatePackage<T>,
-                SignedAggregateAndProof<T>,
-            )>,
-            Vec<(AttnError, GossipAggregatePackage<T>)>);
+type PartitionedPackages<T> = (
+    Vec<(GossipAggregatePackage<T>, SignedAggregateAndProof<T>)>,
+    Vec<(AttnError, GossipAggregatePackage<T>)>,
+);
 
 /// An aggregate that has been validated by the `BeaconChain`.
 ///
@@ -488,36 +487,37 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
-        let (to_process, skip): PartitionedPackages<T::EthSpec> = packages.into_iter().partition_map(|p| {
-            match self
-                .chain
-                .is_lazy_att_observed_subset(&p.aggregate.message.aggregate)
-            {
-                Ok(false) => match p.aggregate.clone().not_lazy() {
-                    Ok(agg) => itertools::Either::Left((p, agg)),
-                    Err(e) => itertools::Either::Right((e.into(), p)),
-                },
-                Ok(true) => itertools::Either::Right((
-                    AttnError::AttestationSupersetKnown(
-                        p.aggregate.message.aggregate.data.tree_hash_root(),
-                    ),
-                    p,
-                )),
-                // The only error that could occur here is observed_attestations::Error::SlotTooLow
-                Err(beacon_chain::ObservedAggregatesError::SlotTooLow {
-                    slot,
-                    lowest_permissible_slot,
-                }) => itertools::Either::Right((
-                    AttnError::PastSlot {
-                        attestation_slot: slot,
-                        earliest_permissible_slot: lowest_permissible_slot,
+        let (to_process, skip): PartitionedPackages<T::EthSpec> =
+            packages.into_iter().partition_map(|p| {
+                match self
+                    .chain
+                    .is_lazy_att_observed_subset(&p.aggregate.message.aggregate)
+                {
+                    Ok(false) => match p.aggregate.clone().not_lazy() {
+                        Ok(agg) => itertools::Either::Left((p, agg)),
+                        Err(e) => itertools::Either::Right((e.into(), p)),
                     },
-                    p,
-                )),
-                // This should never occur
-                Err(_) => itertools::Either::Right((AttnError::InvalidSignature, p)),
-            }
-        });
+                    Ok(true) => itertools::Either::Right((
+                        AttnError::AttestationSupersetKnown(
+                            p.aggregate.message.aggregate.data.tree_hash_root(),
+                        ),
+                        p,
+                    )),
+                    // The only error that could occur here is observed_attestations::Error::SlotTooLow
+                    Err(beacon_chain::ObservedAggregatesError::SlotTooLow {
+                        slot,
+                        lowest_permissible_slot,
+                    }) => itertools::Either::Right((
+                        AttnError::PastSlot {
+                            attestation_slot: slot,
+                            earliest_permissible_slot: lowest_permissible_slot,
+                        },
+                        p,
+                    )),
+                    // This should never occur
+                    Err(_) => itertools::Either::Right((AttnError::InvalidSignature, p)),
+                }
+            });
 
         let results = match self
             .chain
