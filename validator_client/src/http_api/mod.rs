@@ -21,6 +21,7 @@ use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
 };
+use hyper::Body;
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
@@ -39,10 +40,12 @@ use task_executor::TaskExecutor;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
+use warp::http::response::Response as WarpResponse;
+use warp::reply::{Reply, Response};
+
 use warp::{
     http::{
         header::{HeaderValue, CONTENT_TYPE},
-        response::Response,
         StatusCode,
     },
     sse::Event,
@@ -107,6 +110,24 @@ impl Default for Config {
             allow_keystore_export: false,
             store_passwords_in_secrets_dir: false,
         }
+    }
+}
+
+/// Convert a warp `Rejection` into a `Response`.
+///
+/// This function should *always* be used to convert rejections into responses. This prevents warp
+/// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
+pub async fn convert_rejection<T: Reply>(res: Result<T, warp::Rejection>) -> Response {
+    match res {
+        Ok(response) => response.into_response(),
+        Err(e) => match warp_utils::reject::handle_rejection(e).await {
+            Ok(reply) => reply.into_response(),
+            Err(_) => warp::reply::with_status(
+                warp::reply::json(&"unhandled error"),
+                eth2::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+            .into_response(),
+        },
     }
 }
 
@@ -265,7 +286,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("version"))
         .and(warp::path::end())
         .and(signer.clone())
-        .and_then(|signer| {
+        .then(|signer| {
             blocking_signed_json_task(signer, move || {
                 Ok(api_types::GenericResponse::from(api_types::VersionData {
                     version: version_with_platform(),
@@ -278,7 +299,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("health"))
         .and(warp::path::end())
         .and(signer.clone())
-        .and_then(|signer| {
+        .then(|signer| {
             blocking_signed_json_task(signer, move || {
                 eth2::lighthouse::Health::observe()
                     .map(api_types::GenericResponse::from)
@@ -292,7 +313,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(spec_filter.clone())
         .and(signer.clone())
-        .and_then(|spec: Arc<_>, signer| {
+        .then(|spec: Arc<_>, signer| {
             blocking_signed_json_task(signer, move || {
                 let config = ConfigAndPreset::from_chain_spec::<E>(&spec, None);
                 Ok(api_types::GenericResponse::from(config))
@@ -305,7 +326,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(|validator_store: Arc<ValidatorStore<T, E>>, signer| {
+        .then(|validator_store: Arc<ValidatorStore<T, E>>, signer| {
             blocking_signed_json_task(signer, move || {
                 let validators = validator_store
                     .initialized_validators()
@@ -330,7 +351,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(
+        .then(
             |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
                 blocking_signed_json_task(signer, move || {
                     let validator = validator_store
@@ -365,7 +386,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(app_start_filter)
         .and(validator_dir_filter.clone())
         .and(signer.clone())
-        .and_then(|sysinfo, app_start: std::time::Instant, val_dir, signer| {
+        .then(|sysinfo, app_start: std::time::Instant, val_dir, signer| {
             blocking_signed_json_task(signer, move || {
                 let app_uptime = app_start.elapsed().as_secs();
                 Ok(api_types::GenericResponse::from(observe_system_health_vc(
@@ -383,7 +404,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(graffiti_flag_filter)
         .and(signer.clone())
         .and(log_filter.clone())
-        .and_then(
+        .then(
             |validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>,
              graffiti_flag: Option<Graffiti>,
@@ -421,7 +442,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(spec_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
-        .and_then(
+        .then(
             move |body: Vec<api_types::ValidatorRequest>,
                   validator_dir: PathBuf,
                   secrets_dir: PathBuf,
@@ -468,7 +489,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(spec_filter)
         .and(signer.clone())
         .and(task_executor_filter.clone())
-        .and_then(
+        .then(
             move |body: api_types::CreateValidatorsMnemonicRequest,
                   validator_dir: PathBuf,
                   secrets_dir: PathBuf,
@@ -517,7 +538,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
-        .and_then(
+        .then(
             move |body: api_types::KeystoreValidatorsPostRequest,
                   validator_dir: PathBuf,
                   secrets_dir: PathBuf,
@@ -603,7 +624,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
-        .and_then(
+        .then(
             |body: Vec<api_types::Web3SignerValidatorRequest>,
              validator_store: Arc<ValidatorStore<T, E>>,
              signer,
@@ -656,7 +677,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(graffiti_file_filter)
         .and(signer.clone())
         .and(task_executor_filter.clone())
-        .and_then(
+        .then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
              validator_store: Arc<ValidatorStore<T, E>>,
@@ -726,7 +747,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let get_auth = get_auth
         .and(signer.clone())
         .and(api_token_path_filter)
-        .and_then(|signer, token_path: PathBuf| {
+        .then(|signer, token_path: PathBuf| {
             blocking_signed_json_task(signer, move || {
                 Ok(AuthResponse {
                     token_path: token_path.display().to_string(),
@@ -743,7 +764,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
         .and(log_filter.clone())
-        .and_then(
+        .then(
             move |request, signer, validator_store, task_executor, log| {
                 blocking_signed_json_task(signer, move || {
                     if allow_keystore_export {
@@ -770,7 +791,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(
+        .then(
             |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
                 blocking_signed_json_task(signer, move || {
                     if validator_store
@@ -810,7 +831,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(
+        .then(
             |validator_pubkey: PublicKey,
              request: api_types::UpdateFeeRecipientRequest,
              validator_store: Arc<ValidatorStore<T, E>>,
@@ -850,7 +871,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(
+        .then(
             |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
                 blocking_signed_json_task(signer, move || {
                     if validator_store
@@ -887,7 +908,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(
+        .then(
             |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
                 blocking_signed_json_task(signer, move || {
                     if validator_store
@@ -919,7 +940,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(
+        .then(
             |validator_pubkey: PublicKey,
              request: api_types::UpdateGasLimitRequest,
              validator_store: Arc<ValidatorStore<T, E>>,
@@ -959,7 +980,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(
+        .then(
             |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
                 blocking_signed_json_task(signer, move || {
                     if validator_store
@@ -1000,7 +1021,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(log_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
-        .and_then(
+        .then(
             |pubkey: PublicKey,
              query: api_types::VoluntaryExitQuery,
              validator_store: Arc<ValidatorStore<T, E>>,
@@ -1032,7 +1053,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let get_std_keystores = std_keystores
         .and(signer.clone())
         .and(validator_store_filter.clone())
-        .and_then(|signer, validator_store: Arc<ValidatorStore<T, E>>| {
+        .then(|signer, validator_store: Arc<ValidatorStore<T, E>>| {
             blocking_signed_json_task(signer, move || Ok(keystores::list(validator_store)))
         });
 
@@ -1045,7 +1066,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
         .and(log_filter.clone())
-        .and_then(
+        .then(
             move |request,
                   signer,
                   validator_dir,
@@ -1074,7 +1095,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
         .and(log_filter.clone())
-        .and_then(|request, signer, validator_store, task_executor, log| {
+        .then(|request, signer, validator_store, task_executor, log| {
             blocking_signed_json_task(signer, move || {
                 keystores::delete(request, validator_store, task_executor, log)
             })
@@ -1084,7 +1105,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let get_std_remotekeys = std_remotekeys
         .and(signer.clone())
         .and(validator_store_filter.clone())
-        .and_then(|signer, validator_store: Arc<ValidatorStore<T, E>>| {
+        .then(|signer, validator_store: Arc<ValidatorStore<T, E>>| {
             blocking_signed_json_task(signer, move || Ok(remotekeys::list(validator_store)))
         });
 
@@ -1095,7 +1116,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
         .and(log_filter.clone())
-        .and_then(|request, signer, validator_store, task_executor, log| {
+        .then(|request, signer, validator_store, task_executor, log| {
             blocking_signed_json_task(signer, move || {
                 remotekeys::import(request, validator_store, task_executor, log)
             })
@@ -1108,7 +1129,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter)
         .and(task_executor_filter)
         .and(log_filter.clone())
-        .and_then(|request, signer, validator_store, task_executor, log| {
+        .then(|request, signer, validator_store, task_executor, log| {
             blocking_signed_json_task(signer, move || {
                 remotekeys::delete(request, validator_store, task_executor, log)
             })
@@ -1226,38 +1247,38 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 /// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
 /// JSON-encodes the return value of `func`, using the `signer` function to produce a signature of
 /// those bytes.
-pub async fn blocking_signed_json_task<S, F, T>(
-    signer: S,
-    func: F,
-) -> Result<impl warp::Reply, warp::Rejection>
+pub async fn blocking_signed_json_task<S, F, T>(signer: S, func: F) -> Response
 where
     S: Fn(&[u8]) -> String,
     F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
     T: Serialize + Send + 'static,
 {
-    warp_utils::task::blocking_task(func)
+    let result = warp_utils::task::blocking_task(func)
         .await
         .map(|func_output| {
-            let mut response = match serde_json::to_vec(&func_output) {
-                Ok(body) => {
-                    let mut res = Response::new(body);
-                    res.headers_mut()
-                        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-                    res
+            let response_body = match serde_json::to_vec(&func_output) {
+                Ok(body) => body,
+                Err(_) => {
+                    return WarpResponse::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Body::from(vec![]))
+                        .expect("can produce simple response from static values")
                 }
-                Err(_) => Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(vec![])
-                    .expect("can produce simple response from static values"),
             };
 
-            let body: &Vec<u8> = response.body();
-            let signature = signer(body);
+            let signature = signer(&response_body);
             let header_value =
                 HeaderValue::from_str(&signature).expect("hash can be encoded as header");
+
+            let mut response = WarpResponse::builder()
+                .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+                .body(Body::from(response_body))
+                .unwrap();
 
             response.headers_mut().append("Signature", header_value);
 
             response
-        })
+        });
+
+    convert_rejection(result).await
 }
