@@ -86,6 +86,12 @@ struct RejectedUnaggregate<T: EthSpec> {
     error: AttnError,
 }
 
+type PartitionedPackages<T> = (Vec<(
+                GossipAggregatePackage<T>,
+                SignedAggregateAndProof<T>,
+            )>,
+            Vec<(AttnError, GossipAggregatePackage<T>)>);
+
 /// An aggregate that has been validated by the `BeaconChain`.
 ///
 /// Since this struct implements `beacon_chain::VerifiedAttestation`, it would be a logic error to
@@ -482,13 +488,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
-        let (to_process, skip): (
-            Vec<(
-                GossipAggregatePackage<T::EthSpec>,
-                SignedAggregateAndProof<T::EthSpec>,
-            )>,
-            Vec<(AttnError, GossipAggregatePackage<T::EthSpec>)>,
-        ) = packages.into_iter().partition_map(|p| {
+        let (to_process, skip): PartitionedPackages<T::EthSpec> = packages.into_iter().partition_map(|p| {
             match self
                 .chain
                 .is_lazy_att_observed_subset(&p.aggregate.message.aggregate)
