@@ -15,8 +15,8 @@ use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
     fork_core_topics, subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic,
-    SnappyTransform, Subnet, SubnetDiscovery, BASE_CORE_TOPICS, ALTAIR_CORE_TOPICS, CAPELLA_CORE_TOPICS,
-    LIGHT_CLIENT_GOSSIP_TOPICS,
+    SnappyTransform, Subnet, SubnetDiscovery, ALTAIR_CORE_TOPICS, BASE_CORE_TOPICS,
+    CAPELLA_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
 };
 use crate::EnrExt;
 use crate::Eth2Enr;
@@ -42,7 +42,7 @@ use std::{
 use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, consts::deneb::BLOB_SIDECAR_SUBNET_COUNT,
-    EnrForkId, EthSpec, ForkContext, Slot, SubnetId
+    EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
@@ -228,11 +228,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let max_subnets = ctx.chain_spec.attestation_subnet_count as usize
                 + SYNC_COMMITTEE_SUBNET_COUNT as usize
                 + BLOB_SIDECAR_SUBNET_COUNT as usize
-                + BASE_CORE_TOPICS.len() 
-                + ALTAIR_CORE_TOPICS.len() 
-                + CAPELLA_CORE_TOPICS.len() 
+                + BASE_CORE_TOPICS.len()
+                + ALTAIR_CORE_TOPICS.len()
+                + CAPELLA_CORE_TOPICS.len()
                 + LIGHT_CLIENT_GOSSIP_TOPICS.len();
-
 
             let possible_fork_digests = ctx.fork_context.all_fork_digests();
             let filter = gossipsub::MaxCountSubscriptionFilter {
@@ -246,7 +245,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 // if there are two forks in quick succession, we may need 3x instead of 2x.
                 max_subscribed_topics: max_subnets * 3,
                 // 162 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics) * 2
-
                 max_subscriptions_per_request: max_subnets * 3,
             };
 
