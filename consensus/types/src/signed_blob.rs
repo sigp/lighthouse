@@ -59,13 +59,6 @@ impl<T: EthSpec> SignedSidecar<T, BlindedBlobSidecar> {
     }
 }
 
-/// List of Signed Sidecars that implements `Sidecar`.
-pub type SignedSidecarList<T, Sidecar> =
-    VariableList<SignedSidecar<T, Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
-pub type SignedBlobSidecarList<T> = SignedSidecarList<T, BlobSidecar<T>>;
-
-pub type SignedBlobSidecar<T> = SignedSidecar<T, BlobSidecar<T>>;
-
 impl<T: EthSpec> SignedBlobSidecar<T> {
     /// Verify `self.signature`.
     ///
@@ -99,3 +92,21 @@ impl<T: EthSpec> SignedBlobSidecar<T> {
         self.signature.verify(pubkey, message)
     }
 }
+
+impl<T: EthSpec> From<SignedBlobSidecar<T>> for SignedBlindedBlobSidecar<T> {
+    fn from(signed: SignedBlobSidecar<T>) -> Self {
+        SignedBlindedBlobSidecar {
+            message: Arc::new(signed.message.into()),
+            signature: signed.signature,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+pub type SignedBlobSidecar<T> = SignedSidecar<T, BlobSidecar<T>>;
+pub type SignedBlindedBlobSidecar<T> = SignedSidecar<T, BlindedBlobSidecar>;
+
+/// List of Signed Sidecars that implements `Sidecar`.
+pub type SignedSidecarList<T, Sidecar> =
+    VariableList<SignedSidecar<T, Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type SignedBlobSidecarList<T> = SignedSidecarList<T, BlobSidecar<T>>;
