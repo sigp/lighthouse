@@ -77,12 +77,10 @@ jobs:
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
             - name: Cross build Lighthouse binary
-              if: env.SELF_HOSTED_RUNNERS == false
               run: |
                   cargo install cross
                   env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ matrix.features.env }} make build-${{ matrix.binary }}
             - name: Make bin dir
-              if: env.SELF_HOSTED_RUNNERS == false
               run: mkdir ./bin
             - name: Move cross-built binary into Docker scope (if ARM)
               if: startsWith(matrix.binary, 'aarch64')
