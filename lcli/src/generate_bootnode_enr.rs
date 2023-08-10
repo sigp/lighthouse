@@ -27,7 +27,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
 
     let mut config = NetworkConfig::default();
     config.enr_address = (Some(ip), None);
-    config.enr_disc4_port = Some(udp_port);
+    config.enr_udp4_port = Some(udp_port);
     config.enr_tcp6_port = Some(tcp_port);
 
     let secp256k1_keypair = secp256k1::Keypair::generate();
