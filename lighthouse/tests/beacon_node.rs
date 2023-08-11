@@ -1063,7 +1063,6 @@ fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
     let disc4_port = unused_udp4_port().expect("Unable to find unused port.");
     let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
     let disc6_port = unused_udp6_port().expect("Unable to find unused port.");
-    println!("Thing");
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("listen-address", Some("127.0.0.1"))

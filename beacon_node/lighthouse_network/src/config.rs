@@ -208,8 +208,8 @@ impl Config {
         quic4_port: u16,
         v6_addr: Ipv6Addr,
         tcp6_port: u16,
-        quic6_port: u16,
         disc6_port: u16,
+        quic6_port: u16,
     ) {
         self.listen_addresses = ListenAddress::DualStack(
             ListenAddr {

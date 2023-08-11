@@ -77,7 +77,6 @@ pub fn get_config<E: EthSpec>(
 
     let data_dir_ref = client_config.data_dir().clone();
 
-    println!("SET NETWORK CONFIG");
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref, log)?;
 
     /*
@@ -965,9 +964,9 @@ pub fn set_network_config(
     }
 
     if cli_args.is_present("enr-match") {
-        // Match the Ip and UDP port in the enr.
+        // Match the IP and UDP port in the ENR.
 
-        // set the enr address to localhost if the address is unspecified
+        // Set the ENR address to localhost if the address is unspecified
         if let Some(ipv4_addr) = config.listen_addrs().v4().cloned() {
             let ipv4_enr_addr = if ipv4_addr.addr == Ipv4Addr::UNSPECIFIED {
                 Ipv4Addr::LOCALHOST
@@ -1149,7 +1148,6 @@ pub fn parse_listening_addresses(
     cli_args: &ArgMatches,
     log: &Logger,
 ) -> Result<ListenAddress, String> {
-    dbg!("PARSE");
     let listen_addresses_str = cli_args
         .values_of("listen-address")
         .expect("--listen_addresses has a default value");
@@ -1233,8 +1231,6 @@ pub fn parse_listening_addresses(
             format!("Failed to parse --quic6-port as an integer: {parse_error}")
         })?;
 
-    println!("{:?}", maybe_disc6_port);
-    println!("{:?}", (maybe_ipv4, maybe_ipv6));
     // Now put everything together
     let listening_addresses = match (maybe_ipv4, maybe_ipv6) {
         (None, None) => {
@@ -1333,13 +1329,11 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port6);
-            println!("{:?}", maybe_disc6_port);
             let ipv6_disc_port = use_zero_ports
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc6_port)
                 .unwrap_or(ipv6_tcp_port);
-            println!("{:?}", ipv6_disc_port);
             let ipv6_quic_port = use_zero_ports
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
