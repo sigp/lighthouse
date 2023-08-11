@@ -469,10 +469,7 @@ where
             // Root is older than queried slot, thus a skip slot. Return most recent root prior
             // to slot.
             Ordering::Less => Ok(Some(block_root)),
-            Ordering::Equal =>
-            {
-                Ok(Some(block_root))
-            }
+            Ordering::Equal => Ok(Some(block_root)),
         }
     }
 
