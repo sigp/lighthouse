@@ -1192,7 +1192,7 @@ where
         // Update store time.
         store.set_current_slot(time);
 
-        let current_slot = store.get_current_slot();    
+        let current_slot = store.get_current_slot();
 
         // Reset proposer boost if this is a new slot.
         if current_slot > previous_slot {
