@@ -1694,10 +1694,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // required to attest is available on the head state.
                 Some((
                     head_state.current_justified_checkpoint(),
-                    head_state
-                        .get_beacon_committee(request_slot, request_index)?
-                        .committee
-                        .len(),
+                    head_state.get_beacon_committee_size(request_slot, request_index)?,
                 ))
             } else {
                 // If the head state is in a *different* epoch to the request, more work is required

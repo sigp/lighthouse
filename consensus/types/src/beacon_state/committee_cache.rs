@@ -123,14 +123,14 @@ impl CommitteeCache {
         &self.shuffling
     }
 
-    /// Get the Beacon committee for the given `slot` and `index`.
+    /// Get the Beacon committee range for the given `slot` and `index`.
     ///
     /// Return `None` if the cache is uninitialized, or the `slot` or `index` is out of range.
-    pub fn get_beacon_committee(
+    fn get_beacon_committee_range(
         &self,
         slot: Slot,
         index: CommitteeIndex,
-    ) -> Option<BeaconCommittee> {
+    ) -> Option<Range<usize>> {
         if self.initialized_epoch.is_none()
             || !self.is_initialized_at(slot.epoch(self.slots_per_epoch))
             || index >= self.committees_per_slot
@@ -144,7 +144,29 @@ impl CommitteeCache {
             self.committees_per_slot as usize,
             index as usize,
         );
-        let committee = self.compute_committee(committee_index)?;
+        self.compute_committee_range(committee_index)
+    }
+
+    /// Get the Beacon committee size for the given `slot` and `index`.
+    ///
+    /// Return `None` if the cache is uninitialized, or the `slot` or `index` is out of range.
+    pub fn get_beacon_committee_size(&self, slot: Slot, index: CommitteeIndex) -> Option<usize> {
+        let range = self.get_beacon_committee_range(slot, index)?;
+
+        Some(range.len())
+    }
+
+    /// Get the Beacon committee for the given `slot` and `index`.
+    ///
+    /// Return `None` if the cache is uninitialized, or the `slot` or `index` is out of range.
+    pub fn get_beacon_committee(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+    ) -> Option<BeaconCommittee> {
+        let range = self.get_beacon_committee_range(slot, index)?;
+
+        let committee = self.shuffling.get(range)?;
 
         Some(BeaconCommittee {
             slot,

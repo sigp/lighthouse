@@ -571,6 +571,23 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(cache.shuffling())
     }
 
+    /// Get the Beacon committee size at the given slot and index.
+    ///
+    /// Utilises the committee cache.
+    pub fn get_beacon_committee_size(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+    ) -> Result<usize, Error> {
+        let epoch = slot.epoch(T::slots_per_epoch());
+        let relative_epoch = RelativeEpoch::from_epoch(self.current_epoch(), epoch)?;
+        let cache = self.committee_cache(relative_epoch)?;
+
+        cache
+            .get_beacon_committee_size(slot, index)
+            .ok_or(Error::NoCommittee { slot, index })
+    }
+
     /// Get the Beacon committee at the given slot and index.
     ///
     /// Utilises the committee cache.
