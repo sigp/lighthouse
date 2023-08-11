@@ -383,6 +383,16 @@ where
         let (genesis, updated_builder) = self.set_genesis_state(beacon_state)?;
         self = updated_builder;
 
+        // Stage the database's metadata fields for atomic storage when `build` is called.
+        // Since v4.4.0 we will set the anchor with a dummy state upper limit in order to prevent
+        // historic states from being retained (unless `--reconstruct-historic-states` is set).
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(genesis.beacon_block.message(), retain_historic_states)
+                .map_err(|e| format!("Failed to initialize genesis anchor: {:?}", e))?,
+        );
+
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
         let current_slot = None;
@@ -408,7 +418,6 @@ where
         mut weak_subj_state: BeaconState<TEthSpec>,
         weak_subj_block: SignedBeaconBlock<TEthSpec>,
         genesis_state: BeaconState<TEthSpec>,
-        retain_historic_states: bool,
     ) -> Result<Self, String> {
         let store = self
             .store
@@ -484,6 +493,7 @@ where
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
         // info or split point is written before the `PersistedBeaconChain`.
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
         self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store

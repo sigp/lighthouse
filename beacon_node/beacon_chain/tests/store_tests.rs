@@ -9,14 +9,14 @@ use beacon_chain::test_utils::{
 use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::{
     historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
-    BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, NotifyExecutionLayer,
-    ServerSentEventHandler, WhenSlotSkipped,
+    BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
+    NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
 use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
 use rand::Rng;
-use state_processing::BlockReplayer;
+use state_processing::{state_advance::complete_state_advance, BlockReplayer};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -2156,7 +2156,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .custom_spec(test_spec::<E>())
             .task_executor(harness.chain.task_executor.clone())
             .logger(log.clone())
-            .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state, false)
+            .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
             .unwrap()
             .store_migrator_config(MigratorConfig::default().blocking())
             .dummy_eth1_backend()
@@ -2295,6 +2295,129 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     // Reconstruct states.
     store.clone().reconstruct_historic_states().unwrap();
     assert_eq!(store.get_anchor_slot(), None);
+}
+
+/// Test that blocks and attestations that refer to states around an unaligned split state are
+/// processed correctly.
+#[tokio::test]
+async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
+    let temp = tempdir().unwrap();
+    let store = get_store(&temp);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let split_slot = Slot::new(E::slots_per_epoch() * 4);
+    let pre_skips = 1;
+    let post_skips = 1;
+
+    // Build the chain up to the intended split slot, with 3 skips before the split.
+    let slots = (1..=split_slot.as_u64() - pre_skips)
+        .map(Slot::new)
+        .collect::<Vec<_>>();
+
+    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    harness
+        .add_attested_blocks_at_slots(
+            genesis_state.clone(),
+            genesis_state_root,
+            &slots,
+            &all_validators,
+        )
+        .await;
+
+    // Before the split slot becomes finalized, create two forking blocks that build on the split
+    // block:
+    //
+    // - one that is invalid because it conflicts with finalization (slot <= finalized_slot)
+    // - one that is valid because its slot is not finalized (slot > finalized_slot)
+    let (unadvanced_split_state, unadvanced_split_state_root) =
+        harness.get_current_state_and_root();
+
+    let (invalid_fork_block, _) = harness
+        .make_block(unadvanced_split_state.clone(), split_slot)
+        .await;
+    let (valid_fork_block, _) = harness
+        .make_block(unadvanced_split_state.clone(), split_slot + 1)
+        .await;
+
+    // Advance the chain so that the intended split slot is finalized.
+    // Do not attest in the epoch boundary slot, to make attestation production later easier (no
+    // equivocations).
+    let finalizing_slot = split_slot + 2 * E::slots_per_epoch();
+    for _ in 0..pre_skips + post_skips {
+        harness.advance_slot();
+    }
+    harness.extend_to_slot(finalizing_slot - 1).await;
+    harness
+        .add_block_at_slot(finalizing_slot, harness.get_current_state())
+        .await
+        .unwrap();
+
+    // Check that the split slot is as intended.
+    let split = store.get_split_info();
+    assert_eq!(split.slot, split_slot);
+    assert_eq!(split.block_root, valid_fork_block.parent_root());
+    assert_ne!(split.state_root, unadvanced_split_state_root);
+
+    // Applying the invalid block should fail.
+    let err = harness
+        .chain
+        .process_block(
+            invalid_fork_block.canonical_root(),
+            Arc::new(invalid_fork_block.clone()),
+            NotifyExecutionLayer::Yes,
+            || Ok(()),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, BlockError::WouldRevertFinalizedSlot { .. }));
+
+    // Applying the valid block should succeed, but it should not become head.
+    harness
+        .chain
+        .process_block(
+            valid_fork_block.canonical_root(),
+            Arc::new(valid_fork_block.clone()),
+            NotifyExecutionLayer::Yes,
+            || Ok(()),
+        )
+        .await
+        .unwrap();
+    harness.chain.recompute_head_at_current_slot().await;
+    assert_ne!(harness.head_block_root(), valid_fork_block.canonical_root());
+
+    // Attestations to the split block in the next 2 epochs should be processed successfully.
+    let attestation_start_slot = harness.get_current_slot();
+    let attestation_end_slot = attestation_start_slot + 2 * E::slots_per_epoch();
+    let (split_state_root, mut advanced_split_state) = harness
+        .chain
+        .store
+        .get_advanced_state(split.block_root, Some(split.slot), Some(split.state_root))
+        .unwrap()
+        .unwrap();
+    complete_state_advance(
+        &mut advanced_split_state,
+        Some(split_state_root),
+        attestation_start_slot,
+        &harness.chain.spec,
+    )
+    .unwrap();
+    advanced_split_state
+        .build_caches(&harness.chain.spec)
+        .unwrap();
+    let advanced_split_state_root = advanced_split_state.update_tree_hash_cache().unwrap();
+    for slot in (attestation_start_slot.as_u64()..attestation_end_slot.as_u64()).map(Slot::new) {
+        let attestations = harness.make_attestations(
+            &all_validators,
+            &advanced_split_state,
+            advanced_split_state_root,
+            split.block_root.into(),
+            slot,
+        );
+        harness.advance_slot();
+        harness.process_attestations(attestations);
+    }
 }
 
 #[tokio::test]
