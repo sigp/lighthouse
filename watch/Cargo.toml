@@ -43,3 +43,4 @@ beacon_chain = { path = "../beacon_node/beacon_chain" }
 network = { path = "../beacon_node/network" }
 testcontainers = "0.14.0"
 unused_port = { path = "../common/unused_port" }
+task_executor = { path = "../common/task_executor" }

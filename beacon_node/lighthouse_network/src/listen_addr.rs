@@ -11,9 +11,6 @@ pub struct ListenAddr<Ip> {
     /// The UDP port that discovery will listen on.
     pub disc_port: u16,
     /// The UDP port that QUIC will listen on.
-    /// NB: Quic port is not yet supported with IPV6
-    /// See https://github.com/libp2p/rust-libp2p/issues/4165
-    /// It will therefore be disabled at the swarm level.
     pub quic_port: u16,
     /// The TCP port that libp2p will listen on.
     pub tcp_port: u16,

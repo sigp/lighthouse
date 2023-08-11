@@ -13,9 +13,9 @@ use slog::{debug, error};
 use types::EthSpec;
 
 use crate::discovery::enr_ext::EnrExt;
-use crate::metrics;
 use crate::rpc::GoodbyeReason;
 use crate::types::SyncState;
+use crate::{metrics, ClearDialError};
 
 use super::peerdb::BanResult;
 use super::{ConnectingType, PeerManager, PeerManagerEvent, ReportSource};
@@ -145,7 +145,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 error,
                 connection_id: _,
             }) => {
-                debug!(self.log, "Failed to dial peer"; "peer_id"=> ?peer_id, "error" => %error);
+                debug!(self.log, "Failed to dial peer"; "peer_id"=> ?peer_id, "error" => %ClearDialError(error));
                 self.on_dial_failure(peer_id);
             }
             FromSwarm::ExternalAddrConfirmed(_) => {
