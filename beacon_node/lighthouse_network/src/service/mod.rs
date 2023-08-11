@@ -1066,9 +1066,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let peers_to_dial: Vec<Enr> = self
             .discovery()
             .cached_enrs()
-            .filter_map(|(peer_id, enr)| {
-                let peers = self.network_globals.peers.read();
-                if predicate(enr) && peers.should_dial(peer_id) {
+            .filter_map(|(_peer_id, enr)| {
+                if predicate(enr) {
                     Some(enr.clone())
                 } else {
                     None
@@ -1078,10 +1077,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         // Remove the ENR from the cache to prevent continual re-dialing on disconnects
         peers_to_dial.iter().for_each(|enr| {
+            self.peer_manager_mut().dial_peer(enr.clone());
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
         });
-
-        self.peer_manager_mut().dial_peers(peers_to_dial);
     }
 
     /* Sub-behaviour event handling functions */
@@ -1366,19 +1364,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
-    /// Handle a discovery event.
-    fn inject_discovery_event(
-        &mut self,
-        event: DiscoveredPeers,
-    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
-        // Inform the peer manager about discovered peers.
-        //
-        // The peer manager will subsequently decide which peers need to be dialed and then dial
-        // them.
-        self.peer_manager_mut().peers_discovered(event.peers);
-        None
-    }
-
     /// Handle an identify event.
     fn inject_identify_event(
         &mut self,
@@ -1479,7 +1464,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     BehaviourEvent::BannedPeers(void) => void::unreachable(void),
                     BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
                     BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
-                    BehaviourEvent::Discovery(de) => self.inject_discovery_event(de),
+                    // Inform the peer manager about discovered peers.
+                    //
+                    // The peer manager will subsequently decide which peers need to be dialed and then dial
+                    // them.
+                    BehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
+                        self.peer_manager_mut().peers_discovered(peers);
+                        None
+                    }
                     BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
                     BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
                     BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
@@ -1561,10 +1553,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         None
                     }
                 }
-                SwarmEvent::Dialing {
-                    peer_id: _,
-                    connection_id: _,
-                } => None,
+                SwarmEvent::Dialing { .. } => None,
             };
 
             if let Some(ev) = maybe_event {

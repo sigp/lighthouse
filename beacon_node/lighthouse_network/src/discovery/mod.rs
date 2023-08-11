@@ -383,20 +383,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         self.discv5.table_entries_enr()
     }
 
-    /// Returns the ENR of a known peer if it exists.
-    pub fn enr_of_peer(&mut self, peer_id: &PeerId) -> Option<Enr> {
-        // first search the local cache
-        if let Some(enr) = self.cached_enrs.get(peer_id) {
-            return Some(enr.clone());
-        }
-        // not in the local cache, look in the routing table
-        if let Ok(node_id) = enr_ext::peer_id_to_node_id(peer_id) {
-            self.discv5.find_enr(&node_id)
-        } else {
-            None
-        }
-    }
-
     /// Updates the local ENR TCP port.
     /// There currently isn't a case to update the address here. We opt for discovery to
     /// automatically update the external address.
@@ -733,23 +719,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         target_peers: usize,
         additional_predicate: impl Fn(&Enr) -> bool + Send + 'static,
     ) {
-        // Make sure there are subnet queries included
-        let contains_queries = match &query {
-            QueryType::Subnet(queries) => !queries.is_empty(),
-            QueryType::FindPeers => true,
-        };
-
-        if !contains_queries {
-            debug!(
-                self.log,
-                "No subnets included in this request. Skipping discovery request."
-            );
-            return;
-        }
-
-        // Generate a random target node id.
-        let random_node = NodeId::random();
-
         let enr_fork_id = match self.local_enr().eth2() {
             Ok(v) => v,
             Err(e) => {
@@ -773,7 +742,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // Build the future
         let query_future = self
             .discv5
-            .find_node_predicate(random_node, predicate, target_peers)
+            // Generate a random target node id.
+            .find_node_predicate(NodeId::random(), predicate, target_peers)
             .map(|v| QueryResult {
                 query_type: query,
                 result: v,
@@ -797,12 +767,14 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     }
                     Ok(r) => {
                         debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
-                        let mut results: HashMap<_, Option<Instant>> = HashMap::new();
-                        r.into_iter().for_each(|enr| {
-                            // cache the found ENR's
-                            self.cached_enrs.put(enr.peer_id(), enr.clone());
-                            results.insert(enr, None);
-                        });
+                        let results = r
+                            .into_iter()
+                            .map(|enr| {
+                                // cache the found ENR's
+                                self.cached_enrs.put(enr.peer_id(), enr.clone());
+                                (enr, None)
+                            })
+                            .collect();
                         return Some(results);
                     }
                     Err(e) => {
