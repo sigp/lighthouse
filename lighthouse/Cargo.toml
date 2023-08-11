@@ -66,6 +66,7 @@ lighthouse_network = { path = "../beacon_node/lighthouse_network" }
 sensitive_url = { path = "../common/sensitive_url" }
 eth1 = { path = "../beacon_node/eth1" }
 eth2 = { path = "../common/eth2" }
+beacon_processor = { path = "../beacon_node/beacon_processor" }
 
 [[test]]
 name = "lighthouse_tests"

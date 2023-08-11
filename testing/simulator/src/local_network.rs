@@ -66,7 +66,7 @@ impl<E: EthSpec> LocalNetwork<E> {
             BOOTNODE_PORT,
             QUIC_PORT,
         );
-        beacon_config.network.enr_disc4_port = Some(BOOTNODE_PORT);
+        beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT);
         beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT);
         beacon_config.network.discv5_config.table_filter = |_| true;
 
@@ -158,7 +158,7 @@ impl<E: EthSpec> LocalNetwork<E> {
                 BOOTNODE_PORT + count,
                 BOOTNODE_PORT + 1000 + count, // Offset the quick ports by 1000
             );
-            beacon_config.network.enr_disc4_port = Some(BOOTNODE_PORT + count);
+            beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT + count);
             beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT + count);
             beacon_config.network.discv5_config.table_filter = |_| true;
             beacon_config.network.proposer_only = is_proposer;

@@ -79,8 +79,6 @@ pub struct ChainConfig {
     ///
     /// This is useful for block builders and testing.
     pub always_prepare_payload: bool,
-    /// Whether backfill sync processing should be rate-limited.
-    pub enable_backfill_rate_limiting: bool,
     /// Whether to use `ProgressiveBalancesCache` in unrealized FFG progression calculation.
     pub progressive_balances_mode: ProgressiveBalancesMode,
     /// Number of epochs between each migration of data from the hot database to the freezer.
@@ -114,7 +112,6 @@ impl Default for ChainConfig {
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
             always_prepare_payload: false,
-            enable_backfill_rate_limiting: true,
             progressive_balances_mode: ProgressiveBalancesMode::Checked,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
         }

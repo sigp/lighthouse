@@ -4,6 +4,7 @@ use beacon_chain::chain_config::{
 };
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
+use clap_utils::parse_required;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -147,6 +148,9 @@ pub fn get_config<E: EthSpec>(
     if cli_args.is_present("http-allow-sync-stalled") {
         client_config.http_api.allow_sync_stalled = true;
     }
+
+    client_config.http_api.enable_beacon_processor =
+        parse_required(cli_args, "http-enable-beacon-processor")?;
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
@@ -800,7 +804,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     // Backfill sync rate-limiting
-    client_config.chain.enable_backfill_rate_limiting =
+    client_config.beacon_processor.enable_backfill_rate_limiting =
         !cli_args.is_present("disable-backfill-rate-limiting");
 
     if let Some(path) = clap_utils::parse_optional(cli_args, "invalid-gossip-verified-blocks-path")?
@@ -813,6 +817,28 @@ pub fn get_config<E: EthSpec>(
     {
         client_config.chain.progressive_balances_mode = progressive_balances_mode;
     }
+
+    if let Some(max_workers) = clap_utils::parse_optional(cli_args, "beacon-processor-max-workers")?
+    {
+        client_config.beacon_processor.max_workers = max_workers;
+    }
+
+    if client_config.beacon_processor.max_workers == 0 {
+        return Err("--beacon-processor-max-workers must be a non-zero value".to_string());
+    }
+
+    client_config.beacon_processor.max_work_event_queue_len =
+        clap_utils::parse_required(cli_args, "beacon-processor-work-queue-len")?;
+    client_config.beacon_processor.max_scheduled_work_queue_len =
+        clap_utils::parse_required(cli_args, "beacon-processor-reprocess-queue-len")?;
+    client_config
+        .beacon_processor
+        .max_gossip_attestation_batch_size =
+        clap_utils::parse_required(cli_args, "beacon-processor-attestation-batch-size")?;
+    client_config
+        .beacon_processor
+        .max_gossip_aggregate_batch_size =
+        clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
 
     Ok(client_config)
 }
