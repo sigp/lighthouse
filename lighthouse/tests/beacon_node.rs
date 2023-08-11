@@ -1280,7 +1280,7 @@ fn enr_udp6_port_flag() {
 fn enr_quic6_port_flag() {
     let port = unused_udp6_port().expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("enr-quic-port", Some(port.to_string().as_str()))
+        .flag("enr-quic6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.network.enr_quic6_port, Some(port)));
 }
