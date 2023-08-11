@@ -242,8 +242,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     SYNC_COMMITTEE_SUBNET_COUNT,
                     BLOB_SIDECAR_SUBNET_COUNT,
                 ),
-                // during a fork we subscribe to both the old and new fork subnets
-                // if there are two forks in quick succession, we may need 4x instead of 2x.
+                // during a fork we subscribe to both the old and new topics
                 max_subscribed_topics: max_topics * 4,
                 // 162 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics) * 2
                 max_subscriptions_per_request: max_topics * 2,
