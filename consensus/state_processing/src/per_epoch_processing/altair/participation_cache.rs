@@ -111,8 +111,8 @@ impl SingleEpochParticipationCache {
         current_epoch: Epoch,
         relative_epoch: RelativeEpoch,
     ) -> Result<(), BeaconStateError> {
-        let val_balance = state.get_effective_balance(val_index)?;
         let validator = state.get_validator(val_index)?;
+        let val_balance = validator.effective_balance;
 
         // Sanity check to ensure the validator is active.
         let epoch = relative_epoch.into_epoch(current_epoch);
