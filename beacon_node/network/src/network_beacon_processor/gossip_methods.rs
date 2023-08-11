@@ -452,6 +452,68 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
+        aggregate: Box<LazySignedAggregateAndProof<T::EthSpec>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        seen_timestamp: Duration,
+    ) {
+        let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
+
+        let result = match self.chain.is_lazy_att_observed_subset(
+            &aggregate.message.aggregate,
+            aggregate.message.aggregate.data.tree_hash_root(),
+        ) {
+            Ok(None) => match aggregate.clone().not_lazy() {
+                Ok(agg) => match self.chain.verify_aggregated_attestation_for_gossip(&agg) {
+                    Ok(verified_aggregate) => Ok(VerifiedAggregate {
+                        indexed_attestation: verified_aggregate.into_indexed_attestation(),
+                        signed_aggregate: Box::new(agg),
+                    }),
+                    Err(e) => Err(RejectedAggregate {
+                        signed_aggregate: LazyOrNotSignedAggregateAndProof::NotLazy(Box::new(agg)),
+                        error: e,
+                    }),
+                },
+                Err(e) => Err(RejectedAggregate {
+                    signed_aggregate: LazyOrNotSignedAggregateAndProof::Lazy(aggregate),
+                    error: e.into(),
+                }),
+            },
+            Ok(Some(root)) => Err(RejectedAggregate {
+                signed_aggregate: LazyOrNotSignedAggregateAndProof::Lazy(aggregate),
+                error: AttnError::AttestationSupersetKnown(root),
+            }),
+            // The only error that could occur here is observed_attestations::Error::SlotTooLow
+            Err(beacon_chain::ObservedAggregatesError::SlotTooLow {
+                slot,
+                lowest_permissible_slot,
+            }) => Err(RejectedAggregate {
+                signed_aggregate: LazyOrNotSignedAggregateAndProof::Lazy(aggregate),
+                error: AttnError::PastSlot {
+                    attestation_slot: slot,
+                    earliest_permissible_slot: lowest_permissible_slot,
+                },
+            }),
+            // This should never occur
+            Err(_) => Err(RejectedAggregate {
+                signed_aggregate: LazyOrNotSignedAggregateAndProof::Lazy(aggregate),
+                error: AttnError::InvalidSignature,
+            }),
+        };
+
+        self.process_gossip_aggregate_result(
+            result,
+            beacon_block_root,
+            message_id,
+            peer_id,
+            reprocess_tx,
+            seen_timestamp,
+        );
+    }
+
+    pub fn reprocess_gossip_aggregate(
+        self: Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         seen_timestamp: Duration,
@@ -2211,7 +2273,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                     ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
                                         beacon_block_root: *beacon_block_root,
                                         process_fn: Box::new(move || {
-                                            processor.process_gossip_aggregate(
+                                            processor.reprocess_gossip_aggregate(
                                                 message_id,
                                                 peer_id,
                                                 attestation,
