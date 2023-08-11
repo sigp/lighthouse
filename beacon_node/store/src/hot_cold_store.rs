@@ -1748,10 +1748,12 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         hot_db_ops.push(StoreOp::DeleteState(state_root, Some(slot)));
 
         // Do not try to store states if a restore point is yet to be stored, or will never be
-        // stored (see `STATE_UPPER_LIMIT_NO_RETAIN`).
-        if anchor_info
-            .as_ref()
-            .map_or(false, |anchor| slot < anchor.state_upper_limit)
+        // stored (see `STATE_UPPER_LIMIT_NO_RETAIN`). Make an exception for the genesis state
+        // which always needs to be copied from the hot DB to the freezer and should not be deleted.
+        if slot != 0
+            && anchor_info
+                .as_ref()
+                .map_or(false, |anchor| slot < anchor.state_upper_limit)
         {
             debug!(store.log, "Pruning finalized state"; "slot" => slot);
             continue;

@@ -288,7 +288,7 @@ where
         let genesis_state = store
             .get_state(&genesis_block.state_root(), Some(genesis_block.slot()))
             .map_err(|e| descriptive_db_error("genesis state", &e))?
-            .ok_or("Genesis block not found in store")?;
+            .ok_or("Genesis state not found in store")?;
 
         self.genesis_time = Some(genesis_state.genesis_time());
 

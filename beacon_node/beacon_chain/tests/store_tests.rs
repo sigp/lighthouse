@@ -66,12 +66,26 @@ fn get_harness(
     store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
     validator_count: usize,
 ) -> TestHarness {
+    // Most tests expect to retain historic states, so we use this as the default.
+    let chain_config = ChainConfig {
+        reconstruct_historic_states: true,
+        ..ChainConfig::default()
+    };
+    get_harness_generic(store, validator_count, chain_config)
+}
+
+fn get_harness_generic(
+    store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+    validator_count: usize,
+    chain_config: ChainConfig,
+) -> TestHarness {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .logger(store.logger().clone())
         .fresh_disk_store(store)
         .mock_execution_layer()
+        .chain_config(chain_config)
         .build();
     harness.advance_slot();
     harness
@@ -567,14 +581,7 @@ async fn block_replayer_hooks() {
 async fn delete_blocks_and_states() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let validators_keypairs =
-        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
-        .default_spec()
-        .keypairs(validators_keypairs)
-        .fresh_disk_store(store.clone())
-        .mock_execution_layer()
-        .build();
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     let unforked_blocks: u64 = 4 * E::slots_per_epoch();
 
@@ -1017,18 +1024,14 @@ fn check_shuffling_compatible(
 // Ensure blocks from abandoned forks are pruned from the Hot DB
 #[tokio::test]
 async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
-    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
-    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::builder(MinimalEthSpec)
-        .default_spec()
-        .keypairs(validators_keypairs)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let slots_per_epoch = rig.slots_per_epoch();
     let (mut state, state_root) = rig.get_current_state_and_root();
 
@@ -1127,18 +1130,14 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
 #[tokio::test]
 async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
-    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
-    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::builder(MinimalEthSpec)
-        .default_spec()
-        .keypairs(validators_keypairs)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let slots_per_epoch = rig.slots_per_epoch();
     let (state, state_root) = rig.get_current_state_and_root();
 
@@ -1262,15 +1261,11 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
     const HONEST_VALIDATOR_COUNT: usize = 32;
     const ADVERSARIAL_VALIDATOR_COUNT: usize = 16;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
-    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::builder(MinimalEthSpec)
-        .default_spec()
-        .keypairs(validators_keypairs)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let slots_per_epoch = rig.slots_per_epoch();
     let (mut state, state_root) = rig.get_current_state_and_root();
 
@@ -1354,18 +1349,14 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
 
 #[tokio::test]
 async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
-    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
-    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::builder(MinimalEthSpec)
-        .default_spec()
-        .keypairs(validators_keypairs)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let (state, state_root) = rig.get_current_state_and_root();
 
     // Fill up 0th epoch with canonical chain blocks
@@ -1499,18 +1490,14 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[tokio::test]
 async fn prunes_skipped_slots_states() {
-    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
-    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::builder(MinimalEthSpec)
-        .default_spec()
-        .keypairs(validators_keypairs)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let (state, state_root) = rig.get_current_state_and_root();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
@@ -1628,18 +1615,14 @@ async fn prunes_skipped_slots_states() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[tokio::test]
 async fn finalizes_non_epoch_start_slot() {
-    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
-    let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::builder(MinimalEthSpec)
-        .default_spec()
-        .keypairs(validators_keypairs)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let (state, state_root) = rig.get_current_state_and_root();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
@@ -2303,7 +2286,11 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
 async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let temp = tempdir().unwrap();
     let store = get_store(&temp);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let chain_config = ChainConfig {
+        reconstruct_historic_states: false,
+        ..ChainConfig::default()
+    };
+    let harness = get_harness_generic(store.clone(), LOW_VALIDATOR_COUNT, chain_config);
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
