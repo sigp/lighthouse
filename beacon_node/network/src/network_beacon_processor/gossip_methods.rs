@@ -24,7 +24,7 @@ use itertools::Itertools;
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
 use slog::{crit, debug, error, info, trace, warn, Logger};
-use slot_clock::{ManualSlotClock, SlotClock};
+use slot_clock::SlotClock;
 use ssz::Encode;
 use std::fs;
 use std::io::Write;
@@ -489,20 +489,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let (to_process, skip): PartitionedPackages<T::EthSpec> =
             packages.into_iter().partition_map(|p| {
-                match self
-                    .chain
-                    .is_lazy_att_observed_subset(&p.aggregate.message.aggregate)
-                {
-                    Ok(false) => match p.aggregate.clone().not_lazy() {
+                match self.chain.is_lazy_att_observed_subset(
+                    &p.aggregate.message.aggregate,
+                    p.aggregate.message.aggregate.data.tree_hash_root(),
+                ) {
+                    Ok(None) => match p.aggregate.clone().not_lazy() {
                         Ok(agg) => itertools::Either::Left((p, agg)),
                         Err(e) => itertools::Either::Right((e.into(), p)),
                     },
-                    Ok(true) => itertools::Either::Right((
-                        AttnError::AttestationSupersetKnown(
-                            p.aggregate.message.aggregate.data.tree_hash_root(),
-                        ),
-                        p,
-                    )),
+                    Ok(Some(root)) => {
+                        itertools::Either::Right((AttnError::AttestationSupersetKnown(root), p))
+                    }
                     // The only error that could occur here is observed_attestations::Error::SlotTooLow
                     Err(beacon_chain::ObservedAggregatesError::SlotTooLow {
                         slot,
@@ -518,6 +515,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     Err(_) => itertools::Either::Right((AttnError::InvalidSignature, p)),
                 }
             });
+        debug!(
+            self.log,
+            "Processing aggregate batch";
+            "skipped" => skip.len(),
+            "total" => skip.len() + to_process.len(),
+        );
 
         let results = match self
             .chain
@@ -2002,11 +2005,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // network.
                 let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
                 let hindsight_verification =
-                    attestation_verification::verify_propagation_slot_range::<
-                        ManualSlotClock,
-                        T::EthSpec,
-                    >(
-                        seen_clock, failed_att.attestation_slot(), &self.chain.spec
+                    attestation_verification::verify_propagation_slot_range::<T::EthSpec, _>(
+                        seen_clock,
+                        failed_att.attestation_slot(),
+                        &self.chain.spec,
                     );
 
                 // Only penalize the peer if it would have been invalid at the moment we received
@@ -2247,7 +2249,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                             attestation,
                                             subnet_id,
                                             should_import,
-                                            None, // Do not allow this attestation to be re-processed beyond this point.
+                                            None, // Don't allow attestation to be re-processed.
                                             seen_timestamp,
                                         )
                                     }),
@@ -2882,10 +2884,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
     ) {
-        let is_timely = attestation_verification::verify_propagation_slot_range::<
-            <T as BeaconChainTypes>::SlotClock,
-            T::EthSpec,
-        >(
+        let is_timely = attestation_verification::verify_propagation_slot_range::<T::EthSpec, _>(
             &self.chain.slot_clock,
             attestation.data.slot,
             &self.chain.spec,

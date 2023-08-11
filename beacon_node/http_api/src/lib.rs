@@ -3399,11 +3399,12 @@ pub fn serve<T: BeaconChainTypes>(
                             Ok(verified_aggregate) => {
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
                                     aggregate.lazy().map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!(
-                                "unable to decode as LazySignedAggregateAndProof: {:?}",
-                                e
-                            ))
-                        })?
+                                        warp_utils::reject::custom_bad_request(format!(
+                                            "unable to decode as LazySignedAggregateAndProof: \
+                                            {:?}",
+                                            e
+                                        ))
+                                    })?
                                     ,
                                 )));
 

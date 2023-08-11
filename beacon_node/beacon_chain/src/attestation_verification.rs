@@ -458,7 +458,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range::<<T as BeaconChainTypes>::SlotClock, T::EthSpec>(
+        verify_propagation_slot_range::<T::EthSpec, _>(
             &chain.slot_clock,
             attestation.data.slot,
             &chain.spec,
@@ -730,7 +730,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range::<<T as BeaconChainTypes>::SlotClock, T::EthSpec>(
+        verify_propagation_slot_range::<T::EthSpec, _>(
             &chain.slot_clock,
             attestation.data.slot,
             &chain.spec,
@@ -1046,7 +1046,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 /// to the current slot of the `chain`.
 ///
 /// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
-pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
+pub fn verify_propagation_slot_range<E: EthSpec, S: SlotClock>(
     slot_clock: &S,
     attestation_slot: Slot,
     spec: &ChainSpec,

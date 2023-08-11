@@ -871,10 +871,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn is_lazy_att_observed_subset(
         &self,
         lazy: &LazyAttestation<T::EthSpec>,
-    ) -> Result<bool, crate::observed_aggregates::Error> {
+        root: Hash256,
+    ) -> Result<Option<Hash256>, crate::observed_aggregates::Error> {
         self.observed_attestations
             .write()
-            .is_lazy_att_known_subset(lazy)
+            .is_lazy_att_known_subset(lazy, root)
     }
 
     /// Returns the state root at the given slot, if any. Only returns state roots in the canonical chain.

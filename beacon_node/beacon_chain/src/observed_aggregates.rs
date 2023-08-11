@@ -25,14 +25,18 @@ pub type ObservedAggregateAttestations<E> = ObservedAggregates<
 >;
 
 impl<E: EthSpec> ObservedAggregateAttestations<E> {
-    pub fn is_lazy_att_known_subset(&mut self, lazy: &LazyAttestation<E>) -> Result<bool, Error> {
+    pub fn is_lazy_att_known_subset(
+        &mut self,
+        lazy: &LazyAttestation<E>,
+        root: Hash256,
+    ) -> Result<Option<Hash256>, Error> {
         let index = self.get_set_index(lazy.get_slot())?;
-        let root = lazy.data.tree_hash_root();
 
         self.sets
             .get(index)
             .ok_or(Error::InvalidSetIndex(index))
             .and_then(|set| set.is_known_subset(lazy, root))
+            .map(|b| if b { Some(root) } else { None })
     }
 }
 
