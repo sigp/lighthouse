@@ -246,7 +246,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 // if there are two forks in quick succession, we may need 4x instead of 2x.
                 max_subscribed_topics: max_topics * 4,
                 // 162 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics) * 2
-                max_subscriptions_per_request: max_topics * 4,
+                max_subscriptions_per_request: max_topics * 2,
             };
 
             let gossipsub_config_params = GossipsubConfigParams {
