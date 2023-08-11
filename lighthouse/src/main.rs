@@ -513,7 +513,7 @@ fn run<E: EthSpec>(
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_network_config(Some(eth2_network_config))?
+        .eth2_network_config(eth2_network_config)?
         .build()?;
 
     let log = environment.core_context().log().clone();

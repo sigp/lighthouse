@@ -344,18 +344,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    /// Optionally adds a network configuration to the environment.
-    pub fn optional_eth2_network_config(
-        self,
-        optional_config: Option<Eth2NetworkConfig>,
-    ) -> Result<Self, String> {
-        if let Some(config) = optional_config {
-            self.eth2_network_config(config)
-        } else {
-            Ok(self)
-        }
-    }
-
     /// Consumes the builder, returning an `Environment`.
     pub fn build(self) -> Result<Environment<E>, String> {
         let (signal, exit) = exit_future::signal();
