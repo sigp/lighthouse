@@ -241,7 +241,7 @@ fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
         && local_enr.tcp4() == disk_enr.tcp4()
         && local_enr.tcp6() == disk_enr.tcp6()
         // quic ports must match
-        && local_enr.quic() == disk_enr.quic()
+        && local_enr.quic4() == disk_enr.quic4()
         && local_enr.quic6() == disk_enr.quic6()
         // must match on the same fork
         && local_enr.get(ETH2_ENR_KEY) == disk_enr.get(ETH2_ENR_KEY)

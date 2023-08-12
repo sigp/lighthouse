@@ -34,7 +34,7 @@ pub trait EnrExt {
     fn multiaddr_quic(&self) -> Vec<Multiaddr>;
 
     /// Returns the quic port if one is set.
-    fn quic(&self) -> Option<u16>;
+    fn quic4(&self) -> Option<u16>;
 
     /// Returns the quic6 port if one is set.
     fn quic6(&self) -> Option<u16>;
@@ -62,7 +62,7 @@ impl EnrExt for Enr {
     }
 
     /// Returns the quic port if one is set.
-    fn quic(&self) -> Option<u16> {
+    fn quic4(&self) -> Option<u16> {
         self.get_decodable(QUIC_ENR_KEY).and_then(Result::ok)
     }
 
@@ -71,7 +71,7 @@ impl EnrExt for Enr {
         self.get_decodable(QUIC6_ENR_KEY).and_then(Result::ok)
     }
 
-    /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
+    /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp`, `quic` or `udp` key **or** an `ip6` and either a `tcp6` `quic6` or `udp6`.
     /// The vector remains empty if these fields are not defined.
     fn multiaddr(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
@@ -81,7 +81,7 @@ impl EnrExt for Enr {
                 multiaddr.push(Protocol::Udp(udp));
                 multiaddrs.push(multiaddr);
             }
-            if let Some(quic) = self.quic() {
+            if let Some(quic) = self.quic4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Udp(quic));
                 multiaddr.push(Protocol::QuicV1);
@@ -214,7 +214,7 @@ impl EnrExt for Enr {
     fn multiaddr_quic(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
         // Check for quic first as it is less likely
-        if let Some(quic_port) = self.quic() {
+        if let Some(quic_port) = self.quic4() {
             if let Some(ip) = self.ip4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Udp(quic_port));
