@@ -4227,9 +4227,9 @@ dependencies = [
 
 [[package]]
 name = "libp2p-quic"
-version = "0.9.0-alpha"
+version = "0.9.2-alpha"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af35e582535de00bbac3d62412d53c1f07c80f1b6ea1451716b9e4ed5002498d"
+checksum = "efb614a60b5cef499aec647b5514efbd89df7740b0e27e90577c95e6b556f7c6"
 dependencies = [
  "bytes",
  "futures",
@@ -4243,6 +4243,7 @@ dependencies = [
  "quinn",
  "rand 0.8.5",
  "rustls 0.21.5",
+ "socket2 0.5.3",
  "thiserror",
  "tokio",
 ]
