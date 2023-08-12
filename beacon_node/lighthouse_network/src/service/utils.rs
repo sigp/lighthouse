@@ -74,7 +74,7 @@ pub fn build_transport(
         transport.with_bandwidth_logging()
     };
 
-    Ok((transport.boxed(), bandwidth))
+    Ok((transport, bandwidth))
 }
 
 // Useful helper functions for debugging. Currently not used in the client.
