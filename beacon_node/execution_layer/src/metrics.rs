@@ -5,6 +5,7 @@ pub const MISS: &str = "miss";
 pub const GET_PAYLOAD: &str = "get_payload";
 pub const GET_BLINDED_PAYLOAD: &str = "get_blinded_payload";
 pub const GET_BLINDED_PAYLOAD_LOCAL: &str = "get_blinded_payload_local";
+pub const GET_FULL_PAYLOAD_LOCAL: &str = "get_full_payload_local";
 pub const GET_BLINDED_PAYLOAD_BUILDER: &str = "get_blinded_payload_builder";
 pub const POST_BLINDED_PAYLOAD_BUILDER: &str = "post_blinded_payload_builder";
 pub const NEW_PAYLOAD: &str = "new_payload";

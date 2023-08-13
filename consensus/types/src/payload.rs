@@ -18,6 +18,12 @@ pub enum BlockType {
     Full,
 }
 
+pub enum SelectedBlockType {
+    Blinded,
+    Full,
+    None,
+}
+
 /// A trait representing behavior of an `ExecutionPayload` that either has a full list of transactions
 /// or a transaction hash in it's place.
 pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash + Send {

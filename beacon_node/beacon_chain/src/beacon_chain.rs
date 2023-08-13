@@ -20,7 +20,10 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData};
 use crate::events::ServerSentEventHandler;
-use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
+use crate::execution_payload::{
+    get_execution_payload, get_execution_payload_v3, NotifyExecutionLayer, PreparePayloadHandle,
+    PreparePayloadHandleV3,
+};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
@@ -58,10 +61,11 @@ use crate::validator_monitor::{
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, CachedHead};
+use bls::generics::GenericPublicKeyBytes;
 use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
-    BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
-    PayloadAttributes, PayloadStatus,
+    BlockProposalContentV3, BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer,
+    FailedCondition, PayloadAttributes, PayloadStatus,
 };
 use fork_choice::{
     AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
@@ -107,6 +111,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
+use types::payload::SelectedBlockType;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -275,6 +280,25 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
 }
 
 /// Used internally to split block production into discrete functions.
+struct PartialBeaconBlockV3<E: EthSpec> {
+    state: BeaconState<E>,
+    slot: Slot,
+    proposer_index: u64,
+    parent_root: Hash256,
+    randao_reveal: Signature,
+    eth1_data: Eth1Data,
+    graffiti: Graffiti,
+    proposer_slashings: Vec<ProposerSlashing>,
+    attester_slashings: Vec<AttesterSlashing<E>>,
+    attestations: Vec<Attestation<E>>,
+    deposits: Vec<Deposit>,
+    voluntary_exits: Vec<SignedVoluntaryExit>,
+    sync_aggregate: Option<SyncAggregate<E>>,
+    prepare_payload_handle: Option<PreparePayloadHandleV3<E>>,
+    bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
+}
+
+/// Used internally to split block production into discrete functions.
 struct PartialBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E>> {
     state: BeaconState<E>,
     slot: Slot,
@@ -430,6 +454,14 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// The slot at which blocks are downloaded back to.
     pub genesis_backfill_slot: Slot,
 }
+
+pub enum BeaconBlockTypeWithStateAndValue<T: EthSpec> {
+    Full(FullBeaconBlockWithValue<T>),
+    Blinded(BlindedBeaconBlockWithValue<T>),
+}
+
+type FullBeaconBlockWithStateAndValue<T> = (BeaconBlock<T, FullPayload<T>>, BeaconState<T>, u32);
+type BlindedBeaconBlockWithStateAndValue<T> = (BeaconBlock<T, BlindedPayload<T>>, BeaconState<T>, u32);
 
 type BeaconBlockAndStateAndValue<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>, u32);
 
@@ -3610,23 +3642,63 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Produce a new block at the given `slot`.
-    ///
-    /// The produced block will not be inherently valid, it must be signed by a block producer.
-    /// Block signing is out of the scope of this function and should be done by a separate program.
-    pub async fn produce_block<Payload: AbstractExecPayload<T::EthSpec> + 'static>(
+    pub async fn produce_block_with_verification_new(
         self: &Arc<Self>,
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
-    ) -> Result<BeaconBlockAndStateAndValue<T::EthSpec, Payload>, BlockProductionError> {
-        self.produce_block_with_verification(
-            randao_reveal,
-            slot,
-            validator_graffiti,
-            ProduceBlockVerification::VerifyRandao,
-        )
-        .await
+        verification: ProduceBlockVerification,
+        selected_block_type: SelectedBlockType,
+    ) -> Result<(), BlockProductionError> {
+        // Part 1/2 (blocking)
+        //
+        // Load the parent state from disk.
+        let chain = self.clone();
+        let (state, state_root_opt) = self
+            .task_executor
+            .spawn_blocking_handle(
+                move || chain.load_state_for_block_production(slot),
+                "produce_partial_beacon_block",
+            )
+            .ok_or(BlockProductionError::ShuttingDown)?
+            .await
+            .map_err(BlockProductionError::TokioJoin)??;
+
+        match selected_block_type {
+            SelectedBlockType::Full => {
+                // Part 2/2 (async, with some blocking components)
+                //
+                // Produce the block upon the state
+                let block = self
+                    .produce_block_on_state::<FullPayload<T::EthSpec>>(
+                        state,
+                        state_root_opt,
+                        slot,
+                        randao_reveal,
+                        validator_graffiti,
+                        verification,
+                    )
+                    .await?;
+            }
+            SelectedBlockType::Blinded => {
+                // Part 2/2 (async, with some blocking components)
+                //
+                // Produce the block upon the state
+                let block = self
+                    .produce_block_on_state::<BlindedPayload<T::EthSpec>>(
+                        state,
+                        state_root_opt,
+                        slot,
+                        randao_reveal,
+                        validator_graffiti,
+                        verification,
+                    )
+                    .await?;
+            }
+            SelectedBlockType::None => {}
+        };
+
+        Ok(())
     }
 
     /// Same as `produce_block` but allowing for configuration of RANDAO-verification.
@@ -4216,6 +4288,69 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    pub async fn produce_block_on_state_v3(
+        self: &Arc<Self>,
+        state: BeaconState<T::EthSpec>,
+        state_root_opt: Option<Hash256>,
+        produce_at_slot: Slot,
+        randao_reveal: Signature,
+        validator_graffiti: Option<Graffiti>,
+        verification: ProduceBlockVerification,
+    ) -> Result<BeaconBlockTypeWithStateAndValue<T::EthSpec>, BlockProductionError> {
+        let chain = self.clone();
+        let mut partial_beacon_block = self
+            .task_executor
+            .spawn_blocking_handle(
+                move || {
+                    chain.produce_partial_beacon_block_v3(
+                        state,
+                        state_root_opt,
+                        produce_at_slot,
+                        randao_reveal,
+                        validator_graffiti,
+                    )
+                },
+                "produce_partial_beacon_block",
+            )
+            .ok_or(BlockProductionError::ShuttingDown)?
+            .await
+            .map_err(BlockProductionError::TokioJoin)??;
+
+        // Part 2/3 (async)
+        //
+        // Wait for the execution layer to return an execution payload (if one is required).
+        let prepare_payload_handle = partial_beacon_block.prepare_payload_handle.take();
+        let block_contents = if let Some(prepare_payload_handle) = prepare_payload_handle {
+            Some(
+                prepare_payload_handle
+                    .await
+                    .map_err(BlockProductionError::TokioJoin)?
+                    .ok_or(BlockProductionError::ShuttingDown)??,
+            )
+        } else {
+            None
+        };
+
+        // Part 3/3 (blocking)
+        //
+        // Perform the final steps of combining all the parts and computing the state root.
+        let chain = self.clone();
+        self.task_executor
+            .spawn_blocking_handle(
+                move || {
+                    chain.complete_partial_beacon_block_v3(
+                        partial_beacon_block,
+                        block_contents,
+                        verification,
+                    )
+                },
+                "complete_partial_beacon_block",
+            )
+            .ok_or(BlockProductionError::ShuttingDown)?
+            .await
+            .map_err(BlockProductionError::TokioJoin)?
+    }
+
     /// Produce a block for some `slot` upon the given `state`.
     ///
     /// Typically the `self.produce_block()` function should be used, instead of calling this
@@ -4292,6 +4427,263 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
             .map_err(BlockProductionError::TokioJoin)?
+    }
+
+    fn get_proposer_pub_key(
+        self: &Arc<Self>,
+        mut state: &BeaconState<T::EthSpec>,
+        proposer_index: usize,
+    ) -> Result<GenericPublicKeyBytes<bls::impls::blst::types::PublicKey>, BlockProductionError>
+    {
+        Ok(state
+            .validators()
+            .get(proposer_index)
+            .map(|v| v.pubkey)
+            .ok_or(BlockProductionError::BeaconChain(
+                BeaconChainError::ValidatorIndexUnknown(proposer_index),
+            ))?)
+    }
+
+    fn get_parent_root(
+        self: &Arc<Self>,
+        mut state: &BeaconState<T::EthSpec>,
+    ) -> Result<Hash256, BlockProductionError> {
+        let parent_root = if state.slot() > 0 {
+            *state
+                .get_block_root(state.slot() - 1)
+                .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?
+        } else {
+            state.latest_block_header().canonical_root()
+        };
+
+        Ok(parent_root)
+    }
+
+    fn produce_partial_beacon_block_v3(
+        self: &Arc<Self>,
+        mut state: BeaconState<T::EthSpec>,
+        state_root_opt: Option<Hash256>,
+        produce_at_slot: Slot,
+        randao_reveal: Signature,
+        validator_graffiti: Option<Graffiti>,
+    ) -> Result<PartialBeaconBlockV3<T::EthSpec>, BlockProductionError> {
+        let eth1_chain = self
+            .eth1_chain
+            .as_ref()
+            .ok_or(BlockProductionError::NoEth1ChainConnection)?;
+
+        // It is invalid to try to produce a block using a state from a future slot.
+        if state.slot() > produce_at_slot {
+            return Err(BlockProductionError::StateSlotTooHigh {
+                produce_at_slot,
+                state_slot: state.slot(),
+            });
+        }
+
+        let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
+
+        // Ensure the state has performed a complete transition into the required slot.
+        complete_state_advance(&mut state, state_root_opt, produce_at_slot, &self.spec)?;
+
+        drop(slot_timer);
+
+        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+
+        let parent_root = self.get_parent_root(&state)?;
+
+        let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
+
+        let pubkey = self.get_proposer_pub_key(&state, proposer_index.clone() as usize)?;
+
+        let builder_params = BuilderParams {
+            pubkey,
+            slot: state.slot(),
+            chain_health: self
+                .is_healthy(&parent_root)
+                .map_err(BlockProductionError::BeaconChain)?,
+        };
+
+        // If required, start the process of loading an execution payload from the EL early. This
+        // allows it to run concurrently with things like attestation packing.
+        let prepare_payload_handle = match &state {
+            BeaconState::Base(_) | BeaconState::Altair(_) => None,
+            BeaconState::Merge(_) | BeaconState::Capella(_) => {
+                let prepare_payload_handle =
+                    get_execution_payload_v3(self.clone(), &state, proposer_index, builder_params)?;
+                Some(prepare_payload_handle)
+            }
+        };
+
+        let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
+            self.op_pool.get_slashings_and_exits(&state, &self.spec);
+
+        let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
+        let deposits = eth1_chain.deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?;
+
+        let bls_to_execution_changes = self
+            .op_pool
+            .get_bls_to_execution_changes(&state, &self.spec);
+
+        // Iterate through the naive aggregation pool and ensure all the attestations from there
+        // are included in the operation pool.
+        let unagg_import_timer =
+            metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
+        for attestation in self.naive_aggregation_pool.read().iter() {
+            let import = |attestation: &Attestation<T::EthSpec>| {
+                let attesting_indices = get_attesting_indices_from_state(&state, attestation)?;
+                self.op_pool
+                    .insert_attestation(attestation.clone(), attesting_indices)
+            };
+            if let Err(e) = import(attestation) {
+                // Don't stop block production if there's an error, just create a log.
+                error!(
+                    self.log,
+                    "Attestation did not transfer to op pool";
+                    "reason" => ?e
+                );
+            }
+        }
+        drop(unagg_import_timer);
+
+        // Override the beacon node's graffiti with graffiti from the validator, if present.
+        let graffiti = match validator_graffiti {
+            Some(graffiti) => graffiti,
+            None => self.graffiti,
+        };
+
+        let attestation_packing_timer =
+            metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
+
+        let mut prev_filter_cache = HashMap::new();
+        let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+            self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
+        };
+        let mut curr_filter_cache = HashMap::new();
+        let curr_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+            self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
+        };
+
+        let mut attestations = self
+            .op_pool
+            .get_attestations(
+                &state,
+                prev_attestation_filter,
+                curr_attestation_filter,
+                &self.spec,
+            )
+            .map_err(BlockProductionError::OpPoolError)?;
+        drop(attestation_packing_timer);
+
+        // If paranoid mode is enabled re-check the signatures of every included message.
+        // This will be a lot slower but guards against bugs in block production and can be
+        // quickly rolled out without a release.
+        if self.config.paranoid_block_proposal {
+            let mut tmp_ctxt = ConsensusContext::new(state.slot());
+            attestations.retain(|att| {
+                verify_attestation_for_block_inclusion(
+                    &state,
+                    att,
+                    &mut tmp_ctxt,
+                    VerifySignatures::True,
+                    &self.spec,
+                )
+                .map_err(|e| {
+                    warn!(
+                        self.log,
+                        "Attempted to include an invalid attestation";
+                        "err" => ?e,
+                        "block_slot" => state.slot(),
+                        "attestation" => ?att
+                    );
+                })
+                .is_ok()
+            });
+
+            proposer_slashings.retain(|slashing| {
+                slashing
+                    .clone()
+                    .validate(&state, &self.spec)
+                    .map_err(|e| {
+                        warn!(
+                            self.log,
+                            "Attempted to include an invalid proposer slashing";
+                            "err" => ?e,
+                            "block_slot" => state.slot(),
+                            "slashing" => ?slashing
+                        );
+                    })
+                    .is_ok()
+            });
+
+            attester_slashings.retain(|slashing| {
+                slashing
+                    .clone()
+                    .validate(&state, &self.spec)
+                    .map_err(|e| {
+                        warn!(
+                            self.log,
+                            "Attempted to include an invalid attester slashing";
+                            "err" => ?e,
+                            "block_slot" => state.slot(),
+                            "slashing" => ?slashing
+                        );
+                    })
+                    .is_ok()
+            });
+
+            voluntary_exits.retain(|exit| {
+                exit.clone()
+                    .validate(&state, &self.spec)
+                    .map_err(|e| {
+                        warn!(
+                            self.log,
+                            "Attempted to include an invalid proposer slashing";
+                            "err" => ?e,
+                            "block_slot" => state.slot(),
+                            "exit" => ?exit
+                        );
+                    })
+                    .is_ok()
+            });
+        }
+
+        let slot = state.slot();
+
+        let sync_aggregate = if matches!(&state, BeaconState::Base(_)) {
+            None
+        } else {
+            let sync_aggregate = self
+                .op_pool
+                .get_sync_aggregate(&state)
+                .map_err(BlockProductionError::OpPoolError)?
+                .unwrap_or_else(|| {
+                    warn!(
+                        self.log,
+                        "Producing block with no sync contributions";
+                        "slot" => state.slot(),
+                    );
+                    SyncAggregate::new()
+                });
+            Some(sync_aggregate)
+        };
+
+        Ok(PartialBeaconBlockV3 {
+            state,
+            slot,
+            proposer_index,
+            parent_root,
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            prepare_payload_handle,
+            bls_to_execution_changes,
+        })
     }
 
     fn produce_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec> + 'static>(
@@ -4531,6 +4923,423 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             prepare_payload_handle,
             bls_to_execution_changes,
         })
+    }
+
+    fn complete_partial_beacon_block_v3<Payload: AbstractExecPayload<T::EthSpec>>(
+        &self,
+        partial_beacon_block: PartialBeaconBlockV3<T::EthSpec>,
+        block_contents: Option<BlockProposalContentV3<T::EthSpec>>,
+        verification: ProduceBlockVerification,
+    ) -> Result<(BeaconBlockTypeWithStateAndValue<T::EthSpec>, BeaconState<T::EthSpec>, u32), BlockProductionError> {
+        let PartialBeaconBlockV3 {
+            mut state,
+            slot,
+            proposer_index,
+            parent_root,
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            // We don't need the prepare payload handle since the `execution_payload` is passed into
+            // this function. We can assume that the handle has already been consumed in order to
+            // produce said `execution_payload`.
+            prepare_payload_handle: _,
+            bls_to_execution_changes,
+        } = partial_beacon_block;
+
+        match block_contents {
+            Some(block) => {
+                match block {
+                    BlockProposalContentV3::FullPayload(full_payload) => {
+                        self.complete_partial_beacon_block_for_full_payload(partial_beacon_block, full_payload, verification)
+                    },
+                    BlockProposalContentV3::BlindedPayload(blinded_payload) => {
+                        self.complete_partial_beacon_block_for_blinded_payload(partial_beacon_block, blinded_payload, verification)
+                    },
+                }
+            },
+            None => panic!(),
+        }
+    }
+
+    fn complete_partial_beacon_block_for_blinded_payload(
+        &self,
+        partial_beacon_block: PartialBeaconBlockV3<T::EthSpec>,
+        block_contents: BlockProposalContents<<T as BeaconChainTypes>::EthSpec, BlindedPayload<<T as BeaconChainTypes>::EthSpec>>,
+        verification: ProduceBlockVerification,
+    ) -> Result<BeaconBlockTypeWithStateAndValue<T::EthSpec>, BlockProductionError> {
+        
+        let PartialBeaconBlockV3 {
+            mut state,
+            slot,
+            proposer_index,
+            parent_root,
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            // We don't need the prepare payload handle since the `execution_payload` is passed into
+            // this function. We can assume that the handle has already been consumed in order to
+            // produce said `execution_payload`.
+            prepare_payload_handle: _,
+            bls_to_execution_changes,
+        } = partial_beacon_block;
+
+        let (inner_block, block_value)  = match &state {
+            BeaconState::Base(_) => (
+                BeaconBlock::Base(BeaconBlockBase {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyBase {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        _phantom: PhantomData,
+                    },
+                }),
+                0,
+            ),
+            BeaconState::Altair(_) => (
+                BeaconBlock::Altair(BeaconBlockAltair {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyAltair {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        sync_aggregate: sync_aggregate
+                            .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                        _phantom: PhantomData,
+                    },
+                }),
+                0,
+            ),
+            BeaconState::Merge(_) => {
+                let block_proposal_content =
+                    block_contents;
+                let block_value = block_proposal_content.block_value().as_u32();
+                let block = BeaconBlock::Merge(BeaconBlockMerge {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyMerge {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        sync_aggregate: sync_aggregate
+                            .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                        execution_payload: block_proposal_content
+                            .to_payload()
+                            .try_into()
+                            .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                    },
+                });
+                (block, block_value)
+            }
+            BeaconState::Capella(_) => {
+                let block_proposal_content =
+                    block_contents;
+                let block_value = block_proposal_content.block_value().as_u32();
+                let block = BeaconBlock::Capella(BeaconBlockCapella {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyCapella {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        sync_aggregate: sync_aggregate
+                            .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                        execution_payload: block_proposal_content
+                            .to_payload()
+                            .try_into()
+                            .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                        bls_to_execution_changes: bls_to_execution_changes.into(),
+                    },
+                });
+                (block, block_value)
+            }
+        };
+
+        let block = SignedBeaconBlock::from_block(
+            inner_block,
+            // The block is not signed here, that is the task of a validator client.
+            Signature::empty(),
+        );
+
+        let block_size = block.ssz_bytes_len();
+        debug!(
+            self.log,
+            "Produced block on state";
+            "block_size" => block_size,
+        );
+
+        metrics::observe(&metrics::BLOCK_SIZE, block_size as f64);
+
+        if block_size > self.config.max_network_size {
+            return Err(BlockProductionError::BlockTooLarge(block_size));
+        }
+
+        let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
+        let signature_strategy = match verification {
+            ProduceBlockVerification::VerifyRandao => BlockSignatureStrategy::VerifyRandao,
+            ProduceBlockVerification::NoVerification => BlockSignatureStrategy::NoVerification,
+        };
+        // Use a context without block root or proposer index so that both are checked.
+        let mut ctxt = ConsensusContext::new(block.slot());
+        per_block_processing(
+            &mut state,
+            &block,
+            signature_strategy,
+            StateProcessingStrategy::Accurate,
+            VerifyBlockRoot::True,
+            &mut ctxt,
+            &self.spec,
+        )?;
+        drop(process_timer);
+
+        let state_root_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_ROOT_TIMES);
+        let state_root = state.update_tree_hash_cache()?;
+        drop(state_root_timer);
+
+        let (mut block, _) = block.deconstruct();
+        *block.state_root_mut() = state_root;
+
+        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
+
+        trace!(
+            self.log,
+            "Produced beacon block";
+            "parent" => ?block.parent_root(),
+            "attestations" => block.body().attestations().len(),
+            "slot" => block.slot()
+        );
+
+        Ok((BeaconBlockTypeWithStateAndValue::Blinded(BlindedBeaconBlockWithStateAndValue(block, state, block_value))))
+    }
+
+    fn complete_partial_beacon_block_for_full_payload(
+        &self,
+        partial_beacon_block: PartialBeaconBlockV3<T::EthSpec>,
+        block_contents: BlockProposalContents<<T as BeaconChainTypes>::EthSpec, FullPayload<<T as BeaconChainTypes>::EthSpec>>,
+        verification: ProduceBlockVerification,
+    ) -> Result<(BeaconBlockTypeWithStateAndValue<T::EthSpec>, BeaconState<T::EthSpec>, u32), BlockProductionError> {
+        let PartialBeaconBlockV3 {
+            mut state,
+            slot,
+            proposer_index,
+            parent_root,
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            // We don't need the prepare payload handle since the `execution_payload` is passed into
+            // this function. We can assume that the handle has already been consumed in order to
+            // produce said `execution_payload`.
+            prepare_payload_handle: _,
+            bls_to_execution_changes,
+        } = partial_beacon_block;
+
+        let (inner_block, block_value) = match &state {
+            BeaconState::Base(_) => (
+                BeaconBlock::Base(BeaconBlockBase {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyBase {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        _phantom: PhantomData,
+                    },
+                }),
+                0,
+            ),
+            BeaconState::Altair(_) => (
+                BeaconBlock::Altair(BeaconBlockAltair {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyAltair {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        sync_aggregate: sync_aggregate
+                            .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                        _phantom: PhantomData,
+                    },
+                }),
+                0,
+            ),
+            BeaconState::Merge(_) => {
+                let block_proposal_content =
+                    block_contents;
+                let block_value = block_proposal_content.block_value().as_u32();
+                let block = BeaconBlock::Merge(BeaconBlockMerge {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyMerge {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        sync_aggregate: sync_aggregate
+                            .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                        execution_payload: block_proposal_content
+                            .to_payload()
+                            .try_into()
+                            .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                    },
+                });
+                (block, block_value)
+            }
+            BeaconState::Capella(_) => {
+                let block_proposal_content =
+                    block_contents;
+                let block_value = block_proposal_content.block_value().as_u32();
+                let block = BeaconBlock::Capella(BeaconBlockCapella {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyCapella {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        sync_aggregate: sync_aggregate
+                            .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                        execution_payload: block_proposal_content
+                            .to_payload()
+                            .try_into()
+                            .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                        bls_to_execution_changes: bls_to_execution_changes.into(),
+                    },
+                });
+                (block, block_value)
+            }
+        };
+
+        let block = SignedBeaconBlock::from_block(
+            inner_block,
+            // The block is not signed here, that is the task of a validator client.
+            Signature::empty(),
+        );
+
+        let block_size = block.ssz_bytes_len();
+        debug!(
+            self.log,
+            "Produced block on state";
+            "block_size" => block_size,
+        );
+
+        metrics::observe(&metrics::BLOCK_SIZE, block_size as f64);
+
+        if block_size > self.config.max_network_size {
+            return Err(BlockProductionError::BlockTooLarge(block_size));
+        }
+
+        let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
+        let signature_strategy = match verification {
+            ProduceBlockVerification::VerifyRandao => BlockSignatureStrategy::VerifyRandao,
+            ProduceBlockVerification::NoVerification => BlockSignatureStrategy::NoVerification,
+        };
+        // Use a context without block root or proposer index so that both are checked.
+        let mut ctxt = ConsensusContext::new(block.slot());
+        per_block_processing(
+            &mut state,
+            &block,
+            signature_strategy,
+            StateProcessingStrategy::Accurate,
+            VerifyBlockRoot::True,
+            &mut ctxt,
+            &self.spec,
+        )?;
+        drop(process_timer);
+
+        let state_root_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_ROOT_TIMES);
+        let state_root = state.update_tree_hash_cache()?;
+        drop(state_root_timer);
+
+        let (mut block, _) = block.deconstruct();
+        *block.state_root_mut() = state_root;
+
+        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
+
+        trace!(
+            self.log,
+            "Produced beacon block";
+            "parent" => ?block.parent_root(),
+            "attestations" => block.body().attestations().len(),
+            "slot" => block.slot()
+        );
+
+      
+
+        Ok((BeaconBlockTypeWithStateAndValue::Full(block), state, block_value))
     }
 
     fn complete_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec>>(

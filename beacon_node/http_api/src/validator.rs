@@ -48,6 +48,19 @@ pub async fn produce_block_json<T: BeaconChainTypes>(
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
 
+    match chain
+        .produce_block_with_verification_v3(
+            randao_reveal,
+            slot,
+            query.graffiti.map(Into::into),
+            randao_verification,
+        )
+        .await?
+    {
+        Full(esomething) => {}
+        Blinded() => {}
+    }
+
     match block_type {
         BlockType::Blinded => {
             let (block, _, block_value) = chain
