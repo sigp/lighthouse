@@ -2932,7 +2932,7 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // POST validator/duties/sync
+    // POST validator/duties/sync/{epoch}
     let post_validator_duties_sync = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("duties"))
