@@ -64,7 +64,7 @@ use crate::{metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, Ca
 use bls::generics::GenericPublicKeyBytes;
 use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
-    BlockProposalContentV3, BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer,
+    BlockProposalContentsType, BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer,
     FailedCondition, PayloadAttributes, PayloadStatus,
 };
 use fork_choice::{
@@ -4928,7 +4928,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn complete_partial_beacon_block_v3<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         partial_beacon_block: PartialBeaconBlockV3<T::EthSpec>,
-        block_contents: Option<BlockProposalContentV3<T::EthSpec>>,
+        block_contents: Option<BlockProposalContentsType<T::EthSpec>>,
         verification: ProduceBlockVerification,
     ) -> Result<(BeaconBlockTypeWithStateAndValue<T::EthSpec>, BeaconState<T::EthSpec>, u32), BlockProductionError> {
         let PartialBeaconBlockV3 {
@@ -4955,10 +4955,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match block_contents {
             Some(block) => {
                 match block {
-                    BlockProposalContentV3::FullPayload(full_payload) => {
+                    BlockProposalContentsType::FullPayload(full_payload) => {
                         self.complete_partial_beacon_block_for_full_payload(partial_beacon_block, full_payload, verification)
                     },
-                    BlockProposalContentV3::BlindedPayload(blinded_payload) => {
+                    BlockProposalContentsType::BlindedPayload(blinded_payload) => {
                         self.complete_partial_beacon_block_for_blinded_payload(partial_beacon_block, blinded_payload, verification)
                     },
                 }

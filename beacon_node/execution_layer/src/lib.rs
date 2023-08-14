@@ -127,20 +127,20 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     },
 }
 
-pub enum BlockProposalContentV3<T: EthSpec> {
+pub enum BlockProposalContentsType<T: EthSpec> {
     FullPayload(BlockProposalContents<T, FullPayload<T>>),
     BlindedPayload(BlockProposalContents<T, BlindedPayload<T>>),
 }
 
-impl<T: EthSpec> BlockProposalContentV3<T> {
+impl<T: EthSpec> BlockProposalContentsType<T> {
     pub fn default_at_fork(fork_name: ForkName) -> Result<Self, BeaconStateError> {
-        Ok(BlockProposalContentV3::FullPayload(BlockProposalContents::default_at_fork(fork_name)?))
+        Ok(BlockProposalContentsType::FullPayload(BlockProposalContents::default_at_fork(fork_name)?))
     }
 
     pub fn block_value(&self) -> &Uint256 {
         match self {
-            BlockProposalContentV3::FullPayload(full_payload_content) => full_payload_content.block_value(),
-            BlockProposalContentV3::BlindedPayload(blinded_payload_content) => blinded_payload_content.block_value(),
+            BlockProposalContentsType::FullPayload(full_payload_content) => full_payload_content.block_value(),
+            BlockProposalContentsType::BlindedPayload(blinded_payload_content) => blinded_payload_content.block_value(),
         }
     }
 }
@@ -658,7 +658,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         payload_attributes: &PayloadAttributes,
         current_fork: ForkName,
         spec: &ChainSpec,
-    ) -> Result<ProvenancedPayload<BlockProposalContentV3<T>>, Error> {
+    ) -> Result<ProvenancedPayload<BlockProposalContentsType<T>>, Error> {
         return match (relay_result, local_result) {
             (Err(e), Ok(local)) => {
                 warn!(
@@ -670,7 +670,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     "parent_hash" => ?parent_hash,
                 );
                 Ok(ProvenancedPayload::Local(
-                    BlockProposalContentV3::FullPayload(local),
+                    BlockProposalContentsType::FullPayload(local),
                 ))
             }
             (Ok(None), Ok(local)) => {
@@ -682,7 +682,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     "parent_hash" => ?parent_hash,
                 );
                 Ok(ProvenancedPayload::Local(
-                    BlockProposalContentV3::FullPayload(local),
+                    BlockProposalContentsType::FullPayload(local),
                 ))
             }
             (Ok(Some(relay)), Ok(local)) => {
@@ -707,7 +707,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             "relay_value" => %relay_value
                         );
                         return Ok(ProvenancedPayload::Local(
-                            BlockProposalContentV3::FullPayload(local),
+                            BlockProposalContentsType::FullPayload(local),
                         ));
                     } else {
                         info!(
@@ -735,7 +735,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             _phantom: PhantomData,
                         };
                         Ok(ProvenancedPayload::Builder(
-                            BlockProposalContentV3::BlindedPayload(block_proposal_content),
+                            BlockProposalContentsType::BlindedPayload(block_proposal_content),
                         ))
                     }
                     Err(reason) if !reason.payload_invalid() => {
@@ -748,7 +748,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             "parent_hash" => ?parent_hash,
                         );
                         Ok(ProvenancedPayload::Local(
-                            BlockProposalContentV3::FullPayload(local),
+                            BlockProposalContentsType::FullPayload(local),
                         ))
                     }
                     Err(reason) => {
@@ -765,7 +765,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             "parent_hash" => ?parent_hash,
                         );
                         Ok(ProvenancedPayload::Local(
-                            BlockProposalContentV3::FullPayload(local),
+                            BlockProposalContentsType::FullPayload(local),
                         ))
                     }
                 }
@@ -797,7 +797,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             _phantom: PhantomData,
                         };
                         Ok(ProvenancedPayload::Builder(
-                            BlockProposalContentV3::BlindedPayload(block_proposal_content),
+                            BlockProposalContentsType::BlindedPayload(block_proposal_content),
                         ))
                     }
                     // If the payload is valid then use it. The local EE failed
@@ -809,7 +809,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             _phantom: PhantomData,
                         };
                         Ok(ProvenancedPayload::Builder(
-                            BlockProposalContentV3::BlindedPayload(block_proposal_content),
+                            BlockProposalContentsType::BlindedPayload(block_proposal_content),
                         ))
                     }
                     Err(reason) => {
@@ -864,7 +864,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         builder_params: BuilderParams,
         current_fork: ForkName,
         spec: &ChainSpec,
-    ) -> Result<BlockProposalContentV3<T>, Error> {
+    ) -> Result<BlockProposalContentsType<T>, Error> {
         let payload_result = self
             .get_payload_from_relay_or_local(
                 parent_hash,
@@ -918,7 +918,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         builder_params: BuilderParams,
         current_fork: ForkName,
         spec: &ChainSpec,
-    ) -> Result<ProvenancedPayload<BlockProposalContentV3<T>>, Error> {
+    ) -> Result<ProvenancedPayload<BlockProposalContentsType<T>>, Error> {
         if let Some(builder) = self.builder() {
             let slot = builder_params.slot;
             let pubkey = builder_params.pubkey;
@@ -1012,7 +1012,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .await?;
 
         Ok(ProvenancedPayload::Local(
-            BlockProposalContentV3::FullPayload(local),
+            BlockProposalContentsType::FullPayload(local),
         ))
     }
 

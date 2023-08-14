@@ -13,7 +13,7 @@ use crate::{
     ExecutionPayloadError,
 };
 use execution_layer::{
-    BlockProposalContentV3, BlockProposalContents, BuilderParams, ExecutionLayer,
+    BlockProposalContentsType, BlockProposalContents, BuilderParams, ExecutionLayer,
     PayloadAttributes, PayloadStatus,
 };
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
@@ -29,7 +29,7 @@ use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::*;
 
-pub type PreparePayloadResultV3<E> = Result<BlockProposalContentV3<E>, BlockProductionError>;
+pub type PreparePayloadResultV3<E> = Result<BlockProposalContentsType<E>, BlockProductionError>;
 pub type PreparePayloadHandleV3<E> = JoinHandle<Option<PreparePayloadResultV3<E>>>;
 
 pub type PreparePayloadResult<E, Payload> =
@@ -584,7 +584,7 @@ pub async fn get_parent_execution_block_hash<T: BeaconChainTypes>(
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
 pub async fn prepare_execution_payload_v3<T>(
     execution_payload_input: ExecutionPayloadInput<T>,
-) -> Result<BlockProposalContentV3<T::EthSpec>, BlockProductionError>
+) -> Result<BlockProposalContentsType<T::EthSpec>, BlockProductionError>
 where
     T: BeaconChainTypes,
 {
@@ -613,7 +613,7 @@ where
         // we either haven't reached the terminal block hash
         // or the EL hasn't found the terminal block
         // so we return an "empty" payload.
-        None => return BlockProposalContentV3::default_at_fork(fork).map_err(Into::into),
+        None => return BlockProposalContentsType::default_at_fork(fork).map_err(Into::into),
     };
 
     // Try to obtain the fork choice update parameters from the cached head.
