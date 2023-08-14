@@ -1599,7 +1599,7 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
 ) -> Result<AvailabilityProcessingStatus, String> {
     match chain
         .clone()
-        .into_executed_block(execution_pending_block)
+        .import_execution_pending_block(execution_pending_block)
         .await
         .unwrap()
     {

@@ -119,7 +119,6 @@ use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -184,7 +183,7 @@ pub enum WhenSlotSkipped {
     Prev,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum AvailabilityProcessingStatus {
     MissingComponents(Slot, Hash256),
     Imported(Hash256),
@@ -1169,17 +1168,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the blobs at the given root, if any.
     ///
-    /// Returns `Ok(None)` if the blobs and associated block are not found.
-    ///
-    /// If we can find the corresponding block in our database, we know whether we *should* have
-    /// blobs. If we should have blobs and no blobs are found, this will error. If we shouldn't,
-    /// this will reconstruct an empty `BlobsSidecar`.
-    ///
     /// ## Errors
-    /// - any database read errors
-    /// - block and blobs are inconsistent in the database
-    /// - this method is called with a pre-deneb block root
-    /// - this method is called for a blob that is beyond the prune depth
+    /// May return a database error.
     pub fn get_blobs(&self, block_root: &Hash256) -> Result<BlobSidecarList<T::EthSpec>, Error> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(blobs),
@@ -2792,9 +2782,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
     /// imported into the chain.
     ///
-    /// For post deneb blocks, this returns a `BlockError::AvailabilityPending` error
-    /// if the corresponding blobs are not in the required caches.
-    ///
     /// Items that implement `IntoExecutionPendingBlock` include:
     ///
     /// - `SignedBeaconBlock`
@@ -2818,26 +2805,80 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Increment the Prometheus counter for block processing requests.
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
 
+        let block_slot = unverified_block.block().slot();
+
+        // A small closure to group the verification and import errors.
         let chain = self.clone();
+        let import_block = async move {
+            let execution_pending = unverified_block.into_execution_pending_block(
+                block_root,
+                &chain,
+                notify_execution_layer,
+            )?;
+            publish_fn()?;
+            let executed_block = chain.into_executed_block(execution_pending).await?;
+            match executed_block {
+                ExecutedBlock::Available(block) => {
+                    self.import_available_block(Box::new(block)).await
+                }
+                ExecutedBlock::AvailabilityPending(block) => {
+                    self.check_block_availability_and_import(block).await
+                }
+            }
+        };
 
-        let execution_pending = unverified_block.into_execution_pending_block(
-            block_root,
-            &chain,
-            notify_execution_layer,
-        )?;
+        // Verify and import the block.
+        match import_block.await {
+            // The block was successfully verified and imported. Yay.
+            Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
+                trace!(
+                    self.log,
+                    "Beacon block imported";
+                    "block_root" => ?block_root,
+                    "block_slot" => block_slot,
+                );
 
-        publish_fn()?;
+                // Increment the Prometheus counter for block processing successes.
+                metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
 
-        let executed_block = self
-            .clone()
-            .into_executed_block(execution_pending)
-            .await
-            .map_err(|e| self.handle_block_error(e))?;
+                Ok(status)
+            }
+            Ok(status @ AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
+                trace!(
+                    self.log,
+                    "Beacon block awaiting blobs";
+                    "block_root" => ?block_root,
+                    "block_slot" => slot,
+                );
 
-        match executed_block {
-            ExecutedBlock::Available(block) => self.import_available_block(Box::new(block)).await,
-            ExecutedBlock::AvailabilityPending(block) => {
-                self.check_block_availability_and_import(block).await
+                Ok(status)
+            }
+            Err(e @ BlockError::BeaconChainError(BeaconChainError::TokioJoin(_))) => {
+                debug!(
+                    self.log,
+                    "Beacon block processing cancelled";
+                    "error" => ?e,
+                );
+                Err(e)
+            }
+            // There was an error whilst attempting to verify and import the block. The block might
+            // be partially verified or partially imported.
+            Err(BlockError::BeaconChainError(e)) => {
+                crit!(
+                    self.log,
+                    "Beacon block processing error";
+                    "error" => ?e,
+                );
+                Err(BlockError::BeaconChainError(e))
+            }
+            // The block failed verification.
+            Err(other) => {
+                debug!(
+                    self.log,
+                    "Beacon block rejected";
+                    "reason" => other.to_string(),
+                );
+                Err(other)
             }
         }
     }
@@ -2895,35 +2936,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             import_data,
             payload_verification_outcome,
         ))
-    }
-
-    fn handle_block_error(&self, e: BlockError<T::EthSpec>) -> BlockError<T::EthSpec> {
-        match e {
-            e @ BlockError::BeaconChainError(BeaconChainError::TokioJoin(_)) => {
-                debug!(
-                    self.log,
-                    "Beacon block processing cancelled";
-                    "error" => ?e,
-                );
-                e
-            }
-            BlockError::BeaconChainError(e) => {
-                crit!(
-                    self.log,
-                    "Beacon block processing error";
-                    "error" => ?e,
-                );
-                BlockError::BeaconChainError(e)
-            }
-            other => {
-                trace!(
-                    self.log,
-                    "Beacon block rejected";
-                    "reason" => other.to_string(),
-                );
-                other
-            }
-        }
     }
 
     /* Import methods */
@@ -3011,11 +3023,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             consensus_context,
         } = import_data;
 
-        let slot = block.slot();
-
         // import
         let chain = self.clone();
-        let result = self
+        let block_root = self
             .spawn_blocking_handle(
                 move || {
                     chain.import_block(
@@ -3031,29 +3041,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
                 "payload_verification_handle",
             )
-            .await
-            .map_err(|e| {
-                let b = BlockError::from(e);
-                self.handle_block_error(b)
-            })?;
-
-        match result {
-            // The block was successfully verified and imported. Yay.
-            Ok(block_root) => {
-                trace!(
-                    self.log,
-                    "Beacon block imported";
-                    "block_root" => ?block_root,
-                     "block_slot" => slot,
-                );
-
-                // Increment the Prometheus counter for block processing successes.
-                metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
-
-                Ok(AvailabilityProcessingStatus::Imported(block_root))
-            }
-            Err(e) => Err(self.handle_block_error(e)),
-        }
+            .await??;
+        Ok(AvailabilityProcessingStatus::Imported(block_root))
     }
 
     /// Accepts a fully-verified and available block and imports it into the chain without performing any

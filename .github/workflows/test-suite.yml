@@ -324,6 +324,7 @@ jobs:
     - name: Run cargo audit to identify known security vulnerabilities reported to the RustSec Advisory Database
       run:  make audit
 # TODO(sean): re-enable this when we can figure it out with c-kzg
+# Issue: https://github.com/sigp/lighthouse/issues/4440
 #  cargo-vendor:
 #    name: cargo-vendor
 #    runs-on: ubuntu-latest
