@@ -329,8 +329,8 @@ where
                 .store
                 .get_advanced_state(
                     self.justified_checkpoint.root,
-                    Some(max_slot),
-                    Some(justified_block.state_root()),
+                    max_slot,
+                    justified_block.state_root(),
                 )
                 .map_err(Error::FailedToReadState)?
                 .ok_or_else(|| Error::MissingState(justified_block.state_root()))?;

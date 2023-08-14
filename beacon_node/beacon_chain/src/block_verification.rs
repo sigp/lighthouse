@@ -1767,7 +1767,7 @@ fn load_parent<T: BeaconChainTypes>(
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
         let (parent_state_root, parent_state) = chain
             .store
-            .get_advanced_state(root, Some(block.slot()), Some(parent_block.state_root()))?
+            .get_advanced_state(root, block.slot(), parent_block.state_root())?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(
                     format!("Missing state for parent block {root:?}",),

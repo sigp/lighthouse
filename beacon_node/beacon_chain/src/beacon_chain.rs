@@ -5578,8 +5578,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .store
                     .get_inconsistent_state_for_attestation_verification_only(
                         &head_block_root,
-                        Some(max_slot),
-                        Some(block_state_root),
+                        max_slot,
+                        block_state_root,
                     )?
                     .ok_or(Error::MissingBeaconState(block_state_root))?;
                 (state, state_root)

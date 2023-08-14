@@ -47,7 +47,8 @@ use crate::{
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
 use fork_choice::{
-    ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock, ResetPayloadStatuses,
+    ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock,
+    ResetPayloadStatuses,
 };
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -298,8 +299,9 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         let beacon_block = store
             .get_full_block(&beacon_block_root)?
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
+        let current_slot = fork_choice.fc_store().get_current_slot();
         let (_, beacon_state) = store
-            .get_advanced_state(beacon_block_root, None, Some(beacon_block.state_root()))?
+            .get_advanced_state(beacon_block_root, current_slot, beacon_block.state_root())?
             .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
         let snapshot = BeaconSnapshot {
@@ -672,8 +674,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .store
                         .get_advanced_state(
                             new_view.head_block_root,
-                            Some(current_slot),
-                            Some(beacon_block.state_root()),
+                            current_slot,
+                            beacon_block.state_root(),
                         )?
                         .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 

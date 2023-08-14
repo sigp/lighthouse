@@ -686,7 +686,7 @@ where
             };
 
         let (_head_state_root, head_state) = store
-            .get_advanced_state(head_block_root, None, Some(head_block.state_root()))
+            .get_advanced_state(head_block_root, current_slot, head_block.state_root())
             .map_err(|e| descriptive_db_error("head state", &e))?
             .ok_or("Head state not found in store")?;
 

@@ -558,47 +558,51 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_inconsistent_state_for_attestation_verification_only(
         &self,
         block_root: &Hash256,
-        max_slot: Option<Slot>,
-        opt_state_root: Option<Hash256>,
+        max_slot: Slot,
+        state_root: Hash256,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
         self.get_advanced_state_with_strategy(
             *block_root,
             max_slot,
-            opt_state_root,
+            state_root,
             StateProcessingStrategy::Inconsistent,
         )
     }
 
     /// Get a state with `latest_block_root == block_root` advanced through to at most `max_slot`.
     ///
-    /// If no `max_slot` is provided, then the lowest-slot state for `block_root` is returned. This
-    /// is usually the post-state of the block, unless the block is the split point, in which
-    /// case the split state will be returned (the post-state advanced through to an epoch
-    /// boundary).
+    /// The `state_root` argument is used to look up the block's un-advanced state in case an
+    /// advanced state is not found.
     ///
-    /// The `opt_state_root` argument is used to look up the block's un-advanced state in case the
-    /// advanced state is not found. If no advanced state is found and no state root is provided
-    /// then `Ok(None)` will be returned.
+    /// Return the `(result_state_root, state)` satisfying:
+    ///
+    /// - `result_state_root == state.canonical_root()`
+    /// - `state.slot() <= max_slot`
+    /// - `state.get_latest_block_root(result_state_root) == block_root`
+    ///
+    /// Presently this is only used to avoid loading the un-advanced split state, but in future will
+    /// be expanded to return states from an in-memory cache.
     pub fn get_advanced_state(
         &self,
         block_root: Hash256,
-        max_slot: Option<Slot>,
-        opt_state_root: Option<Hash256>,
+        max_slot: Slot,
+        state_root: Hash256,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
         self.get_advanced_state_with_strategy(
             block_root,
             max_slot,
-            opt_state_root,
+            state_root,
             StateProcessingStrategy::Accurate,
         )
     }
 
+    /// Same as `get_advanced_state` but taking a `StateProcessingStrategy`.
     pub fn get_advanced_state_with_strategy(
         &self,
         block_root: Hash256,
-        max_slot: Option<Slot>,
-        opt_state_root: Option<Hash256>,
+        max_slot: Slot,
+        state_root: Hash256,
         state_processing_strategy: StateProcessingStrategy,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
         // Hold a read lock on the split point so it can't move while we're trying to load the
@@ -606,25 +610,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let split = self.split.read_recursive();
 
         // Sanity check max-slot against the split slot.
-        if let Some(slot) = max_slot {
-            if slot < split.slot {
-                return Err(HotColdDBError::AttestationStateIsFinalized {
-                    split_slot: split.slot,
-                    request_slot: slot,
-                    block_root,
-                }
-                .into());
+        if max_slot < split.slot {
+            return Err(HotColdDBError::AttestationStateIsFinalized {
+                split_slot: split.slot,
+                request_slot: max_slot,
+                block_root,
             }
+            .into());
         }
 
-        let state_root = if block_root == split.block_root
-            && max_slot.map_or(true, |max_slot| split.slot <= max_slot)
-        {
+        let state_root = if block_root == split.block_root && split.slot <= max_slot {
             split.state_root
-        } else if let Some(state_root) = opt_state_root {
-            state_root
         } else {
-            return Ok(None);
+            state_root
         };
         let state = self
             .load_hot_state(&state_root, state_processing_strategy)?
