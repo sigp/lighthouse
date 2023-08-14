@@ -7,9 +7,9 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-use crate::metrics;
 use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
+use crate::{metrics, ClearDialError};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
     build_enr, create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, CombinedKey,
@@ -1111,7 +1111,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 | DialError::Transport(_)
                 | DialError::WrongPeerId { .. } => {
                     // set peer as disconnected in discovery DHT
-                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id, "error" => %ClearDialError(error));
                     self.disconnect_peer(&peer_id);
                 }
                 DialError::DialPeerConditionFalse(_) | DialError::Aborted => {}
