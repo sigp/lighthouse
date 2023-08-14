@@ -5,6 +5,10 @@ on:
         branches:
             - unstable
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
 env:
     ANTITHESIS_PASSWORD: ${{ secrets.ANTITHESIS_PASSWORD }}
     ANTITHESIS_USERNAME: ${{ secrets.ANTITHESIS_USERNAME }}
