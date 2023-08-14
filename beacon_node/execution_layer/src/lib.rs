@@ -688,7 +688,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
                     &[metrics::LOCAL],
                 );
-                return Ok(BlockProposalContentsType::Full(block_proposal_contents));
+                Ok(BlockProposalContentsType::Full(block_proposal_contents))
             }
             BlockProposalContentsType::Blinded(block_proposal_contents) => {
                 metrics::inc_counter_vec(
@@ -699,7 +699,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
                     &[metrics::BUILDER],
                 );
-                return Ok(BlockProposalContentsType::Blinded(block_proposal_contents));
+                Ok(BlockProposalContentsType::Blinded(block_proposal_contents))
             }
         }
     }

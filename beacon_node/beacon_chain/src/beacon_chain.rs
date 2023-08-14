@@ -459,7 +459,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 pub enum BeaconBlockAndStateResponse<T: EthSpec> {
     Full((BeaconBlock<T, FullPayload<T>>, BeaconState<T>)),
     Blinded((BeaconBlock<T, BlindedPayload<T>>, BeaconState<T>)),
-    BeaconBlockError()
+    BeaconBlockError(),
 }
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
@@ -4347,7 +4347,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     //
                     // Perform the final steps of combining all the parts and computing the state root.
                     let chain = self.clone();
-                    let result = self.task_executor
+                    let result = self
+                        .task_executor
                         .spawn_blocking_handle(
                             move || {
                                 chain.complete_partial_beacon_block(
@@ -4362,14 +4363,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .await
                         .map_err(BlockProductionError::TokioJoin)?;
 
-                    return Ok(BeaconBlockAndStateResponse::Full(result?))
+                    return Ok(BeaconBlockAndStateResponse::Full(result?));
                 }
                 execution_layer::BlockProposalContentsType::Blinded(block_contents) => {
                     // Part 3/3 (blocking)
                     //
                     // Perform the final steps of combining all the parts and computing the state root.
-                   let chain = self.clone();
-                   let result =  self.task_executor
+                    let chain = self.clone();
+                    let result = self
+                        .task_executor
                         .spawn_blocking_handle(
                             move || {
                                 chain.complete_partial_beacon_block(
@@ -4384,7 +4386,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .await
                         .map_err(BlockProductionError::TokioJoin)?;
 
-                    return Ok(BeaconBlockAndStateResponse::Blinded(result?))
+                    return Ok(BeaconBlockAndStateResponse::Blinded(result?));
                 }
             }
         } else {
