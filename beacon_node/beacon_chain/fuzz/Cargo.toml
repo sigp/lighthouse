@@ -20,7 +20,7 @@ lazy_static = "1.4.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = { version = "2.1.1", features = ["json"] }
 state_processing = { path = "../../../consensus/state_processing" }
-tree_hash = "0.4.1"
+tree_hash = "0.5.0"
 types = { path = "../../../consensus/types" }
 rand = "0.8.5"
 tempfile = "3.1.0"
@@ -35,6 +35,7 @@ afl = { version = "*", optional = true }
 
 [dependencies.beacon_chain]
 path = ".."
+features = ["hydra"]
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -55,18 +56,3 @@ doc = false
 [patch]
 [patch.crates-io]
 warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
-eth2_ssz = { path = "../../../consensus/ssz" }
-eth2_ssz_derive = { path = "../../../consensus/ssz_derive" }
-eth2_ssz_types = { path = "../../../consensus/ssz_types" }
-eth2_hashing = { path = "../../../crypto/eth2_hashing" }
-tree_hash = { path = "../../../consensus/tree_hash" }
-tree_hash_derive = { path = "../../../consensus/tree_hash_derive" }
-eth2_serde_utils = { path = "../../../consensus/serde_utils" }
-arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="a572fd8743012a4f1ada5ee5968b1b3619c427ba" }
-
-[patch."https://github.com/ralexstokes/mev-rs"]
-mev-rs = { git = "https://github.com/ralexstokes//mev-rs", rev = "7813d4a4a564e0754e9aaab2d95520ba437c3889" }
-[patch."https://github.com/ralexstokes/ethereum-consensus"]
-ethereum-consensus = { git = "https://github.com/ralexstokes//ethereum-consensus", rev = "9b0ee0a8a45b968c8df5e7e64ea1c094e16f053d" }
-[patch."https://github.com/ralexstokes/ssz-rs"]
-ssz-rs = { git = "https://github.com/ralexstokes//ssz-rs", rev = "adf1a0b14cef90b9536f28ef89da1fab316465e1" }

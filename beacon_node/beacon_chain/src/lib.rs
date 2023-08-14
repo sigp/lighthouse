@@ -24,6 +24,7 @@ pub mod fork_choice_signal;
 pub mod fork_revert;
 mod head_tracker;
 pub mod historical_blocks;
+pub mod hydra;
 pub mod light_client_finality_update_verification;
 pub mod light_client_optimistic_update_verification;
 pub mod merge_readiness;

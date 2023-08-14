@@ -1,8 +1,9 @@
 use crate::{Config, Hydra, LogConfig, Message, Node, TestHarness};
 use arbitrary::Unstructured;
 use beacon_chain::{
-    beacon_proposer_cache::compute_proposer_duties_from_head, slot_clock::SlotClock,
-    test_utils::RelativeSyncCommittee,
+    beacon_proposer_cache::compute_proposer_duties_from_head,
+    slot_clock::SlotClock,
+    test_utils::{EphemeralHarnessType, RelativeSyncCommittee},
 };
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -15,7 +16,7 @@ pub struct Runner<'a, E: EthSpec> {
     conf: Config<E>,
     honest_nodes: Vec<Node<E>>,
     attacker: Node<E>,
-    hydra: Hydra<E>,
+    hydra: Hydra<EphemeralHarnessType<E>>,
     u: Unstructured<'a>,
     time: CurrentTime,
     all_blocks: Vec<(Hash256, Slot)>,
@@ -82,7 +83,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
             validators: (conf.honest_validators()..conf.total_validators).collect(),
             debug_config: conf.debug.clone(),
         };
-        let hydra = Hydra::default();
+        let hydra = Hydra::new();
 
         // Simulation parameters.
         let time = CurrentTime {
@@ -182,7 +183,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
         // Update the Hydra as we use it to determine block viability.
         let current_epoch = self.current_epoch();
         self.hydra
-            .update(&self.attacker.harness, current_epoch, &self.spec);
+            .update(&self.attacker.harness.chain, current_epoch);
 
         for node in &mut self.honest_nodes {
             node.harness
@@ -316,7 +317,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                 && self.conf.is_block_proposal_tick(self.tick())
             {
                 self.hydra
-                    .update(&self.attacker.harness, current_epoch, &self.spec);
+                    .update(&self.attacker.harness.chain, current_epoch);
                 let proposer_heads = self.hydra.proposer_heads_at_slot(
                     current_slot,
                     &self.attacker.validators,
@@ -341,7 +342,11 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                         |ux| {
                             let (_, head_choices) = proposers.next().unwrap();
                             let (block_root, state_ref) = ux.choose(&head_choices)?;
-                            let state: BeaconState<E> = (*state_ref).clone();
+                            let state = if state_ref.advanced.slot() < current_slot {
+                                state_ref.advanced.clone()
+                            } else {
+                                state_ref.unadvanced.clone()
+                            };
 
                             selected_proposals.push((block_root, state));
                             Ok(ControlFlow::Continue(()))
