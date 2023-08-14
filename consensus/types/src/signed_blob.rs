@@ -1,12 +1,13 @@
 use crate::{
-    test_utils::TestRandom, BlobSidecar, ChainSpec, Domain, EthSpec, Fork, Hash256, Signature,
-    SignedRoot, SigningData,
+    test_utils::TestRandom, BlindedBlobSidecar, Blob, BlobSidecar, ChainSpec, Domain, EthSpec,
+    Fork, Hash256, Sidecar, Signature, SignedRoot, SigningData,
 };
 use bls::PublicKey;
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -25,16 +26,45 @@ use tree_hash_derive::TreeHash;
     Derivative,
     arbitrary::Arbitrary,
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-#[derivative(Hash(bound = "T: EthSpec"))]
-pub struct SignedBlobSidecar<T: EthSpec> {
-    pub message: Arc<BlobSidecar<T>>,
+#[serde(bound = "T: EthSpec, S: Sidecar<T>")]
+#[arbitrary(bound = "T: EthSpec, S: Sidecar<T>")]
+#[derivative(Hash(bound = "T: EthSpec, S: Sidecar<T>"))]
+pub struct SignedSidecar<T: EthSpec, S: Sidecar<T>> {
+    pub message: Arc<S>,
     pub signature: Signature,
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[serde(skip)]
+    #[arbitrary(default)]
+    pub _phantom: PhantomData<T>,
 }
 
-pub type SignedBlobSidecarList<T> =
-    VariableList<SignedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>;
+impl<T: EthSpec> SignedSidecar<T, BlindedBlobSidecar> {
+    pub fn into_full_blob_sidecars(self, blob: Blob<T>) -> SignedSidecar<T, BlobSidecar<T>> {
+        let blinded_sidecar = self.message;
+        SignedSidecar {
+            message: Arc::new(BlobSidecar {
+                block_root: blinded_sidecar.block_root,
+                index: blinded_sidecar.index,
+                slot: blinded_sidecar.slot,
+                block_parent_root: blinded_sidecar.block_parent_root,
+                proposer_index: blinded_sidecar.proposer_index,
+                blob,
+                kzg_commitment: blinded_sidecar.kzg_commitment,
+                kzg_proof: blinded_sidecar.kzg_proof,
+            }),
+            signature: self.signature,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+/// List of Signed Sidecars that implements `Sidecar`.
+pub type SignedSidecarList<T, Sidecar> =
+    VariableList<SignedSidecar<T, Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type SignedBlobSidecarList<T> = SignedSidecarList<T, BlobSidecar<T>>;
+
+pub type SignedBlobSidecar<T> = SignedSidecar<T, BlobSidecar<T>>;
 
 impl<T: EthSpec> SignedBlobSidecar<T> {
     /// Verify `self.signature`.

@@ -95,7 +95,7 @@ pub mod base {
     }
 }
 
-pub mod altair {
+pub mod altair_deneb {
     use super::*;
     use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
     use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
@@ -269,7 +269,7 @@ pub fn process_attestations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         | BeaconBlockBodyRef::Merge(_)
         | BeaconBlockBodyRef::Capella(_)
         | BeaconBlockBodyRef::Deneb(_) => {
-            altair::process_attestations(
+            altair_deneb::process_attestations(
                 state,
                 block_body.attestations(),
                 verify_signatures,

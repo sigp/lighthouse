@@ -15,7 +15,7 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
-use eth2::types::BlockContentsTuple;
+use eth2::types::SignedBlockContentsTuple;
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     auth::JwtKey,
@@ -50,6 +50,7 @@ use state_processing::{
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -817,9 +818,28 @@ where
         &self,
         state: BeaconState<E>,
         slot: Slot,
-    ) -> (BlockContentsTuple<E, BlindedPayload<E>>, BeaconState<E>) {
+    ) -> (
+        SignedBlockContentsTuple<E, BlindedPayload<E>>,
+        BeaconState<E>,
+    ) {
         let (unblinded, new_state) = self.make_block(state, slot).await;
-        ((unblinded.0.into(), unblinded.1), new_state)
+        let maybe_blinded_blob_sidecars = unblinded.1.map(|blob_sidecar_list| {
+            VariableList::new(
+                blob_sidecar_list
+                    .into_iter()
+                    .map(|blob_sidecar| {
+                        let blinded_sidecar: BlindedBlobSidecar = blob_sidecar.message.into();
+                        SignedSidecar {
+                            message: Arc::new(blinded_sidecar),
+                            signature: blob_sidecar.signature,
+                            _phantom: PhantomData,
+                        }
+                    })
+                    .collect(),
+            )
+            .unwrap()
+        });
+        ((unblinded.0.into(), maybe_blinded_blob_sidecars), new_state)
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
@@ -827,7 +847,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (BlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
+    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -845,7 +865,7 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-        let (block, state) = self
+        let (block, state, maybe_blob_sidecars) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -865,18 +885,14 @@ where
             &self.spec,
         );
 
-        let block_contents: BlockContentsTuple<E, FullPayload<E>> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) => {
-                if let Some(blobs) = self
-                    .chain
-                    .proposal_blob_cache
-                    .pop(&signed_block.canonical_root())
-                {
-                    let signed_blobs: SignedBlobSidecarList<E> = Vec::from(blobs)
+                if let Some(blobs) = maybe_blob_sidecars {
+                    let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
                         .into_iter()
                         .map(|blob| {
                             blob.sign(
@@ -911,7 +927,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (BlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
+    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -931,7 +947,7 @@ where
 
         let pre_state = state.clone();
 
-        let (block, state) = self
+        let (block, state, maybe_blob_sidecars) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -951,18 +967,14 @@ where
             &self.spec,
         );
 
-        let block_contents: BlockContentsTuple<E, FullPayload<E>> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) => {
-                if let Some(blobs) = self
-                    .chain
-                    .proposal_blob_cache
-                    .pop(&signed_block.canonical_root())
-                {
-                    let signed_blobs: SignedBlobSidecarList<E> = Vec::from(blobs)
+                if let Some(blobs) = maybe_blob_sidecars {
+                    let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
                         .into_iter()
                         .map(|blob| {
                             blob.sign(
@@ -1663,14 +1675,13 @@ where
 
     pub fn make_voluntary_exit(&self, validator_index: u64, epoch: Epoch) -> SignedVoluntaryExit {
         let sk = &self.validator_keypairs[validator_index as usize].sk;
-        let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         VoluntaryExit {
             epoch,
             validator_index,
         }
-        .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
+        .sign(sk, genesis_validators_root, &self.chain.spec)
     }
 
     pub fn add_proposer_slashing(&self, validator_index: u64) -> Result<(), String> {
@@ -1779,7 +1790,7 @@ where
         state: BeaconState<E>,
         slot: Slot,
         block_modifier: impl FnOnce(&mut BeaconBlock<E>),
-    ) -> (BlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
+    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -1877,7 +1888,7 @@ where
         &self,
         slot: Slot,
         block_root: Hash256,
-        block_contents: BlockContentsTuple<E, FullPayload<E>>,
+        block_contents: SignedBlockContentsTuple<E, FullPayload<E>>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
         let (block, blobs) = block_contents;
@@ -1907,7 +1918,7 @@ where
 
     pub async fn process_block_result(
         &self,
-        block_contents: BlockContentsTuple<E, FullPayload<E>>,
+        block_contents: SignedBlockContentsTuple<E, FullPayload<E>>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         let (block, blobs) = block_contents;
         // Note: we are just dropping signatures here and skipping signature verification.
@@ -1992,7 +2003,7 @@ where
     ) -> Result<
         (
             SignedBeaconBlockHash,
-            BlockContentsTuple<E, FullPayload<E>>,
+            SignedBlockContentsTuple<E, FullPayload<E>>,
             BeaconState<E>,
         ),
         BlockError<E>,

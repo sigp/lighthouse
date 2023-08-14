@@ -525,7 +525,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             Some(blob_sidecars) => {
                 match self_ref
                     .validator_store
-                    .sign_blobs(*validator_pubkey_ref, blob_sidecars)
+                    .sign_blobs::<Payload>(*validator_pubkey_ref, blob_sidecars)
                     .await
                 {
                     Ok(signed_blobs) => Some(signed_blobs),
@@ -620,16 +620,15 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
                 );
-                todo!("need to be adjusted for blobs");
-                // beacon_node
-                //     .post_beacon_blinded_blocks(signed_block_contents.signed_block())
-                //     .await
-                //     .map_err(|e| {
-                //         BlockError::Irrecoverable(format!(
-                //             "Error from beacon node when publishing block: {:?}",
-                //             e
-                //         ))
-                //     })?
+                beacon_node
+                    .post_beacon_blinded_blocks(signed_block_contents)
+                    .await
+                    .map_err(|e| {
+                        BlockError::Irrecoverable(format!(
+                            "Error from beacon node when publishing block: {:?}",
+                            e
+                        ))
+                    })?
             }
         }
         Ok::<_, BlockError>(())
@@ -665,21 +664,20 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BLINDED_BEACON_BLOCK_HTTP_GET],
                 );
-                todo!("implement blinded flow for blobs");
-                // beacon_node
-                //     .get_validator_blinded_blocks::<E, Payload>(
-                //         slot,
-                //         randao_reveal_ref,
-                //         graffiti.as_ref(),
-                //     )
-                //     .await
-                //     .map_err(|e| {
-                //         BlockError::Recoverable(format!(
-                //             "Error from beacon node when producing block: {:?}",
-                //             e
-                //         ))
-                //     })?
-                //     .data
+                beacon_node
+                    .get_validator_blinded_blocks::<E, Payload>(
+                        slot,
+                        randao_reveal_ref,
+                        graffiti.as_ref(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        BlockError::Recoverable(format!(
+                            "Error from beacon node when producing block: {:?}",
+                            e
+                        ))
+                    })?
+                    .data
             }
         };
 

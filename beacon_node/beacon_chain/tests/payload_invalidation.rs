@@ -1017,6 +1017,7 @@ async fn payload_preparation() {
             .unwrap(),
         fee_recipient,
         None,
+        None,
     );
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
 }

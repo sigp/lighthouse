@@ -7,7 +7,7 @@ use beacon_chain::{
     IntoGossipVerifiedBlockContents, NotifyExecutionLayer,
 };
 use eth2::types::BroadcastValidation;
-use eth2::types::SignedBlockContents;
+use eth2::types::{FullPayloadContents, SignedBlockContents};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -267,15 +267,15 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
 /// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
 /// blocks before publishing.
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
-    block: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    block_contents: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
     validation_level: BroadcastValidation,
 ) -> Result<(), Rejection> {
-    let block_root = block.signed_block().canonical_root();
+    let block_root = block_contents.signed_block().canonical_root();
     let full_block: ProvenancedBlock<T, SignedBlockContents<T::EthSpec>> =
-        reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
+        reconstruct_block(chain.clone(), block_root, block_contents, log.clone()).await?;
     publish_block::<T, _>(
         Some(block_root),
         full_block,
@@ -293,25 +293,21 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
 pub async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
-    block: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    block_contents: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>>,
     log: Logger,
 ) -> Result<ProvenancedBlock<T, SignedBlockContents<T::EthSpec>>, Rejection> {
-    let full_payload_opt = if let Ok(payload_header) =
-        block.signed_block().message().body().execution_payload()
-    {
+    let block = block_contents.signed_block();
+    let full_payload_opt = if let Ok(payload_header) = block.message().body().execution_payload() {
         let el = chain.execution_layer.as_ref().ok_or_else(|| {
             warp_utils::reject::custom_server_error("Missing execution layer".to_string())
         })?;
 
         // If the execution block hash is zero, use an empty payload.
-        let full_payload = if payload_header.block_hash() == ExecutionBlockHash::zero() {
+        let full_payload_contents = if payload_header.block_hash() == ExecutionBlockHash::zero() {
             let payload = FullPayload::default_at_fork(
-                chain.spec.fork_name_at_epoch(
-                    block
-                        .signed_block()
-                        .slot()
-                        .epoch(T::EthSpec::slots_per_epoch()),
-                ),
+                chain
+                    .spec
+                    .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
             )
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(
@@ -319,7 +315,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 ))
             })?
             .into();
-            ProvenancedPayload::Local(payload)
+            ProvenancedPayload::Local(FullPayloadContents::Payload(payload))
         // If we already have an execution payload with this transactions root cached, use it.
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())
@@ -336,14 +332,14 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             late_block_logging(
                 &chain,
                 timestamp_now(),
-                block.signed_block().message(),
+                block.message(),
                 block_root,
                 "builder",
                 &log,
             );
 
             let full_payload = el
-                .propose_blinded_beacon_block(block_root, &block)
+                .propose_blinded_beacon_block(block_root, &block_contents)
                 .await
                 .map_err(|e| {
                     warp_utils::reject::custom_server_error(format!(
@@ -355,7 +351,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             ProvenancedPayload::Builder(full_payload)
         };
 
-        Some(full_payload)
+        Some(full_payload_contents)
     } else {
         None
     };
@@ -363,23 +359,14 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
     match full_payload_opt {
         // A block without a payload is pre-merge and we consider it locally
         // built.
-        None => block
-            .deconstruct()
-            .0
-            .try_into_full_block(None)
-            .map(SignedBlockContents::Block)
+        None => block_contents
+            .try_into_full_block_and_blobs(None)
             .map(ProvenancedBlock::local),
-        Some(ProvenancedPayload::Local(full_payload)) => block
-            .deconstruct()
-            .0
-            .try_into_full_block(Some(full_payload))
-            .map(SignedBlockContents::Block)
+        Some(ProvenancedPayload::Local(full_payload_contents)) => block_contents
+            .try_into_full_block_and_blobs(Some(full_payload_contents))
             .map(ProvenancedBlock::local),
-        Some(ProvenancedPayload::Builder(full_payload)) => block
-            .deconstruct()
-            .0
-            .try_into_full_block(Some(full_payload))
-            .map(SignedBlockContents::Block)
+        Some(ProvenancedPayload::Builder(full_payload_contents)) => block_contents
+            .try_into_full_block_and_blobs(Some(full_payload_contents))
             .map(ProvenancedBlock::builder),
     }
     .ok_or_else(|| {

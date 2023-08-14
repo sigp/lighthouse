@@ -6,7 +6,7 @@ use crate::{
         },
         ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
     },
-    random_valid_tx, BlobsBundleV1, ExecutionBlockWithTransactions,
+    random_valid_tx, ExecutionBlockWithTransactions,
 };
 use kzg::Kzg;
 use rand::thread_rng;
@@ -16,9 +16,9 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    BlobSidecar, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge, ForkName, Hash256,
-    Transactions, Uint256,
+    BlobSidecar, BlobsBundle, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge,
+    ForkName, Hash256, Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -128,7 +128,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
     /*
      * deneb stuff
      */
-    pub blobs_bundles: HashMap<PayloadId, BlobsBundleV1<T>>,
+    pub blobs_bundles: HashMap<PayloadId, BlobsBundle<T>>,
     pub kzg: Option<Arc<Kzg<T::Kzg>>>,
 }
 
@@ -406,7 +406,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         self.payload_ids.get(id).cloned()
     }
 
-    pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundleV1<T>> {
+    pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundle<T>> {
         self.blobs_bundles.get(id).cloned()
     }
 
@@ -556,27 +556,27 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                             transactions: vec![].into(),
                             withdrawals: pa.withdrawals.clone().into(),
                         }),
-                        ForkName::Deneb => ExecutionPayload::Deneb(ExecutionPayloadDeneb {
-                            parent_hash: forkchoice_state.head_block_hash,
-                            fee_recipient: pa.suggested_fee_recipient,
-                            receipts_root: Hash256::repeat_byte(42),
-                            state_root: Hash256::repeat_byte(43),
-                            logs_bloom: vec![0; 256].into(),
-                            prev_randao: pa.prev_randao,
-                            block_number: parent.block_number() + 1,
-                            gas_limit: GAS_LIMIT,
-                            gas_used: GAS_USED,
-                            timestamp: pa.timestamp,
-                            extra_data: "block gen was here".as_bytes().to_vec().into(),
-                            base_fee_per_gas: Uint256::one(),
-                            block_hash: ExecutionBlockHash::zero(),
-                            transactions: vec![].into(),
-                            withdrawals: pa.withdrawals.clone().into(),
-                            data_gas_used: 0,
-                            excess_data_gas: 0,
-                        }),
                         _ => unreachable!(),
                     },
+                    PayloadAttributes::V3(pa) => ExecutionPayload::Deneb(ExecutionPayloadDeneb {
+                        parent_hash: forkchoice_state.head_block_hash,
+                        fee_recipient: pa.suggested_fee_recipient,
+                        receipts_root: Hash256::repeat_byte(42),
+                        state_root: Hash256::repeat_byte(43),
+                        logs_bloom: vec![0; 256].into(),
+                        prev_randao: pa.prev_randao,
+                        block_number: parent.block_number() + 1,
+                        gas_limit: GAS_LIMIT,
+                        gas_used: GAS_USED,
+                        timestamp: pa.timestamp,
+                        extra_data: "block gen was here".as_bytes().to_vec().into(),
+                        base_fee_per_gas: Uint256::one(),
+                        block_hash: ExecutionBlockHash::zero(),
+                        transactions: vec![].into(),
+                        withdrawals: pa.withdrawals.clone().into(),
+                        blob_gas_used: 0,
+                        excess_blob_gas: 0,
+                    }),
                 };
 
                 match execution_payload.fork_name() {
@@ -630,8 +630,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 pub fn generate_random_blobs<T: EthSpec>(
     n_blobs: usize,
     kzg: &Kzg<T::Kzg>,
-) -> Result<(BlobsBundleV1<T>, Transactions<T>), String> {
-    let mut bundle = BlobsBundleV1::<T>::default();
+) -> Result<(BlobsBundle<T>, Transactions<T>), String> {
+    let mut bundle = BlobsBundle::<T>::default();
     let mut transactions = vec![];
     for blob_index in 0..n_blobs {
         let random_valid_sidecar = BlobSidecar::<T>::random_valid(&mut thread_rng(), kzg)?;

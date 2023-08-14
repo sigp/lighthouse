@@ -7,7 +7,6 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::blob_cache::BlobCache;
 use crate::blob_verification::{self, GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
@@ -67,8 +66,10 @@ use crate::validator_monitor::{
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::{kzg_utils, AvailabilityPendingExecutedBlock};
-use crate::{metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, CachedHead};
+use crate::{
+    kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
+    BeaconSnapshot, CachedHead,
+};
 use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
@@ -118,7 +119,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
+use types::blob_sidecar::{BlobItems, BlobSidecarList, FixedBlobSidecarList};
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -236,6 +237,7 @@ pub struct PrePayloadAttributes {
     /// The parent block number is not part of the payload attributes sent to the EL, but *is*
     /// sent to builders via SSE.
     pub parent_block_number: u64,
+    pub parent_beacon_block_root: Hash256,
 }
 
 /// Information about a state/block at a specific slot.
@@ -471,12 +473,15 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     /// The slot at which blocks are downloaded back to.
     pub genesis_backfill_slot: Slot,
-    pub proposal_blob_cache: BlobCache<T::EthSpec>,
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     pub kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
 }
 
-type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
+type BeaconBlockAndState<T, Payload> = (
+    BeaconBlock<T, Payload>,
+    BeaconState<T>,
+    Option<SidecarList<T, <Payload as AbstractExecPayload<T>>::Sidecar>>,
+);
 
 impl FinalizationAndCanonicity {
     pub fn is_finalized(self) -> bool {
@@ -4189,6 +4194,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposer_index,
             prev_randao,
             parent_block_number,
+            parent_beacon_block_root: parent_block_root,
         }))
     }
 
@@ -4965,67 +4971,52 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let blobs_verification_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
-        if let (Some(blobs), Some(proofs)) = (blobs_opt, proofs_opt) {
-            let kzg = self
-                .kzg
-                .as_ref()
-                .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
-            let beacon_block_root = block.canonical_root();
-            let expected_kzg_commitments = block.body().blob_kzg_commitments().map_err(|_| {
-                BlockProductionError::InvalidBlockVariant(
-                    "DENEB block does not contain kzg commitments".to_string(),
+        let maybe_sidecar_list = match (blobs_opt, proofs_opt) {
+            (Some(blobs_or_blobs_roots), Some(proofs)) => {
+                let expected_kzg_commitments =
+                    block.body().blob_kzg_commitments().map_err(|_| {
+                        BlockProductionError::InvalidBlockVariant(
+                            "deneb block does not contain kzg commitments".to_string(),
+                        )
+                    })?;
+
+                if expected_kzg_commitments.len() != blobs_or_blobs_roots.len() {
+                    return Err(BlockProductionError::MissingKzgCommitment(format!(
+                        "Missing KZG commitment for slot {}. Expected {}, got: {}",
+                        block.slot(),
+                        blobs_or_blobs_roots.len(),
+                        expected_kzg_commitments.len()
+                    )));
+                }
+
+                let kzg_proofs = Vec::from(proofs);
+
+                if let Some(blobs) = blobs_or_blobs_roots.blobs() {
+                    let kzg = self
+                        .kzg
+                        .as_ref()
+                        .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
+                    kzg_utils::validate_blobs::<T::EthSpec>(
+                        kzg,
+                        expected_kzg_commitments,
+                        blobs,
+                        &kzg_proofs,
+                    )
+                    .map_err(BlockProductionError::KzgError)?;
+                }
+
+                Some(
+                    Sidecar::build_sidecar(
+                        blobs_or_blobs_roots,
+                        &block,
+                        expected_kzg_commitments,
+                        kzg_proofs,
+                    )
+                    .map_err(BlockProductionError::FailedToBuildBlobSidecars)?,
                 )
-            })?;
-
-            if expected_kzg_commitments.len() != blobs.len() {
-                return Err(BlockProductionError::MissingKzgCommitment(format!(
-                    "Missing KZG commitment for slot {}. Expected {}, got: {}",
-                    slot,
-                    blobs.len(),
-                    expected_kzg_commitments.len()
-                )));
             }
-
-            let kzg_proofs = Vec::from(proofs);
-
-            kzg_utils::validate_blobs::<T::EthSpec>(
-                kzg.as_ref(),
-                expected_kzg_commitments,
-                &blobs,
-                &kzg_proofs,
-            )
-            .map_err(BlockProductionError::KzgError)?;
-
-            let blob_sidecars = BlobSidecarList::from(
-                blobs
-                    .into_iter()
-                    .enumerate()
-                    .map(|(blob_index, blob)| {
-                        let kzg_commitment = expected_kzg_commitments
-                            .get(blob_index)
-                            .expect("KZG commitment should exist for blob");
-
-                        let kzg_proof = kzg_proofs
-                            .get(blob_index)
-                            .expect("KZG proof should exist for blob");
-
-                        Ok(Arc::new(BlobSidecar {
-                            block_root: beacon_block_root,
-                            index: blob_index as u64,
-                            slot,
-                            block_parent_root: block.parent_root(),
-                            proposer_index,
-                            blob,
-                            kzg_commitment: *kzg_commitment,
-                            kzg_proof: *kzg_proof,
-                        }))
-                    })
-                    .collect::<Result<Vec<_>, BlockProductionError>>()?,
-            );
-
-            self.proposal_blob_cache
-                .put(beacon_block_root, blob_sidecars);
-        }
+            _ => None,
+        };
 
         drop(blobs_verification_timer);
 
@@ -5039,7 +5030,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "slot" => block.slot()
         );
 
-        Ok((block, state))
+        Ok((block, state, maybe_sidecar_list))
     }
 
     /// This method must be called whenever an execution engine indicates that a payload is
@@ -5249,7 +5240,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             payload_attributes
         } else {
-            let withdrawals = match self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot) {
+            let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
+            let withdrawals = match prepare_slot_fork {
                 ForkName::Base | ForkName::Altair | ForkName::Merge => None,
                 ForkName::Capella | ForkName::Deneb => {
                     let chain = self.clone();
@@ -5264,6 +5256,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             };
 
+            let parent_beacon_block_root = match prepare_slot_fork {
+                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => None,
+                ForkName::Deneb => Some(pre_payload_attributes.parent_beacon_block_root),
+            };
+
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -5272,6 +5269,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 pre_payload_attributes.prev_randao,
                 execution_layer.get_suggested_fee_recipient(proposer).await,
                 withdrawals.map(Into::into),
+                parent_beacon_block_root,
             );
 
             execution_layer
