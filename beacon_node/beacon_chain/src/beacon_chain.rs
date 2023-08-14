@@ -456,8 +456,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 }
 
 pub enum BeaconBlockTypeWithStateAndValue<T: EthSpec> {
-    Full(FullBeaconBlockWithValue<T>),
-    Blinded(BlindedBeaconBlockWithValue<T>),
+    Full(FullBeaconBlockWithStateAndValue<T>),
+    Blinded(BlindedBeaconBlockWithStateAndValue<T>),
 }
 
 type FullBeaconBlockWithStateAndValue<T> = (BeaconBlock<T, FullPayload<T>>, BeaconState<T>, u32);
@@ -4925,12 +4925,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    fn complete_partial_beacon_block_v3<Payload: AbstractExecPayload<T::EthSpec>>(
+    fn complete_partial_beacon_block_v3(
         &self,
         partial_beacon_block: PartialBeaconBlockV3<T::EthSpec>,
         block_contents: Option<BlockProposalContentsType<T::EthSpec>>,
         verification: ProduceBlockVerification,
-    ) -> Result<(BeaconBlockTypeWithStateAndValue<T::EthSpec>, BeaconState<T::EthSpec>, u32), BlockProductionError> {
+    ) -> Result<BeaconBlockTypeWithStateAndValue<T::EthSpec>, BlockProductionError> {
         let PartialBeaconBlockV3 {
             mut state,
             slot,
@@ -5151,7 +5151,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "slot" => block.slot()
         );
 
-        Ok((BeaconBlockTypeWithStateAndValue::Blinded(BlindedBeaconBlockWithStateAndValue(block, state, block_value))))
+        Ok((BeaconBlockTypeWithStateAndValue::Blinded((block, state, block_value) as BlindedBeaconBlockWithStateAndValue<T::EthSpec>)))
     }
 
     fn complete_partial_beacon_block_for_full_payload(
@@ -5159,7 +5159,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         partial_beacon_block: PartialBeaconBlockV3<T::EthSpec>,
         block_contents: BlockProposalContents<<T as BeaconChainTypes>::EthSpec, FullPayload<<T as BeaconChainTypes>::EthSpec>>,
         verification: ProduceBlockVerification,
-    ) -> Result<(BeaconBlockTypeWithStateAndValue<T::EthSpec>, BeaconState<T::EthSpec>, u32), BlockProductionError> {
+    ) -> Result<BeaconBlockTypeWithStateAndValue<T::EthSpec>, BlockProductionError> {
         let PartialBeaconBlockV3 {
             mut state,
             slot,
@@ -5337,9 +5337,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "slot" => block.slot()
         );
 
-      
-
-        Ok((BeaconBlockTypeWithStateAndValue::Full(block), state, block_value))
+    
+        Ok((BeaconBlockTypeWithStateAndValue::Full((block, state, block_value) as BlindedBeaconBlockWithStateAndValue<T::EthSpec>)))
     }
 
     fn complete_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec>>(
