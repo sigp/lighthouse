@@ -20,7 +20,10 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData};
 use crate::events::ServerSentEventHandler;
-use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
+use crate::execution_payload::{
+    determine_and_get_execution_payload, get_execution_payload, NotifyExecutionLayer,
+    PreparePayloadHandle, PreparePayloadHandleV3,
+};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
@@ -297,6 +300,24 @@ struct PartialBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E>> {
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
+struct PartialBeaconBlockV3<E: EthSpec> {
+    state: BeaconState<E>,
+    slot: Slot,
+    proposer_index: u64,
+    parent_root: Hash256,
+    randao_reveal: Signature,
+    eth1_data: Eth1Data,
+    graffiti: Graffiti,
+    proposer_slashings: Vec<ProposerSlashing>,
+    attester_slashings: Vec<AttesterSlashing<E>>,
+    attestations: Vec<Attestation<E>>,
+    deposits: Vec<Deposit>,
+    voluntary_exits: Vec<SignedVoluntaryExit>,
+    sync_aggregate: Option<SyncAggregate<E>>,
+    prepare_payload_handle: Option<PreparePayloadHandleV3<E>>,
+    bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
+}
+
 pub type BeaconForkChoice<T> = ForkChoice<
     BeaconForkChoiceStore<
         <T as BeaconChainTypes>::EthSpec,
@@ -438,6 +459,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 pub enum BeaconBlockAndStateResponse<T: EthSpec> {
     Full((BeaconBlock<T, FullPayload<T>>, BeaconState<T>)),
     Blinded((BeaconBlock<T, BlindedPayload<T>>, BeaconState<T>)),
+    BeaconBlockError()
 }
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
@@ -4285,7 +4307,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Perform the state advance and block-packing functions.
         let chain = self.clone();
-        let mut partial_beacon_block_type = self
+        let mut partial_beacon_block = self
             .task_executor
             .spawn_blocking_handle(
                 move || {
@@ -4303,82 +4325,71 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(BlockProductionError::TokioJoin)??;
 
-        match partial_beacon_block_type {
-            PartialBeaconBlockType::Full(partial_beacon_block) => {
-                // Part 2/3 (async)
-                //
-                // Wait for the execution layer to return an execution payload (if one is required).
-                let prepare_payload_handle = partial_beacon_block.prepare_payload_handle.take();
-                let block_contents = if let Some(prepare_payload_handle) = prepare_payload_handle {
-                    Some(
-                        prepare_payload_handle
-                            .await
-                            .map_err(BlockProductionError::TokioJoin)?
-                            .ok_or(BlockProductionError::ShuttingDown)??,
-                    )
-                } else {
-                    None
-                };
-
-                // Part 3/3 (blocking)
-                //
-                // Perform the final steps of combining all the parts and computing the state root.
-                let chain = self.clone();
-                self.task_executor
-                    .spawn_blocking_handle(
-                        move || {
-                            chain.complete_partial_beacon_block(
-                                partial_beacon_block,
-                                block_contents,
-                                verification,
-                            )
-                        },
-                        "complete_partial_beacon_block",
-                    )
-                    .ok_or(BlockProductionError::ShuttingDown)?
+        // Part 2/3 (async)
+        //
+        // Wait for the execution layer to return an execution payload (if one is required).
+        let prepare_payload_handle = partial_beacon_block.prepare_payload_handle.take();
+        let block_contents_type = if let Some(prepare_payload_handle) = prepare_payload_handle {
+            Some(
+                prepare_payload_handle
                     .await
-                    .map_err(BlockProductionError::TokioJoin)?;
-                Ok(())
-            }
-            PartialBeaconBlockType::Blinded(partial_beacon_block) => {
-                // Part 2/3 (async)
-                //
-                // Wait for the execution layer to return an execution payload (if one is required).
-                let prepare_payload_handle = partial_beacon_block.prepare_payload_handle.take();
-                let block_contents = if let Some(prepare_payload_handle) = prepare_payload_handle {
-                    Some(
-                        prepare_payload_handle
-                            .await
-                            .map_err(BlockProductionError::TokioJoin)?
-                            .ok_or(BlockProductionError::ShuttingDown)??,
-                    )
-                } else {
-                    None
-                };
-
-                // Part 3/3 (blocking)
-                //
-                // Perform the final steps of combining all the parts and computing the state root.
-                let chain = self.clone();
-                let x = self.task_executor
-                    .spawn_blocking_handle(
-                        move || {
-                            chain.complete_partial_beacon_block(
-                                partial_beacon_block,
-                                block_contents,
-                                verification,
-                            )
-                        },
-                        "complete_partial_beacon_block",
-                    )
-                    .ok_or(BlockProductionError::ShuttingDown)?
-                    .await
-                    .map_err(BlockProductionError::TokioJoin)?;
-                Ok(())
-            }
+                    .map_err(BlockProductionError::TokioJoin)?
+                    .ok_or(BlockProductionError::ShuttingDown)??,
+            )
+        } else {
+            None
         };
 
-        Ok(())
+        if let Some(block_contents) = block_contents_type {
+            match block_contents {
+                execution_layer::BlockProposalContentsType::Full(block_contents) => {
+                    // Part 3/3 (blocking)
+                    //
+                    // Perform the final steps of combining all the parts and computing the state root.
+                    let chain = self.clone();
+                    let result = self.task_executor
+                        .spawn_blocking_handle(
+                            move || {
+                                chain.complete_partial_beacon_block(
+                                    partial_beacon_block,
+                                    Some(block_contents),
+                                    verification,
+                                )
+                            },
+                            "complete_partial_beacon_block",
+                        )
+                        .ok_or(BlockProductionError::ShuttingDown)?
+                        .await
+                        .map_err(BlockProductionError::TokioJoin)?;
+
+                    return Ok(BeaconBlockAndStateResponse::Full(result?))
+                }
+                execution_layer::BlockProposalContentsType::Blinded(block_contents) => {
+                    // Part 3/3 (blocking)
+                    //
+                    // Perform the final steps of combining all the parts and computing the state root.
+                   let chain = self.clone();
+                   let result =  self.task_executor
+                        .spawn_blocking_handle(
+                            move || {
+                                chain.complete_partial_beacon_block(
+                                    partial_beacon_block,
+                                    Some(block_contents),
+                                    verification,
+                                )
+                            },
+                            "complete_partial_beacon_block",
+                        )
+                        .ok_or(BlockProductionError::ShuttingDown)?
+                        .await
+                        .map_err(BlockProductionError::TokioJoin)?;
+
+                    return Ok(BeaconBlockAndStateResponse::Blinded(result?))
+                }
+            }
+        } else {
+            Err(BlockProductionError::FailedToFetchBlock)
+        }
     }
 
     /// Produce a block for some `slot` upon the given `state`.
@@ -4466,7 +4477,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
-    ) -> Result<PartialBeaconBlockType<T::EthSpec>, BlockProductionError> {
+    ) -> Result<PartialBeaconBlockV3<T::EthSpec>, BlockProductionError> {
         let eth1_chain = self
             .eth1_chain
             .as_ref()
@@ -4520,8 +4531,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
             BeaconState::Merge(_) | BeaconState::Capella(_) => {
-                let prepare_payload_handle =
-                    get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
+                let prepare_payload_handle = determine_and_get_execution_payload(
+                    self.clone(),
+                    &state,
+                    proposer_index,
+                    builder_params,
+                )?;
                 Some(prepare_payload_handle)
             }
         };
@@ -4679,11 +4694,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(sync_aggregate)
         };
 
-        match prepare_payload_handle {
-            
-        }
-
-        Ok(PartialBeaconBlock {
+        Ok(PartialBeaconBlockV3 {
             state,
             slot,
             proposer_index,

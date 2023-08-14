@@ -12,7 +12,10 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::{BlockProposalContents, BuilderParams, PayloadAttributes, PayloadStatus, BlockProposalContentsType};
+use execution_layer::{
+    BlockProposalContents, BlockProposalContentsType, BuilderParams, PayloadAttributes,
+    PayloadStatus,
+};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::{debug, warn};
@@ -21,15 +24,14 @@ use state_processing::per_block_processing::{
     compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
     is_merge_transition_complete, partially_verify_execution_payload,
 };
+use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::*;
 
-pub enum PreparePayloadResultTypes<E: EthSpec> {
-    Full(PreparePayloadResult<E, FullPayload<E>>),
-    Blinded(PreparePayloadResult<E, BlindedPayload<E>)
-}
+pub type PreparePayloadResultV3<E> = Result<BlockProposalContentsType<E>, BlockProductionError>;
+pub type PreparePayloadHandleV3<E> = JoinHandle<Option<PreparePayloadResultV3<E>>>;
 
 pub type PreparePayloadResult<E, Payload> =
     Result<BlockProposalContents<E, Payload>, BlockProductionError>;
@@ -392,7 +394,6 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
     Ok(())
 }
 
-
 /// Gets an execution payload for inclusion in a block.
 ///
 /// ## Errors
@@ -405,14 +406,12 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 /// Equivalent to the `get_execution_payload` function in the Validator Guide:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
-pub fn determine_and_get_execution_payload<
-    T: BeaconChainTypes,
->(
+pub fn determine_and_get_execution_payload<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
     builder_params: BuilderParams,
-) -> Result<PreparePayloadResultTypes<T::EthSpec>, BlockProductionError> {
+) -> Result<PreparePayloadHandleV3<T::EthSpec>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
     let spec = &chain.spec;
@@ -437,7 +436,7 @@ pub fn determine_and_get_execution_payload<
         .clone()
         .spawn_handle(
             async move {
-                prepare_execution_payload::<T, Payload>(
+                determine_and_prepare_execution_payload::<T>(
                     &chain,
                     is_merge_transition_complete,
                     timestamp,
@@ -626,7 +625,6 @@ where
     Ok(block_contents)
 }
 
-
 /// Prepares an execution payload for inclusion in a block.
 ///
 /// Will return `Ok(None)` if the merge fork has occurred, but a terminal block has not been found.
@@ -671,7 +669,13 @@ where
         if is_terminal_block_hash_set && !is_activation_epoch_reached {
             // Use the "empty" payload if there's a terminal block hash, but we haven't reached the
             // terminal block epoch yet.
-            return BlockProposalContentsType::Full::default_at_fork(fork).map_err(Into::into);
+            return Ok(BlockProposalContentsType::Full(
+                BlockProposalContents::Payload {
+                    payload: FullPayload::default_at_fork(fork)?,
+                    block_value: Uint256::zero(),
+                    _phantom: PhantomData,
+                },
+            ));
         }
 
         let terminal_pow_block_hash = execution_layer
@@ -684,7 +688,13 @@ where
         } else {
             // If the merge transition hasn't occurred yet and the EL hasn't found the terminal
             // block, return an "empty" payload.
-            return BlockProposalContentsType::Full::default_at_fork(fork).map_err(Into::into);
+            return Ok(BlockProposalContentsType::Full(
+                BlockProposalContents::Payload {
+                    payload: FullPayload::default_at_fork(fork)?,
+                    block_value: Uint256::zero(),
+                    _phantom: PhantomData,
+                },
+            ));
         }
     } else {
         latest_execution_payload_header_block_hash
@@ -718,7 +728,7 @@ where
     //
     // This future is not executed here, it's up to the caller to await it.
     let block_contents = execution_layer
-        .get_payload::<Payload>(
+        .determine_and_get_payload(
             parent_hash,
             &payload_attributes,
             forkchoice_update_params,
