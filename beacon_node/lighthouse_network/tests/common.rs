@@ -139,7 +139,7 @@ pub async fn build_node_pair(
     let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log, fork_name, spec).await;
     let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name, spec).await;
 
-    let receiver_multiaddr = receiver.local_enr().multiaddr()[1].clone();
+    let receiver_multiaddr = receiver.local_enr().multiaddr()[2].clone();
 
     // let the two nodes set up listeners
     let sender_fut = async {

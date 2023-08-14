@@ -49,7 +49,7 @@ fn merge_block_large(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBloc
 // Tests the STATUS RPC message
 #[test]
 #[allow(clippy::single_match)]
-fn test_status_rpc() {
+fn test_tcp_status_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
     let enable_logging = false;
@@ -141,7 +141,7 @@ fn test_status_rpc() {
 // Tests a streamed BlocksByRange RPC Message
 #[test]
 #[allow(clippy::single_match)]
-fn test_blocks_by_range_chunked_rpc() {
+fn test_tcp_blocks_by_range_chunked_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
     let enable_logging = false;
@@ -267,7 +267,7 @@ fn test_blocks_by_range_chunked_rpc() {
 // Tests rejection of blocks over `MAX_RPC_SIZE`.
 #[test]
 #[allow(clippy::single_match)]
-fn test_blocks_by_range_over_limit() {
+fn test_tcp_blocks_by_range_over_limit() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
     let enable_logging = false;
@@ -350,7 +350,7 @@ fn test_blocks_by_range_over_limit() {
 
 // Tests that a streamed BlocksByRange RPC Message terminates when all expected chunks were received
 #[test]
-fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
+fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
     let enable_logging = false;
@@ -476,7 +476,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
 // Tests an empty response to a BlocksByRange RPC Message
 #[test]
 #[allow(clippy::single_match)]
-fn test_blocks_by_range_single_empty_rpc() {
+fn test_tcp_blocks_by_range_single_empty_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
     let enable_logging = false;
@@ -576,7 +576,7 @@ fn test_blocks_by_range_single_empty_rpc() {
 // serves to test the snappy framing format as well.
 #[test]
 #[allow(clippy::single_match)]
-fn test_blocks_by_root_chunked_rpc() {
+fn test_tcp_blocks_by_root_chunked_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
     let enable_logging = false;
@@ -702,7 +702,7 @@ fn test_blocks_by_root_chunked_rpc() {
 
 // Tests a streamed, chunked BlocksByRoot RPC Message terminates when all expected reponses have been received
 #[test]
-fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
+fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
     let enable_logging = false;
@@ -836,7 +836,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
 // Tests a Goodbye RPC message
 #[test]
 #[allow(clippy::single_match)]
-fn test_goodbye_rpc() {
+fn tcp_test_goodbye_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
     let enable_logging = false;
