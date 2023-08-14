@@ -232,7 +232,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // build the channels for external comms
         let (network_senders, network_recievers) = NetworkSenders::new();
 
-        #[cfg(feature = "disable_backfill")]
+        #[cfg(feature = "disable-backfill")]
         warn!(
             network_log,
             "Backfill is disabled. DO NOT RUN IN PRODUCTION"
