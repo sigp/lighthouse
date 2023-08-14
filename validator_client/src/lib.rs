@@ -627,8 +627,8 @@ async fn init_from_beacon_node<E: EthSpec>(
         let num_available = beacon_nodes.num_available().await;
         let num_total = beacon_nodes.num_total();
 
-        let proposer_available = beacon_nodes.num_available().await;
-        let proposer_total = beacon_nodes.num_total();
+        let proposer_available = proposer_nodes.num_available().await;
+        let proposer_total = proposer_nodes.num_total();
 
         if proposer_total > 0 && proposer_available == 0 {
             warn!(
