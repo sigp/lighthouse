@@ -99,7 +99,7 @@ impl ListenAddress {
         ListenAddress::V6(ListenAddr {
             addr: Ipv6Addr::UNSPECIFIED,
             disc_port: unused_port::unused_udp6_port().unwrap(),
-            quic_port: unused_port::unused_tcp6_port().unwrap(),
+            quic_port: unused_port::unused_udp6_port().unwrap(),
             tcp_port: unused_port::unused_tcp6_port().unwrap(),
         })
     }
