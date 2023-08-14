@@ -12,7 +12,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::{BlockProposalContents, BuilderParams, PayloadAttributes, PayloadStatus};
+use execution_layer::{BlockProposalContents, BuilderParams, PayloadAttributes, PayloadStatus, BlockProposalContentsType};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::{debug, warn};
@@ -25,6 +25,11 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::*;
+
+pub enum PreparePayloadResultTypes<E: EthSpec> {
+    Full(PreparePayloadResult<E, FullPayload<E>>),
+    Blinded(PreparePayloadResult<E, BlindedPayload<E>)
+}
 
 pub type PreparePayloadResult<E, Payload> =
     Result<BlockProposalContents<E, Payload>, BlockProductionError>;
@@ -387,6 +392,70 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
     Ok(())
 }
 
+
+/// Gets an execution payload for inclusion in a block.
+///
+/// ## Errors
+///
+/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
+/// after the merge fork.
+///
+/// ## Specification
+///
+/// Equivalent to the `get_execution_payload` function in the Validator Guide:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
+pub fn determine_and_get_execution_payload<
+    T: BeaconChainTypes,
+>(
+    chain: Arc<BeaconChain<T>>,
+    state: &BeaconState<T::EthSpec>,
+    proposer_index: u64,
+    builder_params: BuilderParams,
+) -> Result<PreparePayloadResultTypes<T::EthSpec>, BlockProductionError> {
+    // Compute all required values from the `state` now to avoid needing to pass it into a spawned
+    // task.
+    let spec = &chain.spec;
+    let current_epoch = state.current_epoch();
+    let is_merge_transition_complete = is_merge_transition_complete(state);
+    let timestamp =
+        compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
+    let random = *state.get_randao_mix(current_epoch)?;
+    let latest_execution_payload_header_block_hash =
+        state.latest_execution_payload_header()?.block_hash();
+    let withdrawals = match state {
+        &BeaconState::Capella(_) => Some(get_expected_withdrawals(state, spec)?.into()),
+        &BeaconState::Merge(_) => None,
+        // These shouldn't happen but they're here to make the pattern irrefutable
+        &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
+    };
+
+    // Spawn a task to obtain the execution payload from the EL via a series of async calls. The
+    // `join_handle` can be used to await the result of the function.
+    let join_handle = chain
+        .task_executor
+        .clone()
+        .spawn_handle(
+            async move {
+                prepare_execution_payload::<T, Payload>(
+                    &chain,
+                    is_merge_transition_complete,
+                    timestamp,
+                    random,
+                    proposer_index,
+                    latest_execution_payload_header_block_hash,
+                    builder_params,
+                    withdrawals,
+                )
+                .await
+            },
+            "get_execution_payload",
+        )
+        .ok_or(BlockProductionError::ShuttingDown)?;
+
+    Ok(join_handle)
+}
+
 /// Gets an execution payload for inclusion in a block.
 ///
 /// ## Errors
@@ -510,6 +579,112 @@ where
             // If the merge transition hasn't occurred yet and the EL hasn't found the terminal
             // block, return an "empty" payload.
             return BlockProposalContents::default_at_fork(fork).map_err(Into::into);
+        }
+    } else {
+        latest_execution_payload_header_block_hash
+    };
+
+    // Try to obtain the fork choice update parameters from the cached head.
+    //
+    // Use a blocking task to interact with the `canonical_head` lock otherwise we risk blocking the
+    // core `tokio` executor.
+    let inner_chain = chain.clone();
+    let forkchoice_update_params = chain
+        .spawn_blocking_handle(
+            move || {
+                inner_chain
+                    .canonical_head
+                    .cached_head()
+                    .forkchoice_update_parameters()
+            },
+            "prepare_execution_payload_forkchoice_update_params",
+        )
+        .await
+        .map_err(BlockProductionError::BeaconChain)?;
+
+    let suggested_fee_recipient = execution_layer
+        .get_suggested_fee_recipient(proposer_index)
+        .await;
+    let payload_attributes =
+        PayloadAttributes::new(timestamp, random, suggested_fee_recipient, withdrawals);
+
+    // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
+    //
+    // This future is not executed here, it's up to the caller to await it.
+    let block_contents = execution_layer
+        .get_payload::<Payload>(
+            parent_hash,
+            &payload_attributes,
+            forkchoice_update_params,
+            builder_params,
+            fork,
+            &chain.spec,
+        )
+        .await
+        .map_err(BlockProductionError::GetPayloadFailed)?;
+
+    Ok(block_contents)
+}
+
+
+/// Prepares an execution payload for inclusion in a block.
+///
+/// Will return `Ok(None)` if the merge fork has occurred, but a terminal block has not been found.
+///
+/// ## Errors
+///
+/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
+/// after the merge fork.
+///
+/// ## Specification
+///
+/// Equivalent to the `prepare_execution_payload` function in the Validator Guide:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
+#[allow(clippy::too_many_arguments)]
+pub async fn determine_and_prepare_execution_payload<T>(
+    chain: &Arc<BeaconChain<T>>,
+    is_merge_transition_complete: bool,
+    timestamp: u64,
+    random: Hash256,
+    proposer_index: u64,
+    latest_execution_payload_header_block_hash: ExecutionBlockHash,
+    builder_params: BuilderParams,
+    withdrawals: Option<Vec<Withdrawal>>,
+) -> Result<BlockProposalContentsType<T::EthSpec>, BlockProductionError>
+where
+    T: BeaconChainTypes,
+{
+    let current_epoch = builder_params.slot.epoch(T::EthSpec::slots_per_epoch());
+    let spec = &chain.spec;
+    let fork = spec.fork_name_at_slot::<T::EthSpec>(builder_params.slot);
+    let execution_layer = chain
+        .execution_layer
+        .as_ref()
+        .ok_or(BlockProductionError::ExecutionLayerMissing)?;
+
+    let parent_hash = if !is_merge_transition_complete {
+        let is_terminal_block_hash_set = spec.terminal_block_hash != ExecutionBlockHash::zero();
+        let is_activation_epoch_reached =
+            current_epoch >= spec.terminal_block_hash_activation_epoch;
+
+        if is_terminal_block_hash_set && !is_activation_epoch_reached {
+            // Use the "empty" payload if there's a terminal block hash, but we haven't reached the
+            // terminal block epoch yet.
+            return BlockProposalContentsType::Full::default_at_fork(fork).map_err(Into::into);
+        }
+
+        let terminal_pow_block_hash = execution_layer
+            .get_terminal_pow_block_hash(spec, timestamp)
+            .await
+            .map_err(BlockProductionError::TerminalPoWBlockLookupFailed)?;
+
+        if let Some(terminal_pow_block_hash) = terminal_pow_block_hash {
+            terminal_pow_block_hash
+        } else {
+            // If the merge transition hasn't occurred yet and the EL hasn't found the terminal
+            // block, return an "empty" payload.
+            return BlockProposalContentsType::Full::default_at_fork(fork).map_err(Into::into);
         }
     } else {
         latest_execution_payload_header_block_hash
