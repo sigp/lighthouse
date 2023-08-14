@@ -1,3 +1,6 @@
+// Prevent compilation as part of the rest of Lighthouse.
+#![cfg(any(feature = "afl", feature = "repro"))]
+
 pub mod config;
 pub mod env;
 pub mod log_interceptor;

@@ -341,7 +341,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                         self.conf.max_attacker_proposers(proposers.len()),
                         |ux| {
                             let (_, head_choices) = proposers.next().unwrap();
-                            let (block_root, state_ref) = ux.choose(&head_choices)?;
+                            let (block_root, state_ref) = ux.choose(head_choices)?;
                             let state = if state_ref.advanced.slot() < current_slot {
                                 state_ref.advanced.clone()
                             } else {

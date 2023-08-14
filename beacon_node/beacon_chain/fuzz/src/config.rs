@@ -55,6 +55,7 @@ impl<E: EthSpec> Default for Config<E> {
     }
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for DebugConfig {
     fn default() -> Self {
         DebugConfig {

@@ -36,7 +36,7 @@ def build_repro_target(args):
             "--bin",
             REPRO_TARGET,
             "--features",
-            f"{spec}",
+            f"repro,{spec}",
             "--features",
             "logging/test_logger",
         ],

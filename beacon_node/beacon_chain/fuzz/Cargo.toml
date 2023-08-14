@@ -8,7 +8,8 @@ edition = "2021"
 default = ["minimal"]
 minimal = []
 mainnet = []
-afl = ["dep:afl"]
+afl = ["dep:afl"] # this feature enables the fuzzer
+repro = [] # this feature enables the test-case reproducer
 
 [package.metadata]
 cargo-fuzz = true
@@ -37,22 +38,16 @@ afl = { version = "*", optional = true }
 path = ".."
 features = ["hydra"]
 
-# Prevent this from interfering with workspaces
-[workspace]
-members = ["."]
-
 [[bin]]
 name = "fuzzer"
-path = "fuzz_targets/fuzzer.rs"
+path = "fuzz_targets/run.rs"
 test = false
 doc = false
+required-features = ["afl"]
 
 [[bin]]
 name = "repro"
-path = "fuzz_targets/fuzzer.rs"
+path = "fuzz_targets/repro.rs"
 test = false
 doc = false
-
-[patch]
-[patch.crates-io]
-warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
+required-features = ["repro"]

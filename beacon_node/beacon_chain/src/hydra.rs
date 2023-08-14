@@ -37,6 +37,12 @@ pub struct HydraState<E: EthSpec> {
     pub advanced: BeaconState<E>,
 }
 
+impl<T: BeaconChainTypes> Default for Hydra<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: BeaconChainTypes> Hydra<T> {
     pub fn new() -> Self {
         Self {
@@ -285,7 +291,7 @@ impl<T: BeaconChainTypes> Hydra<T> {
                     Some((relative_epoch, *block_root, &mut state.advanced))
                 })
                 .choose(&mut self.rng)
-                .ok_or_else(|| "no suitable heads")?
+                .ok_or("no suitable heads")?
         };
 
         state
@@ -326,7 +332,7 @@ impl<T: BeaconChainTypes> Hydra<T> {
         }
 
         // Update shuffling cache used for attestation verification.
-        let shuffling_id = AttestationShufflingId::new(head_block_root, &state, relative_epoch)
+        let shuffling_id = AttestationShufflingId::new(head_block_root, state, relative_epoch)
             .map_err(|_| "cannot compute shuffling id")?;
         let cache = state
             .committee_cache(relative_epoch)
@@ -352,7 +358,7 @@ impl<T: BeaconChainTypes> Hydra<T> {
         let state = &self
             .states
             .get(&beacon_block_root)
-            .ok_or_else(|| "missing state")?
+            .ok_or("missing state")?
             .advanced;
 
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
@@ -469,6 +475,7 @@ impl<T: BeaconChainTypes> Hydra<T> {
         Some(state.advanced.clone())
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn proposer_heads_at_slot(
         &self,
         slot: Slot,
@@ -491,7 +498,7 @@ impl<T: BeaconChainTypes> Hydra<T> {
         }
 
         // Sort vecs to establish deterministic ordering.
-        for (_, proposal_opps) in &mut proposer_heads {
+        for proposal_opps in proposer_heads.values_mut() {
             proposal_opps.sort_by_key(|(block_root, _)| *block_root);
         }
 

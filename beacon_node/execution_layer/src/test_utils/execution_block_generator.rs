@@ -648,6 +648,7 @@ mod test {
             TERMINAL_DIFFICULTY.into(),
             TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
+            0,
             None,
         );
 

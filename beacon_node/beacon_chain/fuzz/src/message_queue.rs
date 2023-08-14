@@ -2,6 +2,7 @@ use types::{Attestation, EthSpec, Hash256, SignedBeaconBlock};
 
 #[derive(Debug, Clone)]
 #[must_use]
+#[allow(clippy::large_enum_variant)]
 pub enum Message<E: EthSpec> {
     Attestation(Attestation<E>),
     Block(SignedBeaconBlock<E>),

@@ -4,7 +4,7 @@ members = [
 
     "beacon_node",
     "beacon_node/beacon_chain",
-    "beacon_node/beacon_chain_fuzz",
+    "beacon_node/beacon_chain/fuzz",
     "beacon_node/beacon_processor",
     "beacon_node/builder_client",
     "beacon_node/client",

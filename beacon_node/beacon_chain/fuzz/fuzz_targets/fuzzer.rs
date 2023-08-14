@@ -47,7 +47,7 @@ fn get_harness(
     harness
 }
 
-fn main() {
+pub fn main_func() {
     fuzz!(|data: &[u8]| {
         let config = Config::from_env();
         let rt = Runtime::new().unwrap();

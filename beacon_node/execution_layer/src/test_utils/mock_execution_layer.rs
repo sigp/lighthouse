@@ -27,7 +27,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         Self::new(
             executor,
             DEFAULT_TERMINAL_BLOCK,
-            0, // FIXME(sproul): tweak
+            0,
             None,
             None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
