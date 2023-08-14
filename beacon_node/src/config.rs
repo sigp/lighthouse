@@ -1250,7 +1250,7 @@ pub fn parse_listening_addresses(
 
     // parse the possible quic port.
     let maybe_quic6_port = cli_args
-        .value_of("quic6-port")
+        .value_of("quic-port6")
         .map(str::parse::<u16>)
         .transpose()
         .map_err(|parse_error| {
