@@ -110,7 +110,7 @@ echo $CAPELLA_TIME
 sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' $genesis_file
 CANCUN_TIME=$((GENESIS_TIME + (DENEB_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
 echo $CANCUN_TIME
-sed -i 's/"shardingForkTime".*$/"shardingForkTime": '"$CANCUN_TIME"',/g' $genesis_file
+sed -i 's/"cancunTime".*$/"cancunTime": '"$CANCUN_TIME"',/g' $genesis_file
 cat $genesis_file
 
 # Delay to let boot_enr.yaml to be created
@@ -141,7 +141,7 @@ sleeping 20
 
 # Reset the `genesis.json` config file fork times.
 sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' $genesis_file
-sed -i 's/"shardingForkTime".*$/"shardingForkTime": 0,/g' $genesis_file
+sed -i 's/"cancunTime".*$/"cancunTime": 0,/g' $genesis_file
 
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
     secret=$DATADIR/geth_datadir$bn/geth/jwtsecret
