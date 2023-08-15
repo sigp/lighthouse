@@ -389,7 +389,7 @@ impl<T: EthSpec> OperationPool<T> {
         let curr_epoch_cliqued_atts: Vec<AttMaxCover<T>> = curr_epoch_cliqued_atts
             .iter()
             .map(|(data, indexed)| AttestationRef {
-                checkpoint: &prev_epoch_key,
+                checkpoint: &curr_epoch_key,
                 data,
                 indexed,
             })
