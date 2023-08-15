@@ -9,8 +9,21 @@ use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-pub type KzgCommitments<T> =
+pub type KzgCommitments<T> = VariableList<KzgCommitment, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type BlockBodyKzgCommitments<T> =
     VariableList<KzgCommitment, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
+
+pub fn to_block_kzg_commitments<E: EthSpec>(
+    commitments: KzgCommitments<E>,
+) -> BlockBodyKzgCommitments<E> {
+    commitments.to_vec().into()
+}
+
+pub fn from_block_kzg_commitments<E: EthSpec>(
+    commitments: &BlockBodyKzgCommitments<E>,
+) -> KzgCommitments<E> {
+    commitments.to_vec().into()
+}
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
@@ -72,7 +85,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
     #[superstruct(only(Deneb))]
-    pub blob_kzg_commitments: KzgCommitments<T>,
+    pub blob_kzg_commitments: BlockBodyKzgCommitments<T>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]

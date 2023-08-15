@@ -4009,6 +4009,20 @@ impl ApiTester {
             )));
 
         let slot = self.chain.slot().unwrap();
+        let propose_state = self
+            .harness
+            .chain
+            .state_at_slot(slot, StateSkipConfig::WithoutStateRoots)
+            .unwrap();
+        let withdrawals = get_expected_withdrawals(&propose_state, &self.chain.spec).unwrap();
+        let withdrawals_root = withdrawals.tree_hash_root();
+        // Set withdrawals root for builder
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::WithdrawalsRoot(withdrawals_root));
+
         let epoch = self.chain.epoch().unwrap();
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
