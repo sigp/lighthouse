@@ -96,7 +96,7 @@ warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c
 
 # PR: https://github.com/ralexstokes/ethereum-consensus/pull/213
 [patch."https://github.com/ralexstokes/ethereum-consensus"]
-ethereum-consensus = { git = "https://github.com/jimmygchen/ethereum-consensus", rev = "14cb3ce" }
+ethereum-consensus = { git = "https://github.com/jimmygchen/ethereum-consensus", rev = "2354493" }
 
 [profile.maxperf]
 inherits = "release"

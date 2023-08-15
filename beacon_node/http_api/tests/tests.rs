@@ -3998,6 +3998,43 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_builder_works_post_deneb(self) -> Self {
+        // Ensure builder payload is chosen
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
+            )));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let block_contents = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data;
+        let (block, maybe_sidecars) = block_contents.deconstruct();
+
+        // Response should contain blob sidecars
+        assert!(maybe_sidecars.is_some());
+
+        // The builder's payload should've been chosen, so this cache should not be populated
+        let payload: BlindedPayload<E> = block.body().execution_payload().unwrap().into();
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_none());
+        self
+    }
+
     pub async fn test_lighthouse_rejects_invalid_withdrawals_root(self) -> Self {
         // Ensure builder payload *would be* chosen
         self.mock_builder
@@ -5109,6 +5146,25 @@ async fn builder_works_post_capella() {
         .test_builder_works_post_capella()
         .await
         .test_lighthouse_rejects_invalid_withdrawals_root()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_works_post_deneb() {
+    let mut config = ApiTesterConfig {
+        builder_threshold: Some(0),
+        spec: E::default_spec(),
+    };
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_post_validator_register_validator()
+        .await
+        .test_builder_works_post_deneb()
         .await;
 }
 
