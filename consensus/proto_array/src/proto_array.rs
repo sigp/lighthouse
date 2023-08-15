@@ -884,7 +884,7 @@ impl ProtoArray {
                         }
                     } else {
                         // Choose the winner by weight.
-                        if child.weight >= best_child.weight {
+                        if child.weight > best_child.weight {
                             change_to_child
                         } else {
                             no_change
@@ -910,7 +910,7 @@ impl ProtoArray {
         Ok(())
     }
 
-    /// Indicates if the node itself is viable for the head, or if it's best descendant is viable
+    /// Indicates if the node itself is viable for the head, or if its best descendant is viable
     /// for the head.
     fn node_leads_to_viable_head<E: EthSpec>(
         &self,

@@ -7,9 +7,9 @@ use beacon_chain::{
 };
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend, DuplicateCache,
-    GossipAggregatePackage, GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
-    MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
+    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorChannels, BeaconProcessorSend,
+    DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
+    WorkEvent as BeaconWorkEvent,
 };
 use environment::null_logger;
 use lighthouse_network::{
@@ -545,11 +545,15 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
     pub fn null_for_testing(
         network_globals: Arc<NetworkGlobals<E>>,
     ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
-        let (beacon_processor_send, beacon_processor_receive) =
-            mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
+        let BeaconProcessorChannels {
+            beacon_processor_tx,
+            beacon_processor_rx,
+            work_reprocessing_tx,
+            work_reprocessing_rx: _work_reprocessing_rx,
+        } = <_>::default();
+
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
-        let (reprocess_tx, _reprocess_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
         let log = null_logger().unwrap();
         let harness: BeaconChainHarness<TestBeaconChainType<E>> =
             BeaconChainHarness::builder(E::default())
@@ -562,18 +566,18 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         let runtime = TestRuntime::default();
 
         let network_beacon_processor = Self {
-            beacon_processor_send: BeaconProcessorSend(beacon_processor_send),
+            beacon_processor_send: beacon_processor_tx,
             duplicate_cache: DuplicateCache::default(),
             chain: harness.chain,
             network_tx,
             sync_tx,
-            reprocess_tx,
+            reprocess_tx: work_reprocessing_tx,
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor: runtime.task_executor.clone(),
             log,
         };
 
-        (network_beacon_processor, beacon_processor_receive)
+        (network_beacon_processor, beacon_processor_rx)
     }
 }

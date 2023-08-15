@@ -30,6 +30,8 @@ dependencies = [
  "filesystem",
  "safe_arith",
  "sensitive_url",
+ "serde",
+ "serde_json",
  "slashing_protection",
  "slot_clock",
  "tempfile",
@@ -599,7 +601,9 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_network",
  "logging",
+ "num_cpus",
  "parking_lot 0.12.1",
+ "serde",
  "slog",
  "slot_clock",
  "strum",
@@ -3264,6 +3268,7 @@ name = "http_api"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
+ "beacon_processor",
  "bs58 0.4.0",
  "bytes",
  "directory",
@@ -4318,6 +4323,7 @@ dependencies = [
  "account_manager",
  "account_utils",
  "beacon_node",
+ "beacon_processor",
  "bls",
  "boot_node",
  "clap",
@@ -4327,6 +4333,7 @@ dependencies = [
  "env_logger 0.9.3",
  "environment",
  "eth1",
+ "eth2",
  "eth2_network_config",
  "ethereum_hashing",
  "futures",
@@ -4349,6 +4356,7 @@ dependencies = [
  "unused_port",
  "validator_client",
  "validator_dir",
+ "validator_manager",
 ]
 
 [[package]]
@@ -8613,6 +8621,7 @@ dependencies = [
  "bls",
  "deposit_contract",
  "derivative",
+ "directory",
  "eth2_keystore",
  "filesystem",
  "hex",
@@ -8621,6 +8630,31 @@ dependencies = [
  "tempfile",
  "tree_hash",
  "types",
+]
+
+[[package]]
+name = "validator_manager"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "bls",
+ "clap",
+ "clap_utils",
+ "environment",
+ "eth2",
+ "eth2_keystore",
+ "eth2_network_config",
+ "eth2_wallet",
+ "ethereum_serde_utils",
+ "hex",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tree_hash",
+ "types",
+ "validator_client",
 ]
 
 [[package]]
@@ -8865,6 +8899,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "task_executor",
  "testcontainers",
  "tokio",
  "tokio-postgres",
