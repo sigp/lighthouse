@@ -4099,10 +4099,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
 
         let head_block_root = cached_head.head_block_root();
-        let parent_block_root = cached_head.parent_block_root();
+        let parent_beacon_block_root = cached_head.parent_block_root();
 
         // The proposer head must be equal to the canonical head or its parent.
-        if proposer_head != head_block_root && proposer_head != parent_block_root {
+        if proposer_head != head_block_root && proposer_head != parent_beacon_block_root {
             warn!(
                 self.log,
                 "Unable to compute payload attributes";
@@ -4181,7 +4181,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Get the `prev_randao` and parent block number.
         let head_block_number = cached_head.head_block_number()?;
-        let (prev_randao, parent_block_number) = if proposer_head == parent_block_root {
+        let (prev_randao, parent_block_number) = if proposer_head == parent_beacon_block_root {
             (
                 cached_head.parent_random()?,
                 head_block_number.saturating_sub(1),
@@ -4194,7 +4194,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposer_index,
             prev_randao,
             parent_block_number,
-            parent_beacon_block_root: parent_block_root,
+            parent_beacon_block_root,
         }))
     }
 
