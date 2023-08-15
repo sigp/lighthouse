@@ -348,6 +348,9 @@ pub fn get_config<E: EthSpec>(
         el_config.default_datadir = client_config.data_dir().clone();
         el_config.builder_profit_threshold =
             clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
+        el_config.always_prefer_builder_payload =
+            cli_args.is_present("always-prefer-builder-payload");
+
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
@@ -797,10 +800,6 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("genesis-backfill") {
         client_config.chain.genesis_backfill = true;
-    }
-    // Payload selection configs
-    if cli_args.is_present("always-prefer-builder-payload") {
-        client_config.always_prefer_builder_payload = true;
     }
 
     // Backfill sync rate-limiting
