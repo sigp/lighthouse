@@ -563,11 +563,6 @@ curl -X POST "http://localhost:5052/lighthouse/database/reconstruct" | jq
 
 The endpoint will return immediately. See the beacon node logs for an indication of progress.
 
-### `/lighthouse/database/historical_blocks`
-
-Manually provide `SignedBeaconBlock`s to backfill the database. This is intended
-for use by Lighthouse developers during testing only.
-
 ### `/lighthouse/merge_readiness`
 Returns the current difficulty and terminal total difficulty of the network. Before [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> September 2022, you will see that the current difficulty is less than the terminal total difficulty, An example is shown below:
 ```bash
