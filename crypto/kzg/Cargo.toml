@@ -17,5 +17,5 @@ ethereum_serde_utils = "0.5.0"
 hex = "0.4.2"
 ethereum_hashing = "1.0.0-beta.2"
 c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", rev = "13cec820c08f45318f82ed4e0da0300042758b92" , features = ["mainnet-spec"]}
-kzg_rust = { git = "https://github.com/pawanjay176/kzg_rust", rev = "efe2990b3df511d182bf91c2164ccaff15b1e7a2", features = ["minimal"] }
+kzg_rust = { git = "https://github.com/pawanjay176/kzg_rust", rev = "0ba90fd6105c0429e611700ff218a6da7299370c", features = ["minimal"] }
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
