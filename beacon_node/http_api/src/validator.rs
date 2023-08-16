@@ -54,6 +54,59 @@ pub fn get_randao_verification(
     Ok(randao_verification)
 }
 
+pub async fn produce_block_v2<T: BeaconChainTypes>(
+    endpoint_version: EndpointVersion,
+    chain: Arc<BeaconChain<T>>,
+    slot: Slot,
+    query: api_types::ValidatorBlocksQuery,
+) -> Result<Response<Body>, warp::Rejection> {
+    let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
+        warp_utils::reject::custom_bad_request(format!(
+            "randao reveal is not a valid BLS signature: {:?}",
+            e
+        ))
+    })?;
+
+    let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
+
+    let (block, _) = chain
+        .produce_block_with_verification::<FullPayload<T::EthSpec>>(
+            randao_reveal,
+            slot,
+            query.graffiti.map(Into::into),
+            randao_verification,
+        )
+        .await
+        .map_err(warp_utils::reject::block_production_error)?;
+    let fork_name = block
+        .to_ref()
+        .fork_name(&chain.spec)
+        .map_err(inconsistent_fork_rejection)?;
+
+    fork_versioned_response(endpoint_version, fork_name, block)
+        .map(|response| warp::reply::json(&response).into_response())
+        .map(|res| add_consensus_version_header(res, fork_name))
+}
+
+pub async fn produce_block_v3<T: BeaconChainTypes>(
+    endpoint_version: EndpointVersion,
+    accept_header: Option<api_types::Accept>,
+    chain: Arc<BeaconChain<T>>,
+    slot: Slot,
+    query: api_types::ValidatorBlocksQuery,
+) -> Result<Response<Body>, warp::Rejection> {
+    if let Some(accept_header_type) = accept_header {
+        match accept_header_type {
+            api_types::Accept::Json | api_types::Accept::Any => {
+                determine_and_produce_block_json(endpoint_version, chain, slot, query).await
+            }
+            api_types::Accept::Ssz => determine_and_produce_block_ssz(chain, slot, query).await,
+        }
+    } else {
+        determine_and_produce_block_json(endpoint_version, chain, slot, query).await
+    }
+}
+
 pub async fn determine_and_produce_block_json<T: BeaconChainTypes>(
     endpoint_version: EndpointVersion,
     chain: Arc<BeaconChain<T>>,
