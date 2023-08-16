@@ -17,10 +17,5 @@ ethereum_serde_utils = "0.5.0"
 hex = "0.4.2"
 ethereum_hashing = "1.0.0-beta.2"
 c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", rev = "13cec820c08f45318f82ed4e0da0300042758b92" , features = ["mainnet-spec"]}
-c_kzg_min = { package = "c-kzg", git = "https://github.com/ethereum//c-kzg-4844", rev = "13cec820c08f45318f82ed4e0da0300042758b92", features = ["minimal-spec"], optional = true }
+kzg_rust = { git = "https://github.com/pawanjay176/kzg_rust", rev = "5affce6eb7a81c5d2fc3d0c9a9d9f5b3252bce8c", features = ["minimal"] }
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
-
-[features]
-# TODO(deneb): enabled by default for convenience, would need more cfg magic to disable
-default = ["c_kzg_min"]
-minimal-spec = ["c_kzg_min"]

@@ -30,7 +30,13 @@ impl From<KzgCommitment> for c_kzg::Bytes48 {
     }
 }
 
-impl From<KzgCommitment> for c_kzg_min::Bytes48 {
+impl From<KzgCommitment> for kzg_rust::Bytes48 {
+    fn from(value: KzgCommitment) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<KzgCommitment> for kzg_rust::KzgCommitment {
     fn from(value: KzgCommitment) -> Self {
         value.0.into()
     }
