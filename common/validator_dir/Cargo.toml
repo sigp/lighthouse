@@ -20,6 +20,7 @@ tree_hash = "0.5.0"
 hex = "0.4.2"
 derivative = "2.1.1"
 lockfile = { path = "../lockfile" }
+directory = { path = "../directory" }
 
 [dev-dependencies]
 tempfile = "3.1.0"

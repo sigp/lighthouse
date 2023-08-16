@@ -742,6 +742,26 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST beacon/blinded_blocks`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_blinded_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        block: &SignedBeaconBlock<T, Payload>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blinded_blocks");
+
+        self.post_generic_with_ssz_body(path, block.as_ssz_bytes(), Some(self.timeouts.proposal))
+            .await?;
+
+        Ok(())
+    }
+
     pub fn post_beacon_blocks_v2_path(
         &self,
         validation_level: Option<BroadcastValidation>,
@@ -821,6 +841,23 @@ impl BeaconNodeHttpClient {
         self.post_generic_with_consensus_version(
             self.post_beacon_blinded_blocks_v2_path(validation_level)?,
             block,
+            Some(self.timeouts.proposal),
+            block.message().body().fork_name(),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// `POST v2/beacon/blinded_blocks`
+    pub async fn post_beacon_blinded_blocks_v2_ssz<T: EthSpec>(
+        &self,
+        block: &SignedBlindedBeaconBlock<T>,
+        validation_level: Option<BroadcastValidation>,
+    ) -> Result<(), Error> {
+        self.post_generic_with_consensus_version_and_ssz_body(
+            self.post_beacon_blinded_blocks_v2_path(validation_level)?,
+            block.as_ssz_bytes(),
             Some(self.timeouts.proposal),
             block.message().body().fork_name(),
         )

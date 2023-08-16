@@ -84,7 +84,7 @@ impl SubnetId {
         let subscription_duration = spec.epochs_per_subnet_subscription;
 
         let node_id_prefix =
-            (node_id >> (256 - spec.attestation_subnet_prefix_bits() as usize)).as_usize();
+            (node_id >> (256 - spec.attestation_subnet_prefix_bits as usize)).as_usize();
 
         // NOTE: The as_u64() panics if the number is larger than u64::max_value(). This cannot be
         // true as spec.epochs_per_subnet_subscription is a u64.
@@ -99,7 +99,7 @@ impl SubnetId {
         let permutation_seed =
             ethereum_hashing::hash(&int_to_bytes::int_to_bytes8(subscription_event_idx));
 
-        let num_subnets = 1 << spec.attestation_subnet_prefix_bits();
+        let num_subnets = 1 << spec.attestation_subnet_prefix_bits;
         let permutated_prefix = compute_shuffled_index(
             node_id_prefix,
             num_subnets,

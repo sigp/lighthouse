@@ -83,6 +83,8 @@ members = [
     "validator_client",
     "validator_client/slashing_protection",
 
+    "validator_manager",
+
     "watch",
 ]
 resolver = "2"
