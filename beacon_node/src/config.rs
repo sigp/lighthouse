@@ -1364,7 +1364,7 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic6_port)
-                .unwrap_or(ipv6_disc_port + 1);
+                .unwrap_or(ipv6_tcp_port + 1);
 
             ListenAddress::DualStack(
                 lighthouse_network::ListenAddr {

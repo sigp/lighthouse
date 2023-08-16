@@ -1109,7 +1109,7 @@ fn network_port_discovery_quic_port_flags_over_ipv4_and_ipv6() {
         .flag("quic-port", Some(quic4_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
-        .flag("quic-port6", Some(disc6_port.to_string().as_str()))
+        .flag("quic-port6", Some(quic6_port.to_string().as_str()))
         .run()
         .with_config(|config| {
             assert_eq!(
