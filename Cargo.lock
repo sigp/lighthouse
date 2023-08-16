@@ -742,7 +742,7 @@ name = "bls"
 version = "0.2.0"
 dependencies = [
  "arbitrary",
- "blst",
+ "blst 0.3.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "ethereum-types 0.14.1",
  "ethereum_hashing",
  "ethereum_serde_utils",
@@ -761,6 +761,17 @@ name = "blst"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c94087b935a822949d3291a9989ad2b2051ea141eda0fd4e478a75f6aa3e604b"
+dependencies = [
+ "cc",
+ "glob",
+ "threadpool",
+ "zeroize",
+]
+
+[[package]]
+name = "blst"
+version = "0.3.11"
+source = "git+https://github.com/pawanjay176/kzg_rust?rev=efe2990b3df511d182bf91c2164ccaff15b1e7a2#efe2990b3df511d182bf91c2164ccaff15b1e7a2"
 dependencies = [
  "cc",
  "glob",
@@ -2306,7 +2317,7 @@ version = "0.1.1"
 source = "git+https://github.com/ralexstokes/ethereum-consensus?rev=e380108#e380108d15fcc40349927fdf3d11c71f9edb67c2"
 dependencies = [
  "async-stream",
- "blst",
+ "blst 0.3.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "bs58 0.4.0",
  "enr 0.6.2",
  "hex",
@@ -3846,9 +3857,9 @@ dependencies = [
 [[package]]
 name = "kzg_rust"
 version = "0.1.0"
-source = "git+https://github.com/pawanjay176/kzg_rust?rev=5affce6eb7a81c5d2fc3d0c9a9d9f5b3252bce8c#5affce6eb7a81c5d2fc3d0c9a9d9f5b3252bce8c"
+source = "git+https://github.com/pawanjay176/kzg_rust?rev=efe2990b3df511d182bf91c2164ccaff15b1e7a2#efe2990b3df511d182bf91c2164ccaff15b1e7a2"
 dependencies = [
- "blst",
+ "blst 0.3.11 (git+https://github.com/pawanjay176/kzg_rust?rev=efe2990b3df511d182bf91c2164ccaff15b1e7a2)",
  "hex",
  "serde",
  "serde_json",
