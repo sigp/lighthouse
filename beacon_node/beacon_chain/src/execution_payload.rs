@@ -33,6 +33,11 @@ use types::*;
 pub type PreparePayloadResultV3<E> = Result<BlockProposalContentsType<E>, BlockProductionError>;
 pub type PreparePayloadHandleV3<E> = JoinHandle<Option<PreparePayloadResultV3<E>>>;
 
+pub enum PreparePayloadHandleType<E: EthSpec> {
+    Full(JoinHandle<Option<PreparePayloadResult<E, FullPayload<E>>>>),
+    Blinded(JoinHandle<Option<PreparePayloadResult<E, BlindedPayload<E>>>>),
+}
+
 pub type PreparePayloadResult<E, Payload> =
     Result<BlockProposalContents<E, Payload>, BlockProductionError>;
 pub type PreparePayloadHandle<E, Payload> = JoinHandle<Option<PreparePayloadResult<E, Payload>>>;
