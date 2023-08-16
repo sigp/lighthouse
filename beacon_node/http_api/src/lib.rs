@@ -335,7 +335,8 @@ pub fn serve<T: BeaconChainTypes>(
 
     let eth_v1 = single_version(V1);
     let eth_v2 = single_version(V2);
-
+    let eth_v3 = single_version(V3);
+    
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();
     let network_globals = warp::any()

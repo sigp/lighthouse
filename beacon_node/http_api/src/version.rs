@@ -9,6 +9,8 @@ use warp::reply::{self, Reply, Response};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
+pub const V3: EndpointVersion = EndpointVersion(3);
+
 
 pub fn fork_versioned_response<T: Serialize>(
     endpoint_version: EndpointVersion,
