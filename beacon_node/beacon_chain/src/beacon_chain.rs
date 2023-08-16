@@ -63,7 +63,6 @@ use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
     PayloadAttributes, PayloadStatus,
 };
-pub use fork_choice::CountUnrealized;
 use fork_choice::{
     AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
     InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
@@ -2510,7 +2509,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_chain_segment(
         self: &Arc<Self>,
         chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
-        count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
@@ -2579,8 +2577,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .process_block(
                         signature_verified_block.block_root(),
                         signature_verified_block,
-                        count_unrealized,
                         notify_execution_layer,
+                        || Ok(()),
                     )
                     .await
                 {
@@ -2668,8 +2666,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         unverified_block: B,
-        count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
+        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>> + Send + 'static,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -2688,8 +2686,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &chain,
                 notify_execution_layer,
             )?;
+            publish_fn()?;
             chain
-                .import_execution_pending_block(execution_pending, count_unrealized)
+                .import_execution_pending_block(execution_pending)
                 .await
         };
 
@@ -2729,7 +2728,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             // The block failed verification.
             Err(other) => {
-                trace!(
+                debug!(
                     self.log,
                     "Beacon block rejected";
                     "reason" => other.to_string(),
@@ -2744,10 +2743,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
-    async fn import_execution_pending_block(
+    pub async fn import_execution_pending_block(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
-        count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
             block,
@@ -2808,7 +2806,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         state,
                         confirmed_state_roots,
                         payload_verification_status,
-                        count_unrealized,
                         parent_block,
                         parent_eth1_finalization_data,
                         consensus_context,
@@ -2834,7 +2831,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
         payload_verification_status: PayloadVerificationStatus,
-        count_unrealized: CountUnrealized,
         parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
         parent_eth1_finalization_data: Eth1FinalizationData,
         mut consensus_context: ConsensusContext<T::EthSpec>,
@@ -2902,8 +2898,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_delay,
                     &state,
                     payload_verification_status,
+                    self.config.progressive_balances_mode,
                     &self.spec,
-                    count_unrealized,
+                    &self.log,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
@@ -5707,13 +5704,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Since we are likely calling this during the slot we are going to propose in, don't take into
     /// account the current slot when accounting for skips.
     pub fn is_healthy(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
+        let cached_head = self.canonical_head.cached_head();
         // Check if the merge has been finalized.
-        if let Some(finalized_hash) = self
-            .canonical_head
-            .cached_head()
-            .forkchoice_update_parameters()
-            .finalized_hash
-        {
+        if let Some(finalized_hash) = cached_head.forkchoice_update_parameters().finalized_hash {
             if ExecutionBlockHash::zero() == finalized_hash {
                 return Ok(ChainHealth::PreMerge);
             }
@@ -5740,17 +5733,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Check slots at the head of the chain.
         let prev_slot = current_slot.saturating_sub(Slot::new(1));
-        let head_skips = prev_slot.saturating_sub(self.canonical_head.cached_head().head_slot());
+        let head_skips = prev_slot.saturating_sub(cached_head.head_slot());
         let head_skips_check = head_skips.as_usize() <= self.config.builder_fallback_skips;
 
         // Check if finalization is advancing.
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-        let epochs_since_finalization = current_epoch.saturating_sub(
-            self.canonical_head
-                .cached_head()
-                .finalized_checkpoint()
-                .epoch,
-        );
+        let epochs_since_finalization =
+            current_epoch.saturating_sub(cached_head.finalized_checkpoint().epoch);
         let finalization_check = epochs_since_finalization.as_usize()
             <= self.config.builder_fallback_epochs_since_finalization;
 

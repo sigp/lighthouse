@@ -6,9 +6,9 @@ use crate::type_name;
 use crate::type_name::TypeName;
 use serde_derive::Deserialize;
 use state_processing::per_epoch_processing::capella::process_historical_summaries_update;
+use state_processing::per_epoch_processing::effective_balance_updates::process_effective_balance_updates;
 use state_processing::per_epoch_processing::{
     altair, base,
-    effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
     process_registry_updates, process_slashings,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
@@ -173,7 +173,7 @@ impl<E: EthSpec> EpochTransition<E> for Eth1DataReset {
 
 impl<E: EthSpec> EpochTransition<E> for EffectiveBalanceUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_effective_balance_updates(state, spec)
+        process_effective_balance_updates(state, None, spec)
     }
 }
 

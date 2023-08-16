@@ -205,7 +205,7 @@ pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), 
 
     if config.exclude_cache_builds {
         pre_state
-            .build_all_caches(spec)
+            .build_caches(spec)
             .map_err(|e| format!("Unable to build caches: {:?}", e))?;
         let state_root = pre_state
             .update_tree_hash_cache()
@@ -303,7 +303,7 @@ fn do_transition<T: EthSpec>(
     if !config.exclude_cache_builds {
         let t = Instant::now();
         pre_state
-            .build_all_caches(spec)
+            .build_caches(spec)
             .map_err(|e| format!("Unable to build caches: {:?}", e))?;
         debug!("Build caches: {:?}", t.elapsed());
 
@@ -335,7 +335,7 @@ fn do_transition<T: EthSpec>(
 
     let t = Instant::now();
     pre_state
-        .build_all_caches(spec)
+        .build_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
     debug!("Build all caches (again): {:?}", t.elapsed());
 

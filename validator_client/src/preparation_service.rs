@@ -23,9 +23,6 @@ const PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS: u64 = 2;
 /// Number of epochs to wait before re-submitting validator registration.
 const EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION: u64 = 1;
 
-/// The number of validator registrations to include per request to the beacon node.
-const VALIDATOR_REGISTRATION_BATCH_SIZE: usize = 500;
-
 /// Builds an `PreparationService`.
 pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     validator_store: Option<Arc<ValidatorStore<T, E>>>,
@@ -33,6 +30,7 @@ pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
     builder_registration_timestamp_override: Option<u64>,
+    validator_registration_batch_size: Option<usize>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
@@ -43,6 +41,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
             beacon_nodes: None,
             context: None,
             builder_registration_timestamp_override: None,
+            validator_registration_batch_size: None,
         }
     }
 
@@ -74,6 +73,14 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         self
     }
 
+    pub fn validator_registration_batch_size(
+        mut self,
+        validator_registration_batch_size: usize,
+    ) -> Self {
+        self.validator_registration_batch_size = Some(validator_registration_batch_size);
+        self
+    }
+
     pub fn build(self) -> Result<PreparationService<T, E>, String> {
         Ok(PreparationService {
             inner: Arc::new(Inner {
@@ -91,6 +98,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
                     .ok_or("Cannot build PreparationService without runtime_context")?,
                 builder_registration_timestamp_override: self
                     .builder_registration_timestamp_override,
+                validator_registration_batch_size: self.validator_registration_batch_size.ok_or(
+                    "Cannot build PreparationService without validator_registration_batch_size",
+                )?,
                 validator_registration_cache: RwLock::new(HashMap::new()),
             }),
         })
@@ -107,6 +117,7 @@ pub struct Inner<T, E: EthSpec> {
     // Used to track unpublished validator registration changes.
     validator_registration_cache:
         RwLock<HashMap<ValidatorRegistrationKey, SignedValidatorRegistrationData>>,
+    validator_registration_batch_size: usize,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
@@ -447,7 +458,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         }
 
         if !signed.is_empty() {
-            for batch in signed.chunks(VALIDATOR_REGISTRATION_BATCH_SIZE) {
+            for batch in signed.chunks(self.validator_registration_batch_size) {
                 match self
                     .beacon_nodes
                     .first_success(
@@ -462,7 +473,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     Ok(()) => info!(
                         log,
                         "Published validator registrations to the builder network";
-                        "count" => registration_data_len,
+                        "count" => batch.len(),
                     ),
                     Err(e) => warn!(
                         log,

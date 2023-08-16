@@ -8,8 +8,8 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ForkChoiceError,
-    GossipVerifiedBlock, NotifyExecutionLayer,
+    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
+    NotifyExecutionLayer,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
@@ -785,6 +785,20 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
+            Err(e @ BlockError::Slashable) => {
+                warn!(
+                    self.log,
+                    "Received equivocating block from peer";
+                    "error" => ?e
+                );
+                /* punish peer for submitting an equivocation, but not too harshly as honest peers may conceivably forward equivocating blocks to us from time to time */
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "gossip_block_mid",
+                );
+                return None;
+            }
             Err(BlockError::ParentUnknown(block)) => {
                 debug!(
                     self.log,
@@ -806,7 +820,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e @ BlockError::FutureSlot { .. })
             | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
             | Err(e @ BlockError::BlockIsAlreadyKnown)
-            | Err(e @ BlockError::RepeatProposal { .. })
             | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
                 debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);
@@ -835,7 +848,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::NonLinearParentRoots)
             | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
             | Err(e @ BlockError::InvalidSignature)
-            | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
             | Err(e @ BlockError::ExecutionPayloadError(_))
@@ -952,8 +964,8 @@ impl<T: BeaconChainTypes> Worker<T> {
             .process_block(
                 block_root,
                 verified_block,
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await;
 
@@ -1741,7 +1753,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "attn_agg_not_in_committee",
                 );
             }
-            AttnError::AttestationAlreadyKnown { .. } => {
+            AttnError::AttestationSupersetKnown { .. } => {
                 /*
                  * The aggregate attestation has already been observed on the network or in
                  * a block.
@@ -2250,7 +2262,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "sync_bad_aggregator",
                 );
             }
-            SyncCommitteeError::SyncContributionAlreadyKnown(_)
+            SyncCommitteeError::SyncContributionSupersetKnown(_)
             | SyncCommitteeError::AggregatorAlreadyKnown(_) => {
                 /*
                  * The sync committee message already been observed on the network or in

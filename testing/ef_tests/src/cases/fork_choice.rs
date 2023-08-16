@@ -7,7 +7,7 @@ use beacon_chain::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainTypes, CachedHead, CountUnrealized, NotifyExecutionLayer,
+    BeaconChainTypes, CachedHead, NotifyExecutionLayer,
 };
 use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
 use serde::Deserialize;
@@ -18,7 +18,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, Checkpoint, EthSpec,
-    ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
+    ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, ProgressiveBalancesMode,
+    SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -381,8 +382,8 @@ impl<E: EthSpec> Tester<E> {
         let result = self.block_on_dangerous(self.harness.chain.process_block(
             block_root,
             block.clone(),
-            CountUnrealized::True,
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         ))?;
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(
@@ -440,8 +441,9 @@ impl<E: EthSpec> Tester<E> {
                         block_delay,
                         &state,
                         PayloadVerificationStatus::Irrelevant,
+                        ProgressiveBalancesMode::Strict,
                         &self.harness.chain.spec,
-                        CountUnrealized::True,
+                        self.harness.logger(),
                     );
 
                 if result.is_ok() {

@@ -7,7 +7,6 @@ use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
-use beacon_chain::CountUnrealized;
 use beacon_chain::{
     observed_block_producers::Error as ObserveError, validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
@@ -25,7 +24,7 @@ use types::{Epoch, Hash256, SignedBeaconBlock};
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChainSegmentProcessId {
     /// Processing Id of a range syncing batch.
-    RangeBatchId(ChainId, Epoch, CountUnrealized),
+    RangeBatchId(ChainId, Epoch),
     /// Processing ID for a backfill syncing batch.
     BackSyncBatchId(Epoch),
     /// Processing Id of the parent lookup of a block.
@@ -99,31 +98,19 @@ impl<T: BeaconChainTypes> Worker<T> {
             });
 
         // Checks if a block from this proposer is already known.
-        let proposal_already_known = || {
+        let block_equivocates = || {
             match self
                 .chain
                 .observed_block_producers
                 .read()
-                .proposer_has_been_observed(block.message())
+                .proposer_has_been_observed(block.message(), block.canonical_root())
             {
-                Ok(is_observed) => is_observed,
-                // Both of these blocks will be rejected, so reject them now rather
+                Ok(seen_status) => seen_status.is_slashable(),
+                //Both of these blocks will be rejected, so reject them now rather
                 // than re-queuing them.
                 Err(ObserveError::FinalizedBlock { .. })
                 | Err(ObserveError::ValidatorIndexTooHigh { .. }) => false,
             }
-        };
-
-        // Returns `true` if the block is already known to fork choice. Notably,
-        // this will return `false` for blocks that we've already imported but
-        // ancestors of the finalized checkpoint. That should not be an issue
-        // for our use here since finalized blocks will always be late and won't
-        // be requeued anyway.
-        let block_is_already_known = || {
-            self.chain
-                .canonical_head
-                .fork_choice_read_lock()
-                .contains_block(&block_root)
         };
 
         // If we've already seen a block from this proposer *and* the block
@@ -133,7 +120,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Don't requeue blocks if they're already known to fork choice, just
         // push them through to block processing so they can be handled through
         // the normal channels.
-        if !block_is_late && proposal_already_known() && !block_is_already_known() {
+        if !block_is_late && block_equivocates() {
             debug!(
                 self.log,
                 "Delaying processing of duplicate RPC block";
@@ -166,12 +153,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let parent_root = block.message().parent_root();
         let result = self
             .chain
-            .process_block(
-                block_root,
-                block,
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes,
-            )
+            .process_block(block_root, block, NotifyExecutionLayer::Yes, || Ok(()))
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
@@ -220,17 +202,13 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let result = match sync_type {
             // this a request from the range sync
-            ChainSegmentProcessId::RangeBatchId(chain_id, epoch, count_unrealized) => {
+            ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                 let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
                 match self
-                    .process_blocks(
-                        downloaded_blocks.iter(),
-                        count_unrealized,
-                        notify_execution_layer,
-                    )
+                    .process_blocks(downloaded_blocks.iter(), notify_execution_layer)
                     .await
                 {
                     (_, Ok(_)) => {
@@ -309,11 +287,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // parent blocks are ordered from highest slot to lowest, so we need to process in
                 // reverse
                 match self
-                    .process_blocks(
-                        downloaded_blocks.iter().rev(),
-                        CountUnrealized::True,
-                        notify_execution_layer,
-                    )
+                    .process_blocks(downloaded_blocks.iter().rev(), notify_execution_layer)
                     .await
                 {
                     (imported_blocks, Err(e)) => {
@@ -343,13 +317,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     async fn process_blocks<'a>(
         &self,
         downloaded_blocks: impl Iterator<Item = &'a Arc<SignedBeaconBlock<T::EthSpec>>>,
-        count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let blocks: Vec<Arc<_>> = downloaded_blocks.cloned().collect();
         match self
             .chain
-            .process_chain_segment(blocks, count_unrealized, notify_execution_layer)
+            .process_chain_segment(blocks, notify_execution_layer)
             .await
         {
             ChainSegmentResult::Successful { imported_blocks } => {
