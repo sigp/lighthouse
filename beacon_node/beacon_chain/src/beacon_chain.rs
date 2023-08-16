@@ -452,12 +452,11 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 }
 
 pub enum BeaconBlockAndStateResponse<T: EthSpec> {
-    Full((BeaconBlock<T, FullPayload<T>>, BeaconState<T>)),
-    Blinded((BeaconBlock<T, BlindedPayload<T>>, BeaconState<T>)),
-    BeaconBlockError(),
+    Full(BeaconBlockAndState<T, FullPayload<T>>),
+    Blinded(BeaconBlockAndState<T, BlindedPayload<T>>),
 }
 
-type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
+pub type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
 
 impl FinalizationAndCanonicity {
     pub fn is_finalized(self) -> bool {
@@ -4344,7 +4343,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             match block_contents_type {
                 BlockProposalContentsType::Full(block_contents) => {
                     let chain = self.clone();
-                    let beacon_block_and_state = self.task_executor
+                    let beacon_block_and_state = self
+                        .task_executor
                         .spawn_blocking_handle(
                             move || {
                                 chain.complete_partial_beacon_block_v3(
@@ -4363,7 +4363,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 BlockProposalContentsType::Blinded(block_contents) => {
                     let chain = self.clone();
-                    let beacon_block_and_state = self.task_executor
+                    let beacon_block_and_state = self
+                        .task_executor
                         .spawn_blocking_handle(
                             move || {
                                 chain.complete_partial_beacon_block_v3(

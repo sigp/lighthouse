@@ -1,6 +1,8 @@
 use crate::api_types::fork_versioned_response::ExecutionOptimisticFinalizedForkVersionedResponse;
 use crate::api_types::EndpointVersion;
-use eth2::CONSENSUS_VERSION_HEADER;
+use eth2::{
+    CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
+};
 use serde::Serialize;
 use types::{ForkName, ForkVersionedResponse, InconsistentFork};
 use warp::reply::{self, Reply, Response};
@@ -51,6 +53,32 @@ pub fn execution_optimistic_finalized_fork_versioned_response<T: Serialize>(
 /// Add the `Eth-Consensus-Version` header to a response.
 pub fn add_consensus_version_header<T: Reply>(reply: T, fork_name: ForkName) -> Response {
     reply::with_header(reply, CONSENSUS_VERSION_HEADER, fork_name.to_string()).into_response()
+}
+
+/// Add the `Eth-Execution-Payload-Blinded` header to a response.
+pub fn add_execution_payload_blinded_header<T: Reply>(
+    reply: T,
+    execution_payload_blinded: bool,
+) -> Response {
+    reply::with_header(
+        reply,
+        EXECUTION_PAYLOAD_BLINDED_HEADER,
+        execution_payload_blinded.to_string(),
+    )
+    .into_response()
+}
+
+/// Add the `Eth-Execution-Payload-Value` header to a response.
+pub fn add_execution_payload_value_header<T: Reply>(
+    reply: T,
+    execution_payload_value: u32,
+) -> Response {
+    reply::with_header(
+        reply,
+        EXECUTION_PAYLOAD_VALUE_HEADER,
+        execution_payload_value.to_string(),
+    )
+    .into_response()
 }
 
 pub fn inconsistent_fork_rejection(error: InconsistentFork) -> warp::reject::Rejection {
