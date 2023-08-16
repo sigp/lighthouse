@@ -20,7 +20,6 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
-use itertools::Itertools;
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -35,10 +34,10 @@ use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LazySignedAggregateAndProof, LightClientFinalityUpdate,
+    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, Unsigned, LazySignedAggregateAndProof, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, LazyAggregateAndProof, LazyAttestation, BitList, SignatureBytes, Signature, Checkpoint, AttestationData, Epoch
 };
 
 use beacon_processor::{
@@ -85,11 +84,6 @@ struct RejectedUnaggregate<T: EthSpec> {
     attestation: Box<Attestation<T>>,
     error: AttnError,
 }
-
-type PartitionedPackages<T> = (
-    Vec<(GossipAggregatePackage<T>, SignedAggregateAndProof<T>)>,
-    Vec<(AttnError, GossipAggregatePackage<T>)>,
-);
 
 /// An aggregate that has been validated by the `BeaconChain`.
 ///
@@ -546,42 +540,51 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub fn process_gossip_aggregate_batch(
         self: Arc<Self>,
-        packages: Vec<GossipAggregatePackage<T::EthSpec>>,
+        mut packages: Vec<GossipAggregatePackage<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
-        let (to_process, skip): PartitionedPackages<T::EthSpec> =
-            packages.into_iter().partition_map(|p| {
-                match self.chain.is_lazy_att_observed_subset(
-                    &p.aggregate.message.aggregate,
-                    p.aggregate.message.aggregate.data.tree_hash_root(),
-                ) {
-                    Ok(None) => match p.aggregate.clone().not_lazy() {
-                        Ok(agg) => itertools::Either::Left((p, agg)),
-                        Err(e) => itertools::Either::Right((e.into(), p)),
-                    },
-                    Ok(Some(root)) => {
-                        itertools::Either::Right((AttnError::AttestationSupersetKnown(root), p))
+        let mut errors: Vec<(usize, AttnError)> = Vec::new();
+        let mut to_process: Vec<(&GossipAggregatePackage<_>, SignedAggregateAndProof<_>)> = 
+            Vec::with_capacity(packages.len());
+
+        for (idx, package) in packages.iter().enumerate() {
+            match self.chain.is_lazy_att_observed_subset(
+                &package.aggregate.message.aggregate,
+                package.aggregate.message.aggregate.data.tree_hash_root(),
+            ) {
+                Ok(None) => {
+                    match package.aggregate.clone().not_lazy() {
+                        Ok(agg) => {
+                            to_process.push((package, agg));
+                        }
+                        Err(e) => errors.push((idx, e.into())),
                     }
-                    // The only error that could occur here is observed_attestations::Error::SlotTooLow
-                    Err(beacon_chain::ObservedAggregatesError::SlotTooLow {
-                        slot,
-                        lowest_permissible_slot,
-                    }) => itertools::Either::Right((
+                }
+                Ok(Some(root)) => {
+                    errors.push((idx, AttnError::AttestationSupersetKnown(root)));
+                }
+                Err(beacon_chain::ObservedAggregatesError::SlotTooLow {
+                    slot,
+                    lowest_permissible_slot,
+                }) => {
+                    errors.push((
+                        idx,
                         AttnError::PastSlot {
                             attestation_slot: slot,
                             earliest_permissible_slot: lowest_permissible_slot,
                         },
-                        p,
-                    )),
-                    // This should never occur
-                    Err(_) => itertools::Either::Right((AttnError::InvalidSignature, p)),
+                    ));
                 }
-            });
+                Err(_) => {
+                    errors.push((idx, AttnError::InvalidSignature));
+                }
+            }
+        }
         debug!(
             self.log,
             "Processing aggregate batch";
-            "skipped" => skip.len(),
-            "total" => skip.len() + to_process.len(),
+            "skipped" => errors.len(),
+            "total" => errors.len() + to_process.len(),
         );
 
         let results = match self
@@ -638,22 +641,48 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.process_gossip_aggregate_result(
                 result,
                 processed_package.beacon_block_root,
-                processed_package.message_id,
+                processed_package.message_id.clone(),
                 processed_package.peer_id,
                 reprocess_tx.clone(),
                 processed_package.seen_timestamp,
             );
         }
 
-        for (attestation_error, skipped_package) in skip {
+        let dummy_aggregate = Box::new(LazySignedAggregateAndProof {
+            message: LazyAggregateAndProof {
+                aggregator_index: 0,
+                aggregate: LazyAttestation::<T::EthSpec> { 
+                    aggregation_bits: BitList::with_capacity(<<T as BeaconChainTypes>::EthSpec as types::EthSpec>::MaxValidatorsPerCommittee::to_usize()).unwrap(),
+                    data: AttestationData {
+                        slot: Slot::new(0),
+                        index: 0,
+                        beacon_block_root: Hash256::zero(),
+                        source: Checkpoint {
+                            epoch: Epoch::new(0),
+                            root: Hash256::zero(),
+                        },
+                        target: Checkpoint {
+                            epoch: Epoch::new(0),
+                            root: Hash256::zero(),
+                        },
+                    }, 
+                    signature: SignatureBytes::empty(), 
+                },
+                selection_proof: Signature::empty().into(),
+            },
+            signature: Signature::empty().into(),
+        });
+
+        for (idx, attestation_error) in errors {
+            let skipped_package = &mut packages[idx];
             let rejected_aggregate = RejectedAggregate {
-                signed_aggregate: LazyOrNotSignedAggregateAndProof::Lazy(skipped_package.aggregate),
+                signed_aggregate: LazyOrNotSignedAggregateAndProof::Lazy(std::mem::replace(&mut skipped_package.aggregate, dummy_aggregate.clone())),
                 error: attestation_error,
             };
             self.process_gossip_aggregate_result(
                 Err(rejected_aggregate),
                 skipped_package.beacon_block_root,
-                skipped_package.message_id,
+                skipped_package.message_id.clone(),
                 skipped_package.peer_id,
                 reprocess_tx.clone(),
                 skipped_package.seen_timestamp,
