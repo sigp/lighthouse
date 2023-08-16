@@ -8,7 +8,6 @@ use beacon_chain::{
 };
 use eth2::types::{self as api_types, EndpointVersion, SkipRandaoVerification};
 use ssz::Encode;
-use types::*;
 use warp::{
     hyper::{Body, Response},
     Reply,
@@ -80,7 +79,7 @@ pub async fn determine_and_produce_block_json<T: BeaconChainTypes>(
         .await
         .unwrap()
     {
-        BeaconBlockAndStateResponse::Full((block, state)) => {
+        BeaconBlockAndStateResponse::Full((block, _)) => {
             let fork_name = block
                 .to_ref()
                 .fork_name(&chain.spec)
@@ -89,11 +88,11 @@ pub async fn determine_and_produce_block_json<T: BeaconChainTypes>(
             fork_versioned_response(endpoint_version, fork_name, block)
                 .map(|response| warp::reply::json(&response).into_response())
                 .map(|res| add_consensus_version_header(res, fork_name))
-                .map(|res| add_execution_payload_blinded_header(res, true))
+                .map(|res| add_execution_payload_blinded_header(res, false))
                 .map(|res: Response<Body>| add_execution_payload_value_header(res, 0))
             // TODO
         }
-        BeaconBlockAndStateResponse::Blinded((block, state)) => {
+        BeaconBlockAndStateResponse::Blinded((block, _)) => {
             let fork_name = block
                 .to_ref()
                 .fork_name(&chain.spec)
@@ -110,7 +109,6 @@ pub async fn determine_and_produce_block_json<T: BeaconChainTypes>(
 }
 
 pub async fn determine_and_produce_block_ssz<T: BeaconChainTypes>(
-    endpoint_version: EndpointVersion,
     chain: Arc<BeaconChain<T>>,
     slot: Slot,
     query: api_types::ValidatorBlocksQuery,
@@ -125,7 +123,7 @@ pub async fn determine_and_produce_block_ssz<T: BeaconChainTypes>(
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
 
     // TODO: block value
-    let (block_ssz, fork_name, block_value) = match chain
+    let (block_ssz, fork_name, block_value, blinded) = match chain
         .determine_and_produce_block_with_verification(
             randao_reveal,
             slot,
@@ -135,21 +133,21 @@ pub async fn determine_and_produce_block_ssz<T: BeaconChainTypes>(
         .await
         .unwrap()
     {
-        BeaconBlockAndStateResponse::Full((block, state)) => {
+        BeaconBlockAndStateResponse::Full((block, _)) => {
             let fork_name = block
                 .to_ref()
                 .fork_name(&chain.spec)
                 .map_err(inconsistent_fork_rejection)?;
 
-            (block.as_ssz_bytes(), fork_name, 0)
+            (block.as_ssz_bytes(), fork_name, 0, false)
         }
-        BeaconBlockAndStateResponse::Blinded((block, state)) => {
+        BeaconBlockAndStateResponse::Blinded((block, _)) => {
             let fork_name = block
                 .to_ref()
                 .fork_name(&chain.spec)
                 .map_err(inconsistent_fork_rejection)?;
 
-            (block.as_ssz_bytes(), fork_name, 0)
+            (block.as_ssz_bytes(), fork_name, 0, true)
         }
     };
 
