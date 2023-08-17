@@ -302,7 +302,6 @@ impl<T: BeaconChainTypes, C: HydraChoose> Hydra<T, C> {
             (relative_epoch, *block_root, state)
         } else {
             // Select a random head to base the duties on.
-            // TODO(hydra): the `collect` here is only really required for fuzzer mode
             let viable_states = self
                 .states
                 .iter()

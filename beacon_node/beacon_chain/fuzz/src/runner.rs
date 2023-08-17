@@ -86,6 +86,15 @@ impl<'a, E: EthSpec> Runner<'a, E> {
             slashing_protection: SlashingProtection::default(),
             debug_config: conf.debug.clone(),
         };
+
+        // This should not really be necessary.
+        // See: https://github.com/sigp/lighthouse/issues/4631
+        attacker.harness.chain.head_tracker.register_block(
+            attacker.harness.chain.genesis_block_root,
+            Hash256::zero(),
+            Slot::new(0),
+        );
+
         let hydra = Hydra::new(u.clone());
 
         // Simulation parameters.
@@ -374,6 +383,8 @@ impl<'a, E: EthSpec> Runner<'a, E> {
 
             // Unaggregated attestations from the attacker.
             if self.conf.is_attestation_tick(self.tick()) && !self.u.write().is_empty() {
+                self.hydra
+                    .update(&self.attacker.harness.chain, current_epoch);
                 let (duties, _dep_root) = self
                     .hydra
                     .get_attester_duties(

@@ -1,6 +1,7 @@
 use crate::{config::DebugConfig, Message, SlashingProtection, TestHarness};
 use async_recursion::async_recursion;
-use beacon_chain::{AttestationError, BlockError};
+use beacon_chain::{AttestationError, BeaconChainError, BlockError, ForkChoiceError};
+use fork_choice::InvalidAttestation;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -79,7 +80,13 @@ impl<E: EthSpec> Node<E> {
                 Ok(()) => None,
                 // Re-queue attestations for which the head block is not yet known.
                 Err(AttestationError::UnknownHeadBlock { .. }) => Some(Message::Attestation(att)),
-                Err(e) => panic!("unable to deliver attestation: {e:?}"),
+                // Ignore attestations from past slots.
+                Err(AttestationError::PastSlot { .. }) => None,
+                // Workaround for a minor bug: https://github.com/sigp/lighthouse/issues/4633
+                Err(AttestationError::BeaconChainError(BeaconChainError::ForkChoiceError(
+                    ForkChoiceError::InvalidAttestation(InvalidAttestation::PastEpoch { .. }),
+                ))) => None,
+                Err(e) => panic!("unable to deliver attestation to node {}: {e:?}", self.id),
             },
             Message::Block(block) => {
                 match self.harness.process_block_result(block).await {

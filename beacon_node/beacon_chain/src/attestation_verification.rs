@@ -1059,6 +1059,10 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
             earliest_permissible_slot,
         });
     }
+    println!(
+        "attestation at {attestation_slot} is OK wrt {earliest_permissible_slot}, current slot is {:?}",
+        slot_clock.now()
+    );
 
     Ok(())
 }

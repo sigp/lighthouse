@@ -59,7 +59,7 @@ def fuzz_command(i, args):
        f"worker{i}",
        "-t",
        str(args.timeout * 1000),
-       f"target/release/{FUZZ_TARGET}"
+       f"../../../target/release/{FUZZ_TARGET}"
     ]
 
 def run(args):
@@ -127,7 +127,7 @@ def repro(args):
 
     subprocess.run(
         [
-            f"target/release/{REPRO_TARGET}"
+            f"../../../target/release/{REPRO_TARGET}"
         ],
         input=input_bytes,
         stdout=sys.stdout,
