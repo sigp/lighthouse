@@ -13,12 +13,7 @@ type E = MinimalEthSpec;
 /// Create a new test environment that is post-merge with `chain_depth` blocks.
 async fn post_merge_tester(chain_depth: u64, validator_count: u64) -> InteractiveTester<E> {
     // Test using latest fork so that we simulate conditions as similar to mainnet as possible.
-    // TODO(jimmy): We should change this back to `latest()`. These tests currently fail on Deneb because:
-    // 1. KZG library doesn't support Minimal spec, changing to Mainnet spec fixes some tests; BUT
-    // 2. `harness.process_block_result` in the test below panics due to
-    //    `AvailabilityProcessingStatus::PendingBlobs`, and there seems to be some race
-    //    condition going on, because the test passes if I step through the code in debug.
-    let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
+    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = 1.into();
 
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count as usize).await;
@@ -108,7 +103,7 @@ async fn el_error_on_new_payload() {
     let (block_contents, _) = harness
         .make_block(pre_state, Slot::new(num_blocks + 1))
         .await;
-    let block = block_contents.0;
+    let (block, blobs) = block_contents;
     let block_hash = block
         .message()
         .body()
@@ -124,7 +119,7 @@ async fn el_error_on_new_payload() {
     // Attempt to process the block, which should error.
     harness.advance_slot();
     assert!(matches!(
-        harness.process_block_result((block.clone(), None)).await,
+        harness.process_block_result((block.clone(), blobs.clone())).await,
         Err(BlockError::ExecutionPayloadError(_))
     ));
 
@@ -143,7 +138,7 @@ async fn el_error_on_new_payload() {
             validation_error: None,
         },
     );
-    harness.process_block_result((block, None)).await.unwrap();
+    harness.process_block_result((block, blobs)).await.unwrap();
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
     assert_eq!(api_response.el_offline, Some(false));
