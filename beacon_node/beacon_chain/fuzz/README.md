@@ -174,13 +174,9 @@ The logic for the `Hydra` is contained in `src/hydra.rs`.
 
 The current limitations which may be removed in future versions are:
 
-- [ ] The attacker only proposes blocks, they do not attest or sign aggregates.
 - [ ] The attacker only sends valid messages.
 - [ ] Neither the attacker nor the honest nodes send aggregate attestations.
-- [ ] Neither the attacker nor the honest nodes send sync messages.
 - [ ] Signature verification is required (slow).
-- [ ] There is no slashing protection for the honest nodes, so we won't explore cases where the
-      honest nodes get stuck due to slashing conditions.
 - [ ] There is no slasher, so the attacker currently cannot attempt anything slashable.
 
 [AFL++]: https://github.com/AFLplusplus/AFLplusplus

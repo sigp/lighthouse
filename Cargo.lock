@@ -573,6 +573,7 @@ dependencies = [
 name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
+ "arbitrary",
  "bitvec 0.20.4",
  "bls",
  "derivative",
@@ -640,6 +641,7 @@ dependencies = [
  "fork_choice",
  "lazy_static",
  "logging",
+ "parking_lot 0.12.1",
  "rand 0.8.5",
  "slog",
  "sloggers",

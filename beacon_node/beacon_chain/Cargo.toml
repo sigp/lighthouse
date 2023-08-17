@@ -10,7 +10,7 @@ default = ["participation_metrics"]
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
 participation_metrics = []  # Exposes validator participation metrics to Prometheus.
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
-hydra = ["rand/small_rng"] # enable Hydra testing framework (DO NOT ENABLE THIS EXCEPT FOR TESTING)
+hydra = ["rand/small_rng", "arbitrary"] # enable Hydra testing framework (DO NOT ENABLE THIS EXCEPT FOR TESTING)
 
 [dev-dependencies]
 maplit = "1.0.2"
@@ -68,6 +68,7 @@ hex = "0.4.2"
 exit-future = "0.2.0"
 unused_port = {path = "../../common/unused_port"}
 oneshot_broadcast = { path = "../../common/oneshot_broadcast" }
+arbitrary = { version = "1.1.3", optional = true }
 
 [[test]]
 name = "beacon_chain_tests"

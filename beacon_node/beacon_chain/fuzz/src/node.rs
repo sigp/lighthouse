@@ -1,9 +1,10 @@
-use crate::{config::DebugConfig, Message, TestHarness};
+use crate::{config::DebugConfig, Message, SlashingProtection, TestHarness};
 use async_recursion::async_recursion;
 use beacon_chain::{AttestationError, BlockError};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use types::{EthSpec, Hash256};
+use types::{Attestation, EthSpec, Hash256, Slot};
 
 pub struct Node<E: EthSpec> {
     pub id: String,
@@ -17,6 +18,8 @@ pub struct Node<E: EthSpec> {
     pub dependent_messages: HashMap<Hash256, Vec<Message<E>>>,
     /// Validator indices assigned to this node.
     pub validators: Vec<usize>,
+    /// Slashing protection for validators assigned to this node.
+    pub slashing_protection: SlashingProtection,
     pub debug_config: DebugConfig,
 }
 
@@ -110,5 +113,73 @@ impl<E: EthSpec> Node<E> {
     pub fn prune_dependent_messages(&mut self, block_is_viable: impl Fn(Hash256) -> bool) {
         self.dependent_messages
             .retain(|block_root, _| block_is_viable(*block_root));
+    }
+
+    /// Produce unaggregated attestations for all (honest) validators managed by this node.
+    ///
+    /// Do not produce attestations if they are slashable.
+    pub fn get_honest_unaggregated_attestations(
+        &mut self,
+        attestation_slot: Slot,
+    ) -> Vec<Attestation<E>> {
+        let head = self.harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let head_block_root = head.head_block_root();
+        let state_root = head.head_state_root();
+        let fork = self
+            .harness
+            .chain
+            .spec
+            .fork_at_epoch(attestation_slot.epoch(E::slots_per_epoch()));
+
+        let mut attestations = vec![];
+        for bc in state
+            .get_beacon_committees_at_slot(attestation_slot)
+            .unwrap()
+        {
+            for (committee_position, &validator_index) in bc.committee.iter().enumerate() {
+                if !self.validators.contains(&validator_index) {
+                    continue;
+                }
+
+                let mut attestation = self
+                    .harness
+                    .produce_unaggregated_attestation_for_block(
+                        attestation_slot,
+                        bc.index,
+                        head_block_root.into(),
+                        Cow::Borrowed(state),
+                        state_root,
+                    )
+                    .unwrap();
+
+                // Check slashability.
+                if !self.slashing_protection.can_attest(
+                    validator_index,
+                    attestation.data.source.epoch,
+                    attestation.data.target.epoch,
+                ) {
+                    continue;
+                }
+                self.slashing_protection.record_attestation(
+                    validator_index,
+                    attestation.data.source.epoch,
+                    attestation.data.target.epoch,
+                );
+
+                attestation
+                    .sign(
+                        &self.harness.validator_keypairs[validator_index].sk,
+                        committee_position,
+                        &fork,
+                        self.harness.chain.genesis_validators_root,
+                        &self.harness.spec,
+                    )
+                    .unwrap();
+
+                attestations.push(attestation);
+            }
+        }
+        attestations
     }
 }

@@ -1,23 +1,26 @@
 #![cfg(feature = "hydra")]
 
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use arbitrary::Unstructured;
 use eth2::types::ProposerData;
+use parking_lot::RwLock;
 use rand::rngs::SmallRng;
-use rand::seq::IteratorRandom;
+use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use slog::warn;
 use state_processing::{state_advance::complete_state_advance, BlockReplayer};
 use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 use types::*;
 
 /// For every head removed, I spawn another.
-pub struct Hydra<T: BeaconChainTypes> {
+pub struct Hydra<T: BeaconChainTypes, C: HydraChoose> {
     /// Map from `block_root` to advanced state with that block as head.
     states: BTreeMap<Hash256, HydraState<T::EthSpec>>,
-    /// Random number generator.
-    rng: SmallRng,
+    /// Random number generator/choice maker.
+    rng: C,
     /// Map of validator index and epoch to selected head block root.
-    validator_to_block_root: BTreeMap<(u64, Epoch), Hash256>,
+    validator_to_block_root: BTreeMap<(usize, Epoch), Hash256>,
     /// Map of slot and committee index to selected head block root.
     ///
     /// It's possible that we get conflicts in this map if we're connected
@@ -37,20 +40,36 @@ pub struct HydraState<E: EthSpec> {
     pub advanced: BeaconState<E>,
 }
 
-impl<T: BeaconChainTypes> Default for Hydra<T> {
-    fn default() -> Self {
-        Self::new()
+pub trait HydraChoose {
+    fn choose_slice<'a, T>(&mut self, values: &'a [T]) -> Option<&'a T>;
+}
+
+impl HydraChoose for SmallRng {
+    fn choose_slice<'a, T>(&mut self, values: &'a [T]) -> Option<&'a T> {
+        values.choose(self)
     }
 }
 
-impl<T: BeaconChainTypes> Hydra<T> {
-    pub fn new() -> Self {
+impl<'a> HydraChoose for Arc<RwLock<Unstructured<'a>>> {
+    fn choose_slice<'b, T>(&mut self, values: &'b [T]) -> Option<&'b T> {
+        self.write().choose(values).ok()
+    }
+}
+
+impl<T: BeaconChainTypes> Hydra<T, SmallRng> {
+    pub fn new_random() -> Self {
+        Self::new(SmallRng::from_entropy())
+    }
+}
+
+impl<T: BeaconChainTypes, C: HydraChoose> Hydra<T, C> {
+    pub fn new(rng: C) -> Self {
         Self {
             states: BTreeMap::new(),
             validator_to_block_root: BTreeMap::new(),
             committee_index_to_block_root: BTreeMap::new(),
             proposers: BTreeMap::new(),
-            rng: SmallRng::from_entropy(),
+            rng,
             current_epoch: Epoch::new(0),
         }
     }
@@ -239,8 +258,8 @@ impl<T: BeaconChainTypes> Hydra<T> {
         &mut self,
         chain: &BeaconChain<T>,
         epoch: Epoch,
-        request_indices: &[u64],
-    ) -> Result<(Vec<Option<AttestationDuty>>, Hash256), String> {
+        request_indices: &[usize],
+    ) -> Result<(Vec<Option<(AttestationDuty, Fork)>>, Hash256), String> {
         let current_epoch = self.current_epoch;
 
         if epoch != current_epoch && epoch != current_epoch + 1 {
@@ -266,8 +285,8 @@ impl<T: BeaconChainTypes> Hydra<T> {
         &mut self,
         chain: &BeaconChain<T>,
         epoch: Epoch,
-        validator_index: u64,
-    ) -> Result<Option<AttestationDuty>, String> {
+        validator_index: usize,
+    ) -> Result<Option<(AttestationDuty, Fork)>, String> {
         // Check for an existing decision.
         let existing_block_root = self.validator_to_block_root.get(&(validator_index, epoch));
 
@@ -283,14 +302,23 @@ impl<T: BeaconChainTypes> Hydra<T> {
             (relative_epoch, *block_root, state)
         } else {
             // Select a random head to base the duties on.
-            self.states
-                .iter_mut()
+            // TODO(hydra): the `collect` here is only really required for fuzzer mode
+            let viable_states = self
+                .states
+                .iter()
                 .filter_map(|(block_root, state)| {
                     let relative_epoch =
                         RelativeEpoch::from_epoch(state.advanced.current_epoch(), epoch).ok()?;
-                    Some((relative_epoch, *block_root, &mut state.advanced))
+                    Some((relative_epoch, *block_root))
                 })
-                .choose(&mut self.rng)
+                .collect::<Vec<_>>();
+            self.rng
+                .choose_slice(&viable_states)
+                .copied()
+                .map(|(epoch, block_root)| {
+                    let state = self.states.get_mut(&block_root).expect("state exists");
+                    (epoch, block_root, &mut state.advanced)
+                })
                 .ok_or("no suitable heads")?
         };
 
@@ -299,7 +327,7 @@ impl<T: BeaconChainTypes> Hydra<T> {
             .map_err(|e| format!("error computing committee: {e:?}"))?;
 
         let mut opt_duty = state
-            .get_attestation_duties(validator_index as usize, relative_epoch)
+            .get_attestation_duties(validator_index, relative_epoch)
             .map_err(|e| format!("no duties for {validator_index}: {e:?}"))?;
 
         // Update caches.
@@ -343,7 +371,7 @@ impl<T: BeaconChainTypes> Hydra<T> {
             .ok_or("cache timeout")?
             .insert_committee_cache(shuffling_id, cache);
 
-        Ok(opt_duty)
+        Ok(opt_duty.map(|duty| (duty, state.fork())))
     }
 
     pub fn produce_attestation_data(
@@ -451,7 +479,7 @@ impl<T: BeaconChainTypes> Hydra<T> {
 
         for (slot, candidates) in slot_candidates {
             // Choose one proposer for each slot.
-            if let Some((proposer, block_root)) = candidates.into_iter().choose(&mut self.rng) {
+            if let Some((proposer, block_root)) = self.rng.choose_slice(&candidates).copied() {
                 let proposer_data = ProposerData {
                     pubkey: chain
                         .validator_pubkey_bytes(proposer as usize)

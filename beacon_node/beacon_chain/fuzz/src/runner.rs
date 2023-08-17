@@ -1,23 +1,24 @@
-use crate::{Config, Hydra, LogConfig, Message, Node, TestHarness};
+use crate::{Config, Hydra, LogConfig, Message, Node, SlashingProtection, TestHarness};
 use arbitrary::Unstructured;
 use beacon_chain::{
     beacon_proposer_cache::compute_proposer_duties_from_head,
     slot_clock::SlotClock,
     test_utils::{EphemeralHarnessType, RelativeSyncCommittee},
 };
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::ops::ControlFlow;
+use std::sync::Arc;
 use std::time::Duration;
 use types::{test_utils::generate_deterministic_keypairs, *};
 
-// FIXME(hydra): add slashing protection
 pub struct Runner<'a, E: EthSpec> {
     conf: Config<E>,
     honest_nodes: Vec<Node<E>>,
     attacker: Node<E>,
-    hydra: Hydra<EphemeralHarnessType<E>>,
-    u: Unstructured<'a>,
+    hydra: Hydra<EphemeralHarnessType<E>, Arc<RwLock<Unstructured<'a>>>>,
+    u: Arc<RwLock<Unstructured<'a>>>,
     time: CurrentTime,
     all_blocks: Vec<(Hash256, Slot)>,
     spec: ChainSpec,
@@ -45,7 +46,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
     ) -> Self {
         assert!(conf.is_valid());
 
-        let u = Unstructured::new(data);
+        let u = Arc::new(RwLock::new(Unstructured::new(data)));
 
         let keypairs = generate_deterministic_keypairs(conf.total_validators);
 
@@ -63,6 +64,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                     message_queue: VecDeque::new(),
                     dependent_messages: HashMap::default(),
                     validators,
+                    slashing_protection: SlashingProtection::default(),
                     debug_config: conf.debug.clone(),
                 }
             })
@@ -81,9 +83,10 @@ impl<'a, E: EthSpec> Runner<'a, E> {
             message_queue: VecDeque::new(),
             dependent_messages: HashMap::default(),
             validators: (conf.honest_validators()..conf.total_validators).collect(),
+            slashing_protection: SlashingProtection::default(),
             debug_config: conf.debug.clone(),
         };
-        let hydra = Hydra::new();
+        let hydra = Hydra::new(u.clone());
 
         // Simulation parameters.
         let time = CurrentTime {
@@ -144,17 +147,20 @@ impl<'a, E: EthSpec> Runner<'a, E> {
 
     async fn queue_all_with_random_delay(&mut self, message: Message<E>) -> arbitrary::Result<()> {
         // Choose the delay for the message to reach the first honest node.
-        let first_node_delay = self.u.int_in_range(0..=self.conf.max_first_node_delay)?;
+        let first_node_delay = self
+            .u
+            .write()
+            .int_in_range(0..=self.conf.max_first_node_delay)?;
 
         // Choose that node.
-        let first_node = self.u.choose_index(self.honest_nodes.len())?;
+        let first_node = self.u.write().choose_index(self.honest_nodes.len())?;
 
         // Choose the delays for the other nodes randomly within the configured range.
         for (i, node) in self.honest_nodes.iter_mut().enumerate() {
             let delay = if i == first_node {
                 first_node_delay
             } else {
-                self.u.int_in_range(
+                self.u.write().int_in_range(
                     first_node_delay..=first_node_delay + self.conf.max_delay_difference,
                 )?
             };
@@ -215,7 +221,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
 
         // Keep running while there is entropy remaining, or the message queues contain undelivered
         // messages.
-        while !self.u.is_empty()
+        while !self.u.write().is_empty()
             || self
                 .honest_nodes
                 .iter()
@@ -255,20 +261,9 @@ impl<'a, E: EthSpec> Runner<'a, E> {
             // Unaggregated attestations from the honest nodes.
             if self.conf.is_attestation_tick(self.tick()) {
                 let mut new_attestations = vec![];
-                for node in &self.honest_nodes {
-                    let head = node.harness.chain.canonical_head.cached_head();
-                    let attestations = node.harness.make_unaggregated_attestations(
-                        &node.validators,
-                        &head.snapshot.beacon_state,
-                        head.head_state_root(),
-                        head.head_block_root().into(),
-                        current_slot,
-                    );
-                    new_attestations.extend(
-                        attestations
-                            .into_iter()
-                            .flat_map(|atts| atts.into_iter().map(|(att, _)| att)),
-                    );
+                for node in &mut self.honest_nodes {
+                    let attestations = node.get_honest_unaggregated_attestations(current_slot);
+                    new_attestations.extend(attestations);
                 }
                 for attestation in new_attestations {
                     self.deliver_all(Message::Attestation(attestation)).await;
@@ -313,7 +308,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
             // Slot start activities for the attacker. The attacker only generates new actions
             // so long as there is entropy remaining.
             if current_slot.as_usize() >= self.conf.num_warmup_slots
-                && !self.u.is_empty()
+                && !self.u.write().is_empty()
                 && self.conf.is_block_proposal_tick(self.tick())
             {
                 self.hydra
@@ -336,7 +331,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                     let mut proposers = proposer_heads.iter();
                     let mut selected_proposals = vec![];
 
-                    self.u.arbitrary_loop(
+                    self.u.write().arbitrary_loop(
                         self.conf.min_attacker_proposers(proposers.len()),
                         self.conf.max_attacker_proposers(proposers.len()),
                         |ux| {
@@ -374,6 +369,66 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                         self.queue_all_with_random_delay(Message::Block(block))
                             .await?;
                     }
+                }
+            }
+
+            // Unaggregated attestations from the attacker.
+            if self.conf.is_attestation_tick(self.tick()) && !self.u.write().is_empty() {
+                let (duties, _dep_root) = self
+                    .hydra
+                    .get_attester_duties(
+                        &self.attacker.harness.chain,
+                        current_epoch,
+                        &self.attacker.validators,
+                    )
+                    .unwrap();
+
+                for (validator_index, (duty, fork)) in self
+                    .attacker
+                    .validators
+                    .clone()
+                    .into_iter()
+                    .zip(duties.into_iter())
+                    .filter_map(|(validator_index, opt_duty)| {
+                        opt_duty
+                            .filter(|(d, _)| d.slot == current_slot)
+                            .map(|duty| (validator_index, duty))
+                    })
+                {
+                    let att_data = self
+                        .hydra
+                        .produce_attestation_data(duty.slot, duty.index)
+                        .unwrap();
+
+                    if !self.attacker.slashing_protection.can_attest(
+                        validator_index,
+                        att_data.source.epoch,
+                        att_data.target.epoch,
+                    ) {
+                        continue;
+                    }
+                    self.attacker.slashing_protection.record_attestation(
+                        validator_index,
+                        att_data.source.epoch,
+                        att_data.target.epoch,
+                    );
+
+                    let mut attestation = Attestation {
+                        aggregation_bits: BitList::with_capacity(duty.committee_len).unwrap(),
+                        data: att_data,
+                        signature: AggregateSignature::empty(),
+                    };
+                    attestation
+                        .sign(
+                            &self.attacker.harness.validator_keypairs[validator_index].sk,
+                            duty.committee_position,
+                            &fork,
+                            self.attacker.harness.chain.genesis_validators_root,
+                            &self.attacker.harness.spec,
+                        )
+                        .unwrap();
+                    self.queue_all_with_random_delay(Message::Attestation(attestation))
+                        .await?;
                 }
             }
 
