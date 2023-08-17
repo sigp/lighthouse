@@ -149,6 +149,9 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.allow_sync_stalled = true;
     }
 
+    client_config.http_api.sse_capacity_multiplier =
+        parse_required(cli_args, "http-sse-capacity-multiplier")?;
+
     client_config.http_api.enable_beacon_processor =
         parse_required(cli_args, "http-enable-beacon-processor")?;
 

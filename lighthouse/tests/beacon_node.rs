@@ -2412,3 +2412,18 @@ fn beacon_processor_zero_workers() {
         .flag("beacon-processor-max-workers", Some("0"))
         .run_with_zero_port();
 }
+
+#[test]
+fn http_sse_capacity_multiplier_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.sse_capacity_multiplier, 1));
+}
+
+#[test]
+fn http_sse_capacity_multiplier_override() {
+    CommandLineTest::new()
+        .flag("http-sse-capacity-multiplier", Some("10"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.sse_capacity_multiplier, 10));
+}
