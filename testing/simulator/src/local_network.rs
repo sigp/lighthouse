@@ -14,7 +14,7 @@ use std::{sync::Arc, time::Duration};
 use types::{Epoch, EthSpec};
 
 const BOOTNODE_PORT: u16 = 42424;
-const QUIC_PORT: u16 = BOOTNODE_PORT + 1;
+const QUIC_PORT: u16 = 43424;
 pub const INVALID_ADDRESS: &str = "http://127.0.0.1:42423";
 
 pub const EXECUTION_PORT: u16 = 4000;
@@ -156,7 +156,7 @@ impl<E: EthSpec> LocalNetwork<E> {
                 std::net::Ipv4Addr::UNSPECIFIED,
                 BOOTNODE_PORT + count,
                 BOOTNODE_PORT + count,
-                BOOTNODE_PORT + 1000 + count, // Offset the quick ports by 1000
+                QUIC_PORT + count,
             );
             beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT + count);
             beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT + count);

@@ -977,7 +977,7 @@ impl<T: BeaconChainTypes> Drop for NetworkService<T> {
         }
 
         // attempt to remove port mappings
-        crate::nat::remove_mappings(self.upnp_mappings.0, &(self.upnp_mappings.1), &self.log);
+        crate::nat::remove_mappings(self.upnp_mappings.0, &self.upnp_mappings.1, &self.log);
 
         info!(self.log, "Network service shutdown");
     }
