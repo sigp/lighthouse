@@ -1292,14 +1292,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             // See `get_state_upper_limit` for rationale.
             (anchor_slot / slots_per_restore_point + 1) * slots_per_restore_point
         };
-        let anchor_info = AnchorInfo {
-            anchor_slot,
-            oldest_block_slot: anchor_slot,
-            oldest_block_parent: block.parent_root(),
-            state_upper_limit,
-            state_lower_limit: self.spec.genesis_slot,
+        let anchor_info = if state_upper_limit == 0 && anchor_slot == 0 {
+            // Genesis archive node: no anchor because we *will* store all states.
+            None
+        } else {
+            Some(AnchorInfo {
+                anchor_slot,
+                oldest_block_slot: anchor_slot,
+                oldest_block_parent: block.parent_root(),
+                state_upper_limit,
+                state_lower_limit: self.spec.genesis_slot,
+            })
         };
-        self.compare_and_set_anchor_info(None, Some(anchor_info))
+        self.compare_and_set_anchor_info(None, anchor_info)
     }
 
     /// Get a clone of the store's anchor info.
