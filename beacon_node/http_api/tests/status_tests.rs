@@ -119,7 +119,9 @@ async fn el_error_on_new_payload() {
     // Attempt to process the block, which should error.
     harness.advance_slot();
     assert!(matches!(
-        harness.process_block_result((block.clone(), blobs.clone())).await,
+        harness
+            .process_block_result((block.clone(), blobs.clone()))
+            .await,
         Err(BlockError::ExecutionPayloadError(_))
     ));
 

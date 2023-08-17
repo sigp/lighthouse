@@ -73,7 +73,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRange(res) => res.as_ssz_bytes(),
-                RPCResponse::SidecarByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
@@ -421,7 +421,7 @@ fn context_bytes<T: EthSpec>(
                     SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
                 };
             }
-            if let RPCResponse::BlobsByRange(_) | RPCResponse::SidecarByRoot(_) = rpc_variant {
+            if let RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) = rpc_variant {
                 return fork_context.to_context_bytes(ForkName::Deneb);
             }
         }
@@ -563,7 +563,7 @@ fn handle_rpc_response<T: EthSpec>(
             )),
         },
         SupportedProtocol::BlobsByRootV1 => match fork_name {
-            Some(ForkName::Deneb) => Ok(Some(RPCResponse::SidecarByRoot(Arc::new(
+            Some(ForkName::Deneb) => Ok(Some(RPCResponse::BlobsByRoot(Arc::new(
                 BlobSidecar::from_ssz_bytes(decoded_buffer)?,
             )))),
             Some(_) => Err(RPCError::ErrorResponse(
@@ -1058,11 +1058,11 @@ mod tests {
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlobsByRootV1,
-                RPCCodedResponse::Success(RPCResponse::SidecarByRoot(default_blob_sidecar())),
+                RPCCodedResponse::Success(RPCResponse::BlobsByRoot(default_blob_sidecar())),
                 ForkName::Deneb,
                 &chain_spec
             ),
-            Ok(Some(RPCResponse::SidecarByRoot(default_blob_sidecar()))),
+            Ok(Some(RPCResponse::BlobsByRoot(default_blob_sidecar()))),
         );
     }
 

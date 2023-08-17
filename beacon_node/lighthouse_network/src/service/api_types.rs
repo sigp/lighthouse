@@ -109,7 +109,7 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
             },
             Response::BlobsByRoot(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::SidecarByRoot(b)),
+                Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRoot(b)),
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRoot),
             },
             Response::BlobsByRange(r) => match r {
