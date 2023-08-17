@@ -524,7 +524,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
     pub fn start_service(&mut self) -> Result<(), String> {
         // We use `SLOTS_PER_EPOCH` as the capacity of the block notification channel, because
-        // we don't except notifications to be delayed by more than a single slot, let alone a
+        // we don't expect notifications to be delayed by more than a single slot, let alone a
         // whole epoch!
         let channel_capacity = T::slots_per_epoch() as usize;
         let (block_service_tx, block_service_rx) = mpsc::channel(channel_capacity);
@@ -627,8 +627,8 @@ async fn init_from_beacon_node<E: EthSpec>(
         let num_available = beacon_nodes.num_available().await;
         let num_total = beacon_nodes.num_total();
 
-        let proposer_available = beacon_nodes.num_available().await;
-        let proposer_total = beacon_nodes.num_total();
+        let proposer_available = proposer_nodes.num_available().await;
+        let proposer_total = proposer_nodes.num_total();
 
         if proposer_total > 0 && proposer_available == 0 {
             warn!(
