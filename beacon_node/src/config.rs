@@ -377,10 +377,10 @@ pub fn get_config<E: EthSpec>(
     }
 
     // 4844 params
-    client_config.trusted_setup = context
-        .eth2_network_config
-        .as_ref()
-        .and_then(|config| config.kzg_trusted_setup.clone());
+    let trusted_setup_bytes = beacon_chain::get_trusted_setup_from_id(
+        beacon_chain::KzgPresetId::from_str(&E::spec_name().to_string())?,
+    );
+    client_config.trusted_setup = serde_json::from_reader(trusted_setup_bytes).unwrap();
 
     // Override default trusted setup file if required
     // TODO: consider removing this when we get closer to launch

@@ -462,3 +462,29 @@ impl<P: KzgPreset> Kzg<P> {
         .map_err(Error::InvalidKzgProof)
     }
 }
+
+
+/// Contains the bytes from the trusted setup json.
+/// The mainnet trusted setup is also reused in testnets.
+///
+/// This is done to ensure that testnets also inherit the high security and
+/// randomness of the mainnet kzg trusted setup ceremony.
+const TRUSTED_SETUP: &[u8] =
+    include_bytes!("../../../common/eth2_network_config/built_in_network_configs/testing_trusted_setups.json");
+
+const TRUSTED_SETUP_MINIMAL: &[u8] =
+    include_bytes!("../../../common/eth2_network_config/built_in_network_configs/minimal_testing_trusted_setups.json");
+
+pub fn get_trusted_setup<P: KzgPreset>() -> &'static [u8] {
+    match P::spec_name() {
+        KzgPresetId::Mainnet => TRUSTED_SETUP,
+        KzgPresetId::Minimal => TRUSTED_SETUP_MINIMAL,
+    }
+}
+
+pub fn get_trusted_setup_from_id(id: KzgPresetId) -> &'static [u8] {
+    match id {
+        KzgPresetId::Mainnet => TRUSTED_SETUP,
+        KzgPresetId::Minimal => TRUSTED_SETUP_MINIMAL,
+    }
+}

@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::validate_blob;
-use eth2_network_config::get_trusted_setup;
+use kzg::get_trusted_setup;
 use kzg::{Kzg, KzgCommitment, KzgPreset, KzgProof, TrustedSetup};
 use serde_derive::Deserialize;
 use std::convert::TryInto;

@@ -2223,7 +2223,6 @@ dependencies = [
  "discv5",
  "eth2_config",
  "ethereum_ssz",
- "kzg",
  "serde_json",
  "serde_yaml",
  "tempfile",

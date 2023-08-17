@@ -522,7 +522,7 @@ where
             .expect("cannot build without validator keypairs");
         let chain_config = self.chain_config.unwrap_or_default();
         let trusted_setup: TrustedSetup =
-            serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
+            serde_json::from_reader(kzg::get_trusted_setup::<E::Kzg>())
                 .map_err(|e| format!("Unable to read trusted setup file: {}", e))
                 .unwrap();
 
@@ -602,7 +602,7 @@ pub fn mock_execution_layer_from_parts<T: EthSpec>(
     });
 
     let trusted_setup: TrustedSetup =
-        serde_json::from_reader(eth2_network_config::get_trusted_setup::<T::Kzg>())
+        serde_json::from_reader(kzg::get_trusted_setup::<T::Kzg>())
             .map_err(|e| format!("Unable to read trusted setup file: {}", e))
             .expect("should have trusted setup");
     let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
