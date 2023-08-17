@@ -15,7 +15,6 @@ use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
 use eth2::types::{FullPayloadContents, SignedBlockContents};
-use ethers_core::abi::ethereum_types::FromStrRadixErr;
 use ethers_core::types::Transaction as EthersTransaction;
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
@@ -1792,10 +1791,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
             VariableList::new(
                 transactions
                     .into_iter()
-                    .map(ethers_tx_to_ssz::<T>)
-                    .collect::<Result<Vec<_>, BlobTxConversionError>>()?,
+                    .map(|tx| VariableList::new(tx.rlp().to_vec()))
+                    .collect::<Result<Vec<_>, ssz_types::Error>>()?,
             )
-            .map_err(BlobTxConversionError::SszError)
+            .map_err(ApiError::SszError)
         };
 
         let payload = match block {
@@ -2142,54 +2141,7 @@ fn timestamp_now() -> u64 {
         .as_secs()
 }
 
-#[derive(Debug)]
-pub enum BlobTxConversionError {
-    /// The transaction type was not set.
-    NoTransactionType,
-    /// The transaction chain ID was not set.
-    NoChainId,
-    /// The transaction nonce was too large to fit in a `u64`.
-    NonceTooLarge,
-    /// The transaction gas was too large to fit in a `u64`.
-    GasTooHigh,
-    /// Missing the `max_fee_per_gas` field.
-    MaxFeePerGasMissing,
-    /// Missing the `max_priority_fee_per_gas` field.
-    MaxPriorityFeePerGasMissing,
-    /// Missing the `access_list` field.
-    AccessListMissing,
-    /// Missing the `max_fee_per_data_gas` field.
-    MaxFeePerDataGasMissing,
-    /// Missing the `versioned_hashes` field.
-    VersionedHashesMissing,
-    /// `y_parity` field was greater than one.
-    InvalidYParity,
-    /// There was an error converting the transaction to SSZ.
-    SszError(ssz_types::Error),
-    /// There was an error converting the transaction from JSON.
-    SerdeJson(serde_json::Error),
-    /// There was an error converting the transaction from hex.
-    FromHex(String),
-    /// There was an error converting the transaction from hex.
-    FromStrRadix(FromStrRadixErr),
-    /// A `versioned_hash` did not contain 32 bytes.
-    InvalidVersionedHashBytesLen,
-}
-
-impl From<ssz_types::Error> for BlobTxConversionError {
-    fn from(value: ssz_types::Error) -> Self {
-        Self::SszError(value)
-    }
-}
-
-impl From<serde_json::Error> for BlobTxConversionError {
-    fn from(value: serde_json::Error) -> Self {
-        Self::SerdeJson(value)
-    }
-}
-
-fn random_valid_tx<T: EthSpec>(
-) -> Result<Transaction<T::MaxBytesPerTransaction>, BlobTxConversionError> {
+fn static_valid_tx<T: EthSpec>() -> Result<Transaction<T::MaxBytesPerTransaction>, String> {
     // Calculate transaction bytes. We don't care about the contents of the transaction.
     let transaction: EthersTransaction = serde_json::from_str(
         r#"{
@@ -2209,14 +2161,9 @@ fn random_valid_tx<T: EthSpec>(
             "s":"0x4ba69724e8f69de52f0125ad8b3c5c2cef33019bac3249e2c0a2192766d1721c"
          }"#,
     )
-    .unwrap();
-    ethers_tx_to_ssz::<T>(transaction)
-}
-
-fn ethers_tx_to_ssz<T: EthSpec>(
-    tx: EthersTransaction,
-) -> Result<Transaction<T::MaxBytesPerTransaction>, BlobTxConversionError> {
-    VariableList::new(tx.rlp().to_vec()).map_err(Into::into)
+    .map_err(|e| format!("Failed to parse transaction: {:?}", e))?;
+    VariableList::new(transaction.rlp().to_vec())
+        .map_err(|e| format!("Failed to convert transaction to SSZ: {:?}", e))
 }
 
 fn noop<T: EthSpec>(

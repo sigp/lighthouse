@@ -6,7 +6,7 @@ use crate::{
         },
         ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
     },
-    random_valid_tx, ExecutionBlockWithTransactions,
+    static_valid_tx, ExecutionBlockWithTransactions,
 };
 use kzg::Kzg;
 use rand::thread_rng;
@@ -643,7 +643,7 @@ pub fn generate_random_blobs<T: EthSpec>(
             ..
         } = random_valid_sidecar;
 
-        let tx = random_valid_tx::<T>()
+        let tx = static_valid_tx::<T>()
             .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
 
         transactions.push(tx);

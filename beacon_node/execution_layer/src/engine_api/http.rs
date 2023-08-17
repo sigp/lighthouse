@@ -67,6 +67,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_V3,
     ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2,
+    ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
 ];
@@ -74,7 +75,6 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
 /// This is necessary because a user might run a capella-enabled version of
 /// lighthouse before they update to a capella-enabled execution engine.
 // TODO (mark): rip this out once we are post-capella on mainnet
-// TODO (sean): do we similarly need something like this for 4844?
 pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v1: true,
     new_payload_v2: false,

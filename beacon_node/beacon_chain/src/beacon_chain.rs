@@ -2006,7 +2006,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         blob_sidecar: SignedBlobSidecar<T::EthSpec>,
         subnet_id: u64,
     ) -> Result<GossipVerifiedBlob<T>, GossipBlobError<T::EthSpec>> {
-        blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
+        metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES);
+        blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self).map(
+            |v| {
+                metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_SUCCESSES);
+                v
+            },
+        )
     }
 
     /// Accepts some 'LightClientOptimisticUpdate' from the network and attempts to verify it

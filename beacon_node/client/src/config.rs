@@ -51,11 +51,6 @@ pub struct Config {
     /// Path where the freezer database will be located.
     pub freezer_db_path: Option<PathBuf>,
     /// Path where the blobs database will be located if blobs should be in a separate database.
-    ///
-    /// The capacity this location should hold varies with the data availability boundary. It
-    /// should be able to store < 69 GB when [MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS](types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS) is 4096
-    /// epochs of 32 slots (up to 131072 bytes data per blob and up to 4 blobs per block, 88 bytes
-    /// of [BlobsSidecar](types::BlobsSidecar) metadata per block).
     pub blobs_db_path: Option<PathBuf>,
     pub log_file: PathBuf,
     /// If true, the node will use co-ordinated junk for eth1 values.

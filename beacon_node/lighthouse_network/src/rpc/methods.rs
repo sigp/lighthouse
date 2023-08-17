@@ -15,6 +15,7 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
+use types::consts::deneb::MAX_BLOBS_PER_BLOCK;
 use types::{
     blob_sidecar::BlobSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
     Hash256, SignedBeaconBlock, Slot,
@@ -31,12 +32,8 @@ pub const MAX_ERROR_LEN: u64 = 256;
 pub type MaxRequestBlocksDeneb = U128;
 pub const MAX_REQUEST_BLOCKS_DENEB: u64 = 128;
 
-// TODO: this is calculated as MAX_REQUEST_BLOCKS_DENEB * MAX_BLOBS_PER_BLOCK and
-// MAX_BLOBS_PER_BLOCK comes from the spec.
-// MAX_REQUEST_BLOCKS_DENEB = 128
-// MAX_BLOBS_PER_BLOCK = 6
 pub type MaxRequestBlobSidecars = U768;
-pub const MAX_REQUEST_BLOB_SIDECARS: u64 = 768;
+pub const MAX_REQUEST_BLOB_SIDECARS: u64 = MAX_REQUEST_BLOCKS_DENEB * MAX_BLOBS_PER_BLOCK;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]

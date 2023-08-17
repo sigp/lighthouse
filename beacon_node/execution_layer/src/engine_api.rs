@@ -5,7 +5,6 @@ use crate::http::{
     ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1,
     ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
 };
-use crate::BlobTxConversionError;
 use eth2::types::{
     SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2, SsePayloadAttributesV3,
 };
@@ -63,7 +62,6 @@ pub enum Error {
     RequiredMethodUnsupported(&'static str),
     UnsupportedForkVariant(String),
     RlpDecoderError(rlp::DecoderError),
-    BlobTxConversionError(BlobTxConversionError),
 }
 
 impl From<reqwest::Error> for Error {
@@ -106,12 +104,6 @@ impl From<rlp::DecoderError> for Error {
 impl From<ssz_types::Error> for Error {
     fn from(e: ssz_types::Error) -> Self {
         Error::SszError(e)
-    }
-}
-
-impl From<BlobTxConversionError> for Error {
-    fn from(e: BlobTxConversionError) -> Self {
-        Error::BlobTxConversionError(e)
     }
 }
 
