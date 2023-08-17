@@ -227,12 +227,16 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         }
         Ok(AvailabilityProcessingStatus::MissingComponents(_, block_root)) => {
             let msg = format!("Missing parts of block with root {:?}", block_root);
-            error!(
-                log,
-                "Invalid block provided to HTTP API";
-                "reason" => &msg
-            );
-            Err(warp_utils::reject::broadcast_without_import(msg))
+            if let BroadcastValidation::Gossip = validation_level {
+                Err(warp_utils::reject::broadcast_without_import(msg))
+            } else {
+                error!(
+                    log,
+                    "Invalid block provided to HTTP API";
+                    "reason" => &msg
+                );
+                Err(warp_utils::reject::broadcast_without_import(msg))
+            }
         }
         Err(BlockError::BeaconChainError(BeaconChainError::UnableToPublish)) => {
             Err(warp_utils::reject::custom_server_error(
