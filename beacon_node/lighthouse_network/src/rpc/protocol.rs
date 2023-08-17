@@ -320,13 +320,6 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
     /// The list of supported RPC protocols for Lighthouse.
     fn protocol_info(&self) -> Self::InfoIter {
         let mut supported_protocols = SupportedProtocol::currently_supported();
-
-        if let ForkName::Deneb = self.fork_context.current_fork() {
-            supported_protocols.extend_from_slice(&[
-                ProtocolId::new(SupportedProtocol::BlobsByRootV1, Encoding::SSZSnappy),
-                ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
-            ]);
-        }
         if self.enable_light_client_server {
             supported_protocols.push(ProtocolId::new(
                 SupportedProtocol::LightClientBootstrapV1,

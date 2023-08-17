@@ -172,6 +172,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     pub fn slot(&self) -> Slot {
         self.blob.message.slot
     }
+    pub fn proposer_index(&self) -> u64 {
+        self.blob.message.proposer_index
+    }
 }
 
 pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
