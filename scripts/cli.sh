@@ -48,3 +48,12 @@ vc=$($CMD vc --help)
 
 # Print all help strings to the cli.txt file.
 printf "%s\n\n" "$general" "$a" "$a_validator" "$a_validator_m" "$a_validator_s" "$a_wallet" "$bn" "$boot" "$dm" "$vc" "$wallet" >> cli.txt
+
+# Run the bash script to generate cli_manual.txt
+#./cli_manual.sh
+
+# find the difference and create a patch file: https://www.techtarget.com/searchdatacenter/tip/An-introduction-to-using-diff-and-patch-together
+diff -u cli_manual.txt cli.txt > patchfile.patch
+
+# update cli_manual.sh
+patch cli_manual.txt patchfile.patch
