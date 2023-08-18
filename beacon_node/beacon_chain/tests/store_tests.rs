@@ -16,6 +16,7 @@ use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
 use rand::Rng;
+use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::{state_advance::complete_state_advance, BlockReplayer};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -481,8 +482,8 @@ async fn block_replay_with_inaccurate_state_roots() {
     let (_, mut fast_head_state) = store
         .get_inconsistent_state_for_attestation_verification_only(
             &head_block_root,
-            Some(head_state.slot()),
-            Some(head_state_root),
+            head_state.slot(),
+            head_state_root,
         )
         .unwrap()
         .unwrap();
@@ -2132,7 +2133,14 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
 
-    // Initialise a new beacon chain from the finalized checkpoint
+    // Initialise a new beacon chain from the finalized checkpoint.
+    // The slot clock must be set to a time ahead of the checkpoint state.
+    let slot_clock = TestingSlotClock::new(
+        Slot::new(0),
+        Duration::from_secs(harness.chain.genesis_time),
+        Duration::from_secs(seconds_per_slot),
+    );
+    slot_clock.set_slot(harness.get_current_slot().as_u64());
     let beacon_chain = Arc::new(
         BeaconChainBuilder::new(MinimalEthSpec)
             .store(store.clone())
@@ -2144,8 +2152,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .store_migrator_config(MigratorConfig::default().blocking())
             .dummy_eth1_backend()
             .expect("should build dummy backend")
-            .testing_slot_clock(Duration::from_secs(seconds_per_slot))
-            .expect("should configure testing slot clock")
+            .slot_clock(slot_clock)
             .shutdown_sender(shutdown_tx)
             .chain_config(ChainConfig::default())
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(
@@ -2465,6 +2472,7 @@ async fn finalizes_after_resuming_from_db() {
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .resumed_disk_store(store)
+        .testing_slot_clock(original_chain.slot_clock.clone())
         .mock_execution_layer()
         .build();
 
@@ -2718,6 +2726,9 @@ async fn schema_downgrade_to_min_version() {
         SchemaVersion(11)
     };
 
+    // Save the slot clock so that the new harness doesn't revert in time.
+    let slot_clock = harness.chain.slot_clock.clone();
+
     // Close the database to ensure everything is written to disk.
     drop(store);
     drop(harness);
@@ -2748,11 +2759,21 @@ async fn schema_downgrade_to_min_version() {
     )
     .expect("schema upgrade from minimum version should work");
 
-    // Rescreate the harness.
+    // Recreate the harness.
+    /*
+    let slot_clock = TestingSlotClock::new(
+        Slot::new(0),
+        Duration::from_secs(harness.chain.genesis_time),
+        Duration::from_secs(spec.seconds_per_slot),
+    );
+    slot_clock.set_slot(harness.get_current_slot().as_u64());
+    */
+
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
         .logger(store.logger().clone())
+        .testing_slot_clock(slot_clock)
         .resumed_disk_store(store.clone())
         .mock_execution_layer()
         .build();
