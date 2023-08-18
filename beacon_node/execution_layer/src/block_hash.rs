@@ -7,8 +7,8 @@ use ethers_core::utils::rlp::RlpStream;
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
-    map_execution_block_header_fields_base, Address, BeaconBlockRef, EthSpec,
-    ExecutionBlockHash, ExecutionBlockHeader, ExecutionPayloadRef, Hash256, Hash64, Uint256,
+    map_execution_block_header_fields_base, Address, BeaconBlockRef, EthSpec, ExecutionBlockHash,
+    ExecutionBlockHeader, ExecutionPayloadRef, Hash256, Hash64, Uint256,
 };
 
 impl<T: EthSpec> ExecutionLayer<T> {

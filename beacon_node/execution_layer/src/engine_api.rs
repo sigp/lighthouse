@@ -6,7 +6,8 @@ use crate::http::{
     ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
 };
 use eth2::types::{
-    SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2, SsePayloadAttributesV3,
+    BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
+    SsePayloadAttributesV3,
 };
 use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{self, Decodable, Rlp};
@@ -25,8 +26,8 @@ pub use types::{
     Withdrawal, Withdrawals,
 };
 use types::{
-    BeaconStateError, BlobsBundle, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadMerge, KzgProofs, VersionedHash,
+    BeaconStateError, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge,
+    KzgProofs, VersionedHash,
 };
 
 pub mod auth;

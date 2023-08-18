@@ -5,9 +5,8 @@ use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
 use types::{
-    BlobsBundle, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadMerge, FixedVector, Transactions, Unsigned,
-    VariableList, Withdrawal,
+    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadMerge, FixedVector, Transactions, Unsigned, VariableList, Withdrawal,
 };
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

@@ -5,7 +5,7 @@
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
 use crate::payload_cache::PayloadCache;
-use auth::{Auth, JwtKey, strip_prefix};
+use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
@@ -13,7 +13,7 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
-use eth2::types::{BlobsBundle, builder_bid::SignedBuilderBid, ForkVersionedResponse};
+use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
 use eth2::types::{FullPayloadContents, SignedBlockContents};
 use ethers_core::types::Transaction as EthersTransaction;
 use fork_choice::ForkchoiceUpdateParameters;
@@ -22,7 +22,7 @@ use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, Logger, trace, warn};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::fmt;
@@ -40,13 +40,13 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
-use types::sidecar::{BlobItems, Sidecar};
 use types::builder_bid::BuilderBid;
+use types::sidecar::{BlobItems, Sidecar};
+use types::KzgProofs;
 use types::{
     AbstractExecPayload, BeaconStateError, BlindedPayload, BlockType, ChainSpec, Epoch,
     ExecPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge,
 };
-use types::KzgProofs;
 use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction};
 
 mod block_hash;

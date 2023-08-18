@@ -1,23 +1,20 @@
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::marker::PhantomData;
-use std::sync::Arc;
+use crate::test_utils::TestRandom;
+use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, SignedRoot, Slot};
+use bls::SecretKey;
 use derivative::Derivative;
 use kzg::{Kzg, KzgCommitment, KzgPreset, KzgProof};
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Encode};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::marker::PhantomData;
+use std::sync::Arc;
+use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use bls::SecretKey;
-use test_random_derive::TestRandom;
-use crate::test_utils::TestRandom;
-use crate::{
-    Blob, ChainSpec, Domain, EthSpec, Fork, Hash256,
-    SignedBlobSidecar, SignedRoot, Slot,
-};
 
 /// Container of the data that identifies an individual blob.
 #[derive(

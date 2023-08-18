@@ -1,9 +1,9 @@
 use crate::{
-    Config,
     doppelganger_service::DoppelgangerService,
     http_metrics::metrics,
     initialized_validators::InitializedValidators,
     signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
+    Config,
 };
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use eth2::types::VariableList;
@@ -11,24 +11,24 @@ use parking_lot::{Mutex, RwLock};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
 };
-use slog::{crit, error, info, Logger, warn};
+use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use types::sidecar::Sidecar;
 use types::{
-    AbstractExecPayload, Address, AggregateAndProof, Attestation,
-    attestation::Error as AttestationError, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof, Domain,
-    Epoch, EthSpec, Fork, ForkName, Graffiti, graffiti::GraffitiString, Hash256, Keypair, PublicKeyBytes,
+    attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
+    AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
+    Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, Keypair, PublicKeyBytes,
     SelectionProof, SidecarList, Signature, SignedAggregateAndProof, SignedBeaconBlock,
     SignedContributionAndProof, SignedRoot, SignedSidecar, SignedSidecarList,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
     ValidatorRegistrationData, VoluntaryExit,
 };
-use types::sidecar::Sidecar;
 use validator_dir::ValidatorDir;
 
 pub use crate::doppelganger_service::DoppelgangerStatus;

@@ -1,14 +1,17 @@
-use kzg::KzgProof;
-use std::sync::Arc;
-use ssz_types::VariableList;
-use serde::de::DeserializeOwned;
-use ssz::{Decode, Encode};
-use std::hash::Hash;
-use tree_hash::TreeHash;
-use std::fmt::Debug;
-use crate::{AbstractExecPayload, BeaconBlock, BlindedBlobSidecar, BlindedBlobSidecarList, BlobRootsList, BlobSidecar, BlobSidecarList, BlobsList, EthSpec, SidecarList, SignedRoot, Slot};
 use crate::beacon_block_body::KzgCommitments;
 use crate::test_utils::TestRandom;
+use crate::{
+    AbstractExecPayload, BeaconBlock, BlindedBlobSidecar, BlindedBlobSidecarList, BlobRootsList,
+    BlobSidecar, BlobSidecarList, BlobsList, EthSpec, SidecarList, SignedRoot, Slot,
+};
+use kzg::KzgProof;
+use serde::de::DeserializeOwned;
+use ssz::{Decode, Encode};
+use ssz_types::VariableList;
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::sync::Arc;
+use tree_hash::TreeHash;
 
 pub trait Sidecar<E: EthSpec>:
     serde::Serialize

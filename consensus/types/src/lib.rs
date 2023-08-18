@@ -99,8 +99,8 @@ pub mod slot_data;
 pub mod sqlite;
 
 pub mod blob_sidecar;
-pub mod signed_blob;
 pub mod sidecar;
+pub mod signed_blob;
 
 use ethereum_types::{H160, H256};
 
@@ -119,7 +119,7 @@ pub use crate::beacon_block_body::{
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
-pub use crate::beacon_state::{*, BeaconTreeHashCache, Error as BeaconStateError};
+pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
 pub use crate::blob_sidecar::{
     BlindedBlobSidecar, BlindedBlobSidecarList, BlobRootsList, BlobSidecar, BlobSidecarList,
     BlobsList, SidecarList,
@@ -162,9 +162,8 @@ pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadDeneb,
-    BlindedPayloadMerge, BlindedPayloadRef, BlobsBundle, BlockType, ExecPayload,
-    ExecutionPayloadAndBlobs, FullPayload, FullPayloadCapella, FullPayloadContents,
-    FullPayloadDeneb, FullPayloadMerge, FullPayloadRef, OwnedExecPayload,
+    BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload, FullPayload,
+    FullPayloadCapella, FullPayloadDeneb, FullPayloadMerge, FullPayloadRef, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset};
@@ -175,10 +174,10 @@ pub use crate::selection_proof::SelectionProof;
 pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
-    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockHash,
-    SignedBeaconBlockMerge, SignedBlindedBeaconBlock, ssz_tagged_signed_beacon_block,
-    ssz_tagged_signed_beacon_block_arc,
+    ssz_tagged_signed_beacon_block, ssz_tagged_signed_beacon_block_arc, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockHash, SignedBeaconBlockMerge,
+    SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_blob::*;
@@ -222,6 +221,6 @@ pub use bls::{
 
 pub use kzg::{KzgCommitment, KzgProof};
 
-pub use ssz_types::{BitList, BitVector, FixedVector, typenum, typenum::Unsigned, VariableList};
-pub use superstruct::superstruct;
 pub use sidecar::Sidecar;
+pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
+pub use superstruct::superstruct;

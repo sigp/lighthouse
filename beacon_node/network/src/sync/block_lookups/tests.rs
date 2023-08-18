@@ -20,8 +20,8 @@ use tokio::sync::mpsc;
 use types::{
     map_fork_name, map_fork_name_with,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconBlock, BlobSidecar, BlobsBundle, EthSpec, ForkName, FullPayloadDeneb,
-    MinimalEthSpec as E, SignedBeaconBlock,
+    BeaconBlock, BlobSidecar, EthSpec, ForkName, FullPayloadDeneb, MinimalEthSpec as E,
+    SignedBeaconBlock,
 };
 
 type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
@@ -125,7 +125,7 @@ impl TestRig {
             }
             message.body.blob_kzg_commitments = bundle.commitments.clone();
 
-            let BlobsBundle {
+            let eth2::types::BlobsBundle {
                 commitments,
                 proofs,
                 blobs,

@@ -9,10 +9,11 @@ use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_verification::{self, GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
+use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
-    BlockError, check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
-    ExecutionPendingBlock, get_block_root, GossipVerifiedBlock, IntoExecutionPendingBlock,
-    signature_verify_chain_segment,
+    check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
+    signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
+    IntoExecutionPendingBlock,
 };
 use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RpcBlock,
@@ -51,7 +52,7 @@ use crate::observed_attesters::{
 use crate::observed_blob_sidecars::ObservedBlobSidecars;
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
-use crate::persisted_beacon_chain::{DUMMY_CANONICAL_HEAD_BLOCK_ROOT, PersistedBeaconChain};
+use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
@@ -59,17 +60,15 @@ use crate::snapshot_cache::{BlockProductionPreState, SnapshotCache};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
-use tree_hash::TreeHash;
-use crate::block_verification::POS_PANDA_BANNER;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{
-    get_slot_delay_ms, HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, timestamp_now,
-    ValidatorMonitor,
+    get_slot_delay_ms, timestamp_now, ValidatorMonitor,
+    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, CachedHead,
-    kzg_utils, metrics,
+    kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
+    BeaconSnapshot, CachedHead,
 };
 use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
@@ -89,19 +88,19 @@ use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
 use slasher::Slasher;
-use slog::{crit, debug, error, info, Logger, trace, warn};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
-    BlockSignatureStrategy,
     common::get_attesting_indices_from_state,
-    ConsensusContext,
     per_block_processing,
     per_block_processing::{
         errors::AttestationValidationError, get_expected_withdrawals,
         verify_attestation_for_block_inclusion, VerifySignatures,
     },
-    per_slot_processing, SigVerifiedOp, state_advance::{complete_state_advance, partial_state_advance}, StateProcessingStrategy,
+    per_slot_processing,
+    state_advance::{complete_state_advance, partial_state_advance},
+    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, StateProcessingStrategy,
     VerifyBlockRoot, VerifyOperation,
 };
 use std::borrow::Cow;
@@ -118,10 +117,11 @@ use store::{
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
+use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
-use types::*;
 use types::sidecar::BlobItems;
+use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 

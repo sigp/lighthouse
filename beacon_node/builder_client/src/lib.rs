@@ -1,5 +1,5 @@
 use eth2::types::builder_bid::SignedBuilderBid;
-use eth2::types::payload::FullPayloadContents;
+use eth2::types::FullPayloadContents;
 use eth2::types::{
     BlindedPayload, EthSpec, ExecutionBlockHash, ForkVersionedResponse, PublicKeyBytes,
     SignedBlockContents, SignedValidatorRegistrationData, Slot,
