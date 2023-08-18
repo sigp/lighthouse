@@ -164,7 +164,7 @@ pub enum WhenSlotSkipped {
     ///
     /// This is how the HTTP API behaves.
     None,
-    /// If the slot it a skip slot, return the previous non-skipped block.
+    /// If the slot is a skip slot, return the previous non-skipped block.
     ///
     /// This is generally how the specification behaves.
     Prev,

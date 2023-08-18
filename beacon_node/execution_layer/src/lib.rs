@@ -76,7 +76,7 @@ const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
 
 /// A payload alongside some information about where it came from.
 pub enum ProvenancedPayload<P> {
-    /// A good ol' fashioned farm-to-table payload from your local EE.
+    /// A good old fashioned farm-to-table payload from your local EE.
     Local(P),
     /// A payload from a builder (e.g. mev-boost).
     Builder(P),
