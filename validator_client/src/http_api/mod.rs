@@ -21,10 +21,12 @@ use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
 };
+use hyper::http::response;
 use hyper::Body;
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
+use ring::signature;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -42,6 +44,7 @@ use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::http::response::Response as WarpResponse;
 use warp::reply::{Reply, Response};
+use warp::Rejection;
 
 use warp::{
     http::{
@@ -1250,35 +1253,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 pub async fn blocking_signed_json_task<S, F, T>(signer: S, func: F) -> Response
 where
     S: Fn(&[u8]) -> String,
-    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
+    F: FnOnce() -> Result<hyper::Response, warp::Rejection> + Send + 'static,
     T: Serialize + Send + 'static,
 {
-    let result = warp_utils::task::blocking_task(func)
-        .await
-        .map(|func_output| {
-            let response_body = match serde_json::to_vec(&func_output) {
-                Ok(body) => body,
-                Err(_) => {
-                    return WarpResponse::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(Body::from(vec![]))
-                        .expect("can produce simple response from static values")
-                }
-            };
-
-            let signature = signer(&response_body);
-            let header_value =
-                HeaderValue::from_str(&signature).expect("hash can be encoded as header");
-
-            let mut response = WarpResponse::builder()
-                .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
-                .body(Body::from(response_body))
-                .unwrap();
-
-            response.headers_mut().append("Signature", header_value);
-
-            response
-        });
-
-    convert_rejection(result).await
+    let result = warp_utils::task::blocking_task(func).await;
+    let response = convert_rejection(result).await;
+    let body: &Vec<u8> = response.body();
+    let signature = signature(body);
+    let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
+    response.headers_mut().append("Signature", header_value);
+    response
 }
