@@ -47,7 +47,7 @@ pub fn weigh_justification_and_finalization<T: EthSpec>(
         Ok(true)
     };
 
-    // The 2nd/3rd/4th most recent epochs are all justified, the 2nd using the 4th as source.
+    // The 2nd/3rd/4th most recent epochs are all justified, the 3nd using the 4th as source.
     if all_bits_set(1..4)? && old_previous_justified_checkpoint.epoch.safe_add(3)? == current_epoch
     {
         *state.finalized_checkpoint_mut() = old_previous_justified_checkpoint;
@@ -57,7 +57,7 @@ pub fn weigh_justification_and_finalization<T: EthSpec>(
     {
         *state.finalized_checkpoint_mut() = old_previous_justified_checkpoint;
     }
-    // The 1st/2nd/3rd most recent epochs are all justified, the 1st using the 3nd as source.
+    // The 1st/2nd/3rd most recent epochs are all justified, the 2st using the 3nd as source.
     if all_bits_set(0..3)? && old_current_justified_checkpoint.epoch.safe_add(2)? == current_epoch {
         *state.finalized_checkpoint_mut() = old_current_justified_checkpoint;
     }
