@@ -555,12 +555,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "To deal with alignment with deneb boundaries, batches need to be of just one epoch"
         );
 
-        #[cfg(test)]
-        {
-            // Keep tests only for blocks.
-            ByRangeRequestType::Blocks
-        }
-        #[cfg(not(test))]
         if let Some(data_availability_boundary) = self.chain.data_availability_boundary() {
             if epoch >= data_availability_boundary {
                 ByRangeRequestType::BlocksAndBlobs
