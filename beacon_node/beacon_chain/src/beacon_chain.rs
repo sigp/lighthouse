@@ -5490,11 +5490,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         F: Fn(&CommitteeCache, Hash256) -> Result<R, Error>,
     {
-        let head_block = self
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_block(&head_block_root)
-            .ok_or(Error::MissingBeaconBlock(head_block_root))?;
+        let (head_block, target_block) = {
+            let fork_choice = self.canonical_head.fork_choice_read_lock();
+            let head_block = fork_choice
+                .get_block(&head_block_root)
+                .ok_or(Error::MissingBeaconBlock(head_block_root))?;
+            let target_block = fork_choice
+                .get_block(&head_block.target_root)
+                .ok_or(Error::MissingBeaconBlock(head_block.target_root))?;
+            (head_block, target_block)
+        };
+        let head_block_epoch = head_block.slot.epoch(T::EthSpec::slots_per_epoch());
 
         let shuffling_id = BlockShufflingIds {
             current: head_block.current_epoch_shuffling_id.clone(),
@@ -5503,9 +5509,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block_root: head_block.root,
         }
         .id_for_epoch(shuffling_epoch)
-        .ok_or_else(|| Error::InvalidShufflingId {
+        .ok_or(Error::InvalidShufflingId {
             shuffling_epoch,
-            head_block_epoch: head_block.slot.epoch(T::EthSpec::slots_per_epoch()),
+            head_block_epoch,
         })?;
 
         // Obtain the shuffling cache, timing how long we wait.
@@ -5571,28 +5577,67 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
                 (state, state_root)
             } else {
-                let state_root = head_block.state_root;
-                let state = self
-                    .store
-                    .get_inconsistent_state_for_attestation_verification_only(
-                        &state_root,
-                        Some(head_block.slot),
-                    )?
-                    .ok_or(Error::MissingBeaconState(head_block.state_root))?;
-                (state, state_root)
+                // There's no reason we'd want to load the shuffling for a cold
+                // state; attestation duties will never be pre-finalized and
+                // attestations to finalized blocks are useless.
+                let split_slot = self.store.get_split_slot();
+                if split_slot > target_block.slot {
+                    return Err(Error::RequestedColdShuffling {
+                        split_slot,
+                        request_slot: target_block.slot,
+                    });
+                }
+
+                if shuffling_epoch + 1 > head_block_epoch {
+                    // The shuffling is beyond the "next epoch" of the
+                    // `beacon_block_root`. Therefore, we need to load the
+                    // latest known state since *all* blocks applied to this
+                    // state are going at affect the shuffling.
+                    let state_root = head_block.state_root;
+                    let state = self
+                        .store
+                        .get_inconsistent_state_for_attestation_verification_only(
+                            &state_root,
+                            Some(head_block.slot),
+                        )?
+                        .ok_or(Error::MissingBeaconState(head_block.state_root))?;
+                    (state, state_root)
+                } else {
+                    // The shuffling epoch is close enough to the
+                    // `beacon_block_root` epoch that the shuffling has already
+                    // been determined and we don't need any of the blocks from
+                    // the current epoch.
+                    //
+                    // Load the state that is the target from the perspective of
+                    // `head_block_root`. It has everything we need and is on an
+                    // epoch boundary so it should be cheaper to load from the
+                    // DB.
+                    let state_root = target_block.state_root;
+                    let state = self
+                        .store
+                        .get_state(&state_root, Some(target_block.slot))?
+                        .ok_or(Error::MissingBeaconState(state_root))?;
+                    (state, state_root)
+                }
             };
 
             /*
              * IMPORTANT
              *
-             * Since it's possible that
-             * `Store::get_inconsistent_state_for_attestation_verification_only` was used to obtain
-             * the state, we cannot rely upon the following fields:
+             *  Since it's possible that
+             *  `Store::get_inconsistent_state_for_attestation_verification_only`
+             *  was used to obtain the state, we cannot rely upon the following
+             *  fields:
              *
              * - `state.state_roots`
              * - `state.block_roots`
              *
              * These fields should not be used for the rest of this function.
+             *
+             * Additionally, the state that we're using might not be at the same
+             * slot as `beacon_block_root`. It is only guaranteed to be in the
+             * same epoch.
+             *
              */
 
             metrics::stop_timer(state_read_timer);

@@ -115,6 +115,10 @@ pub enum BeaconChainError {
         finalized_slot: Slot,
         request_slot: Slot,
     },
+    RequestedColdShuffling {
+        split_slot: Slot,
+        request_slot: Slot,
+    },
     AttestingToAncientSlot {
         lowest_permissible_slot: Slot,
         request_slot: Slot,
