@@ -29,7 +29,6 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
-use std::cmp;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -795,7 +794,6 @@ where
                 BeaconProcessor {
                     network_globals: network_globals.clone(),
                     executor: beacon_processor_context.executor.clone(),
-                    max_workers: cmp::max(1, num_cpus::get()),
                     current_workers: 0,
                     config: beacon_processor_config,
                     log: beacon_processor_context.log().clone(),
