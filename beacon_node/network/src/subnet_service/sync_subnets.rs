@@ -91,7 +91,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
     }
 
     /// Return count of all currently subscribed subnets.
-    #[cfg(all(test, feature = "spec-mainnet"))]
+    #[cfg(test)]
     pub fn subscription_count(&self) -> usize {
         use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
         if self.subscribe_all_subnets {
