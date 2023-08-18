@@ -15,7 +15,7 @@ pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use state_processing::per_block_processing::deneb::deneb::kzg_commitment_to_versioned_hash;
+use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::convert::TryFrom;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
