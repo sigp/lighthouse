@@ -66,10 +66,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     ///
     /// The hot database also contains all blocks.
     pub hot_db: Hot,
-    /// LRU cache of deserialized blobs. Updated whenever a blob is loaded.
-    blob_cache: Mutex<LruCache<Hash256, BlobSidecarList<E>>>,
-    /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
-    block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
+    /// LRU cache of deserialized blocks and blobs. Updated whenever a block or blob is loaded.
+    block_cache: Mutex<BlockCache<E>>,
     /// LRU cache of replayed states.
     state_cache: Mutex<LruCache<Slot, BeaconState<E>>>,
     /// Chain spec.
@@ -78,6 +76,46 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pub(crate) log: Logger,
     /// Mere vessel for E.
     _phantom: PhantomData<E>,
+}
+
+#[derive(Debug)]
+struct BlockCache<E: EthSpec> {
+    block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
+    blob_cache: LruCache<Hash256, BlobSidecarList<E>>,
+}
+
+impl<E: EthSpec> BlockCache<E> {
+    pub fn new(size: usize) -> Self {
+        Self {
+            block_cache: LruCache::new(size),
+            blob_cache: LruCache::new(size),
+        }
+    }
+    pub fn put_block(&mut self, block_root: Hash256, block: SignedBeaconBlock<E>) {
+        self.block_cache.put(block_root, block);
+    }
+    pub fn put_blobs(&mut self, block_root: Hash256, blobs: BlobSidecarList<E>) {
+        self.blob_cache.put(block_root, blobs);
+    }
+    pub fn get_block<'a>(
+        &'a mut self,
+        block_root: &Hash256,
+    ) -> Option<&'a SignedBeaconBlock<E, FullPayload<E>>> {
+        self.block_cache.get(block_root)
+    }
+    pub fn get_blobs<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a BlobSidecarList<E>> {
+        self.blob_cache.get(block_root)
+    }
+    pub fn delete_block(&mut self, block_root: &Hash256) {
+        let _ = self.block_cache.pop(block_root);
+    }
+    pub fn delete_blobs(&mut self, block_root: &Hash256) {
+        let _ = self.blob_cache.pop(block_root);
+    }
+    pub fn delete(&mut self, block_root: &Hash256) {
+        let _ = self.block_cache.pop(block_root);
+        let _ = self.blob_cache.pop(block_root);
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -144,9 +182,8 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             cold_db: MemoryStore::open(),
             blobs_db: Some(MemoryStore::open()),
             hot_db: MemoryStore::open(),
-            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
             state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
-            blob_cache: Mutex::new(LruCache::new(config.blob_cache_size)),
             config,
             spec,
             log,
@@ -182,9 +219,8 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             cold_db: LevelDB::open(cold_path)?,
             blobs_db: None,
             hot_db: LevelDB::open(hot_path)?,
-            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
             state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
-            blob_cache: Mutex::new(LruCache::new(config.blob_cache_size)),
             config,
             spec,
             log,
@@ -351,7 +387,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let block = self.block_as_kv_store_ops(block_root, block, &mut ops)?;
         self.hot_db.do_atomically(ops)?;
         // Update cache.
-        self.block_cache.lock().put(*block_root, block);
+        self.block_cache.lock().put_block(*block_root, block);
         Ok(())
     }
 
@@ -403,7 +439,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         metrics::inc_counter(&metrics::BEACON_BLOCK_GET_COUNT);
 
         // Check the cache.
-        if let Some(block) = self.block_cache.lock().get(block_root) {
+        if let Some(block) = self.block_cache.lock().get_block(block_root) {
             metrics::inc_counter(&metrics::BEACON_BLOCK_CACHE_HIT_COUNT);
             return Ok(Some(DatabaseBlock::Full(block.clone())));
         }
@@ -428,7 +464,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let full_block = self.make_full_block(block_root, blinded_block)?;
 
             // Add to cache.
-            self.block_cache.lock().put(*block_root, full_block.clone());
+            self.block_cache
+                .lock()
+                .put_block(*block_root, full_block.clone());
 
             DatabaseBlock::Full(full_block)
         } else if !self.config.prune_payloads {
@@ -563,7 +601,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Delete a block from the store and the block cache.
     pub fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
-        self.block_cache.lock().pop(block_root);
+        self.block_cache.lock().delete(block_root);
         self.hot_db
             .key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())?;
         self.hot_db
@@ -579,7 +617,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             block_root.as_bytes(),
             &blobs.as_ssz_bytes(),
         )?;
-        self.blob_cache.lock().push(*block_root, blobs);
+        self.block_cache.lock().put_blobs(*block_root, blobs);
         Ok(())
     }
 
@@ -913,7 +951,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Update database whilst holding a lock on cache, to ensure that the cache updates
         // atomically with the database.
         let mut guard = self.block_cache.lock();
-        let mut guard_blob = self.blob_cache.lock();
 
         let blob_cache_ops = blobs_ops.clone();
         let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
@@ -947,7 +984,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for op in hot_db_cache_ops {
             match op {
                 StoreOp::PutBlock(block_root, block) => {
-                    guard.put(block_root, (*block).clone());
+                    guard.put_block(block_root, (*block).clone());
                 }
 
                 StoreOp::PutBlobs(_, _) => (),
@@ -961,7 +998,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::DeleteStateTemporaryFlag(_) => (),
 
                 StoreOp::DeleteBlock(block_root) => {
-                    guard.pop(&block_root);
+                    guard.delete_block(&block_root);
                 }
 
                 StoreOp::DeleteBlobs(_) => (),
@@ -979,11 +1016,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for op in blob_cache_ops {
             match op {
                 StoreOp::PutBlobs(block_root, blobs) => {
-                    guard_blob.put(block_root, blobs);
+                    guard.put_blobs(block_root, blobs);
                 }
 
                 StoreOp::DeleteBlobs(block_root) => {
-                    guard_blob.pop(&block_root);
+                    guard.delete_blobs(&block_root);
                 }
 
                 _ => (),
@@ -991,7 +1028,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         drop(guard);
-        drop(guard_blob);
 
         Ok(())
     }
@@ -1360,12 +1396,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobSidecarList<E>>, Error> {
         let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
 
+        // Check the cache.
+        if let Some(blobs) = self.block_cache.lock().get_blobs(block_root) {
+            metrics::inc_counter(&metrics::BEACON_BLOBS_CACHE_HIT_COUNT);
+            return Ok(Some(blobs.clone()));
+        }
+
         match blobs_db.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())? {
             Some(ref blobs_bytes) => {
                 let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
-                // FIXME(sean) I was attempting to use a blob cache here but was getting deadlocks,
-                // may want to attempt to use one again
-                self.blob_cache.lock().put(*block_root, blobs.clone());
+                self.block_cache
+                    .lock()
+                    .put_blobs(*block_root, blobs.clone());
                 Ok(Some(blobs))
             }
             None => Ok(None),
