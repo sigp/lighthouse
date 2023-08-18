@@ -24,9 +24,9 @@ use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlo
 mod overflow_lru_cache;
 
 /// The LRU Cache stores `PendingComponents` which can store up to
-/// `MAX_BLOBS_PER_BLOCK = 4` blobs each. A `BlobSidecar` is 0.131256 MB. So
-/// the maximum size of a `PendingComponents` is ~ 0.525024 MB. Setting this
-/// to 1024 means the maximum size of the cache is ~ 0.5 GB. But the cache
+/// `MAX_BLOBS_PER_BLOCK = 6` blobs each. A `BlobSidecar` is 0.131256 MB. So
+/// the maximum size of a `PendingComponents` is ~ 0.787536 MB. Setting this
+/// to 1024 means the maximum size of the cache is ~ 0.8 GB. But the cache
 /// will target a size of less than 75% of capacity.
 pub const OVERFLOW_LRU_CAPACITY: usize = 1024;
 
@@ -79,11 +79,10 @@ impl From<ssz::DecodeError> for AvailabilityCheckError {
     }
 }
 
-/// This cache contains
-///  - blobs that have been gossip verified
-///  - commitments for blocks that have been gossip verified, but the commitments themselves
-///    have not been verified against blobs
-///  - blocks that have been fully verified and only require a data availability check
+/// This includes a cache for any blocks or blobs that have been received over gossip or RPC
+/// and are awaiting more components before they can be imported. Additionally the
+/// `DataAvailabilityChecker` is responsible for KZG verification of block components as well as
+/// checking whether a "availability check" is required at all.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<OverflowLRUCache<T>>,
     slot_clock: T::SlotClock,
@@ -112,18 +111,6 @@ impl<T: EthSpec> Debug for Availability<T> {
     }
 }
 
-impl<T: EthSpec> Availability<T> {
-    /// Returns all the blob identifiers associated with an  `AvailableBlock`.
-    /// Returns `None` if avaiability hasn't been fully satisfied yet.
-    pub fn get_available_blob_ids(&self) -> Option<Vec<BlobIdentifier>> {
-        if let Self::Available(block) = self {
-            Some(block.get_all_blob_ids())
-        } else {
-            None
-        }
-    }
-}
-
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
         slot_clock: T::SlotClock,
@@ -140,10 +127,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
+    /// Checks if the given block root is cached.
     pub fn has_block(&self, block_root: &Hash256) -> bool {
         self.availability_cache.has_block(block_root)
     }
 
+    /// Checks which blob ids are still required for a given block root, taking any cached
+    /// components into consideration.
     pub fn get_missing_blob_ids_checking_cache(
         &self,
         block_root: Hash256,
@@ -194,6 +184,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.peek_blob(blob_id)
     }
 
+    /// Put a list of blobs received via RPC into the availability cache. This performs KZG
+    /// verification on the blobs in the list.
     pub fn put_rpc_blobs(
         &self,
         block_root: Hash256,
@@ -232,8 +224,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_blobs(kzg_verified_blob.block_root(), &[kzg_verified_blob])
     }
 
-    /// Check if we have all the blobs for a block. If we do, return the Availability variant that
-    /// triggers import of the block.
+    /// Check if we have all the blobs for a block. Returns `Availability` which has information
+    /// about whether all components have been received or more are required.
     pub fn put_pending_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,

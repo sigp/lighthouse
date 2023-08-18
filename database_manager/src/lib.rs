@@ -107,6 +107,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("blob-prune-margin-epochs")
                 .long("blob-prune-margin-epochs")
+                .value_name("EPOCHS")
                 .help(
                     "The margin for blob pruning in epochs. The oldest blobs are pruned \
                        up until data_availability_boundary - blob_prune_margin_epochs.",
