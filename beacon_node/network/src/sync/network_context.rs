@@ -537,7 +537,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self.network_beacon_processor
     }
 
-    pub(crate) fn next_id(&mut self) -> Id {
+    pub fn next_id(&mut self) -> Id {
         let id = self.request_id;
         self.request_id += 1;
         id
@@ -545,7 +545,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Check whether a batch for this epoch (and only this epoch) should request just blocks or
     /// blocks and blobs.
-    #[allow(unused)]
     pub fn batch_type(&self, epoch: types::Epoch) -> ByRangeRequestType {
         // Induces a compile time panic if this doesn't hold true.
         #[allow(clippy::assertions_on_constants)]
