@@ -24,7 +24,7 @@ use metastruct::metastruct;
 ///
 /// Credit to Reth for the type definition.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[metastruct(mappings(map_execution_block_header_fields_except_withdrawals(exclude(
+#[metastruct(mappings(map_execution_block_header_fields_base(exclude(
     withdrawals_root,
     blob_gas_used,
     excess_blob_gas,

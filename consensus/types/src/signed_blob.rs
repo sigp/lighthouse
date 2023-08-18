@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, BlindedBlobSidecar, Blob, BlobSidecar, ChainSpec, Domain, EthSpec,
-    Fork, Hash256, Sidecar, Signature, SignedRoot, SigningData,
+    BlindedBlobSidecar, Blob, BlobSidecar, ChainSpec, Domain, EthSpec, Fork,
+    Hash256, Signature, SignedRoot, SigningData, test_utils::TestRandom,
 };
 use bls::PublicKey;
 use derivative::Derivative;
@@ -12,6 +12,7 @@ use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use crate::sidecar::Sidecar;
 
 #[derive(
     Debug,
