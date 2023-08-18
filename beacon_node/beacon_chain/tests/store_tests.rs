@@ -2387,7 +2387,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let (split_state_root, mut advanced_split_state) = harness
         .chain
         .store
-        .get_advanced_state(split.block_root, split.slot, split.state_root)
+        .get_advanced_hot_state(split.block_root, split.slot, split.state_root)
         .unwrap()
         .unwrap();
     complete_state_advance(

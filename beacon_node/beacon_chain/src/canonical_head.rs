@@ -301,7 +301,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
         let current_slot = fork_choice.fc_store().get_current_slot();
         let (_, beacon_state) = store
-            .get_advanced_state(beacon_block_root, current_slot, beacon_block.state_root())?
+            .get_advanced_hot_state(beacon_block_root, current_slot, beacon_block.state_root())?
             .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
         let snapshot = BeaconSnapshot {
@@ -672,7 +672,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                     let (_, beacon_state) = self
                         .store
-                        .get_advanced_state(
+                        .get_advanced_hot_state(
                             new_view.head_block_root,
                             current_slot,
                             beacon_block.state_root(),

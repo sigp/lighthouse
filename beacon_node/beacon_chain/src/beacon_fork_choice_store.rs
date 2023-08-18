@@ -327,7 +327,7 @@ where
                 .start_slot(E::slots_per_epoch());
             let (_, state) = self
                 .store
-                .get_advanced_state(
+                .get_advanced_hot_state(
                     self.justified_checkpoint.root,
                     max_slot,
                     justified_block.state_root(),

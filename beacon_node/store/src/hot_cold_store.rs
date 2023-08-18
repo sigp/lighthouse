@@ -545,7 +545,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// upon that state (e.g., state roots). Additionally, only states from the hot store are
     /// returned.
     ///
-    /// See `Self::get_advanced_state` for information about `max_slot`.
+    /// See `Self::get_advanced_hot_state` for information about `max_slot`.
     ///
     /// ## Warning
     ///
@@ -562,7 +562,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root: Hash256,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
-        self.get_advanced_state_with_strategy(
+        self.get_advanced_hot_state_with_strategy(
             *block_root,
             max_slot,
             state_root,
@@ -583,13 +583,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Presently this is only used to avoid loading the un-advanced split state, but in future will
     /// be expanded to return states from an in-memory cache.
-    pub fn get_advanced_state(
+    pub fn get_advanced_hot_state(
         &self,
         block_root: Hash256,
         max_slot: Slot,
         state_root: Hash256,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
-        self.get_advanced_state_with_strategy(
+        self.get_advanced_hot_state_with_strategy(
             block_root,
             max_slot,
             state_root,
@@ -597,8 +597,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         )
     }
 
-    /// Same as `get_advanced_state` but taking a `StateProcessingStrategy`.
-    pub fn get_advanced_state_with_strategy(
+    /// Same as `get_advanced_hot_state` but taking a `StateProcessingStrategy`.
+    pub fn get_advanced_hot_state_with_strategy(
         &self,
         block_root: Hash256,
         max_slot: Slot,
@@ -1852,7 +1852,7 @@ pub struct Split {
     ///
     /// This is used to provide special handling for the split state in the case where there are
     /// skipped slots. The split state will *always* be the advanced state, so callers
-    /// who only have the finalized block root should use `get_advanced_state` to get this state,
+    /// who only have the finalized block root should use `get_advanced_hot_state` to get this state,
     /// rather than fetching `block.state_root()` (the unaligned state) which will have been pruned.
     #[ssz(skip_serializing, skip_deserializing)]
     pub block_root: Hash256,
