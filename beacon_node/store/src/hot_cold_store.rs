@@ -110,7 +110,7 @@ pub enum HotColdDBError {
     IterationError {
         unexpected_key: BytesKey,
     },
-    AttestationStateIsFinalized {
+    FinalizedStateNotInHotDatabase {
         split_slot: Slot,
         request_slot: Slot,
         block_root: Hash256,
@@ -611,7 +611,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Sanity check max-slot against the split slot.
         if max_slot < split.slot {
-            return Err(HotColdDBError::AttestationStateIsFinalized {
+            return Err(HotColdDBError::FinalizedStateNotInHotDatabase {
                 split_slot: split.slot,
                 request_slot: max_slot,
                 block_root,
