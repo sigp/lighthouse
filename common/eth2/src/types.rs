@@ -11,7 +11,9 @@ use std::convert::TryFrom;
 use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
+use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
+use types::builder_bid::BlindedBlobsBundle;
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -1706,9 +1708,10 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
+#[ssz(enum_behaviour = "transparent")]
 pub enum FullPayloadContents<E: EthSpec> {
     Payload(ExecutionPayload<E>),
     PayloadAndBlobs(ExecutionPayloadAndBlobs<E>),
@@ -1771,18 +1774,33 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode)]
 #[serde(bound = "E: EthSpec")]
 pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
     pub execution_payload: ExecutionPayload<E>,
     pub blobs_bundle: BlobsBundle<E>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlobsBundle<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
     pub proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,
+}
+
+impl<E: EthSpec> Into<BlindedBlobsBundle<E>> for BlobsBundle<E> {
+    fn into(self) -> BlindedBlobsBundle<E> {
+        BlindedBlobsBundle {
+            commitments: self.commitments,
+            proofs: self.proofs,
+            blob_roots: self
+                .blobs
+                .into_iter()
+                .map(|blob| blob.tree_hash_root())
+                .collect::<Vec<_>>()
+                .into(),
+        }
+    }
 }

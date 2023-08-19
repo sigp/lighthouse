@@ -1,7 +1,7 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes};
 use async_trait::async_trait;
-use eth2::types::{BlockId, StateId, ValidatorId};
+use eth2::types::{BlobsBundle, BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts};
 pub use ethereum_consensus::state_transition::Context;
 use ethereum_consensus::{
@@ -38,7 +38,7 @@ use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::builder_bid::BlindedBlobsBundle;
 use types::{
-    Address, BeaconState, BlobsBundle, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
+    Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
     ExecutionPayloadHeader, ForkName, Hash256, Slot, Uint256,
 };
 

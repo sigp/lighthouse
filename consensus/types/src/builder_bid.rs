@@ -1,8 +1,8 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
-    BlobRootsList, BlobsBundle, ChainSpec, EthSpec, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ForkName,
-    ForkVersionDeserialize, KzgProofs, SignedRoot, Uint256,
+    BlobRootsList, ChainSpec, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
+    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ForkName, ForkVersionDeserialize,
+    KzgProofs, SignedRoot, Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -10,7 +10,6 @@ use serde::Deserializer;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::Encode;
 use superstruct::superstruct;
-use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[derive(PartialEq, Debug, Default, Serialize, Deserialize, TreeHash, Clone, Encode)]
@@ -19,21 +18,6 @@ pub struct BlindedBlobsBundle<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
     pub proofs: KzgProofs<E>,
     pub blob_roots: BlobRootsList<E>,
-}
-
-impl<E: EthSpec> From<BlobsBundle<E>> for BlindedBlobsBundle<E> {
-    fn from(blobs_bundle: BlobsBundle<E>) -> Self {
-        BlindedBlobsBundle {
-            commitments: blobs_bundle.commitments,
-            proofs: blobs_bundle.proofs,
-            blob_roots: blobs_bundle
-                .blobs
-                .into_iter()
-                .map(|blob| blob.tree_hash_root())
-                .collect::<Vec<_>>()
-                .into(),
-        }
-    }
 }
 
 #[superstruct(

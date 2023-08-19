@@ -73,11 +73,14 @@ impl<T: EthSpec> BlobItems<T> for BlobRootsList<T> {
         Ok(roots)
     }
 
-    fn try_from_blobs(_blobs: BlobsList<T>) -> Result<Self, String> {
-        // It is possible to convert from blobs to blob roots, however this should be done using
-        // `From` or `Into` instead of this generic implementation; this function implementation
-        // should be unreachable, and attempt to use this indicates a bug somewhere.
-        Err("Unexpected conversion from blob to blob roots".to_string())
+    fn try_from_blobs(blobs: BlobsList<T>) -> Result<Self, String> {
+        VariableList::new(
+            blobs
+                .into_iter()
+                .map(|blob| blob.tree_hash_root())
+                .collect(),
+        )
+        .map_err(|e| format!("{e:?}"))
     }
 
     fn len(&self) -> usize {
