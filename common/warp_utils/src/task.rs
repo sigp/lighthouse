@@ -2,10 +2,9 @@ use serde::Serialize;
 use warp::reply::{Reply, Response};
 
 /// A convenience wrapper around `blocking_task`.
-pub async fn blocking_task<F, T>(func: F) -> Result<T, warp::Rejection>
+pub async fn blocking_task<F>(func: F) -> Result<Response, warp::Rejection>
 where
-    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
-    T: Send + 'static,
+    F: FnOnce() -> Result<Response, warp::Rejection> + Send + 'static,
 {
     tokio::task::spawn_blocking(func)
         .await
@@ -15,12 +14,11 @@ where
 /// A convenience wrapper around `blocking_task` that returns a `warp::reply::Response`.
 ///
 /// Using this method consistently makes it possible to simplify types using `.unify()` or `.uor()`.
-pub async fn blocking_response_task<F, T>(func: F) -> Result<Response, warp::Rejection>
+pub async fn blocking_response_task<F>(func: F) -> Result<Response, warp::Rejection>
 where
-    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
-    T: Reply + Send + 'static,
+    F: FnOnce() -> Result<Response, warp::Rejection> + Send + 'static,
 {
-    blocking_task(func).await.map(Reply::into_response)
+    blocking_task(func).await
 }
 
 /// A convenience wrapper around `blocking_task` for use with `warp` JSON responses.
@@ -31,7 +29,8 @@ where
 {
     blocking_response_task(|| {
         let response = func()?;
-        Ok(warp::reply::json(&response))
+        let json_reply = warp::reply::json(&response);
+        Ok(json_reply.into_response())
     })
     .await
 }
