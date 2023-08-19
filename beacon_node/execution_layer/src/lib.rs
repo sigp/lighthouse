@@ -39,7 +39,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
-use types::beacon_block_body::KzgCommitments;
+use types::beacon_block_body::{to_block_kzg_commitments, BlockBodyKzgCommitments, BuilderKzgCommitments};
 use types::builder_bid::BuilderBid;
 use types::sidecar::{BlobItems, Sidecar};
 use types::KzgProofs;
@@ -110,7 +110,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<BuilderBid<E>>
                     .try_into()
                     .map_err(|_| Error::InvalidPayloadConversion)?,
                 block_value: builder_bid.value,
-                kzg_commitments: builder_bid.blinded_blobs_bundle.commitments,
+                kzg_commitments: to_block_kzg_commitments::<E>(
+                    builder_bid.blinded_blobs_bundle.commitments,
+                ),
                 blobs: BlobItems::try_from_blob_roots(builder_bid.blinded_blobs_bundle.blob_roots)
                     .map_err(Error::InvalidBlobConversion)?,
                 proofs: builder_bid.blinded_blobs_bundle.proofs,
@@ -166,7 +168,7 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     PayloadAndBlobs {
         payload: Payload,
         block_value: Uint256,
-        kzg_commitments: KzgCommitments<T>,
+        kzg_commitments: BlockBodyKzgCommitments<T>,
         blobs: <Payload::Sidecar as Sidecar<T>>::BlobItems,
         proofs: KzgProofs<T>,
     },
@@ -183,7 +185,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
             Some(bundle) => Ok(Self::PayloadAndBlobs {
                 payload: execution_payload.into(),
                 block_value,
-                kzg_commitments: bundle.commitments,
+                kzg_commitments: to_block_kzg_commitments::<E>(bundle.commitments),
                 blobs: BlobItems::try_from_blobs(bundle.blobs)
                     .map_err(Error::InvalidBlobConversion)?,
                 proofs: bundle.proofs,
@@ -202,7 +204,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
         self,
     ) -> (
         Payload,
-        Option<KzgCommitments<T>>,
+        Option<BlockBodyKzgCommitments<T>>,
         Option<<Payload::Sidecar as Sidecar<T>>::BlobItems>,
         Option<KzgProofs<T>>,
     ) {

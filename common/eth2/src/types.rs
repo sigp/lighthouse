@@ -12,7 +12,7 @@ use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
 use tree_hash::TreeHash;
-use types::beacon_block_body::KzgCommitments;
+use types::beacon_block_body::BuilderKzgCommitments;
 use types::builder_bid::BlindedBlobsBundle;
 pub use types::*;
 
@@ -1784,7 +1784,7 @@ pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlobsBundle<E: EthSpec> {
-    pub commitments: KzgCommitments<E>,
+    pub commitments: BuilderKzgCommitments<E>,
     pub proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,

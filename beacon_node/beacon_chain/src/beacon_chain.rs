@@ -4923,7 +4923,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                             bls_to_execution_changes: bls_to_execution_changes.into(),
                             blob_kzg_commitments: kzg_commitments
-                                .map(to_block_kzg_commitments::<T::EthSpec>)
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                         },
                     }),
