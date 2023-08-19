@@ -5,6 +5,8 @@ mod keystores;
 mod remotekeys;
 mod tests;
 
+pub mod test_utils;
+
 use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
 use account_utils::{
@@ -12,16 +14,19 @@ use account_utils::{
     validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
 };
 pub use api_secret::ApiSecret;
-use create_validator::{create_validators_mnemonic, create_validators_web3signer};
+use create_validator::{
+    create_validators_mnemonic, create_validators_web3signer, get_voting_password_storage,
+};
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
 };
-use hyper::header::OccupiedEntry;
 use hyper::http::response;
+use hyper::Body;
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
+use ring::signature;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -35,19 +40,21 @@ use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
-use types::typenum::private::BitDiffOut;
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
-use warp::reply::{Reply, Response as resp};
+use warp::http::response::Response as WarpResponse;
+use warp::reply::{Reply, Response};
+use warp::Rejection;
+
 use warp::{
     http::{
         header::{HeaderValue, CONTENT_TYPE},
-        response::Response,
         StatusCode,
     },
     sse::Event,
     Filter,
 };
+
 #[derive(Debug)]
 pub enum Error {
     Warp(warp::Error),
@@ -74,6 +81,7 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub api_secret: ApiSecret,
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
+    pub secrets_dir: Option<PathBuf>,
     pub graffiti_file: Option<GraffitiFile>,
     pub graffiti_flag: Option<Graffiti>,
     pub spec: ChainSpec,
@@ -91,6 +99,8 @@ pub struct Config {
     pub listen_addr: IpAddr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
+    pub allow_keystore_export: bool,
+    pub store_passwords_in_secrets_dir: bool,
 }
 
 impl Default for Config {
@@ -100,7 +110,27 @@ impl Default for Config {
             listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: 5062,
             allow_origin: None,
+            allow_keystore_export: false,
+            store_passwords_in_secrets_dir: false,
         }
+    }
+}
+
+/// Convert a warp `Rejection` into a `Response`.
+///
+/// This function should *always* be used to convert rejections into responses. This prevents warp
+/// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
+pub async fn convert_rejection<T: Reply>(res: Result<T, warp::Rejection>) -> Response {
+    match res {
+        Ok(response) => response.into_response(),
+        Err(e) => match warp_utils::reject::handle_rejection(e).await {
+            Ok(reply) => reply.into_response(),
+            Err(_) => warp::reply::with_status(
+                warp::reply::json(&"unhandled error"),
+                eth2::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+            .into_response(),
+        },
     }
 }
 
@@ -124,6 +154,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
+    let allow_keystore_export = config.allow_keystore_export;
+    let store_passwords_in_secrets_dir = config.store_passwords_in_secrets_dir;
     let log = ctx.log.clone();
 
     // Configure CORS.
@@ -166,25 +198,36 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let signer = warp::any().map(move || signer.clone());
 
     let inner_validator_store = ctx.validator_store.clone();
-    let validator_store_filter = warp::any().map(move || inner_validator_store.clone()).then(
-        |validator_store: Option<_>| async move {
+    let validator_store_filter = warp::any()
+        .map(move || inner_validator_store.clone())
+        .and_then(|validator_store: Option<_>| async move {
             validator_store.ok_or_else(|| {
                 warp_utils::reject::custom_not_found(
                     "validator store is not initialized.".to_string(),
                 )
             })
-        },
-    );
+        });
 
     let inner_task_executor = ctx.task_executor.clone();
     let task_executor_filter = warp::any().map(move || inner_task_executor.clone());
 
     let inner_validator_dir = ctx.validator_dir.clone();
-    let validator_dir_filter = warp::any().map(move || inner_validator_dir.clone()).then(
-        |validator_dir: Option<_>| async move {
+    let validator_dir_filter = warp::any()
+        .map(move || inner_validator_dir.clone())
+        .and_then(|validator_dir: Option<_>| async move {
             validator_dir.ok_or_else(|| {
                 warp_utils::reject::custom_not_found(
                     "validator_dir directory is not initialized.".to_string(),
+                )
+            })
+        });
+
+    let inner_secrets_dir = ctx.secrets_dir.clone();
+    let secrets_dir_filter = warp::any().map(move || inner_secrets_dir.clone()).and_then(
+        |secrets_dir: Option<_>| async move {
+            secrets_dir.ok_or_else(|| {
+                warp_utils::reject::custom_not_found(
+                    "secrets_dir directory is not initialized.".to_string(),
                 )
             })
         },
@@ -397,18 +440,21 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
+        .and(secrets_dir_filter.clone())
         .and(validator_store_filter.clone())
         .and(spec_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .then(
-            |body: Vec<api_types::ValidatorRequest>,
-             validator_dir: PathBuf,
-             validator_store: Arc<ValidatorStore<T, E>>,
-             spec: Arc<ChainSpec>,
-             signer,
-             task_executor: TaskExecutor| {
+            move |body: Vec<api_types::ValidatorRequest>,
+                  validator_dir: PathBuf,
+                  secrets_dir: PathBuf,
+                  validator_store: Arc<ValidatorStore<T, E>>,
+                  spec: Arc<ChainSpec>,
+                  signer,
+                  task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
+                    let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                     if let Some(handle) = task_executor.handle() {
                         let (validators, mnemonic) =
                             handle.block_on(create_validators_mnemonic(
@@ -416,6 +462,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 None,
                                 &body,
                                 &validator_dir,
+                                secrets_dir,
                                 &validator_store,
                                 &spec,
                             ))?;
@@ -440,18 +487,21 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
+        .and(secrets_dir_filter.clone())
         .and(validator_store_filter.clone())
         .and(spec_filter)
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .then(
-            |body: api_types::CreateValidatorsMnemonicRequest,
-             validator_dir: PathBuf,
-             validator_store: Arc<ValidatorStore<T, E>>,
-             spec: Arc<ChainSpec>,
-             signer,
-             task_executor: TaskExecutor| {
+            move |body: api_types::CreateValidatorsMnemonicRequest,
+                  validator_dir: PathBuf,
+                  secrets_dir: PathBuf,
+                  validator_store: Arc<ValidatorStore<T, E>>,
+                  spec: Arc<ChainSpec>,
+                  signer,
+                  task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
+                    let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                     if let Some(handle) = task_executor.handle() {
                         let mnemonic =
                             mnemonic_from_phrase(body.mnemonic.as_str()).map_err(|e| {
@@ -466,6 +516,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 Some(body.key_derivation_path_offset),
                                 &body.validators,
                                 &validator_dir,
+                                secrets_dir,
                                 &validator_store,
                                 &spec,
                             ))?;
@@ -486,15 +537,17 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
+        .and(secrets_dir_filter.clone())
         .and(validator_store_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .then(
-            |body: api_types::KeystoreValidatorsPostRequest,
-             validator_dir: PathBuf,
-             validator_store: Arc<ValidatorStore<T, E>>,
-             signer,
-             task_executor: TaskExecutor| {
+            move |body: api_types::KeystoreValidatorsPostRequest,
+                  validator_dir: PathBuf,
+                  secrets_dir: PathBuf,
+                  validator_store: Arc<ValidatorStore<T, E>>,
+                  signer,
+                  task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
                     // Check to ensure the password is correct.
                     let keypair = body
@@ -507,7 +560,12 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             ))
                         })?;
 
+                    let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
+                    let password_storage =
+                        get_voting_password_storage(&secrets_dir, &body.keystore, &body.password)?;
+
                     let validator_dir = ValidatorDirBuilder::new(validator_dir.clone())
+                        .password_dir_opt(secrets_dir)
                         .voting_keystore(body.keystore.clone(), body.password.as_ref())
                         .store_withdrawal_keystore(false)
                         .build()
@@ -521,7 +579,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     // Drop validator dir so that `add_validator_keystore` can re-lock the keystore.
                     let voting_keystore_path = validator_dir.voting_keystore_path();
                     drop(validator_dir);
-                    let voting_password = body.password.clone();
                     let graffiti = body.graffiti.clone();
                     let suggested_fee_recipient = body.suggested_fee_recipient;
                     let gas_limit = body.gas_limit;
@@ -532,7 +589,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             handle
                                 .block_on(validator_store.add_validator_keystore(
                                     voting_keystore_path,
-                                    voting_password,
+                                    password_storage,
                                     body.enable,
                                     graffiti,
                                     suggested_fee_recipient,
@@ -700,6 +757,29 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 })
             })
         });
+
+    // DELETE /lighthouse/keystores
+    let delete_lighthouse_keystores = warp::path("lighthouse")
+        .and(warp::path("keystores"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(signer.clone())
+        .and(validator_store_filter.clone())
+        .and(task_executor_filter.clone())
+        .and(log_filter.clone())
+        .then(
+            move |request, signer, validator_store, task_executor, log| {
+                blocking_signed_json_task(signer, move || {
+                    if allow_keystore_export {
+                        keystores::export(request, validator_store, task_executor, log)
+                    } else {
+                        Err(warp_utils::reject::custom_bad_request(
+                            "keystore export is disabled".to_string(),
+                        ))
+                    }
+                })
+            },
+        );
 
     // Standard key-manager endpoints.
     let eth_v1 = warp::path("eth").and(warp::path("v1"));
@@ -985,13 +1065,28 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(signer.clone())
         .and(validator_dir_filter)
+        .and(secrets_dir_filter)
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
         .and(log_filter.clone())
         .then(
-            |request, signer, validator_dir, validator_store, task_executor, log| {
+            move |request,
+                  signer,
+                  validator_dir,
+                  secrets_dir,
+                  validator_store,
+                  task_executor,
+                  log| {
+                let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                 blocking_signed_json_task(signer, move || {
-                    keystores::import(request, validator_dir, validator_store, task_executor, log)
+                    keystores::import(
+                        request,
+                        validator_dir,
+                        secrets_dir,
+                        validator_store,
+                        task_executor,
+                        log,
+                    )
                 })
             },
         );
@@ -1049,7 +1144,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("logs"))
         .and(warp::path::end())
         .and(sse_component_filter)
-        .then(|sse_component: Option<SSELoggingComponents>| {
+        .and_then(|sse_component: Option<SSELoggingComponents>| {
             warp_utils::task::blocking_task(move || {
                 if let Some(logging_components) = sse_component {
                     // Build a JSON stream
@@ -1120,7 +1215,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 ))
                 .or(warp::patch().and(patch_validators))
                 .or(warp::delete().and(
-                    delete_fee_recipient
+                    delete_lighthouse_keystores
+                        .or(delete_fee_recipient)
                         .or(delete_gas_limit)
                         .or(delete_std_keystores)
                         .or(delete_std_remotekeys),
@@ -1150,36 +1246,21 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     Ok((listening_socket, server))
 }
-/// Convert a warp `Rejection` into a `Response`.
-///
-/// This function should *always* be used to convert rejections into responses. This prevents warp
-/// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
-pub async fn convert_rejection<T: Reply>(res: Result<T, warp::Rejection>) -> resp {
-    match res {
-        Ok(response) => response.into_response(),
-        Err(e) => match warp_utils::reject::handle_rejection(e).await {
-            Ok(reply) => reply.into_response(),
-            Err(_) => warp::reply::with_status(
-                warp::reply::json(&"unhandled error"),
-                eth2::StatusCode::INTERNAL_SERVER_ERROR,
-            )
-            .into_response(),
-        },
-    }
-}
+
 /// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
 /// JSON-encodes the return value of `func`, using the `signer` function to produce a signature of
 /// those bytes.
-pub async fn blocking_signed_json_task<S, F>(signer: S, func: F) -> resp
+pub async fn blocking_signed_json_task<S, F, T>(signer: S, func: F) -> Response
 where
     S: Fn(&[u8]) -> String,
-    F: FnOnce() -> resp + Send + 'static,
+    F: FnOnce() -> Result<hyper::Response, warp::Rejection> + Send + 'static,
+    T: Serialize + Send + 'static,
 {
     let result = warp_utils::task::blocking_task(func).await;
-    let mut output = convert_rejection(result).await;
-    let body = serde_json::to_vec(&output).unwrap();
-    let signature = signer(body);
+    let response = convert_rejection(result).await;
+    let body: &Vec<u8> = response.body();
+    let signature = signature(body);
     let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
-    output.headers_mut().append("Signature", header_value);
-    output
+    response.headers_mut().append("Signature", header_value);
+    response
 }
