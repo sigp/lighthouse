@@ -4,6 +4,7 @@ use crate::json_structures::*;
 use crate::test_utils::DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI;
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value as JsonValue;
+use std::cmp::min;
 use std::sync::Arc;
 use types::{EthSpec, ForkName};
 
@@ -496,7 +497,9 @@ pub async fn handle_rpc<T: EthSpec>(
                                 .transactions()
                                 .iter()
                                 .map(|transaction| {
-                                    let mut buf = vec![];
+                                    let size =
+                                        min(transaction.size(), T::max_bytes_per_transaction());
+                                    let mut buf = Vec::with_capacity(size);
                                     transaction.encode_enveloped(&mut buf);
                                     VariableList::new(buf)
                                 })

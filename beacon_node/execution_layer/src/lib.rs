@@ -24,6 +24,7 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
@@ -1794,7 +1795,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 transactions
                     .into_iter()
                     .map(|tx| {
-                        let mut buf = vec![];
+                        let size = min(tx.size(), T::max_bytes_per_transaction());
+                        let mut buf = Vec::with_capacity(size);
                         tx.encode_enveloped(&mut buf);
                         VariableList::new(buf)
                     })
