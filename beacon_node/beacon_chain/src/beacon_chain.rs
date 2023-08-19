@@ -118,6 +118,7 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
+use types::beacon_block_body::{from_block_kzg_commitments, to_block_kzg_commitments};
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::{BlobItems, BlobSidecarList, FixedBlobSidecarList};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
@@ -4925,6 +4926,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                             bls_to_execution_changes: bls_to_execution_changes.into(),
                             blob_kzg_commitments: kzg_commitments
+                                .map(to_block_kzg_commitments::<T::EthSpec>)
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                         },
                     }),
@@ -4984,8 +4986,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
         let maybe_sidecar_list = match (blobs_opt, proofs_opt) {
             (Some(blobs_or_blobs_roots), Some(proofs)) => {
-                let expected_kzg_commitments =
-                    block.body().blob_kzg_commitments().map_err(|_| {
+                let expected_kzg_commitments = block
+                    .body()
+                    .blob_kzg_commitments()
+                    .map(from_block_kzg_commitments::<T::EthSpec>)
+                    .map_err(|_| {
                         BlockProductionError::InvalidBlockVariant(
                             "deneb block does not contain kzg commitments".to_string(),
                         )
@@ -5009,7 +5014,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
                     kzg_utils::validate_blobs::<T::EthSpec>(
                         kzg,
-                        expected_kzg_commitments,
+                        &expected_kzg_commitments,
                         blobs,
                         &kzg_proofs,
                     )
@@ -5020,7 +5025,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Sidecar::build_sidecar(
                         blobs_or_blobs_roots,
                         &block,
-                        expected_kzg_commitments,
+                        &expected_kzg_commitments,
                         kzg_proofs,
                     )
                     .map_err(BlockProductionError::FailedToBuildBlobSidecars)?,

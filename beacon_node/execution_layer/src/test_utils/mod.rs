@@ -29,7 +29,10 @@ pub use execution_block_generator::{
     Block, ExecutionBlockGenerator,
 };
 pub use hook::Hook;
-pub use mock_builder::{Context as MockBuilderContext, MockBuilder, Operation, TestingBuilder};
+pub use mock_builder::{
+    convert_err, custom_err, from_ssz_rs, to_ssz_rs, Context as MockBuilderContext, MockBuilder,
+    Operation, TestingBuilder,
+};
 pub use mock_execution_layer::MockExecutionLayer;
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;

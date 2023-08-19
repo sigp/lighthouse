@@ -84,11 +84,14 @@ impl<T: EthSpec> BlobItems<T> for BlobRootsList<T> {
         Ok(roots)
     }
 
-    fn try_from_blobs(_blobs: BlobsList<T>) -> Result<Self, String> {
-        // It is possible to convert from blobs to blob roots, however this should be done using
-        // `From` or `Into` instead of this generic implementation; this function implementation
-        // should be unreachable, and attempt to use this indicates a bug somewhere.
-        Err("Unexpected conversion from blob to blob roots".to_string())
+    fn try_from_blobs(blobs: BlobsList<T>) -> Result<Self, String> {
+        VariableList::new(
+            blobs
+                .into_iter()
+                .map(|blob| blob.tree_hash_root())
+                .collect(),
+        )
+        .map_err(|e| format!("{e:?}"))
     }
 
     fn len(&self) -> usize {
@@ -203,6 +206,21 @@ impl<E: EthSpec> Sidecar<E> for BlobSidecar<E> {
 
 impl<E: EthSpec> From<Arc<BlobSidecar<E>>> for BlindedBlobSidecar {
     fn from(blob_sidecar: Arc<BlobSidecar<E>>) -> Self {
+        BlindedBlobSidecar {
+            block_root: blob_sidecar.block_root,
+            index: blob_sidecar.index,
+            slot: blob_sidecar.slot,
+            block_parent_root: blob_sidecar.block_parent_root,
+            proposer_index: blob_sidecar.proposer_index,
+            blob_root: blob_sidecar.blob.tree_hash_root(),
+            kzg_commitment: blob_sidecar.kzg_commitment,
+            kzg_proof: blob_sidecar.kzg_proof,
+        }
+    }
+}
+
+impl<E: EthSpec> From<BlobSidecar<E>> for BlindedBlobSidecar {
+    fn from(blob_sidecar: BlobSidecar<E>) -> Self {
         BlindedBlobSidecar {
             block_root: blob_sidecar.block_root,
             index: blob_sidecar.index,

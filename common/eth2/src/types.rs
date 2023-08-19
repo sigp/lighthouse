@@ -1415,9 +1415,21 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
                     D,
                 >(value, fork_name)?))
             }
-            ForkName::Deneb => Ok(BlockContents::BlockAndBlobSidecars(
-                BeaconBlockAndBlobSidecars::deserialize_by_fork::<'de, D>(value, fork_name)?,
-            )),
+            ForkName::Deneb => {
+                let block_contents = match Payload::block_type() {
+                    BlockType::Blinded => BlockContents::BlindedBlockAndBlobSidecars(
+                        BlindedBeaconBlockAndBlobSidecars::deserialize_by_fork::<'de, D>(
+                            value, fork_name,
+                        )?,
+                    ),
+                    BlockType::Full => BlockContents::BlockAndBlobSidecars(
+                        BeaconBlockAndBlobSidecars::deserialize_by_fork::<'de, D>(
+                            value, fork_name,
+                        )?,
+                    ),
+                };
+                Ok(block_contents)
+            }
         }
     }
 }
