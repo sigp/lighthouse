@@ -39,9 +39,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
-use types::beacon_block_body::{
-    to_block_kzg_commitments, BlockBodyKzgCommitments, BuilderKzgCommitments,
-};
+use types::beacon_block_body::{to_block_kzg_commitments, BlockBodyKzgCommitments};
 use types::builder_bid::BuilderBid;
 use types::sidecar::{BlobItems, Sidecar};
 use types::KzgProofs;
