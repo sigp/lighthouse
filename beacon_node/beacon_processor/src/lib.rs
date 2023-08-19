@@ -150,7 +150,7 @@ const MAX_SYNC_CONTRIBUTION_QUEUE_LEN: usize = 1024;
 /// will be stored before we start dropping them.
 const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
 
-/// The maximum number of queued `SignedBlobSidecar` objects received from the network RPC that
+/// The maximum number of queued `BlobSidecar` objects received from the network RPC that
 /// will be stored before we start dropping them.
 const MAX_RPC_BLOB_QUEUE_LEN: usize = 1_024;
 
