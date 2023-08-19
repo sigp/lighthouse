@@ -82,6 +82,21 @@ impl<E: EthSpec> From<Arc<BlobSidecar<E>>> for BlindedBlobSidecar {
     }
 }
 
+impl<E: EthSpec> From<BlobSidecar<E>> for BlindedBlobSidecar {
+    fn from(blob_sidecar: BlobSidecar<E>) -> Self {
+        BlindedBlobSidecar {
+            block_root: blob_sidecar.block_root,
+            index: blob_sidecar.index,
+            slot: blob_sidecar.slot,
+            block_parent_root: blob_sidecar.block_parent_root,
+            proposer_index: blob_sidecar.proposer_index,
+            blob_root: blob_sidecar.blob.tree_hash_root(),
+            kzg_commitment: blob_sidecar.kzg_commitment,
+            kzg_proof: blob_sidecar.kzg_proof,
+        }
+    }
+}
+
 impl<T: EthSpec> PartialOrd for BlobSidecar<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.index.partial_cmp(&other.index)
