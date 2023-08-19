@@ -2150,7 +2150,7 @@ fn timestamp_now() -> u64 {
 }
 
 fn static_valid_tx<T: EthSpec>() -> Result<Transaction<T::MaxBytesPerTransaction>, String> {
-    // This is a real transaction hex encoded, but e don't care about the contents of the transaction.
+    // This is a real transaction hex encoded, but we don't care about the contents of the transaction.
     let bytes = hex::decode(
         "b87502f872041a8459682f008459682f0d8252089461815774383099e24810ab832a5b2a5425c154d58829a2241af62c000080c001a059e6b67f48fb32e7e570dfb11e042b5ad2e55e3ce3ce9cd989c7e06e07feeafda0016b83f4f980694ed2eee4d10667242b1f40dc406901b34125b008d334d47469"
     ).map_err(|e| format!("Failed to decode transaction bytes: {:?}", e))?;
