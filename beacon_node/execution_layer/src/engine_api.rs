@@ -9,12 +9,11 @@ use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
     SsePayloadAttributesV3,
 };
-use ethers_core::types::Transaction;
-use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
 pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
+use reth_primitives::TransactionSigned;
 use serde::{Deserialize, Serialize};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::convert::TryFrom;
@@ -62,7 +61,7 @@ pub enum Error {
     IncorrectStateVariant,
     RequiredMethodUnsupported(&'static str),
     UnsupportedForkVariant(String),
-    RlpDecoderError(rlp::DecoderError),
+    RlpDecoderError(reth_rlp::DecodeError),
 }
 
 impl From<reqwest::Error> for Error {
@@ -96,8 +95,8 @@ impl From<builder_client::Error> for Error {
     }
 }
 
-impl From<rlp::DecoderError> for Error {
-    fn from(e: rlp::DecoderError) -> Self {
+impl From<reth_rlp::DecodeError> for Error {
+    fn from(e: reth_rlp::DecodeError) -> Self {
         Error::RlpDecoderError(e)
     }
 }
@@ -182,7 +181,7 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     pub base_fee_per_gas: Uint256,
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<TransactionSigned>,
     #[superstruct(only(Capella, Deneb))]
     pub withdrawals: Vec<JsonWithdrawal>,
     #[superstruct(only(Deneb))]
@@ -215,7 +214,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                 transactions: block
                     .transactions
                     .iter()
-                    .map(|tx| Transaction::decode(&Rlp::new(tx)))
+                    .map(|tx| TransactionSigned::decode_enveloped(tx.as_ref().into()))
                     .collect::<Result<Vec<_>, _>>()?,
             }),
             ExecutionPayload::Capella(block) => {
@@ -236,7 +235,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     transactions: block
                         .transactions
                         .iter()
-                        .map(|tx| Transaction::decode(&Rlp::new(tx)))
+                        .map(|tx| TransactionSigned::decode_enveloped(tx.as_ref().into()))
                         .collect::<Result<Vec<_>, _>>()?,
                     withdrawals: Vec::from(block.withdrawals)
                         .into_iter()
@@ -261,7 +260,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                 transactions: block
                     .transactions
                     .iter()
-                    .map(|tx| Transaction::decode(&Rlp::new(tx)))
+                    .map(|tx| TransactionSigned::decode_enveloped(tx.as_ref().into()))
                     .collect::<Result<Vec<_>, _>>()?,
                 withdrawals: Vec::from(block.withdrawals)
                     .into_iter()

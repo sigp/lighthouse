@@ -495,7 +495,11 @@ pub async fn handle_rpc<T: EthSpec>(
                             block
                                 .transactions()
                                 .iter()
-                                .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
+                                .map(|transaction| {
+                                    let mut buf = vec![];
+                                    transaction.encode_enveloped(&mut buf);
+                                    VariableList::new(buf)
+                                })
                                 .collect::<Result<_, _>>()
                                 .map_err(|e| {
                                     (

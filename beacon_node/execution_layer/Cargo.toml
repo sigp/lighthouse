@@ -39,6 +39,8 @@ rand = "0.8.5"
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
+reth-primitives = {git = "https://github.com/paradigmxyz/reth.git", tag = "v0.1.0-alpha.6"}
+reth-rlp = {git = "https://github.com/paradigmxyz/reth.git", tag = "v0.1.0-alpha.6"}
 ethers-core = "1.0.2"
 builder_client = { path = "../builder_client" }
 fork_choice = { path = "../../consensus/fork_choice" }
