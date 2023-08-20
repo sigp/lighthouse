@@ -35,6 +35,8 @@ impl<'b, RawSet> MipMaxCoverProblemInstance<'b, RawSet>
 where
     RawSet: for<'a> MipMaxCover<'a>,
 {
+    const SOLUTION_LENGTH_SCALING_FACTOR: f64 = 0.0001f64;
+
     pub fn new(raw_sets: &Vec<RawSet>, limit: usize) -> Option<MipMaxCoverProblemInstance<RawSet>> {
         let ordered_elements: Vec<&RawSet::Element> = raw_sets
             .iter()
@@ -102,7 +104,9 @@ where
 
         // define objective function as linear combination of element variables and weights
         let objective =
-            Expression::sum((0..self.weights.len()).map(|yi| ys[yi].mul(self.weights[yi])));
+            Expression::sum((0..self.weights.len()).map(|yi| ys[yi].mul(self.weights[yi])))
+                - Expression::sum((0..xs.len()).map(|xi| xs[xi]))
+                    * Self::SOLUTION_LENGTH_SCALING_FACTOR;
         let mut problem = vars.maximise(objective).using(default_solver);
 
         // limit solution size to k sets
@@ -272,6 +276,6 @@ mod tests {
         let instance = MipMaxCoverProblemInstance::new(&sets, 5).unwrap();
         let cover = instance.max_cover().unwrap();
         assert_eq!(total_quality(&cover), 19.0);
-        assert_eq!(cover.len(), 5);
+        assert_eq!(cover.len(), 4);
     }
 }
