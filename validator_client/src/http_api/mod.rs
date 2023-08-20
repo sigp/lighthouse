@@ -21,16 +21,14 @@ use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
 };
-use hyper::http::response;
-use hyper::Body;
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
-use ring::signature;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
+use std::convert;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -42,13 +40,11 @@ use task_executor::TaskExecutor;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
-use warp::http::response::Response as WarpResponse;
-use warp::reply::{Reply, Response};
-use warp::Rejection;
-
+use warp::reply::{Reply, Response as resp};
 use warp::{
     http::{
         header::{HeaderValue, CONTENT_TYPE},
+        response::Response,
         StatusCode,
     },
     sse::Event,
@@ -116,24 +112,6 @@ impl Default for Config {
     }
 }
 
-/// Convert a warp `Rejection` into a `Response`.
-///
-/// This function should *always* be used to convert rejections into responses. This prevents warp
-/// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
-pub async fn convert_rejection<T: Reply>(res: Result<T, warp::Rejection>) -> Response {
-    match res {
-        Ok(response) => response.into_response(),
-        Err(e) => match warp_utils::reject::handle_rejection(e).await {
-            Ok(reply) => reply.into_response(),
-            Err(_) => warp::reply::with_status(
-                warp::reply::json(&"unhandled error"),
-                eth2::StatusCode::INTERNAL_SERVER_ERROR,
-            )
-            .into_response(),
-        },
-    }
-}
-
 /// Creates a server that will serve requests using information from `ctx`.
 ///
 /// The server will shut down gracefully when the `shutdown` future resolves.
@@ -198,32 +176,32 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let signer = warp::any().map(move || signer.clone());
 
     let inner_validator_store = ctx.validator_store.clone();
-    let validator_store_filter = warp::any()
-        .map(move || inner_validator_store.clone())
-        .and_then(|validator_store: Option<_>| async move {
+    let validator_store_filter = warp::any().map(move || inner_validator_store.clone()).then(
+        |validator_store: Option<_>| async move {
             validator_store.ok_or_else(|| {
                 warp_utils::reject::custom_not_found(
                     "validator store is not initialized.".to_string(),
                 )
             })
-        });
+        },
+    );
 
     let inner_task_executor = ctx.task_executor.clone();
     let task_executor_filter = warp::any().map(move || inner_task_executor.clone());
 
     let inner_validator_dir = ctx.validator_dir.clone();
-    let validator_dir_filter = warp::any()
-        .map(move || inner_validator_dir.clone())
-        .and_then(|validator_dir: Option<_>| async move {
+    let validator_dir_filter = warp::any().map(move || inner_validator_dir.clone()).then(
+        |validator_dir: Option<_>| async move {
             validator_dir.ok_or_else(|| {
                 warp_utils::reject::custom_not_found(
                     "validator_dir directory is not initialized.".to_string(),
                 )
             })
-        });
+        },
+    );
 
     let inner_secrets_dir = ctx.secrets_dir.clone();
-    let secrets_dir_filter = warp::any().map(move || inner_secrets_dir.clone()).and_then(
+    let secrets_dir_filter = warp::any().map(move || inner_secrets_dir.clone()).then(
         |secrets_dir: Option<_>| async move {
             secrets_dir.ok_or_else(|| {
                 warp_utils::reject::custom_not_found(
@@ -1144,7 +1122,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("logs"))
         .and(warp::path::end())
         .and(sse_component_filter)
-        .and_then(|sse_component: Option<SSELoggingComponents>| {
+        .then(|sse_component: Option<SSELoggingComponents>| {
             warp_utils::task::blocking_task(move || {
                 if let Some(logging_components) = sse_component {
                     // Build a JSON stream
@@ -1247,20 +1225,53 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     Ok((listening_socket, server))
 }
 
+/// Convert a warp `Rejection` into a `Response`.
+///
+/// This function should *always* be used to convert rejections into responses. This prevents warp
+/// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
+pub async fn convert_with_header<T: Reply>(res: Result<T, warp::Rejection>) -> resp {
+    match res {
+        Ok(response) => {
+            // T Here
+            let mut response = match serde_json::to_vec(&func_output) {
+                Ok(body) => {
+                    let mut res = resp::new(body);
+                    res.headers_mut()
+                        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                    res
+                }
+                Err(_) => resp::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(vec![])
+                    .expect("can produce simple response from static values"),
+            };
+        }
+        Err(e) => match warp_utils::reject::handle_rejection(e).await {
+            Ok(reply) => reply.into_response(),
+            Err(_) => warp::reply::with_status(
+                warp::reply::json(&"unhandled error"),
+                eth2::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+            .into_response(),
+        },
+    }
+}
 /// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
 /// JSON-encodes the return value of `func`, using the `signer` function to produce a signature of
 /// those bytes.
-pub async fn blocking_signed_json_task<S, F, T>(signer: S, func: F) -> Response
+pub async fn blocking_signed_json_task<S, F, T>(
+    signer: S,
+    func: F,
+) -> Result<impl warp::Reply, warp::Rejection>
 where
     S: Fn(&[u8]) -> String,
-    F: FnOnce() -> Result<hyper::Response, warp::Rejection> + Send + 'static,
+    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
     T: Serialize + Send + 'static,
 {
     let result = warp_utils::task::blocking_task(func).await;
-    let response = convert_rejection(result).await;
+    let conversion = convert_rejection(result).await; // It handles the rejection
     let body: &Vec<u8> = response.body();
-    let signature = signature(body);
+    let signature = signer(body);
     let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
-    response.headers_mut().append("Signature", header_value);
-    response
+    result.headers_mut().append("Signature", header_value)
 }
