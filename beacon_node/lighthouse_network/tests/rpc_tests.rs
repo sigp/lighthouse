@@ -1,4 +1,8 @@
 #![cfg(test)]
+
+mod common;
+
+use common::Protocol;
 use lighthouse_network::rpc::methods::*;
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
 use slog::{debug, warn, Level};
@@ -13,8 +17,6 @@ use types::{
     Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock,
     Slot,
 };
-
-mod common;
 
 type E = MinimalEthSpec;
 
@@ -62,8 +64,14 @@ fn test_tcp_status_rpc() {
 
     rt.block_on(async {
         // get sender/receiver
-        let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
 
         // Dummy STATUS RPC message
         let rpc_request = Request::Status(StatusMessage {
@@ -156,8 +164,14 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
 
     rt.block_on(async {
         // get sender/receiver
-        let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge, &spec).await;
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Merge,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
@@ -282,8 +296,14 @@ fn test_tcp_blocks_by_range_over_limit() {
 
     rt.block_on(async {
         // get sender/receiver
-        let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge, &spec).await;
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Merge,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
@@ -366,8 +386,14 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
 
     rt.block_on(async {
         // get sender/receiver
-        let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
@@ -488,8 +514,14 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
 
     rt.block_on(async {
         // get sender/receiver
-        let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, 10));
@@ -589,8 +621,14 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
-        let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge, &spec).await;
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Merge,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
 
         // BlocksByRoot Request
         let rpc_request =
@@ -716,8 +754,14 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
-        let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
 
         // BlocksByRoot Request
         let rpc_request =
@@ -838,8 +882,8 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
 #[allow(clippy::single_match)]
 fn tcp_test_goodbye_rpc() {
     // set up the logging. The level and enabled logging or not
-    let log_level = Level::Trace;
-    let enable_logging = false;
+    let log_level = Level::Debug;
+    let enable_logging = true;
 
     let log = common::build_log(log_level, enable_logging);
 
@@ -849,8 +893,84 @@ fn tcp_test_goodbye_rpc() {
 
     // get sender/receiver
     rt.block_on(async {
-        let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
+
+        // build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        // Send a goodbye and disconnect
+                        debug!(log, "Sending RPC");
+                        sender.goodbye_peer(
+                            &peer_id,
+                            GoodbyeReason::IrrelevantNetwork,
+                            ReportSource::SyncService,
+                        );
+                    }
+                    NetworkEvent::PeerDisconnected(_) => {
+                        return;
+                    }
+                    _ => {} // Ignore other RPC messages
+                }
+            }
+        };
+
+        // build the receiver future
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::PeerDisconnected(_) => {
+                        // Should receive sent RPC request
+                        return;
+                    }
+                    _ => {} // Ignore other events
+                }
+            }
+        };
+
+        let total_future = futures::future::join(sender_future, receiver_future);
+
+        tokio::select! {
+            _ = total_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    })
+}
+
+// Tests a Goodbye RPC message
+#[test]
+#[allow(clippy::single_match)]
+fn quic_test_goodbye_rpc() {
+    // set up the logging. The level and enabled logging or not
+    let log_level = Level::Debug;
+    let enable_logging = true;
+
+    let log = common::build_log(log_level, enable_logging);
+
+    let rt = Arc::new(Runtime::new().unwrap());
+
+    let spec = E::default_spec();
+
+    // get sender/receiver
+    rt.block_on(async {
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            &spec,
+            Protocol::Quic,
+        )
+        .await;
 
         // build the sender future
         let sender_future = async {

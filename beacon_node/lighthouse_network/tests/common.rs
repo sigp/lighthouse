@@ -124,6 +124,12 @@ pub fn get_enr(node: &LibP2PService<ReqId, E>) -> Enr {
     node.local_enr()
 }
 
+// Protocol for the node pair connection.
+pub enum Protocol {
+    Tcp,
+    Quic,
+}
+
 // Constructs a pair of nodes with separate loggers. The sender dials the receiver.
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]
@@ -132,6 +138,7 @@ pub async fn build_node_pair(
     log: &slog::Logger,
     fork_name: ForkName,
     spec: &ChainSpec,
+    protocol: Protocol,
 ) -> (Libp2pInstance, Libp2pInstance) {
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
@@ -139,7 +146,20 @@ pub async fn build_node_pair(
     let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log, fork_name, spec).await;
     let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name, spec).await;
 
-    let receiver_multiaddr = receiver.local_enr().multiaddr()[2].clone();
+    let receiver_multiaddr = match protocol {
+        Protocol::Tcp => receiver
+            .local_enr()
+            .multiaddr_tcp()
+            .first()
+            .unwrap()
+            .clone(),
+        Protocol::Quic => receiver
+            .local_enr()
+            .multiaddr_quic()
+            .first()
+            .unwrap()
+            .clone(),
+    };
 
     // let the two nodes set up listeners
     let sender_fut = async {
