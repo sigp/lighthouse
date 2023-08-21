@@ -2,14 +2,18 @@ use serde::Serialize;
 use warp::reply::{Reply, Response};
 
 /// A convenience wrapper around `blocking_task`.
-pub async fn blocking_task<F, T>(func: F) -> Result<T, warp::Rejection>
+pub async fn blocking_task<F, T>(func: F) -> Result<Response, warp::Rejection>
 where
     F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
-    T: Send + 'static,
+    T: Reply + Send + 'static,
 {
-    tokio::task::spawn_blocking(func)
+    let result = tokio::task::spawn_blocking(func)
         .await
-        .unwrap_or_else(|_| Err(warp::reject::reject()))
+        .unwrap_or_else(|_| Err(warp::reject::reject()));
+    match result {
+        Ok(reply) => Ok(reply.into_response()),
+        Err(rejection) => Err(rejection),
+    }
 }
 
 /// A convenience wrapper around `blocking_task` that returns a `warp::reply::Response`.

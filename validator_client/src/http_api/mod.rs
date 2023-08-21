@@ -21,6 +21,8 @@ use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
 };
+use futures::future::ok;
+use hyper::body::to_bytes;
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
@@ -28,12 +30,12 @@ use serde::{Deserialize, Serialize};
 use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
-use std::convert;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::{convert, result};
 use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
@@ -41,6 +43,7 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::reply::{Reply, Response as resp};
+use warp::Rejection;
 use warp::{
     http::{
         header::{HeaderValue, CONTENT_TYPE},
@@ -270,8 +273,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .then(|signer| {
             blocking_signed_json_task(signer, move || {
                 Ok(api_types::GenericResponse::from(api_types::VersionData {
+                    // This will give me a response suppose to
                     version: version_with_platform(),
-                }))
+                })) // This will weturn
             })
         });
 
@@ -1232,19 +1236,15 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 pub async fn convert_with_header<T: Reply>(res: Result<T, warp::Rejection>) -> resp {
     match res {
         Ok(response) => {
-            // T Here
-            let mut response = match serde_json::to_vec(&func_output) {
-                Ok(body) => {
-                    let mut res = resp::new(body);
-                    res.headers_mut()
-                        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-                    res
-                }
-                Err(_) => resp::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(vec![])
-                    .expect("can produce simple response from static values"),
-            };
+            // Convert the Reply (T) directly into a Response
+            let mut res = response.into_response();
+
+            // Set the content-type header
+            res.headers_mut().insert(
+                warp::http::header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
+            res
         }
         Err(e) => match warp_utils::reject::handle_rejection(e).await {
             Ok(reply) => reply.into_response(),
@@ -1259,19 +1259,21 @@ pub async fn convert_with_header<T: Reply>(res: Result<T, warp::Rejection>) -> r
 /// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
 /// JSON-encodes the return value of `func`, using the `signer` function to produce a signature of
 /// those bytes.
-pub async fn blocking_signed_json_task<S, F, T>(
-    signer: S,
-    func: F,
-) -> Result<impl warp::Reply, warp::Rejection>
+pub async fn blocking_signed_json_task<S, F, T>(signer: S, func: F) -> resp
 where
     S: Fn(&[u8]) -> String,
     F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
-    T: Serialize + Send + 'static,
+    T: Serialize + Reply + Send + 'static, // Check the closure of ur FnOnce
 {
     let result = warp_utils::task::blocking_task(func).await;
-    let conversion = convert_rejection(result).await; // It handles the rejection
-    let body: &Vec<u8> = response.body();
-    let signature = signer(body);
+    let mut conversion = convert_with_header(result).await;
+    let body = conversion.body_mut();
+    let bytes = hyper::body::to_bytes(body)
+        .await
+        .expect("Failed to read body");
+    let body_vec = bytes.to_vec();
+    let signature = signer(&body_vec);
     let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
-    result.headers_mut().append("Signature", header_value)
+    conversion.headers_mut().append("Signature", header_value);
+    conversion
 }
