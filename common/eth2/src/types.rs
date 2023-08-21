@@ -1311,6 +1311,11 @@ pub struct BroadcastValidationQuery {
     pub broadcast_validation: BroadcastValidation,
 }
 
+pub enum ForkVersionedBeaconBlockType<T: EthSpec> {
+    Full(ForkVersionedResponse<BeaconBlock<T, FullPayload<T>>>),
+    Blinded(ForkVersionedResponse<BeaconBlock<T, BlindedPayload<T>>>)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

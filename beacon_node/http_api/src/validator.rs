@@ -121,7 +121,7 @@ pub async fn determine_and_produce_block_json<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
-
+    println!("lets try to fetch");
     match chain
         .determine_and_produce_block_with_verification(
             randao_reveal,
@@ -130,9 +130,15 @@ pub async fn determine_and_produce_block_json<T: BeaconChainTypes>(
             randao_verification,
         )
         .await
-        .unwrap()
+        .map_err(|e| {
+            warp_utils::reject::custom_bad_request(format!(
+                "faield to fetch a block: {:?}",
+                e
+            ))
+        })?
     {
         BeaconBlockAndStateResponse::Full((block, _)) => {
+            println!("full");
             let fork_name = block
                 .to_ref()
                 .fork_name(&chain.spec)
@@ -146,6 +152,7 @@ pub async fn determine_and_produce_block_json<T: BeaconChainTypes>(
             // TODO
         }
         BeaconBlockAndStateResponse::Blinded((block, _)) => {
+            println!("blinded");
             let fork_name = block
                 .to_ref()
                 .fork_name(&chain.spec)
@@ -184,7 +191,12 @@ pub async fn determine_and_produce_block_ssz<T: BeaconChainTypes>(
             randao_verification,
         )
         .await
-        .unwrap()
+        .map_err(|e| {
+            warp_utils::reject::custom_bad_request(format!(
+                "faield to fetch a block: {:?}",
+                e
+            ))
+        })?
     {
         BeaconBlockAndStateResponse::Full((block, _)) => {
             let fork_name = block

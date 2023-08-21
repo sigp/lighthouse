@@ -118,6 +118,7 @@ impl From<ApiError> for Error {
     }
 }
 
+
 pub enum BlockProposalContentsType<E: EthSpec> {
     Full(BlockProposalContents<E, FullPayload<E>>),
     Blinded(BlockProposalContents<E, BlindedPayload<E>>),
@@ -800,7 +801,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         if let Some(builder) = self.builder() {
             let slot = builder_params.slot;
             let pubkey = builder_params.pubkey;
-
             match builder_params.chain_health {
                 ChainHealth::Healthy => {
                     info!(

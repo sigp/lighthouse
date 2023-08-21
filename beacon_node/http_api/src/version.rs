@@ -18,7 +18,7 @@ pub fn fork_versioned_response<T: Serialize>(
 ) -> Result<ForkVersionedResponse<T>, warp::reject::Rejection> {
     let fork_name = if endpoint_version == V1 {
         None
-    } else if endpoint_version == V2 {
+    } else if endpoint_version == V2 || endpoint_version == V3 {
         Some(fork_name)
     } else {
         return Err(unsupported_version_rejection(endpoint_version));

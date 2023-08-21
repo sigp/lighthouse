@@ -38,10 +38,13 @@ use store::fork_versioned_response::ExecutionOptimisticFinalizedForkVersionedRes
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
+pub const V3: EndpointVersion = EndpointVersion(3);
 
 pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 pub const EXECUTION_PAYLOAD_BLINDED_HEADER: &str = "Eth-Execution-Payload-Blinded";
 pub const EXECUTION_PAYLOAD_VALUE_HEADER: &str = "Eth-Execution-Payload-Value";
+
+
 
 #[derive(Debug)]
 pub enum Error {
@@ -1613,6 +1616,63 @@ impl BeaconNodeHttpClient {
         }
 
         self.get(path).await
+    }
+
+    /// `GET v3/validator/blocks/{slot}`
+    pub async fn get_validator_blocks_v3<T: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+    ) -> Result<ForkVersionedBeaconBlockType<T>, Error> {
+        self.get_validator_blocks_v3_modular(slot, randao_reveal, graffiti, SkipRandaoVerification::No)
+            .await
+    } 
+
+    /// `GET v3/validator/blocks/{slot}`
+    pub async fn get_validator_blocks_v3_modular<T: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+    ) -> Result<ForkVersionedBeaconBlockType<T>, Error> {
+        let mut path = self.eth_path(V3)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("blocks")
+            .push(&slot.to_string());
+
+        path.query_pairs_mut()
+            .append_pair("randao_reveal", &randao_reveal.to_string());
+
+        if let Some(graffiti) = graffiti {
+            path.query_pairs_mut()
+                .append_pair("graffiti", &graffiti.to_string());
+        }
+
+        if skip_randao_verification == SkipRandaoVerification::Yes {
+            path.query_pairs_mut()
+                .append_pair("skip_randao_verification", "");
+        }
+
+        println!("before");
+
+        let response = self.get_response(path, |b| b).await?;
+
+        println!("after");
+
+        if let Some(header_value) = response.headers().get(EXECUTION_PAYLOAD_BLINDED_HEADER) {
+            if header_value.eq("true") {
+                let blinded_payload = response.json::<ForkVersionedResponse<BeaconBlock<T, BlindedPayload<T>>>>().await?;
+                return Ok(ForkVersionedBeaconBlockType::Blinded(blinded_payload))
+            }
+        };
+        
+        let full_payload = response.json::<ForkVersionedResponse<BeaconBlock<T, FullPayload<T>>>>().await?;
+        Ok(ForkVersionedBeaconBlockType::Full(full_payload))
     }
 
     /// `GET v2/validator/blinded_blocks/{slot}`
