@@ -24,7 +24,6 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
-use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
@@ -1790,7 +1789,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             return Ok(None);
         };
 
-        let convert_transactions = |transactions: Vec<TransactionSigned>| {
+        let convert_transactions = |transactions: Vec<EthersTransaction>| {
             VariableList::new(
                 transactions
                     .into_iter()
