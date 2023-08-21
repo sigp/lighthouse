@@ -61,7 +61,7 @@ pub enum Error {
     IncorrectStateVariant,
     RequiredMethodUnsupported(&'static str),
     UnsupportedForkVariant(String),
-    RlpDecoderError(reth_rlp::DecodeError),
+    RlpDecoderError(rlp::DecoderError),
 }
 
 impl From<reqwest::Error> for Error {

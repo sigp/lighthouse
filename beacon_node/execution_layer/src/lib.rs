@@ -15,11 +15,11 @@ use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
 use eth2::types::{FullPayloadContents, SignedBlockContents};
+use ethers_core::types::Transaction as EthersTransaction;
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
-use reth_primitives::TransactionSigned;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -1794,12 +1794,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             VariableList::new(
                 transactions
                     .into_iter()
-                    .map(|tx| {
-                        let size = min(tx.size(), T::max_bytes_per_transaction());
-                        let mut buf = Vec::with_capacity(size);
-                        tx.encode_enveloped(&mut buf);
-                        VariableList::new(buf)
-                    })
+                    .map(|tx| VariableList::new(tx.rlp().to_vec()))
                     .collect::<Result<Vec<_>, ssz_types::Error>>()?,
             )
             .map_err(ApiError::SszError)
