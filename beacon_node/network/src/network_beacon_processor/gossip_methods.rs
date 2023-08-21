@@ -765,7 +765,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(e @ BlockError::FutureSlot { .. })
             | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
-            | Err(e @ BlockError::BlockIsAlreadyKnown)
+            | Err(e @ BlockError::BlockIsAlreadyKnownValid)
+            | Err(e @ BlockError::BlockIsAlreadyKnownProcessingOrInvalid)
             | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
                 debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);
@@ -793,6 +794,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::PerBlockProcessingError(_))
             | Err(e @ BlockError::NonLinearParentRoots)
             | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
+            | Err(e @ BlockError::BlockIsAlreadyKnownInvalid)
             | Err(e @ BlockError::InvalidSignature)
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))

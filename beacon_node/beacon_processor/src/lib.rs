@@ -39,8 +39,9 @@
 //! task.
 
 use crate::work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedBackfillBatch, QueuedGossipBlock,
-    QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork, ReprocessQueueMessage,
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedBackfillBatch, QueuedDuplicateBlock,
+    QueuedGossipBlock, QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
+    ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -105,6 +106,9 @@ const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
 /// The maximum number of queued `SignedBeaconBlock` objects received prior to their slot (but
 /// within acceptable clock disparity) that will be queued before we start dropping them.
 const MAX_DELAYED_BLOCK_QUEUE_LEN: usize = 1_024;
+
+/// The maxmimum number of handlers for duplicate blocks to queue.
+const MAX_DUPLICATE_BLOCK_QUEUE_LEN: usize = 32;
 
 /// The maximum number of queued `SignedVoluntaryExit` objects received on gossip that will be stored
 /// before we start dropping them.
@@ -205,6 +209,7 @@ pub const GOSSIP_AGGREGATE: &str = "gossip_aggregate";
 pub const GOSSIP_AGGREGATE_BATCH: &str = "gossip_aggregate_batch";
 pub const GOSSIP_BLOCK: &str = "gossip_block";
 pub const DELAYED_IMPORT_BLOCK: &str = "delayed_import_block";
+pub const DUPLICATE_BLOCK: &str = "duplicate_block";
 pub const GOSSIP_VOLUNTARY_EXIT: &str = "gossip_voluntary_exit";
 pub const GOSSIP_PROPOSER_SLASHING: &str = "gossip_proposer_slashing";
 pub const GOSSIP_ATTESTER_SLASHING: &str = "gossip_attester_slashing";
@@ -270,6 +275,13 @@ impl<E: EthSpec> BeaconProcessorChannels<E> {
             beacon_processor_rx,
             work_reprocessing_rx,
             work_reprocessing_tx,
+        }
+    }
+
+    pub fn senders(&self) -> BeaconProcessorSenders<E> {
+        BeaconProcessorSenders {
+            beacon_processor_tx: self.beacon_processor_tx.clone(),
+            work_reprocessing_tx: self.work_reprocessing_tx.clone(),
         }
     }
 }
@@ -482,6 +494,16 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                 drop_during_sync: false,
                 work: Work::ChainSegmentBackfill(process_fn),
             },
+            ReadyWork::DuplicateBlock(QueuedDuplicateBlock {
+                beacon_block_root,
+                process_fn,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::DuplicateBlock {
+                    beacon_block_root,
+                    process_fn,
+                },
+            },
         }
     }
 }
@@ -505,6 +527,12 @@ pub struct GossipAggregatePackage<E: EthSpec> {
     pub aggregate: Box<SignedAggregateAndProof<E>>,
     pub beacon_block_root: Hash256,
     pub seen_timestamp: Duration,
+}
+
+#[derive(Clone)]
+pub struct BeaconProcessorSenders<E: EthSpec> {
+    pub beacon_processor_tx: BeaconProcessorSend<E>,
+    pub work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
 }
 
 #[derive(Clone)]
@@ -571,6 +599,10 @@ pub enum Work<E: EthSpec> {
         beacon_block_root: Hash256,
         process_fn: AsyncFn,
     },
+    DuplicateBlock {
+        beacon_block_root: Hash256,
+        process_fn: AsyncFn,
+    },
     GossipVoluntaryExit(BlockingFn),
     GossipProposerSlashing(BlockingFn),
     GossipAttesterSlashing(BlockingFn),
@@ -611,6 +643,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAggregateBatch { .. } => GOSSIP_AGGREGATE_BATCH,
             Work::GossipBlock(_) => GOSSIP_BLOCK,
             Work::DelayedImportBlock { .. } => DELAYED_IMPORT_BLOCK,
+            Work::DuplicateBlock { .. } => DUPLICATE_BLOCK,
             Work::GossipVoluntaryExit(_) => GOSSIP_VOLUNTARY_EXIT,
             Work::GossipProposerSlashing(_) => GOSSIP_PROPOSER_SLASHING,
             Work::GossipAttesterSlashing(_) => GOSSIP_ATTESTER_SLASHING,
@@ -776,6 +809,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut backfill_chain_segment = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
         let mut delayed_block_queue = FifoQueue::new(MAX_DELAYED_BLOCK_QUEUE_LEN);
+        let mut duplicate_block_queue = FifoQueue::new(MAX_DUPLICATE_BLOCK_QUEUE_LEN);
 
         let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
@@ -923,6 +957,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // Check gossip blocks before gossip attestations, since a block might be
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        // Check duplicate block notifiers before API requests. They should be
+                        // very infrequent and quick to process.
+                        } else if let Some(item) = duplicate_block_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         // Check the priority 0 API requests after blocks, but before attestations.
                         } else if let Some(item) = api_request_p0_queue.pop() {
@@ -1162,6 +1200,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::DelayedImportBlock { .. } => {
                                 delayed_block_queue.push(work, work_id, &self.log)
                             }
+                            Work::DuplicateBlock { .. } => {
+                                duplicate_block_queue.push(work, work_id, &self.log)
+                            }
                             Work::GossipVoluntaryExit { .. } => {
                                 gossip_voluntary_exit_queue.push(work, work_id, &self.log)
                             }
@@ -1389,6 +1430,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 beacon_block_root: _,
                 process_fn,
             } => task_spawner.spawn_async(process_fn),
+            Work::DuplicateBlock { process_fn, .. } => task_spawner.spawn_async(process_fn),
             Work::RpcBlock { process_fn } => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work) => task_spawner.spawn_async(async move {

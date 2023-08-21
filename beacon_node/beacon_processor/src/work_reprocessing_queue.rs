@@ -50,6 +50,9 @@ pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
 /// For how long to queue rpc blocks before sending them back for reprocessing.
 pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(4);
 
+/// For how long to queue duplicate blocks awaiting a response before giving up.
+pub const QUEUED_DUPLICATE_BLOCK_DELAY: Duration = Duration::from_secs(2);
+
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
 /// it's nice to have extra protection.
@@ -60,6 +63,9 @@ const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
 
 /// How many light client updates we keep before new ones get dropped.
 const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
+
+/// How many duplicate HTTP blocks to queue before new ones get dropped.
+const MAXIMUM_QUEUED_DUPLICATE_BLOCKS: usize = 32;
 
 // Process backfill batch 50%, 60%, 80% through each slot.
 //
@@ -96,6 +102,10 @@ pub enum ReprocessQueueMessage {
     UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate),
     /// A new backfill batch that needs to be scheduled for processing.
     BackfillSync(QueuedBackfillBatch),
+    /// A block was imported by the HTTP API which was identical to one already being processed.
+    ///
+    /// Send a response to the API handler once the block finishes import, or times out.
+    DuplicateBlock(QueuedDuplicateBlock),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
@@ -107,6 +117,7 @@ pub enum ReadyWork {
     Aggregate(QueuedAggregate),
     LightClientUpdate(QueuedLightClientUpdate),
     BackfillSync(QueuedBackfillBatch),
+    DuplicateBlock(QueuedDuplicateBlock),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -152,6 +163,12 @@ pub struct QueuedRpcBlock {
 pub struct IgnoredRpcBlock {
     pub process_fn: BlockingFn,
 }
+
+pub struct QueuedDuplicateBlock {
+    pub beacon_block_root: Hash256,
+    pub process_fn: AsyncFn,
+}
+pub type QueuedDuplicateBlockId = usize;
 
 /// A backfill batch work that has been queued for processing later.
 pub struct QueuedBackfillBatch(pub AsyncFn);
@@ -214,6 +231,8 @@ struct ReprocessQueue<S> {
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
     /// Queue to manage scheduled light client updates.
     lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
+    /// Queue to manage duplicate HTTP block updates.
+    duplicate_block_delay_queue: DelayQueue<QueuedDuplicateBlockId>,
 
     /* Queued items */
     /// Queued blocks.
@@ -230,11 +249,14 @@ struct ReprocessQueue<S> {
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
     /// Queued backfill batches
     queued_backfill_batches: Vec<QueuedBackfillBatch>,
+    queued_duplicate_blocks: FnvHashMap<usize, (QueuedDuplicateBlock, DelayKey)>,
+    awaiting_duplicate_blocks_per_root: HashMap<Hash256, Vec<QueuedDuplicateBlockId>>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
     next_lc_update: usize,
+    next_duplicate_block_id: usize,
     early_block_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
@@ -374,15 +396,19 @@ pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
         rpc_block_delay_queue: DelayQueue::new(),
         attestations_delay_queue: DelayQueue::new(),
         lc_updates_delay_queue: DelayQueue::new(),
+        duplicate_block_delay_queue: DelayQueue::new(),
         queued_gossip_block_roots: HashSet::new(),
         queued_lc_updates: FnvHashMap::default(),
         queued_aggregates: FnvHashMap::default(),
         queued_unaggregates: FnvHashMap::default(),
+        queued_duplicate_blocks: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
         awaiting_lc_updates_per_parent_root: HashMap::new(),
+        awaiting_duplicate_blocks_per_root: HashMap::new(),
         queued_backfill_batches: Vec::new(),
         next_attestation: 0,
         next_lc_update: 0,
+        next_duplicate_block_id: 0,
         early_block_debounce: TimeLatch::default(),
         rpc_block_debounce: TimeLatch::default(),
         attestation_delay_debounce: TimeLatch::default(),
@@ -627,6 +653,34 @@ impl<S: SlotClock> ReprocessQueue<S> {
 
                 self.next_lc_update += 1;
             }
+            InboundEvent::Msg(DuplicateBlock(queued_duplicate_block)) => {
+                if self.duplicate_block_delay_queue.len() >= MAXIMUM_QUEUED_DUPLICATE_BLOCKS {
+                    warn!(
+                        log,
+                        "Duplicate block delay queue is full";
+                        "queue_size" => MAXIMUM_QUEUED_DUPLICATE_BLOCKS,
+                    );
+                    return;
+                }
+
+                let queued_block_id = self.next_duplicate_block_id;
+                self.next_duplicate_block_id += 1;
+
+                // Register the delay.
+                let delay_key = self
+                    .duplicate_block_delay_queue
+                    .insert(queued_block_id, QUEUED_DUPLICATE_BLOCK_DELAY);
+
+                // Register this block for the corresponding root.
+                self.awaiting_duplicate_blocks_per_root
+                    .entry(queued_duplicate_block.beacon_block_root)
+                    .or_default()
+                    .push(queued_block_id);
+
+                // Store the duplicate block handler's info.
+                self.queued_duplicate_blocks
+                    .insert(queued_block_id, (queued_duplicate_block, delay_key));
+            }
             InboundEvent::Msg(BlockImported {
                 block_root,
                 parent_root,
@@ -734,6 +788,44 @@ impl<S: SlotClock> ReprocessQueue<S> {
                                 "Unknown queued light client update for parent root";
                                 "parent_root" => ?parent_root,
                                 "lc_id" => ?lc_id,
+                            );
+                        }
+                    }
+                }
+                // Unqueue the duplicate blocks awaiting this block import, if any.
+                if let Some(queued_block_ids) =
+                    self.awaiting_duplicate_blocks_per_root.remove(&block_root)
+                {
+                    debug!(
+                        log,
+                        "Dequeuing duplicate block handlers";
+                        "root" => %block_root,
+                        "count" => queued_block_ids.len(),
+                    );
+                    for queued_block_id in queued_block_ids {
+                        if let Some((queued_block, delay_key)) =
+                            self.queued_duplicate_blocks.remove(&queued_block_id)
+                        {
+                            // Remove the delay
+                            self.duplicate_block_delay_queue.remove(&delay_key);
+
+                            // Send the work
+                            if self
+                                .ready_work_tx
+                                .try_send(ReadyWork::DuplicateBlock(queued_block))
+                                .is_err()
+                            {
+                                error!(
+                                    log,
+                                    "Failed to send scheduled duplicate block work";
+                                );
+                            }
+                        } else {
+                            error!(
+                                log,
+                                "Unknown queued duplicate block ID for root";
+                                "root" => ?block_root,
+                                "queued_block_id" => queued_block_id,
                             );
                         }
                     }

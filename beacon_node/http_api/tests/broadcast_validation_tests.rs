@@ -368,6 +368,7 @@ pub async fn consensus_partial_pass_only_consensus() {
         None,
         ProvenancedBlock::local(gossip_block_b.unwrap()),
         tester.harness.chain.clone(),
+        tester.ctx.beacon_processor_senders.clone().unwrap(),
         &channel.0,
         test_logger,
         validation_level.unwrap(),
@@ -645,6 +646,7 @@ pub async fn equivocation_consensus_late_equivocation() {
         None,
         ProvenancedBlock::local(gossip_block_b.unwrap()),
         tester.harness.chain,
+        tester.ctx.beacon_processor_senders.clone().unwrap(),
         &channel.0,
         test_logger,
         validation_level.unwrap(),
@@ -1297,6 +1299,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     let publication_result: Result<(), Rejection> = publish_blinded_block(
         block_b,
         tester.harness.chain,
+        tester.ctx.beacon_processor_senders.clone().unwrap(),
         &channel.0,
         test_logger,
         validation_level.unwrap(),

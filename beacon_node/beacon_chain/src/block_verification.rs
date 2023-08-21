@@ -181,7 +181,11 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The block is valid and we have already imported a block with this hash.
-    BlockIsAlreadyKnown,
+    BlockIsAlreadyKnownValid,
+    /// Block is already known and is known to be invalid.
+    BlockIsAlreadyKnownInvalid,
+    /// Block is already known but may still be undergoing processing. It could be invalid.
+    BlockIsAlreadyKnownProcessingOrInvalid,
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     ///
     /// ## Peer scoring
@@ -749,17 +753,18 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         // Check if the block is already known. We know it is post-finalization, so it is
         // sufficient to check the fork choice.
-        //
-        // In normal operation this isn't necessary, however it is useful immediately after a
-        // reboot if the `observed_block_producers` cache is empty. In that case, without this
-        // check, we will load the parent and state from disk only to find out later that we
-        // already know this block.
-        if chain
+        if let Some(execution_status) = chain
             .canonical_head
             .fork_choice_read_lock()
-            .contains_block(&block_root)
+            .get_block_execution_status(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown);
+            if execution_status.is_valid_or_irrelevant() {
+                return Err(BlockError::BlockIsAlreadyKnownValid);
+            } else if execution_status.is_invalid() {
+                return Err(BlockError::BlockIsAlreadyKnownInvalid);
+            } else {
+                return Err(BlockError::BlockIsAlreadyKnownProcessingOrInvalid);
+            }
         }
 
         // Do not process a block that doesn't descend from the finalized root.
@@ -884,7 +889,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
             SeenBlock::Slashable => return Err(BlockError::Slashable),
-            SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown),
+            SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnownProcessingOrInvalid),
             SeenBlock::UniqueNonSlashable => {}
         };
 
@@ -1625,12 +1630,18 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
 
     // Check if the block is already known. We know it is post-finalization, so it is
     // sufficient to check the fork choice.
-    if chain
+    if let Some(execution_status) = chain
         .canonical_head
         .fork_choice_read_lock()
-        .contains_block(&block_root)
+        .get_block_execution_status(&block_root)
     {
-        return Err(BlockError::BlockIsAlreadyKnown);
+        if execution_status.is_valid_or_irrelevant() {
+            return Err(BlockError::BlockIsAlreadyKnownValid);
+        } else if execution_status.is_invalid() {
+            return Err(BlockError::BlockIsAlreadyKnownInvalid);
+        } else {
+            return Err(BlockError::BlockIsAlreadyKnownProcessingOrInvalid);
+        }
     }
 
     Ok(block_root)

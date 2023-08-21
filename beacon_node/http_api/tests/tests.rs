@@ -231,6 +231,7 @@ impl ApiTester {
 
         let ApiServer {
             server,
+            ctx: _,
             listening_socket: _,
             network_rx,
             local_enr,
@@ -315,6 +316,7 @@ impl ApiTester {
 
         let ApiServer {
             server,
+            ctx: _,
             listening_socket,
             network_rx,
             local_enr,

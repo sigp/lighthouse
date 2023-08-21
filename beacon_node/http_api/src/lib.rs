@@ -30,7 +30,7 @@ use beacon_chain::{
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
-use beacon_processor::BeaconProcessorSend;
+use beacon_processor::BeaconProcessorSenders;
 pub use block_id::BlockId;
 use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
@@ -118,7 +118,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub chain: Option<Arc<BeaconChain<T>>>,
     pub network_senders: Option<NetworkSenders<T::EthSpec>>,
     pub network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
-    pub beacon_processor_send: Option<BeaconProcessorSend<T::EthSpec>>,
+    pub beacon_processor_senders: Option<BeaconProcessorSenders<T::EthSpec>>,
     pub eth1_service: Option<eth1::Service>,
     pub sse_logging_components: Option<SSELoggingComponents>,
     pub log: Logger,
@@ -500,13 +500,25 @@ pub fn serve<T: BeaconChainTypes>(
     let app_start = std::time::Instant::now();
     let app_start_filter = warp::any().map(move || app_start);
 
+    let beacon_processor_senders = ctx.beacon_processor_senders.clone();
+    let beacon_processor_senders_filter = warp::any()
+        .map(move || beacon_processor_senders.clone())
+        .and_then(|beacon_processor_senders: Option<_>| async move {
+            beacon_processor_senders.clone().ok_or_else(|| {
+                warp_utils::reject::custom_server_error(
+                    "beacon processor senders not initialized".into(),
+                )
+            })
+        });
+
     // Create a `warp` filter that provides access to the `TaskSpawner`.
-    let beacon_processor_send = ctx
-        .beacon_processor_send
-        .clone()
+    let beacon_processor_tx = ctx
+        .beacon_processor_senders
+        .as_ref()
+        .map(|senders| senders.beacon_processor_tx.clone())
         .filter(|_| config.enable_beacon_processor);
     let task_spawner_filter =
-        warp::any().map(move || TaskSpawner::new(beacon_processor_send.clone()));
+        warp::any().map(move || TaskSpawner::new(beacon_processor_tx.clone()));
 
     /*
      *
@@ -1279,12 +1291,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
+        .and(beacon_processor_senders_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
             |block: Arc<SignedBeaconBlock<T::EthSpec>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
+             beacon_processor_senders: BeaconProcessorSenders<T::EthSpec>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
@@ -1292,6 +1306,7 @@ pub fn serve<T: BeaconChainTypes>(
                         None,
                         ProvenancedBlock::local(block),
                         chain,
+                        beacon_processor_senders,
                         &network_tx,
                         log,
                         BroadcastValidation::default(),
@@ -1309,12 +1324,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::bytes())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
+        .and(beacon_processor_senders_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
             |block_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
+             beacon_processor_senders: BeaconProcessorSenders<T::EthSpec>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
@@ -1329,6 +1346,7 @@ pub fn serve<T: BeaconChainTypes>(
                         None,
                         ProvenancedBlock::local(Arc::new(block)),
                         chain,
+                        beacon_processor_senders,
                         &network_tx,
                         log,
                         BroadcastValidation::default(),
@@ -1347,6 +1365,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
+        .and(beacon_processor_senders_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
@@ -1354,6 +1373,7 @@ pub fn serve<T: BeaconChainTypes>(
              block: Arc<SignedBeaconBlock<T::EthSpec>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
+             beacon_processor_senders: BeaconProcessorSenders<T::EthSpec>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
@@ -1361,6 +1381,7 @@ pub fn serve<T: BeaconChainTypes>(
                         None,
                         ProvenancedBlock::local(block),
                         chain,
+                        beacon_processor_senders,
                         &network_tx,
                         log,
                         validation_level.broadcast_validation,
@@ -1379,6 +1400,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::bytes())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
+        .and(beacon_processor_senders_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
@@ -1386,6 +1408,7 @@ pub fn serve<T: BeaconChainTypes>(
              block_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
+             beacon_processor_senders: BeaconProcessorSenders<T::EthSpec>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
@@ -1400,6 +1423,7 @@ pub fn serve<T: BeaconChainTypes>(
                         None,
                         ProvenancedBlock::local(Arc::new(block)),
                         chain,
+                        beacon_processor_senders,
                         &network_tx,
                         log,
                         validation_level.broadcast_validation,
@@ -1422,18 +1446,21 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
+        .and(beacon_processor_senders_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
             |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
+             beacon_processor_senders: BeaconProcessorSenders<T::EthSpec>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
                         block,
                         chain,
+                        beacon_processor_senders,
                         &network_tx,
                         log,
                         BroadcastValidation::default(),
@@ -1452,12 +1479,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::bytes())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
+        .and(beacon_processor_senders_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
             |block_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
+             beacon_processor_senders: BeaconProcessorSenders<T::EthSpec>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
@@ -1471,6 +1500,7 @@ pub fn serve<T: BeaconChainTypes>(
                     publish_blocks::publish_blinded_block(
                         block,
                         chain,
+                        beacon_processor_senders,
                         &network_tx,
                         log,
                         BroadcastValidation::default(),
@@ -1489,6 +1519,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
+        .and(beacon_processor_senders_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
@@ -1496,12 +1527,14 @@ pub fn serve<T: BeaconChainTypes>(
              block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
+             beacon_processor_senders: BeaconProcessorSenders<T::EthSpec>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 task_spawner.spawn_async(Priority::P0, async move {
                     match publish_blocks::publish_blinded_block(
                         block,
                         chain,
+                        beacon_processor_senders,
                         &network_tx,
                         log,
                         validation_level.broadcast_validation,
@@ -1530,12 +1563,14 @@ pub fn serve<T: BeaconChainTypes>(
             .and(warp::path::end())
             .and(warp::body::bytes())
             .and(chain_filter.clone())
+            .and(beacon_processor_senders_filter.clone())
             .and(network_tx_filter.clone())
             .and(log_filter.clone())
             .then(
                 |validation_level: api_types::BroadcastValidationQuery,
                  block_bytes: Bytes,
                  chain: Arc<BeaconChain<T>>,
+                 beacon_processor_senders: BeaconProcessorSenders<T::EthSpec>,
                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                  log: Logger| async move {
                     let block =
@@ -1555,6 +1590,7 @@ pub fn serve<T: BeaconChainTypes>(
                     match publish_blocks::publish_blinded_block(
                         block,
                         chain,
+                        beacon_processor_senders,
                         &network_tx,
                         log,
                         validation_level.broadcast_validation,

@@ -448,7 +448,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessResult::Err(e) => {
                 trace!(self.log, "Single block processing failed"; "block" => %root, "error" => %e);
                 match e {
-                    BlockError::BlockIsAlreadyKnown => {
+                    BlockError::BlockIsAlreadyKnownValid
+                    | BlockError::BlockIsAlreadyKnownProcessingOrInvalid => {
                         // No error here
                     }
                     BlockError::BeaconChainError(e) => {
@@ -540,7 +541,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.request_parent(parent_lookup, cx);
             }
             BlockProcessResult::Ok
-            | BlockProcessResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
+            | BlockProcessResult::Err(BlockError::BlockIsAlreadyKnownValid) => {
                 // Check if the beacon processor is available
                 let beacon_processor = match cx.beacon_processor_if_enabled() {
                     Some(beacon_processor) => beacon_processor,

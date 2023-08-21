@@ -4,6 +4,10 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, IntoGossipVerifiedBlock,
     NotifyExecutionLayer,
 };
+use beacon_processor::{
+    work_reprocessing_queue::{QueuedDuplicateBlock, ReprocessQueueMessage},
+    BeaconProcessorSenders,
+};
 use eth2::types::BroadcastValidation;
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
@@ -44,6 +48,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     block_root: Option<Hash256>,
     provenanced_block: ProvenancedBlock<T, B>,
     chain: Arc<BeaconChain<T>>,
+    beacon_processor_senders: BeaconProcessorSenders<T::EthSpec>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
     validation_level: BroadcastValidation,
@@ -75,10 +80,67 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     };
 
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
-    let gossip_verified_block = block.into_gossip_verified_block(&chain).map_err(|e| {
-        warn!(log, "Not publishing block, not gossip verified"; "slot" => beacon_block.slot(), "error" => ?e);
-        warp_utils::reject::custom_bad_request(e.to_string())
-    })?;
+    let gossip_verified_block = match block.into_gossip_verified_block(&chain) {
+        Ok(block) => block,
+        Err(BlockError::BlockIsAlreadyKnownValid) => {
+            // Block is valid and already fully imported. Return 200 OK.
+            return Ok(());
+        }
+        Err(BlockError::BlockIsAlreadyKnownProcessingOrInvalid) => {
+            // FIXME(sproul): factor this into its own function
+            // Wait up to 2 seconds for a block to be imported.
+            let beacon_block_root = block_root.unwrap_or_else(|| beacon_block.canonical_root());
+            let (block_import_tx, block_import_rx) = tokio::sync::oneshot::channel();
+            let queue_result = beacon_processor_senders.work_reprocessing_tx.try_send(
+                ReprocessQueueMessage::DuplicateBlock(QueuedDuplicateBlock {
+                    beacon_block_root,
+                    process_fn: Box::pin(async move {
+                        let _ = block_import_tx.send(());
+                    }),
+                }),
+            );
+
+            if queue_result.is_err() {
+                return Err(warp_utils::reject::custom_server_error(
+                    "unable to queue notifier for duplicate block import".into(),
+                ));
+            }
+
+            match block_import_rx.await {
+                Ok(()) => {
+                    // Valid block was imported.
+                    debug!(
+                        log,
+                        "HTTP block successfully imported from another source";
+                        "slot" => beacon_block.slot(),
+                        "block_root" => ?beacon_block_root,
+                    );
+                    return Ok(());
+                }
+                Err(_) => {
+                    warn!(
+                        log,
+                        "Timed out waiting for duplicate block import";
+                        "msg" => "returning an HTTP 400 because block could be invalid",
+                        "slot" => beacon_block.slot(),
+                        "block_root" => ?beacon_block_root,
+                    );
+                    return Err(warp_utils::reject::custom_bad_request(
+                        "duplicate block of unknown validity".into(),
+                    ));
+                }
+            }
+        }
+        Err(e) => {
+            warn!(
+                log,
+                "Not publishing block - gossip verification failed";
+                "slot" => beacon_block.slot(),
+                "error" => ?e
+            );
+            return Err(warp_utils::reject::custom_bad_request(e.to_string()));
+        }
+    };
 
     let block_root = block_root.unwrap_or(gossip_verified_block.block_root);
 
@@ -178,7 +240,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         Err(BlockError::Slashable) => Err(warp_utils::reject::custom_bad_request(
             "proposal for this slot and proposer has already been seen".to_string(),
         )),
-        Err(BlockError::BlockIsAlreadyKnown) => {
+        Err(BlockError::BlockIsAlreadyKnownValid) => {
             info!(log, "Block from HTTP API already known"; "block" => ?block_root);
             Ok(())
         }
@@ -205,6 +267,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
+    beacon_processor_senders: BeaconProcessorSenders<T::EthSpec>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
     validation_level: BroadcastValidation,
@@ -216,6 +279,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
         Some(block_root),
         full_block,
         chain,
+        beacon_processor_senders,
         network_tx,
         log,
         validation_level,
