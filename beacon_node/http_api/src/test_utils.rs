@@ -184,7 +184,14 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let eth1_service =
         eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone()).unwrap();
 
-    let beacon_processor_config = BeaconProcessorConfig::default();
+    let beacon_processor_config = BeaconProcessorConfig {
+        // The number of workers must be greater than one. Tests which use the
+        // builder workflow sometimes require an internal HTTP request in order
+        // to fulfill an already in-flight HTTP request, therefore having only
+        // one worker will result in a deadlock.
+        max_workers: 2,
+        ..BeaconProcessorConfig::default()
+    };
     let BeaconProcessorChannels {
         beacon_processor_tx,
         beacon_processor_rx,
@@ -196,11 +203,6 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     BeaconProcessor {
         network_globals: network_globals.clone(),
         executor: test_runtime.task_executor.clone(),
-        // The number of workers must be greater than one. Tests which use the
-        // builder workflow sometimes require an internal HTTP request in order
-        // to fulfill an already in-flight HTTP request, therefore having only
-        // one worker will result in a deadlock.
-        max_workers: 2,
         current_workers: 0,
         config: beacon_processor_config,
         log: log.clone(),

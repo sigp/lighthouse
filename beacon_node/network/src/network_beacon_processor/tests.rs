@@ -20,7 +20,6 @@ use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId,
 };
 use slot_clock::SlotClock;
-use std::cmp;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
@@ -228,7 +227,6 @@ impl TestRig {
         let beacon_processor = BeaconProcessor {
             network_globals,
             executor,
-            max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
             config: beacon_processor_config,
             log: log.clone(),
