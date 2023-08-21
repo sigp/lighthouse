@@ -621,6 +621,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .verify_blob_sidecar_for_gossip(signed_blob, blob_index)
         {
             Ok(gossip_verified_blob) => {
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOB_VERIFIED_TOTAL);
+
+                if delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
+                    metrics::inc_counter(&metrics::BEACON_BLOB_GOSSIP_ARRIVED_LATE_TOTAL);
+                    debug!(
+                        self.log,
+                        "Gossip blob arrived late";
+                        "block_root" => ?gossip_verified_blob.block_root(),
+                        "proposer_index" => gossip_verified_blob.proposer_index(),
+                        "slot" => gossip_verified_blob.slot(),
+                        "delay" => ?delay,
+                    );
+                }
+
                 debug!(
                     self.log,
                     "Successfully verified gossip blob";
@@ -628,8 +642,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "root" => %root,
                             "index" => %index
                 );
-                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOB_VERIFIED_TOTAL);
+
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // Log metrics to keep track of propagation delay times.
+                if let Some(duration) = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .ok()
+                    .and_then(|now| now.checked_sub(seen_duration))
+                {
+                    metrics::observe_duration(
+                        &metrics::BEACON_BLOB_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME,
+                        duration,
+                    );
+                }
                 self.process_gossip_verified_blob(peer_id, gossip_verified_blob, seen_duration)
                     .await
             }

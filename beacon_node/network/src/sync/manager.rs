@@ -1108,8 +1108,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.log, "Blocks and blobs request for range received invalid data";
                     "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e
                     );
-                    // TODO: penalize the peer for being a bad boy
                     let id = RequestId::RangeBlockAndBlobs { id };
+                    self.network.report_peer(
+                        peer_id,
+                        PeerAction::MidToleranceError,
+                        "block_blob_faulty_batch",
+                    );
                     self.inject_error(peer_id, id, RPCError::InvalidData(e.into()))
                 }
             }
@@ -1160,8 +1164,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.log, "Blocks and blobs request for backfill received invalid data";
                         "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e
                     );
-                    // TODO: penalize the peer for being a bad boy
                     let id = RequestId::BackFillBlockAndBlobs { id };
+                    self.network.report_peer(
+                        peer_id,
+                        PeerAction::MidToleranceError,
+                        "block_blob_faulty_backfill_batch",
+                    );
                     self.inject_error(peer_id, id, RPCError::InvalidData(e.into()))
                 }
             }

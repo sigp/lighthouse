@@ -71,10 +71,6 @@ lazy_static! {
         "beacon_processor_gossip_blob_verified_total",
         "Total number of gossip blob verified for propagation."
     );
-    pub static ref BEACON_PROCESSOR_GOSSIP_BLOB_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "beacon_processor_gossip_blob_imported_total",
-        "Total number of gossip blobs imported to fork choice, etc."
-    );
     // Gossip Exits.
     pub static ref BEACON_PROCESSOR_EXIT_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_exit_verified_total",
@@ -119,10 +115,6 @@ lazy_static! {
     pub static ref BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_rpc_block_imported_total",
         "Total number of gossip blocks imported to fork choice, etc."
-    );
-    pub static ref BEACON_PROCESSOR_RPC_BLOB_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "beacon_processor_rpc_blob_imported_total",
-        "Total number of gossip blobs imported."
     );
     // Chain segments.
     pub static ref BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL: Result<IntCounter> = try_create_int_counter(

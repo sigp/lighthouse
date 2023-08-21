@@ -18,7 +18,9 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
-use types::{light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
+use types::{
+    light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, ForkName, Hash256, Slot,
+};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -376,13 +378,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request blocks
-        // TODO: We should switch the limit to `MAX_REQUEST_BLOCKS` at the fork,
-        // or maybe consider switching the max value given the fork context.
-        if *req.count() > MAX_REQUEST_BLOCKS_DENEB {
+        let max_request_size = self.chain.epoch().map_or(MAX_REQUEST_BLOCKS, |epoch| {
+            match self.chain.spec.fork_name_at_epoch(epoch) {
+                ForkName::Deneb => MAX_REQUEST_BLOCKS_DENEB,
+                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                    MAX_REQUEST_BLOCKS
+                }
+            }
+        });
+        if *req.count() > max_request_size {
             return self.send_error_response(
                 peer_id,
                 RPCResponseErrorCode::InvalidRequest,
-                "Request exceeded `MAX_REQUEST_BLOCKS_DENEB`".into(),
+                format!("Request exceeded max size {max_request_size}"),
                 request_id,
             );
         }
@@ -425,17 +433,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         // Pick out the required blocks, ignoring skip-slots.
-        let mut last_block_root = req
-            .start_slot()
-            .checked_sub(1)
-            .map(|prev_slot| {
-                self.chain
-                    .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
-            })
-            .transpose()
-            .ok()
-            .flatten()
-            .flatten();
+        let mut last_block_root = None;
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
             iter.take_while(|(_, slot)| {
                 slot.as_u64() < req.start_slot().saturating_add(*req.count())
@@ -714,17 +712,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             };
 
         // Pick out the required blocks, ignoring skip-slots.
-        let mut last_block_root = req
-            .start_slot
-            .checked_sub(1)
-            .map(|prev_slot| {
-                self.chain
-                    .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
-            })
-            .transpose()
-            .ok()
-            .flatten()
-            .flatten();
+        let mut last_block_root = req.start_slot.checked_sub(1).and_then(|prev_slot| {
+            self.chain
+                .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
+                .ok()
+                .flatten()
+        });
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
             iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
                 // map skip slots to None

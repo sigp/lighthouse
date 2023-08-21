@@ -2251,6 +2251,7 @@ dependencies = [
  "ssz_types",
  "store",
  "tokio",
+ "tree_hash",
  "types",
 ]
 
@@ -5237,6 +5238,7 @@ dependencies = [
  "derivative",
  "environment",
  "error-chain",
+ "eth2",
  "ethereum-types 0.14.1",
  "ethereum_ssz",
  "execution_layer",

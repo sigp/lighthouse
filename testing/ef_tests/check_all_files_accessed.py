@@ -51,9 +51,6 @@ excluded_paths = [
     "bls12-381-tests/deserialization_G1",
     "bls12-381-tests/deserialization_G2",
     "bls12-381-tests/hash_to_G2",
-    # FIXME(sean)
-    "tests/mainnet/capella/light_client/single_merkle_proof/BeaconBlockBody/*",
-    "tests/mainnet/deneb/light_client/single_merkle_proof/BeaconBlockBody/*",
     "tests/.*/eip6110"
 ]
 

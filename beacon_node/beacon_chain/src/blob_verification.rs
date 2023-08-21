@@ -18,7 +18,7 @@ use std::borrow::Cow;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec, CloneConfig, EthSpec,
-    Hash256, KzgCommitment, RelativeEpoch, SignedBlobSidecar, Slot,
+    Hash256, RelativeEpoch, SignedBlobSidecar, Slot,
 };
 
 /// An error occurred while validating a gossip blob.
@@ -171,6 +171,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     }
     pub fn slot(&self) -> Slot {
         self.blob.message.slot
+    }
+    pub fn proposer_index(&self) -> u64 {
+        self.blob.message.proposer_index
     }
 }
 
@@ -496,9 +499,6 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
     }
     pub fn clone_blob(&self) -> Arc<BlobSidecar<T>> {
         self.blob.clone()
-    }
-    pub fn kzg_commitment(&self) -> KzgCommitment {
-        self.blob.kzg_commitment
     }
     pub fn block_root(&self) -> Hash256 {
         self.blob.block_root

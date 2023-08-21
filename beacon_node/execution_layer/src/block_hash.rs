@@ -7,8 +7,8 @@ use ethers_core::utils::rlp::RlpStream;
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
-    map_execution_block_header_fields_except_withdrawals, Address, BeaconBlockRef, EthSpec,
-    ExecutionBlockHash, ExecutionBlockHeader, ExecutionPayloadRef, Hash256, Hash64, Uint256,
+    map_execution_block_header_fields_base, Address, BeaconBlockRef, EthSpec, ExecutionBlockHash,
+    ExecutionBlockHeader, ExecutionPayloadRef, Hash256, Hash64, Uint256,
 };
 
 impl<T: EthSpec> ExecutionLayer<T> {
@@ -104,7 +104,7 @@ pub fn rlp_encode_withdrawal(withdrawal: &JsonWithdrawal) -> Vec<u8> {
 pub fn rlp_encode_block_header(header: &ExecutionBlockHeader) -> Vec<u8> {
     let mut rlp_header_stream = RlpStream::new();
     rlp_header_stream.begin_unbounded_list();
-    map_execution_block_header_fields_except_withdrawals!(&header, |_, field| {
+    map_execution_block_header_fields_base!(&header, |_, field| {
         rlp_header_stream.append(field);
     });
     if let Some(withdrawals_root) = &header.withdrawals_root {

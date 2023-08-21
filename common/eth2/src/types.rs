@@ -4,12 +4,16 @@
 use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
 use mediatype::{names, MediaType, MediaTypeList};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 use ssz_derive::Encode;
 use std::convert::TryFrom;
 use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
+use tree_hash::TreeHash;
+use types::beacon_block_body::BuilderKzgCommitments;
+use types::builder_bid::BlindedBlobsBundle;
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -1701,5 +1705,102 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
             )?,
             blinded_blob_sidecars: helper.blinded_blob_sidecars,
         })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode)]
+#[serde(untagged)]
+#[serde(bound = "E: EthSpec")]
+#[ssz(enum_behaviour = "transparent")]
+pub enum FullPayloadContents<E: EthSpec> {
+    Payload(ExecutionPayload<E>),
+    PayloadAndBlobs(ExecutionPayloadAndBlobs<E>),
+}
+
+impl<E: EthSpec> FullPayloadContents<E> {
+    pub fn new(
+        execution_payload: ExecutionPayload<E>,
+        maybe_blobs: Option<BlobsBundle<E>>,
+    ) -> Self {
+        match maybe_blobs {
+            None => Self::Payload(execution_payload),
+            Some(blobs_bundle) => Self::PayloadAndBlobs(ExecutionPayloadAndBlobs {
+                execution_payload,
+                blobs_bundle,
+            }),
+        }
+    }
+
+    pub fn payload_ref(&self) -> &ExecutionPayload<E> {
+        match self {
+            FullPayloadContents::Payload(payload) => payload,
+            FullPayloadContents::PayloadAndBlobs(payload_and_blobs) => {
+                &payload_and_blobs.execution_payload
+            }
+        }
+    }
+
+    pub fn block_hash(&self) -> ExecutionBlockHash {
+        self.payload_ref().block_hash()
+    }
+
+    pub fn deconstruct(self) -> (ExecutionPayload<E>, Option<BlobsBundle<E>>) {
+        match self {
+            FullPayloadContents::Payload(payload) => (payload, None),
+            FullPayloadContents::PayloadAndBlobs(payload_and_blobs) => (
+                payload_and_blobs.execution_payload,
+                Some(payload_and_blobs.blobs_bundle),
+            ),
+        }
+    }
+}
+
+impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
+    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
+        value: Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        match fork_name {
+            ForkName::Merge | ForkName::Capella => serde_json::from_value(value)
+                .map(Self::Payload)
+                .map_err(serde::de::Error::custom),
+            ForkName::Deneb => serde_json::from_value(value)
+                .map(Self::PayloadAndBlobs)
+                .map_err(serde::de::Error::custom),
+            ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
+                "FullPayloadContents deserialization for {fork_name} not implemented"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode)]
+#[serde(bound = "E: EthSpec")]
+pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
+    pub execution_payload: ExecutionPayload<E>,
+    pub blobs_bundle: BlobsBundle<E>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode)]
+#[serde(bound = "E: EthSpec")]
+pub struct BlobsBundle<E: EthSpec> {
+    pub commitments: BuilderKzgCommitments<E>,
+    pub proofs: KzgProofs<E>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    pub blobs: BlobsList<E>,
+}
+
+impl<E: EthSpec> Into<BlindedBlobsBundle<E>> for BlobsBundle<E> {
+    fn into(self) -> BlindedBlobsBundle<E> {
+        BlindedBlobsBundle {
+            commitments: self.commitments,
+            proofs: self.proofs,
+            blob_roots: self
+                .blobs
+                .into_iter()
+                .map(|blob| blob.tree_hash_root())
+                .collect::<Vec<_>>()
+                .into(),
+        }
     }
 }

@@ -9,19 +9,21 @@ use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-pub type KzgCommitments<T> = VariableList<KzgCommitment, <T as EthSpec>::MaxBlobsPerBlock>;
+//TODO: Remove this type and use `BlockBodyKzgCommitments` everywhere when this PR is merged:
+// https://github.com/ethereum/builder-specs/pull/87
+pub type BuilderKzgCommitments<T> = VariableList<KzgCommitment, <T as EthSpec>::MaxBlobsPerBlock>;
 pub type BlockBodyKzgCommitments<T> =
     VariableList<KzgCommitment, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 pub fn to_block_kzg_commitments<E: EthSpec>(
-    commitments: KzgCommitments<E>,
+    commitments: BuilderKzgCommitments<E>,
 ) -> BlockBodyKzgCommitments<E> {
     commitments.to_vec().into()
 }
 
 pub fn from_block_kzg_commitments<E: EthSpec>(
     commitments: &BlockBodyKzgCommitments<E>,
-) -> KzgCommitments<E> {
+) -> BuilderKzgCommitments<E> {
     commitments.to_vec().into()
 }
 

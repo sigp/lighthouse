@@ -1,6 +1,7 @@
+use crate::sidecar::Sidecar;
 use crate::{
     test_utils::TestRandom, BlindedBlobSidecar, Blob, BlobSidecar, ChainSpec, Domain, EthSpec,
-    Fork, Hash256, Sidecar, Signature, SignedRoot, SigningData,
+    Fork, Hash256, Signature, SignedRoot, SigningData,
 };
 use bls::PublicKey;
 use derivative::Derivative;

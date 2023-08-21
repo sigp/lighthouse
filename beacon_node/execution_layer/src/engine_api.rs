@@ -5,18 +5,19 @@ use crate::http::{
     ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1,
     ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
 };
-use crate::BlobTxConversionError;
 use eth2::types::{
-    SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2, SsePayloadAttributesV3,
+    BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
+    SsePayloadAttributesV3,
 };
 use ethers_core::types::Transaction;
-use ethers_core::utils::rlp::{self, Decodable, Rlp};
+use ethers_core::utils::rlp;
+use ethers_core::utils::rlp::{Decodable, Rlp};
 use http::deposit_methods::RpcError;
 pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use state_processing::per_block_processing::deneb::deneb::kzg_commitment_to_versioned_hash;
+use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::convert::TryFrom;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
@@ -26,8 +27,8 @@ pub use types::{
     Withdrawal, Withdrawals,
 };
 use types::{
-    BeaconStateError, BlobsBundle, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadMerge, KzgProofs, VersionedHash,
+    BeaconStateError, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge,
+    KzgProofs, VersionedHash,
 };
 
 pub mod auth;
@@ -63,7 +64,6 @@ pub enum Error {
     RequiredMethodUnsupported(&'static str),
     UnsupportedForkVariant(String),
     RlpDecoderError(rlp::DecoderError),
-    BlobTxConversionError(BlobTxConversionError),
 }
 
 impl From<reqwest::Error> for Error {
@@ -106,12 +106,6 @@ impl From<rlp::DecoderError> for Error {
 impl From<ssz_types::Error> for Error {
     fn from(e: ssz_types::Error) -> Self {
         Error::SszError(e)
-    }
-}
-
-impl From<BlobTxConversionError> for Error {
-    fn from(e: BlobTxConversionError) -> Self {
-        Error::BlobTxConversionError(e)
     }
 }
 
@@ -223,7 +217,8 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     .transactions
                     .iter()
                     .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                    .collect::<Result<Vec<_>, _>>()?,
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap_or_else(|_| Vec::new()),
             }),
             ExecutionPayload::Capella(block) => {
                 Self::Capella(ExecutionBlockWithTransactionsCapella {
@@ -244,7 +239,8 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                         .transactions
                         .iter()
                         .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                        .collect::<Result<Vec<_>, _>>()?,
+                        .collect::<Result<Vec<_>, _>>()
+                        .unwrap_or_else(|_| Vec::new()),
                     withdrawals: Vec::from(block.withdrawals)
                         .into_iter()
                         .map(|withdrawal| withdrawal.into())
@@ -269,7 +265,8 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     .transactions
                     .iter()
                     .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                    .collect::<Result<Vec<_>, _>>()?,
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap_or_else(|_| Vec::new()),
                 withdrawals: Vec::from(block.withdrawals)
                     .into_iter()
                     .map(|withdrawal| withdrawal.into())

@@ -883,7 +883,6 @@ where
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
-            //TODO(sean) should we move kzg solely to the da checker?
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(slot_clock, kzg.clone(), store, self.spec)
                     .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,

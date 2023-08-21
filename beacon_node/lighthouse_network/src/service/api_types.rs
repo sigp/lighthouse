@@ -91,10 +91,10 @@ pub enum Response<TSpec: EthSpec> {
     BlobsByRange(Option<Arc<BlobSidecar<TSpec>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
-    /// A response to a LightClientUpdate request.
-    LightClientBootstrap(LightClientBootstrap<TSpec>),
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<BlobSidecar<TSpec>>>),
+    /// A response to a LightClientUpdate request.
+    LightClientBootstrap(LightClientBootstrap<TSpec>),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
@@ -109,7 +109,7 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
             },
             Response::BlobsByRoot(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::SidecarByRoot(b)),
+                Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRoot(b)),
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRoot),
             },
             Response::BlobsByRange(r) => match r {

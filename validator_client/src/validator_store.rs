@@ -18,11 +18,12 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use types::sidecar::Sidecar;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
     Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, Keypair, PublicKeyBytes,
-    SelectionProof, Sidecar, SidecarList, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SelectionProof, SidecarList, Signature, SignedAggregateAndProof, SignedBeaconBlock,
     SignedContributionAndProof, SignedRoot, SignedSidecar, SignedSidecarList,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,

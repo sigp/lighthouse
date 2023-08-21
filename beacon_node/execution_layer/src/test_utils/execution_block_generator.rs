@@ -6,8 +6,9 @@ use crate::{
         },
         ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
     },
-    random_valid_tx, ExecutionBlockWithTransactions,
+    static_valid_tx, ExecutionBlockWithTransactions,
 };
+use eth2::types::BlobsBundle;
 use kzg::Kzg;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
@@ -16,9 +17,9 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    BlobSidecar, BlobsBundle, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge,
-    ForkName, Hash256, Transactions, Uint256,
+    BlobSidecar, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge, ForkName, Hash256,
+    Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -643,7 +644,7 @@ pub fn generate_random_blobs<T: EthSpec>(
             ..
         } = random_valid_sidecar;
 
-        let tx = random_valid_tx::<T>()
+        let tx = static_valid_tx::<T>()
             .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
 
         transactions.push(tx);

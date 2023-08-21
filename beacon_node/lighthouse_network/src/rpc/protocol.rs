@@ -277,8 +277,8 @@ impl SupportedProtocol {
         }
     }
 
-    fn currently_supported() -> Vec<ProtocolId> {
-        vec![
+    fn currently_supported(fork_context: &ForkContext) -> Vec<ProtocolId> {
+        let mut supported = vec![
             ProtocolId::new(Self::StatusV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::GoodbyeV1, Encoding::SSZSnappy),
             // V2 variants have higher preference then V1
@@ -286,12 +286,17 @@ impl SupportedProtocol {
             ProtocolId::new(Self::BlocksByRangeV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::BlocksByRootV2, Encoding::SSZSnappy),
             ProtocolId::new(Self::BlocksByRootV1, Encoding::SSZSnappy),
-            ProtocolId::new(Self::BlobsByRangeV1, Encoding::SSZSnappy),
-            ProtocolId::new(Self::BlobsByRootV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::PingV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::MetaDataV2, Encoding::SSZSnappy),
             ProtocolId::new(Self::MetaDataV1, Encoding::SSZSnappy),
-        ]
+        ];
+        if fork_context.fork_exists(ForkName::Deneb) {
+            supported.extend_from_slice(&[
+                ProtocolId::new(SupportedProtocol::BlobsByRootV1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
+            ]);
+        }
+        supported
     }
 }
 
@@ -319,14 +324,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 
     /// The list of supported RPC protocols for Lighthouse.
     fn protocol_info(&self) -> Self::InfoIter {
-        let mut supported_protocols = SupportedProtocol::currently_supported();
-
-        if let ForkName::Deneb = self.fork_context.current_fork() {
-            supported_protocols.extend_from_slice(&[
-                ProtocolId::new(SupportedProtocol::BlobsByRootV1, Encoding::SSZSnappy),
-                ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
-            ]);
-        }
+        let mut supported_protocols = SupportedProtocol::currently_supported(&self.fork_context);
         if self.enable_light_client_server {
             supported_protocols.push(ProtocolId::new(
                 SupportedProtocol::LightClientBootstrapV1,

@@ -60,6 +60,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
+use types::consts::deneb::MAX_BLOBS_PER_BLOCK;
 use types::{Attestation, Hash256, SignedAggregateAndProof, SubnetId};
 use types::{EthSpec, Slot};
 use work_reprocessing_queue::IgnoredRpcBlock;
@@ -148,7 +149,10 @@ const MAX_SYNC_CONTRIBUTION_QUEUE_LEN: usize = 1024;
 /// The maximum number of queued `SignedBeaconBlock` objects received from the network RPC that
 /// will be stored before we start dropping them.
 const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
-const MAX_RPC_BLOB_QUEUE_LEN: usize = 1_024 * 4;
+
+/// The maximum number of queued `BlobSidecar` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_RPC_BLOB_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `Vec<SignedBeaconBlock>` objects received during syncing that will
 /// be stored before we start dropping them.
@@ -162,13 +166,18 @@ const MAX_STATUS_QUEUE_LEN: usize = 1_024;
 /// will be stored before we start dropping them.
 const MAX_BLOCKS_BY_RANGE_QUEUE_LEN: usize = 1_024;
 
-const MAX_BLOBS_BY_RANGE_QUEUE_LEN: usize = 1_024;
+/// The maximum number of queued `BlobsByRangeRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_BLOBS_BY_RANGE_QUEUE_LEN: usize =
+    MAX_BLOCKS_BY_RANGE_QUEUE_LEN * MAX_BLOBS_PER_BLOCK as usize;
 
 /// The maximum number of queued `BlocksByRootRequest` objects received from the network RPC that
 /// will be stored before we start dropping them.
 const MAX_BLOCKS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
 
-const MAX_BLOCK_AND_BLOBS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
+/// The maximum number of queued `BlobsByRootRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_BLOBS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
 
 /// Maximum number of `SignedBlsToExecutionChange` messages to queue before dropping them.
 ///
@@ -808,7 +817,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
-        let mut blbroots_queue = FifoQueue::new(MAX_BLOCK_AND_BLOBS_BY_ROOTS_QUEUE_LEN);
+        let mut blbroots_queue = FifoQueue::new(MAX_BLOBS_BY_ROOTS_QUEUE_LEN);
         let mut blbrange_queue = FifoQueue::new(MAX_BLOBS_BY_RANGE_QUEUE_LEN);
 
         let mut gossip_bls_to_execution_change_queue =
@@ -1292,6 +1301,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL,
+                    gossip_block_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_GOSSIP_BLOB_QUEUE_TOTAL,
                     gossip_block_queue.len() as i64,
                 );
                 metrics::set_gauge(

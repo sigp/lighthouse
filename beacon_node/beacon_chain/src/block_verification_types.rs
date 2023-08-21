@@ -162,6 +162,13 @@ impl<E: EthSpec> ExecutedBlock<E> {
             Self::AvailabilityPending(pending) => &pending.block,
         }
     }
+
+    pub fn block_root(&self) -> Hash256 {
+        match self {
+            ExecutedBlock::AvailabilityPending(pending) => pending.import_data.block_root,
+            ExecutedBlock::Available(available) => available.import_data.block_root,
+        }
+    }
 }
 
 /// A block that has completed all pre-deneb block processing checks including verification

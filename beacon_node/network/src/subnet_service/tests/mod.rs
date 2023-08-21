@@ -1,4 +1,3 @@
-#![cfg(feature = "spec-mainnet")]
 use super::*;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
