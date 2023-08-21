@@ -2068,7 +2068,7 @@ version = "0.2.0"
 dependencies = [
  "deposit_contract",
  "ethers-contract",
- "ethers-core 2.0.8",
+ "ethers-core 1.0.2",
  "ethers-providers 1.0.2",
  "hex",
  "serde_json",
