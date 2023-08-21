@@ -437,13 +437,13 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 
 ### <a name="net-bn-vc"></a> My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?
 
-The settings are as follows:
+1. If the beacon node and validator clients are on different servers *in the same network*, the settings are as follows:
 
-1. On the beacon node: 
+    i. Beacon node: 
    
-   Specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than on the `localhost`. 
+   Specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than on the `localhost`. You can find the local_IP by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
 
-1. On the validator client:
+    ii. Validator client:
 
    Use the flag `--beacon-nodes` to point to the beacon node. For example, `lighthouse vc --beacon-nodes http://local_IP:5052` where `local_IP` is the local IP address of the beacon node and `5052` is the default `http-port` of the beacon node.
 
@@ -454,8 +454,22 @@ The settings are as follows:
    ```
 
    You can refer to [Redundancy](./redundancy.md) for more information.
-   
-   It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://local_IP:5052` on the validator client.
+
+2. If the beacon node and validator clients are on different servers *and different networks*, the settings are as follows:   
+
+    i. Beacon node:
+
+   The setting is the same as in scenario 1.
+
+    ii. Validator client:
+    Use the flag `--beacon-nodes` to point to the beacon node. However, since the beacon node and the validator client are on different networks, the IP address to use is the public IP address of the beacon node, i.e., `lighthouse vc --beacon-nodes http://public_IP:5052`. You can get the public IP address of the beacon node by running the command ` dig +short myip.opendns.com @resolver1.opendns.com` on the server running the beacon node.
+
+    Additionally, port forwarding of port 5052 on the router connected to the beacon node is required for the vc to connect to the bn. To do port forwarding, refer to [how to open ports](./advanced_networking.md#how-to-open-ports).
+
+
+Finally, in both cases, if you have firewall setup, e.g., `ufw`, you will need to allow port 5052 (assuming that the default port is used) with `sudo ufw allow 5052`.
+
+It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://local_IP:5052` on the validator client.
 
 ### <a name="net-ip"></a> Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?
 No. Lighthouse will auto-detect the change and update your Ethereum Node Record (ENR). You just need to make sure you are not manually setting the ENR with `--enr-address` (which, for common use cases, this flag is not used).
