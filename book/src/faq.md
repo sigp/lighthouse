@@ -447,6 +447,8 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 
    Use the flag `--beacon-nodes` to point to the beacon node. For example, `lighthouse vc --beacon-nodes http://local_IP:5052` where `local_IP` is the local IP address of the beacon node and `5052` is the default `http-port` of the beacon node.
 
+   If you have firewall setup, e.g., `ufw`, you will need to allow port 5052 (assuming that the default port is used) with `sudo ufw allow 5052`.
+
    You can test that the setup is working with by running the following command on the validator client host:
 
    ```bash
@@ -467,7 +469,7 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
     Additionally, port forwarding of port 5052 on the router connected to the beacon node is required for the vc to connect to the bn. To do port forwarding, refer to [how to open ports](./advanced_networking.md#how-to-open-ports).
 
 
-Finally, in both cases, if you have firewall setup, e.g., `ufw`, you will need to allow port 5052 (assuming that the default port is used) with `sudo ufw allow 5052`.
+   If you have firewall setup, e.g., `ufw`, you will need to allow port 5052 (assuming that the default port is used). Since the beacon node is now exposed to the internet due to port forwarding, it is highly recommended to only allow access from a specific IP address, i.e., the IP address of the validator client.  This can be done using the command `sudo ufw allow from vc_IP_address proto tcp to any port 5052` (where `vc_IP_address` is the public IP address of the validator client) to only allow the IP address of the validator client to connect to the beacon node.
 
 It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://local_IP:5052` on the validator client.
 
