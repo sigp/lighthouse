@@ -118,16 +118,34 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                     return Ok(());
                 }
                 Err(_) => {
-                    warn!(
-                        log,
-                        "Timed out waiting for duplicate block import";
-                        "msg" => "returning an HTTP 400 because block could be invalid",
-                        "slot" => beacon_block.slot(),
-                        "block_root" => ?beacon_block_root,
-                    );
-                    return Err(warp_utils::reject::custom_bad_request(
-                        "duplicate block of unknown validity".into(),
-                    ));
+                    // Check fork choice again in case the timeout was caused by a race or beacon
+                    // processor fail.
+                    if chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .get_block_execution_status(&beacon_block_root)
+                        .map_or(false, |status| status.is_valid_or_irrelevant())
+                    {
+                        debug!(
+                            log,
+                            "HTTP block successfully imported from another source";
+                            "slot" => beacon_block.slot(),
+                            "block_root" => ?beacon_block_root,
+                            "note" => "check timed out before succeeding"
+                        );
+                        return Ok(());
+                    } else {
+                        warn!(
+                            log,
+                            "Timed out waiting for duplicate block import";
+                            "msg" => "returning an HTTP 400 because block could be invalid",
+                            "slot" => beacon_block.slot(),
+                            "block_root" => ?beacon_block_root,
+                        );
+                        return Err(warp_utils::reject::custom_bad_request(
+                            "duplicate block of unknown validity".into(),
+                        ));
+                    }
                 }
             }
         }
