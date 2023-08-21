@@ -1,20 +1,19 @@
 //! Extracts zipped genesis states on first run.
-use eth2_config::{Eth2NetArchiveAndDirectory, ETH2_NET_DIRS, GENESIS_FILE_NAME};
+use eth2_config::{Eth2NetArchiveAndDirectory, ETH2_NET_DIRS, GENESIS_FILE_NAME, GENESIS_COMPRESSED_FILE_NAME};
 use reqwest;
-use std::fs::{self, File};
-use std::io::{self, BufReader, Read, Write};
+use std::fs::{File};
+use std::io::{BufReader, Read, Write};
 use std::path::PathBuf;
 use tokio::runtime;
 use tokio::task;
 use tokio_stream::StreamExt;
-use zip::ZipArchive;
 
 fn main() {
     for network in ETH2_NET_DIRS {
         match uncompress_state(network) {
             Ok(()) => (),
             Err(e) => panic!(
-                "Failed to uncompress {} genesis state zip file: {}",
+                "Failed to uncompress {} genesis state file: {}",
                 network.name, e
             ),
         }
@@ -24,7 +23,7 @@ fn main() {
 /// Uncompress the network configs archive into a network configs folder.
 fn uncompress_state(network: &Eth2NetArchiveAndDirectory<'static>) -> Result<(), String> {
     let genesis_ssz_path = network.dir().join(GENESIS_FILE_NAME);
-
+    let genesis_compressed_ssz_path = network.dir().join(GENESIS_COMPRESSED_FILE_NAME);
     // Take care to not overwrite the genesis.ssz if it already exists, as that causes
     // spurious rebuilds.
     if genesis_ssz_path.exists() {
@@ -37,8 +36,8 @@ fn uncompress_state(network: &Eth2NetArchiveAndDirectory<'static>) -> Result<(),
             runtime::Runtime::new().map_err(|e| format!("Error with blocking tasks: {}", e))?;
 
         let temp_file = rt.block_on(fetch_genesis_state_wrapper(
-            network.github_url,
-            PathBuf::from("temp_path"),
+            network.remote_url,
+            PathBuf::from(genesis_compressed_ssz_path),
         ))?;
 
         snappy_decode_genesis_file(temp_file, genesis_ssz_path)?;

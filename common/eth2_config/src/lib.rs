@@ -21,6 +21,7 @@ macro_rules! predefined_networks_dir {
 
 pub const PREDEFINED_NETWORKS_DIR: &str = predefined_networks_dir!();
 pub const GENESIS_FILE_NAME: &str = "genesis.ssz";
+pub const GENESIS_COMPRESSED_FILE_NAME: &str = "genesis_compressed.ssz";
 pub const GENESIS_ZIP_FILE_NAME: &str = "genesis.ssz.zip";
 
 /// The core configuration of a Lighthouse beacon node.
@@ -70,7 +71,7 @@ impl Eth2Config {
 pub struct Eth2NetArchiveAndDirectory<'a> {
     pub name: &'a str,
     pub config_dir: &'a str,
-    pub github_url: &'a str,
+    pub remote_url: &'a str,
     pub genesis_is_known: bool,
 }
 
@@ -110,7 +111,7 @@ pub struct HardcodedNet {
 /// It also defines a `include_<title>_file!` macro which provides a wrapper around
 /// `std::include_bytes`, allowing the inclusion of bytes from the specific testnet directory.
 macro_rules! define_archive {
-    ($name_ident: ident, $config_dir: tt, $github_url: tt, $genesis_is_known: ident) => {
+    ($name_ident: ident, $config_dir: tt, $remote_url: tt, $genesis_is_known: ident) => {
         paste! {
             #[macro_use]
             pub mod $name_ident {
@@ -119,7 +120,7 @@ macro_rules! define_archive {
                 pub const ETH2_NET_DIR: Eth2NetArchiveAndDirectory = Eth2NetArchiveAndDirectory {
                     name: stringify!($name_ident),
                     config_dir: $config_dir,
-                    github_url: $github_url,
+                    remote_url: $remote_url,
                     genesis_is_known: $genesis_is_known,
                 };
 
@@ -201,9 +202,9 @@ macro_rules! define_nets {
 /// `build.rs` which will unzip the genesis states. Then, that `eth2_network_configs` crate can
 /// perform the final step of using `std::include_bytes` to bake the files (bytes) into the binary.
 macro_rules! define_hardcoded_nets {
-    ($(($name_ident: ident, $config_dir: tt, $github_url: tt, $genesis_is_known: ident)),+) => {
+    ($(($name_ident: ident, $config_dir: tt, $remote_url: tt, $genesis_is_known: ident)),+) => {
         $(
-        define_archive!($name_ident, $config_dir, $github_url, $genesis_is_known);
+        define_archive!($name_ident, $config_dir, $remote_url, $genesis_is_known);
         )+
 
         pub const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[$($name_ident::ETH2_NET_DIR,)+];
@@ -244,7 +245,7 @@ define_hardcoded_nets!(
         // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "mainnet",
-        // The github url that points to this networks genesis state file
+        // The remote url that points to this networks genesis state file
         "https://github.com/eth-clients/eth2-networks/blob/master/shared/mainnet/genesis.ssz",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
@@ -256,7 +257,7 @@ define_hardcoded_nets!(
         // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "prater",
-        // The github url that points to this networks genesis state file
+        // The remote url that points to this networks genesis state file
         "https://github.com/eth-clients/eth2-networks/tree/master/shared/prater/genesis.ssz",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
@@ -270,7 +271,7 @@ define_hardcoded_nets!(
         //
         // The Goerli network is effectively an alias to Prater.
         "prater",
-        // The github url that points to this networks genesis state file
+        // The remote url that points to this networks genesis state file
         "https://github.com/eth-clients/eth2-networks/tree/master/shared/prater/genesis.ssz",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
@@ -282,7 +283,7 @@ define_hardcoded_nets!(
         // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "gnosis",
-        // The github url that points to this networks genesis state file
+        // The remote url that points to this networks genesis state file
         // TODO update this url to actual gnosis
         "https://github.com/eth-clients/eth2-networks/blob/master/shared/mainnet/genesis.ssz",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
@@ -295,7 +296,7 @@ define_hardcoded_nets!(
         // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "sepolia",
-        // The github url that points to this networks genesis state file
+        // The remote url that points to this networks genesis state file
         "https://github.com/eth-clients/sepolia/blob/main/bepolia/genesis.ssz",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
@@ -307,7 +308,7 @@ define_hardcoded_nets!(
         // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "holesky",
-        // The github url that points to this networks genesis state file
+        // The remote url that points to this networks genesis state file
         "https://github.com/eth-clients/holesky/blob/main/consensus/genesis.ssz",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
