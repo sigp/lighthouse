@@ -6,13 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-types = { path = "../../consensus/types"}
+types = { path = "../../consensus/types" }
 tokio = { version = "1.10.0", features = ["full"] }
 async-trait = "0.1.51"
 slog = "2.5.2"
 futures = "0.3.7"
 sensitive_url = { path = "../../common/sensitive_url" }
-reqwest = { version = "0.11.0", features = ["json","stream"] }
+reqwest = { version = "0.11.0", features = ["json", "stream"] }
 ethereum_serde_utils = "0.5.0"
 serde_json = "1.0.58"
 serde = { version = "1.0.116", features = ["derive"] }
@@ -38,13 +38,13 @@ rand = "0.8.5"
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
-ethers-core = "2.0.1"
+ethers-core = "2.0.8"
 builder_client = { path = "../builder_client" }
 fork_choice = { path = "../../consensus/fork_choice" }
 mev-rs = { git = "https://github.com/ralexstokes/mev-rs", rev = "216657016d5c0889b505857c89ae42c7aa2764af" }
 ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "e380108" }
 ssz_rs = "0.9.0"
-tokio-stream = { version = "0.1.9", features = [ "sync" ] }
+tokio-stream = { version = "0.1.9", features = ["sync"] }
 strum = "0.24.0"
 keccak-hash = "0.10.0"
 hash256-std-hasher = "0.15.2"
