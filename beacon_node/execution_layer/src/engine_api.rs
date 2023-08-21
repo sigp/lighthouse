@@ -217,8 +217,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     .transactions
                     .iter()
                     .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                    .collect::<Result<Vec<_>, _>>()
-                    .unwrap_or_else(|_| Vec::new()),
+                    .collect::<Result<Vec<_>, _>>()?,
             }),
             ExecutionPayload::Capella(block) => {
                 Self::Capella(ExecutionBlockWithTransactionsCapella {
@@ -239,8 +238,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                         .transactions
                         .iter()
                         .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                        .collect::<Result<Vec<_>, _>>()
-                        .unwrap_or_else(|_| Vec::new()),
+                        .collect::<Result<Vec<_>, _>>()?,
                     withdrawals: Vec::from(block.withdrawals)
                         .into_iter()
                         .map(|withdrawal| withdrawal.into())
@@ -265,8 +263,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     .transactions
                     .iter()
                     .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                    .collect::<Result<Vec<_>, _>>()
-                    .unwrap_or_else(|_| Vec::new()),
+                    .collect::<Result<Vec<_>, _>>()?,
                 withdrawals: Vec::from(block.withdrawals)
                     .into_iter()
                     .map(|withdrawal| withdrawal.into())
