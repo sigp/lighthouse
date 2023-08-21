@@ -187,6 +187,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     let block_parent_root = signed_blob_sidecar.message.block_parent_root;
     let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
     let block_root = signed_blob_sidecar.message.block_root;
+    let blob_epoch = blob_slot.epoch(T::EthSpec::slots_per_epoch());
 
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
@@ -237,26 +238,32 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 
     // We have already verified that the blob is past finalization, so we can
     // just check fork choice for the block's parent.
-    if let Some(parent_block) = chain
+    let Some(parent_block) = chain
         .canonical_head
         .fork_choice_read_lock()
-        .get_block(&block_parent_root)
-    {
-        if parent_block.slot >= blob_slot {
-            return Err(GossipBlobError::BlobIsNotLaterThanParent {
-                blob_slot,
-                parent_slot: parent_block.slot,
-            });
-        }
-    } else {
+        .get_block(&block_parent_root) else {
         return Err(GossipBlobError::BlobParentUnknown(
             signed_blob_sidecar.message,
         ));
+    };
+
+    if parent_block.slot >= blob_slot {
+        return Err(GossipBlobError::BlobIsNotLaterThanParent {
+            blob_slot,
+            parent_slot: parent_block.slot,
+        });
     }
 
     // Note: We check that the proposer_index matches against the shuffling first to avoid
     // signature verification against an invalid proposer_index.
-    let proposer_shuffling_root = signed_blob_sidecar.message.block_parent_root;
+    let proposer_shuffling_root =
+        if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) == blob_epoch {
+            parent_block
+                .next_epoch_shuffling_id
+                .shuffling_decision_block
+        } else {
+            parent_block.root
+        };
 
     let proposer_opt = chain
         .beacon_proposer_cache
@@ -349,7 +356,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 
             // Prime the proposer shuffling cache with the newly-learned value.
             chain.beacon_proposer_cache.lock().insert(
-                blob_slot.epoch(T::EthSpec::slots_per_epoch()),
+                blob_epoch,
                 proposer_shuffling_root,
                 proposers,
                 state.fork(),
