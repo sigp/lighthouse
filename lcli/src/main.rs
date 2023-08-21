@@ -15,11 +15,13 @@ mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
 mod skip_slots;
+mod state_root;
 mod transition_blocks;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
-use clap_utils::parse_path_with_default_in_home_dir;
+use clap_utils::parse_optional;
 use environment::{EnvironmentBuilder, LoggerConfig};
+use eth2_network_config::Eth2NetworkConfig;
 use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
@@ -38,7 +40,6 @@ fn main() {
                 .long("spec")
                 .value_name("STRING")
                 .takes_value(true)
-                .required(true)
                 .possible_values(&["minimal", "mainnet", "gnosis"])
                 .default_value("mainnet")
                 .global(true),
@@ -50,7 +51,16 @@ fn main() {
                 .value_name("PATH")
                 .takes_value(true)
                 .global(true)
-                .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
+                .help("The testnet dir."),
+        )
+        .arg(
+            Arg::with_name("network")
+                .long("network")
+                .value_name("NAME")
+                .takes_value(true)
+                .global(true)
+                .help("The network to use. Defaults to mainnet.")
+                .conflicts_with("testnet-dir")
         )
         .subcommand(
             SubCommand::with_name("skip-slots")
@@ -126,7 +136,7 @@ fn main() {
                         .takes_value(true)
                         .conflicts_with("beacon-url")
                         .requires("block-path")
-                        .help("Path to load a BeaconState from file as SSZ."),
+                        .help("Path to load a BeaconState from as SSZ."),
                 )
                 .arg(
                     Arg::with_name("block-path")
@@ -135,7 +145,7 @@ fn main() {
                         .takes_value(true)
                         .conflicts_with("beacon-url")
                         .requires("pre-state-path")
-                        .help("Path to load a SignedBeaconBlock from file as SSZ."),
+                        .help("Path to load a SignedBeaconBlock from as SSZ."),
                 )
                 .arg(
                     Arg::with_name("post-state-output-path")
@@ -361,7 +371,6 @@ fn main() {
                         .index(2)
                         .value_name("BIP39_MNENMONIC")
                         .takes_value(true)
-                        .required(true)
                         .default_value(
                             "replace nephew blur decorate waste convince soup column \
                             orient excite play baby",
@@ -382,7 +391,6 @@ fn main() {
                         .help("The block hash used when generating an execution payload. This \
                             value is used for `execution_payload_header.block_hash` as well as \
                             `execution_payload_header.random`")
-                        .required(true)
                         .default_value(
                             "0x0000000000000000000000000000000000000000000000000000000000000000",
                         ),
@@ -400,7 +408,6 @@ fn main() {
                         .value_name("INTEGER")
                         .takes_value(true)
                         .help("The base fee per gas field in the execution payload generated.")
-                        .required(true)
                         .default_value("1000000000"),
                 )
                 .arg(
@@ -409,7 +416,6 @@ fn main() {
                         .value_name("INTEGER")
                         .takes_value(true)
                         .help("The gas limit field in the execution payload generated.")
-                        .required(true)
                         .default_value("30000000"),
                 )
                 .arg(
@@ -808,14 +814,14 @@ fn main() {
         )
         .subcommand(
             SubCommand::with_name("block-root")
-                .about("Computes the block root of some block")
+                .about("Computes the block root of some block.")
                 .arg(
                     Arg::with_name("block-path")
                         .long("block-path")
                         .value_name("PATH")
                         .takes_value(true)
                         .conflicts_with("beacon-url")
-                        .help("Path to load a SignedBeaconBlock from file as SSZ."),
+                        .help("Path to load a SignedBeaconBlock from as SSZ."),
                 )
                 .arg(
                     Arg::with_name("beacon-url")
@@ -831,6 +837,41 @@ fn main() {
                         .takes_value(true)
                         .requires("beacon-url")
                         .help("Identifier for a block as per beacon-API standards (slot, root, etc.)"),
+                )
+                .arg(
+                    Arg::with_name("runs")
+                        .long("runs")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("1")
+                        .help("Number of repeat runs, useful for benchmarking."),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("state-root")
+                .about("Computes the state root of some state.")
+                .arg(
+                    Arg::with_name("state-path")
+                        .long("state-path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .conflicts_with("beacon-url")
+                        .help("Path to load a BeaconState from as SSZ."),
+                )
+                .arg(
+                    Arg::with_name("beacon-url")
+                        .long("beacon-url")
+                        .value_name("URL")
+                        .takes_value(true)
+                        .help("URL to a beacon-API provider."),
+                )
+                .arg(
+                    Arg::with_name("state-id")
+                        .long("state-id")
+                        .value_name("BLOCK_ID")
+                        .takes_value(true)
+                        .requires("beacon-url")
+                        .help("Identifier for a state as per beacon-API standards (slot, root, etc.)"),
                 )
                 .arg(
                     Arg::with_name("runs")
@@ -887,41 +928,81 @@ fn run<T: EthSpec>(
         .build()
         .map_err(|e| format!("should build env: {:?}", e))?;
 
-    let testnet_dir = parse_path_with_default_in_home_dir(
-        matches,
-        "testnet-dir",
-        PathBuf::from(directory::DEFAULT_ROOT_DIR).join("testnet"),
-    )?;
+    // Determine testnet-dir path or network name depending on CLI flags.
+    let (testnet_dir, network_name) =
+        if let Some(testnet_dir) = parse_optional::<PathBuf>(matches, "testnet-dir")? {
+            (Some(testnet_dir), None)
+        } else {
+            let network_name =
+                parse_optional(matches, "network")?.unwrap_or_else(|| "mainnet".to_string());
+            (None, Some(network_name))
+        };
+
+    // Lazily load either the testnet dir or the network config, as required.
+    // Some subcommands like new-testnet need the testnet dir but not the network config.
+    let get_testnet_dir = || testnet_dir.clone().ok_or("testnet-dir is required");
+    let get_network_config = || {
+        if let Some(testnet_dir) = &testnet_dir {
+            Eth2NetworkConfig::load(testnet_dir.clone()).map_err(|e| {
+                format!(
+                    "Unable to open testnet dir at {}: {}",
+                    testnet_dir.display(),
+                    e
+                )
+            })
+        } else {
+            let network_name = network_name.ok_or("no network name or testnet-dir provided")?;
+            Eth2NetworkConfig::constant(&network_name)?.ok_or("invalid network name".into())
+        }
+    };
 
     match matches.subcommand() {
-        ("transition-blocks", Some(matches)) => transition_blocks::run::<T>(env, matches)
-            .map_err(|e| format!("Failed to transition blocks: {}", e)),
+        ("transition-blocks", Some(matches)) => {
+            let network_config = get_network_config()?;
+            transition_blocks::run::<T>(env, network_config, matches)
+                .map_err(|e| format!("Failed to transition blocks: {}", e))
+        }
         ("skip-slots", Some(matches)) => {
-            skip_slots::run::<T>(env, matches).map_err(|e| format!("Failed to skip slots: {}", e))
+            let network_config = get_network_config()?;
+            skip_slots::run::<T>(env, network_config, matches)
+                .map_err(|e| format!("Failed to skip slots: {}", e))
         }
         ("pretty-ssz", Some(matches)) => {
-            run_parse_ssz::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
+            let network_config = get_network_config()?;
+            run_parse_ssz::<T>(network_config, matches)
+                .map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
         ("deploy-deposit-contract", Some(matches)) => {
             deploy_deposit_contract::run::<T>(env, matches)
                 .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
-        ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, testnet_dir, matches)
-            .map_err(|e| format!("Failed to run eth1-genesis command: {}", e)),
-        ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(testnet_dir, matches)
-            .map_err(|e| format!("Failed to run interop-genesis command: {}", e)),
+        ("eth1-genesis", Some(matches)) => {
+            let testnet_dir = get_testnet_dir()?;
+            eth1_genesis::run::<T>(env, testnet_dir, matches)
+                .map_err(|e| format!("Failed to run eth1-genesis command: {}", e))
+        }
+        ("interop-genesis", Some(matches)) => {
+            let testnet_dir = get_testnet_dir()?;
+            interop_genesis::run::<T>(testnet_dir, matches)
+                .map_err(|e| format!("Failed to run interop-genesis command: {}", e))
+        }
         ("change-genesis-time", Some(matches)) => {
+            let testnet_dir = get_testnet_dir()?;
             change_genesis_time::run::<T>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run change-genesis-time command: {}", e))
         }
         ("create-payload-header", Some(matches)) => create_payload_header::run::<T>(matches)
             .map_err(|e| format!("Failed to run create-payload-header command: {}", e)),
         ("replace-state-pubkeys", Some(matches)) => {
+            let testnet_dir = get_testnet_dir()?;
             replace_state_pubkeys::run::<T>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
         }
-        ("new-testnet", Some(matches)) => new_testnet::run::<T>(testnet_dir, matches)
-            .map_err(|e| format!("Failed to run new_testnet command: {}", e)),
+        ("new-testnet", Some(matches)) => {
+            let testnet_dir = get_testnet_dir()?;
+            new_testnet::run::<T>(testnet_dir, matches)
+                .map_err(|e| format!("Failed to run new_testnet command: {}", e))
+        }
         ("check-deposit-data", Some(matches)) => check_deposit_data::run(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
         ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(matches)
@@ -932,8 +1013,16 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run mnemonic-validators command: {}", e)),
         ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
-        ("block-root", Some(matches)) => block_root::run::<T>(env, matches)
-            .map_err(|e| format!("Failed to run block-root command: {}", e)),
+        ("block-root", Some(matches)) => {
+            let network_config = get_network_config()?;
+            block_root::run::<T>(env, network_config, matches)
+                .map_err(|e| format!("Failed to run block-root command: {}", e))
+        }
+        ("state-root", Some(matches)) => {
+            let network_config = get_network_config()?;
+            state_root::run::<T>(env, network_config, matches)
+                .map_err(|e| format!("Failed to run state-root command: {}", e))
+        }
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }

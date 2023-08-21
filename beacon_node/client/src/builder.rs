@@ -11,8 +11,10 @@ use beacon_chain::{
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
-    BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
+    BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
 };
+use beacon_processor::BeaconProcessorConfig;
+use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2::{
@@ -27,6 +29,7 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
+use std::cmp;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -71,6 +74,8 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     http_api_config: http_api::Config,
     http_metrics_config: http_metrics::Config,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    beacon_processor_config: Option<BeaconProcessorConfig>,
+    beacon_processor_channels: Option<BeaconProcessorChannels<T::EthSpec>>,
     eth_spec_instance: T::EthSpec,
 }
 
@@ -104,6 +109,8 @@ where
             http_metrics_config: <_>::default(),
             slasher: None,
             eth_spec_instance,
+            beacon_processor_config: None,
+            beacon_processor_channels: None,
         }
     }
 
@@ -116,6 +123,12 @@ where
     /// Specifies the `ChainSpec`.
     pub fn chain_spec(mut self, spec: ChainSpec) -> Self {
         self.chain_spec = Some(spec);
+        self
+    }
+
+    pub fn beacon_processor(mut self, config: BeaconProcessorConfig) -> Self {
+        self.beacon_processor_channels = Some(BeaconProcessorChannels::new(&config));
+        self.beacon_processor_config = Some(config);
         self
     }
 
@@ -144,7 +157,10 @@ where
         let context = runtime_context.service_context("beacon".into());
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
-            Some(ServerSentEventHandler::new(context.log().clone()))
+            Some(ServerSentEventHandler::new(
+                context.log().clone(),
+                self.http_api_config.sse_capacity_multiplier,
+            ))
         } else {
             None
         };
@@ -167,6 +183,9 @@ where
             .store(store)
             .task_executor(context.executor.clone())
             .custom_spec(spec.clone())
+            .store_migrator_config(
+                MigratorConfig::default().epochs_per_migration(chain_config.epochs_per_migration),
+            )
             .chain_config(chain_config)
             .graffiti(graffiti)
             .event_handler(event_handler)
@@ -476,6 +495,7 @@ where
                         chain: None,
                         network_senders: None,
                         network_globals: None,
+                        beacon_processor_send: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
                         sse_logging_components: runtime_context.sse_logging_components.clone(),
@@ -553,6 +573,10 @@ where
             .as_ref()
             .ok_or("network requires a runtime_context")?
             .clone();
+        let beacon_processor_channels = self
+            .beacon_processor_channels
+            .as_ref()
+            .ok_or("network requires beacon_processor_channels")?;
 
         // If gossipsub metrics are required we build a registry to record them
         let mut gossipsub_registry = if config.metrics_enabled {
@@ -568,6 +592,8 @@ where
             gossipsub_registry
                 .as_mut()
                 .map(|registry| registry.sub_registry_with_prefix("gossipsub")),
+            beacon_processor_channels.beacon_processor_tx.clone(),
+            beacon_processor_channels.work_reprocessing_tx.clone(),
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
@@ -690,6 +716,14 @@ where
             .runtime_context
             .as_ref()
             .ok_or("build requires a runtime context")?;
+        let beacon_processor_channels = self
+            .beacon_processor_channels
+            .take()
+            .ok_or("build requires beacon_processor_channels")?;
+        let beacon_processor_config = self
+            .beacon_processor_config
+            .take()
+            .ok_or("build requires a beacon_processor_config")?;
         let log = runtime_context.log().clone();
 
         let http_api_listen_addr = if self.http_api_config.enabled {
@@ -699,6 +733,7 @@ where
                 network_senders: self.network_senders.clone(),
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
+                beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
                 log: log.clone(),
             });
@@ -742,7 +777,7 @@ where
 
             runtime_context
                 .executor
-                .spawn_without_exit(async move { server.await }, "http-metrics");
+                .spawn_without_exit(server, "http-metrics");
 
             Some(listen_addr)
         } else {
@@ -755,6 +790,26 @@ where
         }
 
         if let Some(beacon_chain) = self.beacon_chain.as_ref() {
+            if let Some(network_globals) = &self.network_globals {
+                let beacon_processor_context = runtime_context.service_context("bproc".into());
+                BeaconProcessor {
+                    network_globals: network_globals.clone(),
+                    executor: beacon_processor_context.executor.clone(),
+                    max_workers: cmp::max(1, num_cpus::get()),
+                    current_workers: 0,
+                    config: beacon_processor_config,
+                    log: beacon_processor_context.log().clone(),
+                }
+                .spawn_manager(
+                    beacon_processor_channels.beacon_processor_rx,
+                    beacon_processor_channels.work_reprocessing_tx,
+                    beacon_processor_channels.work_reprocessing_rx,
+                    None,
+                    beacon_chain.slot_clock.clone(),
+                    beacon_chain.spec.maximum_gossip_clock_disparity(),
+                )?;
+            }
+
             let state_advance_context = runtime_context.service_context("state_advance".into());
             let state_advance_log = state_advance_context.log().clone();
             spawn_state_advance_timer(
@@ -807,9 +862,6 @@ where
                     execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock>(
                         beacon_chain.slot_clock.clone(),
                     );
-
-                    // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
-                    execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
                 }
 
                 // Spawn a service to publish BLS to execution changes at the Capella fork.

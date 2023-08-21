@@ -13,7 +13,8 @@
     "londonBlock": 0,
     "mergeNetsplitBlock": 0,
     "shanghaiTime": 0,
-    "terminalTotalDifficulty": 0
+    "terminalTotalDifficulty": 0,
+    "terminalTotalDifficultyPassed": true
   },
   "alloc": {
     "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b": {

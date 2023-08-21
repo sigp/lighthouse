@@ -3,11 +3,10 @@
 
 use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
-use mime::{Mime, APPLICATION, JSON, OCTET_STREAM, STAR};
+use mediatype::{names, MediaType, MediaTypeList};
 use serde::{Deserialize, Serialize};
-use std::cmp::Reverse;
 use std::convert::TryFrom;
-use std::fmt;
+use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
 pub use types::*;
@@ -1172,35 +1171,65 @@ impl FromStr for Accept {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut mimes = parse_accept(s)?;
+        let media_type_list = MediaTypeList::new(s);
 
         // [q-factor weighting]: https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.2
         // find the highest q-factor supported accept type
-        mimes.sort_by_key(|m| {
-            Reverse(m.get_param("q").map_or(1000_u16, |n| {
-                (n.as_ref().parse::<f32>().unwrap_or(0_f32) * 1000_f32) as u16
-            }))
+        let mut highest_q = 0_u16;
+        let mut accept_type = None;
+
+        const APPLICATION: &str = names::APPLICATION.as_str();
+        const OCTET_STREAM: &str = names::OCTET_STREAM.as_str();
+        const JSON: &str = names::JSON.as_str();
+        const STAR: &str = names::_STAR.as_str();
+        const Q: &str = names::Q.as_str();
+
+        media_type_list.into_iter().for_each(|item| {
+            if let Ok(MediaType {
+                ty,
+                subty,
+                suffix: _,
+                params,
+            }) = item
+            {
+                let q_accept = match (ty.as_str(), subty.as_str()) {
+                    (APPLICATION, OCTET_STREAM) => Some(Accept::Ssz),
+                    (APPLICATION, JSON) => Some(Accept::Json),
+                    (STAR, STAR) => Some(Accept::Any),
+                    _ => None,
+                }
+                .map(|item_accept_type| {
+                    let q_val = params
+                        .iter()
+                        .find_map(|(n, v)| match n.as_str() {
+                            Q => {
+                                Some((v.as_str().parse::<f32>().unwrap_or(0_f32) * 1000_f32) as u16)
+                            }
+                            _ => None,
+                        })
+                        .or(Some(1000_u16));
+
+                    (q_val.unwrap(), item_accept_type)
+                });
+
+                match q_accept {
+                    Some((q, accept)) if q > highest_q => {
+                        highest_q = q;
+                        accept_type = Some(accept);
+                    }
+                    _ => (),
+                }
+            }
         });
-        mimes
-            .into_iter()
-            .find_map(|m| match (m.type_(), m.subtype()) {
-                (APPLICATION, OCTET_STREAM) => Some(Accept::Ssz),
-                (APPLICATION, JSON) => Some(Accept::Json),
-                (STAR, STAR) => Some(Accept::Any),
-                _ => None,
-            })
-            .ok_or_else(|| "accept header is not supported".to_string())
+        accept_type.ok_or_else(|| "accept header is not supported".to_string())
     }
 }
 
-fn parse_accept(accept: &str) -> Result<Vec<Mime>, String> {
-    accept
-        .split(',')
-        .map(|part| {
-            part.parse()
-                .map_err(|e| format!("error parsing Accept header: {}", e))
-        })
-        .collect()
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+pub struct StandardLivenessResponseData {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    pub is_live: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1238,6 +1267,50 @@ pub struct ForkChoiceNode {
     pub execution_block_hash: Option<Hash256>,
 }
 
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BroadcastValidation {
+    Gossip,
+    Consensus,
+    ConsensusAndEquivocation,
+}
+
+impl Default for BroadcastValidation {
+    fn default() -> Self {
+        Self::Gossip
+    }
+}
+
+impl Display for BroadcastValidation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Gossip => write!(f, "gossip"),
+            Self::Consensus => write!(f, "consensus"),
+            Self::ConsensusAndEquivocation => write!(f, "consensus_and_equivocation"),
+        }
+    }
+}
+
+impl FromStr for BroadcastValidation {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "gossip" => Ok(Self::Gossip),
+            "consensus" => Ok(Self::Consensus),
+            "consensus_and_equivocation" => Ok(Self::ConsensusAndEquivocation),
+            _ => Err("Invalid broadcast validation level"),
+        }
+    }
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct BroadcastValidationQuery {
+    #[serde(default)]
+    pub broadcast_validation: BroadcastValidation,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1268,6 +1341,11 @@ mod tests {
         assert_eq!(
             Accept::from_str("text/plain"),
             Err("accept header is not supported".to_string())
-        )
+        );
+
+        assert_eq!(
+            Accept::from_str("application/json;message=\"Hello, world!\";q=0.3,*/*;q=0.6").unwrap(),
+            Accept::Any
+        );
     }
 }

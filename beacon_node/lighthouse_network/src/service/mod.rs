@@ -1,6 +1,6 @@
 use self::behaviour::Behaviour;
 use self::gossip_cache::GossipCache;
-use crate::config::{gossipsub_config, NetworkLoad};
+use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
 };
@@ -9,6 +9,7 @@ use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
+use crate::rpc::methods::MetadataRequest;
 use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
@@ -23,21 +24,17 @@ use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::bandwidth::BandwidthSinks;
-use libp2p::gossipsub::error::PublishError;
-use libp2p::gossipsub::metrics::Config as GossipsubMetricsConfig;
-use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
 use libp2p::gossipsub::{
-    GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
+    self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
 };
-use libp2p::identify::{Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent};
+use libp2p::identify;
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
-use libp2p::swarm::{ConnectionLimits, Swarm, SwarmBuilder, SwarmEvent};
+use libp2p::swarm::{Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::PeerId;
 use slog::{crit, debug, info, o, trace, warn};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{
-    marker::PhantomData,
     sync::Arc,
     task::{Context, Poll},
 };
@@ -66,10 +63,6 @@ pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
     PeerConnectedIncoming(PeerId),
     /// A peer has disconnected.
     PeerDisconnected(PeerId),
-    /// The peer needs to be banned.
-    PeerBanned(PeerId),
-    /// The peer has been unbanned.
-    PeerUnbanned(PeerId),
     /// An RPC Request that was sent failed.
     RPCFailed {
         /// The id of the failed request.
@@ -229,7 +222,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
 
             let possible_fork_digests = ctx.fork_context.all_fork_digests();
-            let filter = MaxCountSubscriptionFilter {
+            let filter = gossipsub::MaxCountSubscriptionFilter {
                 filter: utils::create_whitelist_filter(
                     possible_fork_digests,
                     ctx.chain_spec.attestation_subnet_count,
@@ -239,12 +232,20 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
             };
 
-            config.gs_config = gossipsub_config(config.network_load, ctx.fork_context.clone());
+            let gossipsub_config_params = GossipsubConfigParams {
+                message_domain_valid_snappy: ctx.chain_spec.message_domain_valid_snappy,
+                gossip_max_size: ctx.chain_spec.gossip_max_size as usize,
+            };
+            config.gs_config = gossipsub_config(
+                config.network_load,
+                ctx.fork_context.clone(),
+                gossipsub_config_params,
+            );
 
             // If metrics are enabled for gossipsub build the configuration
             let gossipsub_metrics = ctx
                 .gossipsub_registry
-                .map(|registry| (registry, GossipsubMetricsConfig::default()));
+                .map(|registry| (registry, Default::default()));
 
             let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
             let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
@@ -263,35 +264,48 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             (gossipsub, update_gossipsub_scores)
         };
 
+        let network_params = NetworkParams {
+            max_chunk_size: ctx.chain_spec.max_chunk_size as usize,
+            ttfb_timeout: ctx.chain_spec.ttfb_timeout(),
+            resp_timeout: ctx.chain_spec.resp_timeout(),
+        };
         let eth2_rpc = RPC::new(
             ctx.fork_context.clone(),
             config.enable_light_client_server,
+            config.inbound_rate_limiter_config.clone(),
             config.outbound_rate_limiter_config.clone(),
             log.clone(),
+            network_params,
         );
 
         let discovery = {
             // Build and start the discovery sub-behaviour
-            let mut discovery =
-                Discovery::new(&local_keypair, &config, network_globals.clone(), &log).await?;
+            let mut discovery = Discovery::new(
+                local_keypair.clone(),
+                &config,
+                network_globals.clone(),
+                &log,
+            )
+            .await?;
             // start searching for peers
             discovery.discover_peers(FIND_NODE_QUERY_CLOSEST_PEERS);
             discovery
         };
 
         let identify = {
+            let local_public_key = local_keypair.public();
             let identify_config = if config.private {
-                IdentifyConfig::new(
+                identify::Config::new(
                     "".into(),
-                    local_keypair.public(), // Still send legitimate public key
+                    local_public_key, // Still send legitimate public key
                 )
                 .with_cache_size(0)
             } else {
-                IdentifyConfig::new("eth2/1.0.0".into(), local_keypair.public())
+                identify::Config::new("eth2/1.0.0".into(), local_public_key)
                     .with_agent_version(lighthouse_version::version_with_platform())
                     .with_cache_size(0)
             };
-            Identify::new(identify_config)
+            identify::Behaviour::new(identify_config)
         };
 
         let peer_manager = {
@@ -304,13 +318,38 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             PeerManager::new(peer_manager_cfg, network_globals.clone(), &log)?
         };
 
+        let connection_limits = {
+            let limits = libp2p::connection_limits::ConnectionLimits::default()
+                .with_max_pending_incoming(Some(5))
+                .with_max_pending_outgoing(Some(16))
+                .with_max_established_incoming(Some(
+                    (config.target_peers as f32
+                        * (1.0 + PEER_EXCESS_FACTOR - MIN_OUTBOUND_ONLY_FACTOR))
+                        .ceil() as u32,
+                ))
+                .with_max_established_outgoing(Some(
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as u32,
+                ))
+                .with_max_established(Some(
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
+                        .ceil() as u32,
+                ))
+                .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
+
+            libp2p::connection_limits::Behaviour::new(limits)
+        };
+
+        let banned_peers = libp2p::allow_block_list::Behaviour::default();
+
         let behaviour = {
             Behaviour {
+                banned_peers,
                 gossipsub,
                 eth2_rpc,
                 discovery,
                 identify,
                 peer_manager,
+                connection_limits,
             }
         };
 
@@ -328,22 +367,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             }
 
             // sets up the libp2p connection limits
-            let limits = ConnectionLimits::default()
-                .with_max_pending_incoming(Some(5))
-                .with_max_pending_outgoing(Some(16))
-                .with_max_established_incoming(Some(
-                    (config.target_peers as f32
-                        * (1.0 + PEER_EXCESS_FACTOR - MIN_OUTBOUND_ONLY_FACTOR))
-                        .ceil() as u32,
-                ))
-                .with_max_established_outgoing(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as u32,
-                ))
-                .with_max_established(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
-                        .ceil() as u32,
-                ))
-                .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
 
             (
                 SwarmBuilder::with_executor(
@@ -353,8 +376,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     Executor(executor),
                 )
                 .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
-                .connection_event_buffer_size(64)
-                .connection_limits(limits)
+                .per_connection_event_buffer_size(4)
                 .build(),
                 bandwidth,
             )
@@ -395,7 +417,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             match self.swarm.listen_on(listen_multiaddr.clone()) {
                 Ok(_) => {
                     let mut log_address = listen_multiaddr;
-                    log_address.push(MProtocol::P2p(enr.peer_id().into()));
+                    log_address.push(MProtocol::P2p(enr.peer_id()));
                     info!(self.log, "Listening established"; "address" => %log_address);
                 }
                 Err(err) => {
@@ -492,7 +514,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &mut self.swarm.behaviour_mut().discovery
     }
     /// Provides IP addresses and peer information.
-    pub fn identify_mut(&mut self) -> &mut Identify {
+    pub fn identify_mut(&mut self) -> &mut identify::Behaviour {
         &mut self.swarm.behaviour_mut().identify
     }
     /// The peer manager that keeps track of peer's reputation and status.
@@ -513,7 +535,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &self.swarm.behaviour().discovery
     }
     /// Provides IP addresses and peer information.
-    pub fn identify(&self) -> &Identify {
+    pub fn identify(&self) -> &identify::Behaviour {
         &self.swarm.behaviour().identify
     }
     /// The peer manager that keeps track of peer's reputation and status.
@@ -943,16 +965,25 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
-        let event = OutboundRequest::MetaData(PhantomData);
+        // We always prefer sending V2 requests
+        let event = OutboundRequest::MetaData(MetadataRequest::new_v2());
         self.eth2_rpc_mut()
             .send_request(peer_id, RequestId::Internal, event);
     }
 
     /// Sends a METADATA response to a peer.
-    fn send_meta_data_response(&mut self, id: PeerRequestId, peer_id: PeerId) {
-        let event = RPCCodedResponse::Success(RPCResponse::MetaData(
-            self.network_globals.local_metadata.read().clone(),
-        ));
+    fn send_meta_data_response(
+        &mut self,
+        req: MetadataRequest<TSpec>,
+        id: PeerRequestId,
+        peer_id: PeerId,
+    ) {
+        let metadata = self.network_globals.local_metadata.read().clone();
+        let metadata = match req {
+            MetadataRequest::V1(_) => metadata.metadata_v1(),
+            MetadataRequest::V2(_) => metadata,
+        };
+        let event = RPCCodedResponse::Success(RPCResponse::MetaData(metadata));
         self.eth2_rpc_mut().send_response(peer_id, id, event);
     }
 
@@ -1035,9 +1066,12 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     /* Sub-behaviour event handling functions */
 
     /// Handle a gossipsub event.
-    fn inject_gs_event(&mut self, event: GossipsubEvent) -> Option<NetworkEvent<AppReqId, TSpec>> {
+    fn inject_gs_event(
+        &mut self,
+        event: gossipsub::Event,
+    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
         match event {
-            GossipsubEvent::Message {
+            gossipsub::Event::Message {
                 propagation_source,
                 message_id: id,
                 message: gs_msg,
@@ -1067,7 +1101,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                 }
             }
-            GossipsubEvent::Subscribed { peer_id, topic } => {
+            gossipsub::Event::Subscribed { peer_id, topic } => {
                 if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
                     if let Some(subnet_id) = topic.subnet_id() {
                         self.network_globals
@@ -1108,7 +1142,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                 }
             }
-            GossipsubEvent::Unsubscribed { peer_id, topic } => {
+            gossipsub::Event::Unsubscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.network_globals
                         .peers
@@ -1116,7 +1150,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         .remove_subscription(&peer_id, &subnet_id);
                 }
             }
-            GossipsubEvent::GossipsubNotSupported { peer_id } => {
+            gossipsub::Event::GossipsubNotSupported { peer_id } => {
                 debug!(self.log, "Peer does not support gossipsub"; "peer_id" => %peer_id);
                 self.peer_manager_mut().report_peer(
                     &peer_id,
@@ -1195,9 +1229,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         self.pong(peer_request_id, peer_id);
                         None
                     }
-                    InboundRequest::MetaData(_) => {
+                    InboundRequest::MetaData(req) => {
                         // send the requested meta-data
-                        self.send_meta_data_response((handler_id, id), peer_id);
+                        self.send_meta_data_response(req, (handler_id, id), peer_id);
                         None
                     }
                     InboundRequest::Goodbye(reason) => {
@@ -1224,13 +1258,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         Some(event)
                     }
                     InboundRequest::BlocksByRange(req) => {
-                        let methods::OldBlocksByRangeRequest {
-                            start_slot,
-                            mut count,
-                            step,
-                        } = req;
                         // Still disconnect the peer if the request is naughty.
-                        if step == 0 {
+                        let mut count = *req.count();
+                        if *req.step() == 0 {
                             self.peer_manager_mut().handle_rpc_error(
                                 &peer_id,
                                 Protocol::BlocksByRange,
@@ -1242,14 +1272,18 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                             return None;
                         }
                         // return just one block in case the step parameter is used. https://github.com/ethereum/consensus-specs/pull/2856
-                        if step > 1 {
+                        if *req.step() > 1 {
                             count = 1;
                         }
-                        let event = self.build_request(
-                            peer_request_id,
-                            peer_id,
-                            Request::BlocksByRange(BlocksByRangeRequest { start_slot, count }),
-                        );
+                        let request = match req {
+                            methods::OldBlocksByRangeRequest::V1(req) => Request::BlocksByRange(
+                                BlocksByRangeRequest::new_v1(req.start_slot, count),
+                            ),
+                            methods::OldBlocksByRangeRequest::V2(req) => Request::BlocksByRange(
+                                BlocksByRangeRequest::new(req.start_slot, count),
+                            ),
+                        };
+                        let event = self.build_request(peer_request_id, peer_id, request);
                         Some(event)
                     }
                     InboundRequest::BlocksByRoot(req) => {
@@ -1330,10 +1364,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     /// Handle an identify event.
     fn inject_identify_event(
         &mut self,
-        event: IdentifyEvent,
+        event: identify::Event,
     ) -> Option<NetworkEvent<AppReqId, TSpec>> {
         match event {
-            IdentifyEvent::Received { peer_id, mut info } => {
+            identify::Event::Received { peer_id, mut info } => {
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
                     debug!(
                         self.log,
@@ -1344,9 +1378,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 // send peer info to the peer manager.
                 self.peer_manager_mut().identify(&peer_id, &info);
             }
-            IdentifyEvent::Sent { .. } => {}
-            IdentifyEvent::Error { .. } => {}
-            IdentifyEvent::Pushed { .. } => {}
+            identify::Event::Sent { .. } => {}
+            identify::Event::Error { .. } => {}
+            identify::Event::Pushed { .. } => {}
         }
         None
     }
@@ -1367,14 +1401,17 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 Some(NetworkEvent::PeerDisconnected(peer_id))
             }
             PeerManagerEvent::Banned(peer_id, associated_ips) => {
-                self.swarm.ban_peer_id(peer_id);
+                self.swarm.behaviour_mut().banned_peers.block_peer(peer_id);
                 self.discovery_mut().ban_peer(&peer_id, associated_ips);
-                Some(NetworkEvent::PeerBanned(peer_id))
+                None
             }
             PeerManagerEvent::UnBanned(peer_id, associated_ips) => {
-                self.swarm.unban_peer_id(peer_id);
+                self.swarm
+                    .behaviour_mut()
+                    .banned_peers
+                    .unblock_peer(peer_id);
                 self.discovery_mut().unban_peer(&peer_id, associated_ips);
-                Some(NetworkEvent::PeerUnbanned(peer_id))
+                None
             }
             PeerManagerEvent::Status(peer_id) => {
                 // it's time to status. We don't keep a beacon chain reference here, so we inform
@@ -1421,17 +1458,20 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let maybe_event = match swarm_event {
                 SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
                     // Handle sub-behaviour events.
+                    BehaviourEvent::BannedPeers(void) => void::unreachable(void),
                     BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
                     BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
                     BehaviourEvent::Discovery(de) => self.inject_discovery_event(de),
                     BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
                     BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
+                    BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
                 },
                 SwarmEvent::ConnectionEstablished { .. } => None,
                 SwarmEvent::ConnectionClosed { .. } => None,
                 SwarmEvent::IncomingConnection {
                     local_addr,
                     send_back_addr,
+                    connection_id: _,
                 } => {
                     trace!(self.log, "Incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr);
                     None
@@ -1440,19 +1480,41 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     local_addr,
                     send_back_addr,
                     error,
+                    connection_id: _,
                 } => {
-                    debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => %error);
+                    let error_repr = match error {
+                        libp2p::swarm::ListenError::Aborted => {
+                            "Incoming connection aborted".to_string()
+                        }
+                        libp2p::swarm::ListenError::WrongPeerId { obtained, endpoint } => {
+                            format!("Wrong peer id, obtained {obtained}, endpoint {endpoint:?}")
+                        }
+                        libp2p::swarm::ListenError::LocalPeerId { endpoint } => {
+                            format!("Dialing local peer id {endpoint:?}")
+                        }
+                        libp2p::swarm::ListenError::Denied { cause } => {
+                            format!("Connection was denied with cause {cause}")
+                        }
+                        libp2p::swarm::ListenError::Transport(t) => match t {
+                            libp2p::TransportError::MultiaddrNotSupported(m) => {
+                                format!("Transport error: Multiaddr not supported: {m}")
+                            }
+                            libp2p::TransportError::Other(e) => {
+                                format!("Transport error: other: {e}")
+                            }
+                        },
+                    };
+                    debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => error_repr);
                     None
                 }
-                SwarmEvent::OutgoingConnectionError { peer_id, error } => {
-                    debug!(self.log, "Failed to dial address"; "peer_id" => ?peer_id,  "error" => %error);
-                    None
-                }
-                SwarmEvent::BannedPeer {
-                    peer_id,
-                    endpoint: _,
+                SwarmEvent::OutgoingConnectionError {
+                    peer_id: _,
+                    error: _,
+                    connection_id: _,
                 } => {
-                    debug!(self.log, "Banned peer connection rejected"; "peer_id" => %peer_id);
+                    // The Behaviour event is more general than the swarm event here. It includes
+                    // connection failures. So we use that log for now, in the peer manager
+                    // behaviour implementation.
                     None
                 }
                 SwarmEvent::NewListenAddr { address, .. } => {
@@ -1481,7 +1543,13 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         None
                     }
                 }
-                SwarmEvent::Dialing(_) => None,
+                SwarmEvent::Dialing {
+                    peer_id,
+                    connection_id: _,
+                } => {
+                    debug!(self.log, "Swarm Dialing"; "peer_id" => ?peer_id);
+                    None
+                }
             };
 
             if let Some(ev) = maybe_event {

@@ -1,4 +1,5 @@
 use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
+use beacon_processor::BeaconProcessorConfig;
 use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
 use network::NetworkConfig;
@@ -79,7 +80,7 @@ pub struct Config {
     pub monitoring_api: Option<monitoring_api::Config>,
     pub slasher: Option<slasher::Config>,
     pub logger_config: LoggerConfig,
-    pub always_prefer_builder_payload: bool,
+    pub beacon_processor: BeaconProcessorConfig,
 }
 
 impl Default for Config {
@@ -106,7 +107,7 @@ impl Default for Config {
             validator_monitor_pubkeys: vec![],
             validator_monitor_individual_tracking_threshold: DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
             logger_config: LoggerConfig::default(),
-            always_prefer_builder_payload: false,
+            beacon_processor: <_>::default(),
         }
     }
 }

@@ -5,7 +5,10 @@ use crate::{
     graffiti_file::GraffitiFile,
     OfflineOnFailure,
 };
-use crate::{http_metrics::metrics, validator_store::ValidatorStore};
+use crate::{
+    http_metrics::metrics,
+    validator_store::{Error as ValidatorStoreError, ValidatorStore},
+};
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use slog::{crit, debug, error, info, trace, warn};
@@ -338,35 +341,61 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             let log = log.clone();
             self.inner.context.executor.spawn(
                 async move {
-                    let publish_result = if builder_proposals {
-                        let mut result = service.clone()
+                    if builder_proposals {
+                        let result = service
+                            .clone()
                             .publish_block::<BlindedPayload<E>>(slot, validator_pubkey)
                             .await;
-                        match result.as_ref() {
+                        match result {
                             Err(BlockError::Recoverable(e)) => {
-                                error!(log, "Error whilst producing a blinded block, attempting to \
-                                    publish full block"; "error" => ?e);
-                                result = service
+                                error!(
+                                    log,
+                                    "Error whilst producing block";
+                                    "error" => ?e,
+                                    "block_slot" => ?slot,
+                                    "info" => "blinded proposal failed, attempting full block"
+                                );
+                                if let Err(e) = service
                                     .publish_block::<FullPayload<E>>(slot, validator_pubkey)
-                                    .await;
-                            },
-                            Err(BlockError::Irrecoverable(e))  => {
-                                error!(log, "Error whilst producing a blinded block, cannot fallback \
-                                    because the block was signed"; "error" => ?e);
-                            },
-                            _ => {},
+                                    .await
+                                {
+                                    // Log a `crit` since a full block
+                                    // (non-builder) proposal failed.
+                                    crit!(
+                                        log,
+                                        "Error whilst producing block";
+                                        "error" => ?e,
+                                        "block_slot" => ?slot,
+                                        "info" => "full block attempted after a blinded failure",
+                                    );
+                                }
+                            }
+                            Err(BlockError::Irrecoverable(e)) => {
+                                // Only log an `error` since it's common for
+                                // builders to timeout on their response, only
+                                // to publish the block successfully themselves.
+                                error!(
+                                    log,
+                                    "Error whilst producing block";
+                                    "error" => ?e,
+                                    "block_slot" => ?slot,
+                                    "info" => "this error may or may not result in a missed block",
+                                )
+                            }
+                            Ok(_) => {}
                         };
-                        result
-                    } else {
-                        service
-                            .publish_block::<FullPayload<E>>(slot, validator_pubkey)
-                            .await
-                    };
-                    if let Err(e) = publish_result {
+                    } else if let Err(e) = service
+                        .publish_block::<FullPayload<E>>(slot, validator_pubkey)
+                        .await
+                    {
+                        // Log a `crit` since a full block (non-builder)
+                        // proposal failed.
                         crit!(
                             log,
                             "Error whilst producing block";
-                            "message" => ?e
+                            "message" => ?e,
+                            "block_slot" => ?slot,
+                            "info" => "proposal did not use a builder",
                         );
                     }
                 },
@@ -391,17 +420,31 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             BlockError::Recoverable("Unable to determine current slot from clock".to_string())
         })?;
 
-        let randao_reveal = self
+        let randao_reveal = match self
             .validator_store
             .randao_reveal(validator_pubkey, slot.epoch(E::slots_per_epoch()))
             .await
-            .map_err(|e| {
-                BlockError::Recoverable(format!(
+        {
+            Ok(signature) => signature.into(),
+            Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                // A pubkey can be missing when a validator was recently removed
+                // via the API.
+                warn!(
+                    log,
+                    "Missing pubkey for block randao";
+                    "info" => "a validator may have recently been removed from this VC",
+                    "pubkey" => ?pubkey,
+                    "slot" => ?slot
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                return Err(BlockError::Recoverable(format!(
                     "Unable to produce randao reveal signature: {:?}",
                     e
-                ))
-            })?
-            .into();
+                )))
+            }
+        };
 
         let graffiti = determine_graffiti(
             &validator_pubkey,
@@ -496,11 +539,31 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .await?;
 
         let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
-        let signed_block = self_ref
+        let signed_block = match self_ref
             .validator_store
             .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
             .await
-            .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
+        {
+            Ok(block) => block,
+            Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                // A pubkey can be missing when a validator was recently removed
+                // via the API.
+                warn!(
+                    log,
+                    "Missing pubkey for block";
+                    "info" => "a validator may have recently been removed from this VC",
+                    "pubkey" => ?pubkey,
+                    "slot" => ?slot
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                return Err(BlockError::Recoverable(format!(
+                    "Unable to sign block: {:?}",
+                    e
+                )))
+            }
+        };
         let signing_time_ms =
             Duration::from_secs_f64(signing_timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
 

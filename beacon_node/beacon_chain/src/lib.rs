@@ -52,9 +52,9 @@ pub mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
-    CountUnrealized, ForkChoiceError, OverrideForkchoiceUpdate, ProduceBlockVerification,
-    StateSkipConfig, WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
-    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    ForkChoiceError, OverrideForkchoiceUpdate, ProduceBlockVerification, StateSkipConfig,
+    WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::chain_config::ChainConfig;
@@ -64,6 +64,7 @@ pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{
     get_block_root, BlockError, ExecutionPayloadError, GossipVerifiedBlock,
+    IntoExecutionPendingBlock, IntoGossipVerifiedBlock,
 };
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -72,6 +73,7 @@ pub use execution_layer::EngineState;
 pub use execution_payload::NotifyExecutionLayer;
 pub use fork_choice::{ExecutionStatus, ForkchoiceUpdateParameters};
 pub use metrics::scrape_for_metrics;
+pub use migrate::MigratorConfig;
 pub use parking_lot;
 pub use slot_clock;
 pub use state_processing::per_block_processing::errors::{

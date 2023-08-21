@@ -36,7 +36,7 @@ pub fn process_epoch<T: EthSpec>(
     justification_and_finalization_state.apply_changes_to_state(state);
 
     // Rewards and Penalties.
-    process_rewards_and_penalties(state, &mut validator_statuses, spec)?;
+    process_rewards_and_penalties(state, &validator_statuses, spec)?;
 
     // Registry Updates.
     process_registry_updates(state, spec)?;
@@ -52,7 +52,7 @@ pub fn process_epoch<T: EthSpec>(
     process_eth1_data_reset(state)?;
 
     // Update effective balances with hysteresis (lag).
-    process_effective_balance_updates(state, spec)?;
+    process_effective_balance_updates(state, None, spec)?;
 
     // Reset slashings
     process_slashings_reset(state)?;

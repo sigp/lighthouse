@@ -22,6 +22,7 @@ use watch::{
 };
 
 use log::error;
+use std::env;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::{runtime, task::JoinHandle};
@@ -35,6 +36,11 @@ type E = MainnetEthSpec;
 const VALIDATOR_COUNT: usize = 32;
 const SLOTS_PER_EPOCH: u64 = 32;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Set this environment variable to use a different hostname for connecting to
+/// the database. Can be set to `host.docker.internal` for docker-in-docker
+/// setups.
+const WATCH_HOST_ENV_VARIABLE: &str = "WATCH_HOST";
 
 fn build_test_config(config: &DatabaseConfig) -> PostgresConfig {
     let mut postgres_config = PostgresConfig::new();
@@ -71,11 +77,14 @@ pub async fn create_test_database(config: &DatabaseConfig) {
         .expect("Database creation failed");
 }
 
+pub fn get_host_from_env() -> String {
+    env::var(WATCH_HOST_ENV_VARIABLE).unwrap_or_else(|_| "localhost".to_string())
+}
+
 struct TesterBuilder {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub config: Config,
     _bn_network_rx: NetworkReceivers<E>,
-    _bn_api_shutdown_tx: oneshot::Sender<()>,
 }
 
 impl TesterBuilder {
@@ -92,10 +101,14 @@ impl TesterBuilder {
         let ApiServer {
             server,
             listening_socket: bn_api_listening_socket,
-            shutdown_tx: _bn_api_shutdown_tx,
             network_rx: _bn_network_rx,
             ..
-        } = create_api_server(harness.chain.clone(), harness.logger().clone()).await;
+        } = create_api_server(
+            harness.chain.clone(),
+            &harness.runtime,
+            harness.logger().clone(),
+        )
+        .await;
         tokio::spawn(server);
 
         /*
@@ -107,6 +120,7 @@ impl TesterBuilder {
             database: DatabaseConfig {
                 dbname: random_dbname(),
                 port: database_port,
+                host: get_host_from_env(),
                 ..Default::default()
             },
             server: ServerConfig {
@@ -128,7 +142,6 @@ impl TesterBuilder {
             harness,
             config,
             _bn_network_rx,
-            _bn_api_shutdown_tx,
         }
     }
     pub async fn build(self, pool: PgPool) -> Tester {
@@ -175,7 +188,6 @@ impl TesterBuilder {
             config: self.config,
             updater,
             _bn_network_rx: self._bn_network_rx,
-            _bn_api_shutdown_tx: self._bn_api_shutdown_tx,
             _watch_shutdown_tx,
         }
     }
@@ -193,7 +205,6 @@ struct Tester {
     pub config: Config,
     pub updater: UpdateHandler<E>,
     _bn_network_rx: NetworkReceivers<E>,
-    _bn_api_shutdown_tx: oneshot::Sender<()>,
     _watch_shutdown_tx: oneshot::Sender<()>,
 }
 

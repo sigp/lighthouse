@@ -21,7 +21,8 @@ use std::{
 use strum::IntoEnumIterator;
 use types::{EthSpec, SyncSubnetId};
 
-pub use libp2p::core::{identity::Keypair, Multiaddr};
+pub use libp2p::core::Multiaddr;
+pub use libp2p::identity::Keypair;
 
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod peerdb;
@@ -1266,7 +1267,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     );
                 }
 
-                let mut score_peers: &mut (f64, usize) = avg_score_per_client
+                let score_peers: &mut (f64, usize) = avg_score_per_client
                     .entry(peer_info.client().kind.to_string())
                     .or_default();
                 score_peers.0 += peer_info.score().score();

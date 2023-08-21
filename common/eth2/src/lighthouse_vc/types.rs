@@ -83,6 +83,9 @@ pub struct ValidatorPatchRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graffiti: Option<GraffitiString>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -148,4 +151,20 @@ pub struct UpdateGasLimitRequest {
 #[derive(Deserialize)]
 pub struct VoluntaryExitQuery {
     pub epoch: Option<Epoch>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct ExportKeystoresResponse {
+    pub data: Vec<SingleExportKeystoresResponse>,
+    #[serde(with = "serde_utils::json_str")]
+    pub slashing_protection: Interchange,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct SingleExportKeystoresResponse {
+    pub status: Status<DeleteKeystoreStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validating_keystore: Option<KeystoreJsonStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validating_keystore_password: Option<ZeroizeString>,
 }

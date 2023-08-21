@@ -7,7 +7,7 @@ use super::ENR_FILENAME;
 use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
 use discv5::enr::EnrKey;
-use libp2p::core::identity::Keypair;
+use libp2p::identity::Keypair;
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
@@ -133,7 +133,7 @@ pub fn build_or_load_enr<T: EthSpec>(
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers, if the CLI doesn't expressly forbid it.
-    let enr_key = CombinedKey::from_libp2p(&local_key)?;
+    let enr_key = CombinedKey::from_libp2p(local_key)?;
     let mut local_enr = build_enr::<T>(&enr_key, config, enr_fork_id)?;
 
     use_or_load_enr(&enr_key, &mut local_enr, config, log)?;
@@ -213,13 +213,17 @@ pub fn build_enr<T: EthSpec>(
 fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
     // take preference over disk_enr address if one is not specified
     (local_enr.ip4().is_none() || local_enr.ip4() == disk_enr.ip4())
+        &&
+    (local_enr.ip6().is_none() || local_enr.ip6() == disk_enr.ip6())
         // tcp ports must match
         && local_enr.tcp4() == disk_enr.tcp4()
+        && local_enr.tcp6() == disk_enr.tcp6()
         // must match on the same fork
         && local_enr.get(ETH2_ENR_KEY) == disk_enr.get(ETH2_ENR_KEY)
         // take preference over disk udp port if one is not specified
         && (local_enr.udp4().is_none() || local_enr.udp4() == disk_enr.udp4())
-        // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY key to match, 
+        && (local_enr.udp6().is_none() || local_enr.udp6() == disk_enr.udp6())
+        // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY key to match,
         // otherwise we use a new ENR. This will likely only be true for non-validating nodes
         && local_enr.get(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get(ATTESTATION_BITFIELD_ENR_KEY)
         && local_enr.get(SYNC_COMMITTEE_BITFIELD_ENR_KEY) == disk_enr.get(SYNC_COMMITTEE_BITFIELD_ENR_KEY)

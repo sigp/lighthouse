@@ -1,15 +1,15 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
-    ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1, ENGINE_FORKCHOICE_UPDATED_V1,
-    ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
 };
 use eth2::types::{SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2};
 pub use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
 pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
+use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -32,7 +32,7 @@ pub type PayloadId = [u8; 8];
 
 #[derive(Debug)]
 pub enum Error {
-    Reqwest(reqwest::Error),
+    HttpClient(PrettyReqwestError),
     Auth(auth::Error),
     BadResponse(String),
     RequestFailed(String),
@@ -67,7 +67,7 @@ impl From<reqwest::Error> for Error {
         ) {
             Error::Auth(auth::Error::InvalidToken)
         } else {
-            Error::Reqwest(e)
+            Error::HttpClient(e.into())
         }
     }
 }
@@ -449,7 +449,6 @@ pub struct EngineCapabilities {
     pub get_payload_bodies_by_range_v1: bool,
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
-    pub exchange_transition_configuration_v1: bool,
 }
 
 impl EngineCapabilities {
@@ -478,9 +477,6 @@ impl EngineCapabilities {
         }
         if self.get_payload_v2 {
             response.push(ENGINE_GET_PAYLOAD_V2);
-        }
-        if self.exchange_transition_configuration_v1 {
-            response.push(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1);
         }
 
         response

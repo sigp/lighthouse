@@ -6,7 +6,7 @@ use beacon_chain::sync_committee_verification::{
 };
 use beacon_chain::{
     validator_monitor::timestamp_now, BeaconChain, BeaconChainError, BeaconChainTypes,
-    StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    StateSkipConfig,
 };
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
@@ -85,7 +85,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     let current_epoch = chain.epoch()?;
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?
         .epoch(T::EthSpec::slots_per_epoch());
 
@@ -304,7 +304,7 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
             }
             // If we already know the contribution, don't broadcast it or attempt to
             // further verify it. Return success.
-            Err(SyncVerificationError::SyncContributionAlreadyKnown(_)) => continue,
+            Err(SyncVerificationError::SyncContributionSupersetKnown(_)) => continue,
             // If we've already seen this aggregator produce an aggregate, just
             // skip this one.
             //
