@@ -2153,8 +2153,12 @@ dependencies = [
  "discv5",
  "eth2_config",
  "ethereum_ssz",
+ "reqwest",
  "serde_yaml",
+ "snap",
  "tempfile",
+ "tokio",
+ "tokio-stream",
  "types",
  "zip",
 ]

@@ -1,7 +1,12 @@
 //! Extracts zipped genesis states on first run.
 use eth2_config::{Eth2NetArchiveAndDirectory, ETH2_NET_DIRS, GENESIS_FILE_NAME};
-use std::fs::File;
-use std::io;
+use reqwest;
+use std::fs::{self, File};
+use std::io::{self, BufReader, Read, Write};
+use std::path::PathBuf;
+use tokio::runtime;
+use tokio::task;
+use tokio_stream::StreamExt;
 use zip::ZipArchive;
 
 fn main() {
@@ -27,24 +32,16 @@ fn uncompress_state(network: &Eth2NetArchiveAndDirectory<'static>) -> Result<(),
     }
 
     if network.genesis_is_known {
-        // Extract genesis state from genesis.ssz.zip
-        let archive_path = network.genesis_state_archive();
-        let archive_file = File::open(&archive_path)
-            .map_err(|e| format!("Failed to open archive file {:?}: {:?}", archive_path, e))?;
+        // fetch snappy compressed genesis from remote url 
+        let rt =
+            runtime::Runtime::new().map_err(|e| format!("Error with blocking tasks: {}", e))?;
 
-        let mut archive =
-            ZipArchive::new(archive_file).map_err(|e| format!("Error with zip file: {}", e))?;
+        let temp_file = rt.block_on(fetch_genesis_state_wrapper(
+            network.github_url,
+            PathBuf::from("temp_path"),
+        ))?;
 
-        let mut file = archive.by_name(GENESIS_FILE_NAME).map_err(|e| {
-            format!(
-                "Error retrieving file {} inside zip: {}",
-                GENESIS_FILE_NAME, e
-            )
-        })?;
-        let mut outfile = File::create(&genesis_ssz_path)
-            .map_err(|e| format!("Error while creating file {:?}: {}", genesis_ssz_path, e))?;
-        io::copy(&mut file, &mut outfile)
-            .map_err(|e| format!("Error writing file {:?}: {}", genesis_ssz_path, e))?;
+        snappy_decode_genesis_file(temp_file, genesis_ssz_path)?;
     } else {
         // Create empty genesis.ssz if genesis is unknown
         File::create(genesis_ssz_path)
@@ -52,4 +49,62 @@ fn uncompress_state(network: &Eth2NetArchiveAndDirectory<'static>) -> Result<(),
     }
 
     Ok(())
+}
+
+async fn fetch_compressed_genesis_state(url: &str, save_path: PathBuf) -> Result<File, String> {
+    let response = reqwest::get(url)
+        .await
+        .map_err(|e| format!("Error fetching file from remote url: {}", e))?;
+
+    // Ensure the request was successful
+    if response.status().is_success() {
+        // Open a file to write the content
+        let mut dest = File::create(save_path)
+            .map_err(|e| format!("Error creating file from remote url: {}", e))?;
+        let mut content_stream = response.bytes_stream();
+
+        // Write content stream to file
+        while let Some(chunk) = content_stream.next().await {
+            let buf = chunk.map_err(|e| format!("Error creating buffer: {}", e))?;
+            dest.write_all(&buf)
+                .map_err(|e| format!("Error writing buffer: {}", e))?;
+        }
+
+        return Ok(dest);
+    }
+    Err("Could not find file from remote url".to_string())
+}
+
+async fn fetch_genesis_state_wrapper(
+    url: &'static str,
+    save_path: PathBuf,
+) -> Result<File, String> {
+    let join_handle = task::spawn_blocking(|| {
+        let inner_runtime = runtime::Runtime::new().unwrap();
+        inner_runtime.block_on(fetch_compressed_genesis_state(url, save_path))
+    });
+
+    let result = join_handle
+        .await
+        .map_err(|e| format!("join handle error: {}", e))??;
+
+    Ok(result)
+}
+
+fn snappy_decode_genesis_file(source_file: File, target_filename: PathBuf) -> Result<File, String> {
+    let reader = BufReader::new(source_file);
+
+    let mut decoder = snap::read::FrameDecoder::new(reader);
+
+    let mut buffer = Vec::new();
+    decoder
+        .read_to_end(&mut buffer)
+        .map_err(|e| format!("failed to decode: {}", e))?;
+
+    let mut output_file = File::create(target_filename).unwrap();
+    output_file
+        .write_all(&buffer)
+        .map_err(|e| format!("Error writing buffer: {}", e))?;
+
+    Ok(output_file)
 }

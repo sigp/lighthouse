@@ -455,6 +455,10 @@ fn run<E: EthSpec>(
 
     let logfile_restricted = !matches.is_present("logfile-no-restricted-perms");
 
+    let genesis_state_url = matches
+        .value_of("genesis-state-url")
+        .ok_or("Expected --genesis-state-url")?;
+
     // Construct the path to the log file.
     let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
     if log_path.is_none() {
@@ -530,6 +534,8 @@ fn run<E: EthSpec>(
             "The --spec flag is deprecated and will be removed in a future release"
         );
     }
+
+    // check if genesis state exists. if not, download from the provided url
 
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
