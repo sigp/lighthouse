@@ -40,6 +40,7 @@
 - [How do I check the version of Lighthouse that is running?](#misc-version)
 - [Does Lighthouse have pruning function like the execution client to save disk space?](#misc-prune)
 - [Can I use a HDD for the freezer database and only have the hot db on SSD?](#misc-freezer)
+- [Can Lighthouse log in local timestamp instead of UTC?](#misc-timestamp)
 
 ## Beacon Node
 
@@ -513,11 +514,9 @@ There is no pruning of Lighthouse database for now. However, since v4.2.0, a fea
 
 Yes, you can do so by using the flag `--freezer-dir /path/to/freezer_db` in the beacon node.
 
+### <a name="misc-timestamp"></a> Can Lighthouse log in local timestamp instead of UTC?
 
-
-
-
-
+The reason why Lighthouse logs in UTC is due to the dependency on an upstream library that is [yet to be resolved](https://github.com/sigp/lighthouse/issues/3130). Alternatively, using the flag `disable-log-timestamp` in combination with systemd will suppress the UTC timestamps and print the logs in local timestamps. 
 
 
 
