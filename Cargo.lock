@@ -2094,6 +2094,10 @@ name = "eth2_config"
 version = "0.2.0"
 dependencies = [
  "paste",
+ "reqwest",
+ "snap",
+ "tokio",
+ "tokio-stream",
  "types",
 ]
 
@@ -2153,12 +2157,8 @@ dependencies = [
  "discv5",
  "eth2_config",
  "ethereum_ssz",
- "reqwest",
  "serde_yaml",
- "snap",
  "tempfile",
- "tokio",
- "tokio-stream",
  "types",
  "zip",
 ]

@@ -5,10 +5,12 @@
 //! It also provides some additional structs which are useful to other components of `lighthouse`
 //! (e.g., `Eth2Config`).
 
-use std::env;
-use std::path::PathBuf;
+use std::{env, fs::File};
 use types::{ChainSpec, EthSpecId};
-
+use std::io::{self, BufReader, Cursor, Read, Write};
+use std::path::PathBuf;
+use tokio::runtime;
+use tokio::task;
 pub use paste::paste;
 
 // A macro is used to define this constant so it can be used with `include_bytes!`.
@@ -21,7 +23,8 @@ macro_rules! predefined_networks_dir {
 
 pub const PREDEFINED_NETWORKS_DIR: &str = predefined_networks_dir!();
 pub const GENESIS_FILE_NAME: &str = "genesis.ssz";
-pub const GENESIS_COMPRESSED_FILE_NAME: &str = "genesis_compressed.ssz";
+pub const GENESIS_SNAPPY_ZIP_FILE_NAME: &str = "genesis.snappy.zip";
+pub const GENESIS_SNAPPY_FILE_NAME: &str = "genesis.snappy";
 pub const GENESIS_ZIP_FILE_NAME: &str = "genesis.ssz.zip";
 
 /// The core configuration of a Lighthouse beacon node.
@@ -76,6 +79,7 @@ pub struct Eth2NetArchiveAndDirectory<'a> {
 }
 
 impl<'a> Eth2NetArchiveAndDirectory<'a> {
+
     /// The directory that should be used to store files downloaded for this net.
     pub fn dir(&self) -> PathBuf {
         env::var("CARGO_MANIFEST_DIR")
@@ -88,6 +92,106 @@ impl<'a> Eth2NetArchiveAndDirectory<'a> {
 
     pub fn genesis_state_archive(&self) -> PathBuf {
         self.dir().join(GENESIS_ZIP_FILE_NAME)
+    }
+
+    /// Uncompress the network configs archive into a network configs folder.
+    fn uncompress_state(network: &Eth2NetArchiveAndDirectory<'static>) -> Result<(), String> {
+        let genesis_ssz_path = network.dir().join(GENESIS_FILE_NAME);
+        let genesis_snappy_ssz_path = network.dir().join(GENESIS_SNAPPY_FILE_NAME);
+
+        // Take care to not overwrite the genesis.ssz if it already exists, as that causes
+        // spurious rebuilds.
+        if genesis_ssz_path.exists() {
+            return Ok(());
+        }
+
+        if network.genesis_is_known {
+            // fetch snappy compressed genesis from remote url
+            if !genesis_snappy_ssz_path.exists() {
+                let rt = runtime::Runtime::new()
+                    .map_err(|e| format!("Error with blocking tasks: {}", e))?;
+
+                rt.block_on(Eth2NetArchiveAndDirectory::fetch_genesis_state_wrapper(
+                    network .remote_url,
+                    genesis_snappy_ssz_path.clone(),
+                ))?;
+            }
+
+            let snappy_compressed_file =
+                File::open(genesis_snappy_ssz_path.clone()).map_err(|e| {
+                    format!(
+                        "Failed to open zip file {}: {}",
+                        GENESIS_SNAPPY_ZIP_FILE_NAME, e
+                    )
+                })?;
+
+                Eth2NetArchiveAndDirectory::snappy_decode_genesis_file(snappy_compressed_file, genesis_ssz_path)?;
+        } else {
+            // Create empty genesis.ssz if genesis is unknown
+            File::create(genesis_ssz_path)
+                .map_err(|e| format!("Failed to create {}: {}", GENESIS_FILE_NAME, e))?;
+        }
+
+        Ok(())
+    }
+
+    async fn fetch_compressed_genesis_state(url: &str, save_path: PathBuf) -> Result<File, String> {
+        let response = reqwest::get(url)
+            .await
+            .map_err(|e| format!("Error fetching file from remote url: {}", e))?;
+
+        if response.status().is_success() {
+            let mut dest = File::create(save_path)
+                .map_err(|e| format!("Error creating file from remote url: {}", e))?;
+
+            let mut content = Cursor::new(
+                response
+                    .bytes()
+                    .await
+                    .map_err(|e| format!("Failed to fetch bytes from request {}", e))?,
+            );
+            io::copy(&mut content, &mut dest).map_err(|e| format!("Error writing file {}", e))?;
+
+            return Ok(dest);
+        }
+        Err("Could not find file from remote url".to_string())
+    }
+
+    async fn fetch_genesis_state_wrapper(
+        url: &'static str,
+        save_path: PathBuf,
+    ) -> Result<File, String> {
+        let join_handle = task::spawn_blocking(|| {
+            let inner_runtime = runtime::Runtime::new().unwrap();
+            inner_runtime.block_on(Eth2NetArchiveAndDirectory::fetch_compressed_genesis_state(url, save_path))
+        });
+
+        let result = join_handle
+            .await
+            .map_err(|e| format!("join handle error: {}", e))??;
+
+        Ok(result)
+    }
+
+    fn snappy_decode_genesis_file(
+        source_file: File,
+        target_filename: PathBuf,
+    ) -> Result<File, String> {
+        let reader = BufReader::new(source_file);
+
+        let mut decoder = snap::read::FrameDecoder::new(reader);
+
+        let mut buffer = Vec::new();
+        decoder
+            .read_to_end(&mut buffer)
+            .map_err(|e| format!("failed to decode: {}", e))?;
+
+        let mut output_file = File::create(target_filename).unwrap();
+        output_file
+            .write_all(&buffer)
+            .map_err(|e| format!("Error writing buffer: {}", e))?;
+
+        Ok(output_file)
     }
 }
 
@@ -246,7 +350,7 @@ define_hardcoded_nets!(
         // directory where the configuration files are located for this network.
         "mainnet",
         // The remote url that points to this networks genesis state file
-        "https://github.com/eth-clients/eth2-networks/blob/master/shared/mainnet/genesis.ssz",
+        "https://raw.githubusercontent.com/eserilev/eth2_network_genesis/main/mainnet/genesis.snappy",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
         GENESIS_STATE_IS_KNOWN
@@ -258,7 +362,7 @@ define_hardcoded_nets!(
         // directory where the configuration files are located for this network.
         "prater",
         // The remote url that points to this networks genesis state file
-        "https://github.com/eth-clients/eth2-networks/tree/master/shared/prater/genesis.ssz",
+        "https://raw.githubusercontent.com/eserilev/eth2_network_genesis/main/prater/genesis.snappy",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
         GENESIS_STATE_IS_KNOWN
@@ -272,11 +376,12 @@ define_hardcoded_nets!(
         // The Goerli network is effectively an alias to Prater.
         "prater",
         // The remote url that points to this networks genesis state file
-        "https://github.com/eth-clients/eth2-networks/tree/master/shared/prater/genesis.ssz",
+        "https://raw.githubusercontent.com/eserilev/eth2_network_genesis/main/goerli/genesis.snappy",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
         GENESIS_STATE_IS_KNOWN
     ),
+    
     (
         // Network name (must be unique among all networks).
         gnosis,
@@ -284,12 +389,11 @@ define_hardcoded_nets!(
         // directory where the configuration files are located for this network.
         "gnosis",
         // The remote url that points to this networks genesis state file
-        // TODO update this url to actual gnosis
-        "https://github.com/eth-clients/eth2-networks/blob/master/shared/mainnet/genesis.ssz",
+        "https://raw.githubusercontent.com/eserilev/eth2_network_genesis/main/gnosis/genesis.snappy",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
         GENESIS_STATE_IS_KNOWN
-    ),
+    ), 
     (
         // Network name (must be unique among all networks).
         sepolia,
@@ -297,11 +401,12 @@ define_hardcoded_nets!(
         // directory where the configuration files are located for this network.
         "sepolia",
         // The remote url that points to this networks genesis state file
-        "https://github.com/eth-clients/sepolia/blob/main/bepolia/genesis.ssz",
+        "https://raw.githubusercontent.com/eserilev/eth2_network_genesis/main/sepolia/genesis.snappy",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
         GENESIS_STATE_IS_KNOWN
-    ),
+    )
+    /*
     (
         // Network name (must be unique among all networks).
         holesky,
@@ -313,5 +418,5 @@ define_hardcoded_nets!(
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
         GENESIS_STATE_IS_KNOWN
-    )
+    ) */
 );
