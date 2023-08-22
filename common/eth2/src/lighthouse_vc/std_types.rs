@@ -1,8 +1,9 @@
 use account_utils::ZeroizeString;
 use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
-use slashing_protection::interchange::Interchange;
 use types::{Address, PublicKeyBytes};
+
+pub use slashing_protection::interchange::Interchange;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct GetFeeRecipientResponse {
@@ -27,7 +28,7 @@ pub struct ListKeystoresResponse {
     pub data: Vec<SingleKeystoreResponse>,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct SingleKeystoreResponse {
     pub validating_pubkey: PublicKeyBytes,
     pub derivation_path: Option<String>,

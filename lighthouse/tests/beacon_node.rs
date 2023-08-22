@@ -5,6 +5,7 @@ use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
 };
+use beacon_processor::BeaconProcessorConfig;
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use std::fs::File;
@@ -365,21 +366,6 @@ fn genesis_backfill_with_historic_flag() {
         .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
 }
 
-#[test]
-fn always_prefer_builder_payload_flag() {
-    CommandLineTest::new()
-        .flag("always-prefer-builder-payload", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.always_prefer_builder_payload));
-}
-
-#[test]
-fn no_flag_sets_always_prefer_builder_payload_to_false() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.always_prefer_builder_payload));
-}
-
 // Tests for Eth1 flags.
 #[test]
 fn dummy_eth1_flag() {
@@ -731,6 +717,38 @@ fn builder_fallback_flags() {
                     .unwrap()
                     .builder_profit_threshold,
                 0
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("always-prefer-builder-payload"),
+        None,
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .always_prefer_builder_payload,
+                true
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .always_prefer_builder_payload,
+                false
             );
         },
     );
@@ -1118,13 +1136,13 @@ fn disable_backfill_rate_limiting_flag() {
     CommandLineTest::new()
         .flag("disable-backfill-rate-limiting", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.enable_backfill_rate_limiting));
+        .with_config(|config| assert!(!config.beacon_processor.enable_backfill_rate_limiting));
 }
 #[test]
 fn default_backfill_rate_limiting_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.enable_backfill_rate_limiting));
+        .with_config(|config| assert!(config.beacon_processor.enable_backfill_rate_limiting));
 }
 #[test]
 fn default_boot_nodes() {
@@ -1461,6 +1479,22 @@ fn http_allow_sync_stalled_flag() {
         .flag("http-allow-sync-stalled", None)
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.allow_sync_stalled, true));
+}
+#[test]
+fn http_enable_beacon_processor() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
+
+    CommandLineTest::new()
+        .flag("http-enable-beacon-processor", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
+
+    CommandLineTest::new()
+        .flag("http-enable-beacon-processor", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, false));
 }
 #[test]
 fn http_tls_flags() {
@@ -2294,4 +2328,56 @@ fn progressive_balances_fast() {
                 ProgressiveBalancesMode::Fast
             )
         });
+}
+
+#[test]
+fn beacon_processor() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.beacon_processor, <_>::default()));
+
+    CommandLineTest::new()
+        .flag("beacon-processor-max-workers", Some("1"))
+        .flag("beacon-processor-work-queue-len", Some("2"))
+        .flag("beacon-processor-reprocess-queue-len", Some("3"))
+        .flag("beacon-processor-attestation-batch-size", Some("4"))
+        .flag("beacon-processor-aggregate-batch-size", Some("5"))
+        .flag("disable-backfill-rate-limiting", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.beacon_processor,
+                BeaconProcessorConfig {
+                    max_workers: 1,
+                    max_work_event_queue_len: 2,
+                    max_scheduled_work_queue_len: 3,
+                    max_gossip_attestation_batch_size: 4,
+                    max_gossip_aggregate_batch_size: 5,
+                    enable_backfill_rate_limiting: false
+                }
+            )
+        });
+}
+
+#[test]
+#[should_panic]
+fn beacon_processor_zero_workers() {
+    CommandLineTest::new()
+        .flag("beacon-processor-max-workers", Some("0"))
+        .run_with_zero_port();
+}
+
+#[test]
+fn http_sse_capacity_multiplier_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.sse_capacity_multiplier, 1));
+}
+
+#[test]
+fn http_sse_capacity_multiplier_override() {
+    CommandLineTest::new()
+        .flag("http-sse-capacity-multiplier", Some("10"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.sse_capacity_multiplier, 10));
 }

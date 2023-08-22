@@ -30,6 +30,8 @@ dependencies = [
  "filesystem",
  "safe_arith",
  "sensitive_url",
+ "serde",
+ "serde_json",
  "slashing_protection",
  "slot_clock",
  "tempfile",
@@ -599,7 +601,9 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_network",
  "logging",
+ "num_cpus",
  "parking_lot 0.12.1",
+ "serde",
  "slog",
  "slot_clock",
  "strum",
@@ -728,14 +732,13 @@ dependencies = [
 
 [[package]]
 name = "blst"
-version = "0.3.10"
+version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a30d0edd9dd1c60ddb42b80341c7852f6f985279a5c1a83659dcb65899dec99"
+checksum = "c94087b935a822949d3291a9989ad2b2051ea141eda0fd4e478a75f6aa3e604b"
 dependencies = [
  "cc",
  "glob",
  "threadpool",
- "which",
  "zeroize",
 ]
 
@@ -1050,7 +1053,6 @@ dependencies = [
  "logging",
  "monitoring_api",
  "network",
- "num_cpus",
  "operation_pool",
  "parking_lot 0.12.1",
  "sensitive_url",
@@ -3264,6 +3266,7 @@ name = "http_api"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
+ "beacon_processor",
  "bs58 0.4.0",
  "bytes",
  "directory",
@@ -4318,6 +4321,7 @@ dependencies = [
  "account_manager",
  "account_utils",
  "beacon_node",
+ "beacon_processor",
  "bls",
  "boot_node",
  "clap",
@@ -4327,6 +4331,7 @@ dependencies = [
  "env_logger 0.9.3",
  "environment",
  "eth1",
+ "eth2",
  "eth2_network_config",
  "ethereum_hashing",
  "futures",
@@ -4349,6 +4354,7 @@ dependencies = [
  "unused_port",
  "validator_client",
  "validator_dir",
+ "validator_manager",
 ]
 
 [[package]]
@@ -5030,7 +5036,6 @@ dependencies = [
  "logging",
  "lru_cache",
  "matches",
- "num_cpus",
  "operation_pool",
  "parking_lot 0.12.1",
  "rand 0.8.5",
@@ -8391,6 +8396,7 @@ dependencies = [
  "merkle_proof",
  "metastruct",
  "parking_lot 0.12.1",
+ "paste",
  "rand 0.8.5",
  "rand_xorshift",
  "rayon",
@@ -8612,6 +8618,7 @@ dependencies = [
  "bls",
  "deposit_contract",
  "derivative",
+ "directory",
  "eth2_keystore",
  "filesystem",
  "hex",
@@ -8620,6 +8627,31 @@ dependencies = [
  "tempfile",
  "tree_hash",
  "types",
+]
+
+[[package]]
+name = "validator_manager"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "bls",
+ "clap",
+ "clap_utils",
+ "environment",
+ "eth2",
+ "eth2_keystore",
+ "eth2_network_config",
+ "eth2_wallet",
+ "ethereum_serde_utils",
+ "hex",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tree_hash",
+ "types",
+ "validator_client",
 ]
 
 [[package]]
@@ -8862,6 +8894,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "task_executor",
  "testcontainers",
  "tokio",
  "tokio-postgres",
@@ -8943,17 +8976,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b03058f88386e5ff5310d9111d53f48b17d732b401aeb83a8d5190f2ac459338"
 dependencies = [
  "rustls-webpki 0.100.1",
-]
-
-[[package]]
-name = "which"
-version = "4.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2441c784c52b289a054b7201fc93253e288f094e2f4be9058343127c4226a269"
-dependencies = [
- "either",
- "libc",
- "once_cell",
 ]
 
 [[package]]

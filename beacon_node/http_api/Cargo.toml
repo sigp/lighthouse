@@ -3,12 +3,12 @@ name = "http_api"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
-autotests = false # using a single test binary compiles faster
+autotests = false                               # using a single test binary compiles faster
 
 [dependencies]
 warp = { version = "0.3.2", features = ["tls"] }
 serde = { version = "1.0.116", features = ["derive"] }
-tokio = { version = "1.14.0", features = ["macros","sync"] }
+tokio = { version = "1.14.0", features = ["macros", "sync"] }
 tokio-stream = { version = "0.1.3", features = ["sync"] }
 types = { path = "../../consensus/types" }
 hex = "0.4.2"
@@ -27,9 +27,9 @@ slot_clock = { path = "../../common/slot_clock" }
 ethereum_ssz = "0.5.0"
 bs58 = "0.4.0"
 futures = "0.3.8"
-execution_layer = {path = "../execution_layer"}
+execution_layer = { path = "../execution_layer" }
 parking_lot = "0.12.0"
-safe_arith = {path = "../../consensus/safe_arith"}
+safe_arith = { path = "../../consensus/safe_arith" }
 task_executor = { path = "../../common/task_executor" }
 lru = "0.7.7"
 tree_hash = "0.5.0"
@@ -40,9 +40,10 @@ logging = { path = "../../common/logging" }
 ethereum_serde_utils = "0.5.0"
 operation_pool = { path = "../operation_pool" }
 sensitive_url = { path = "../../common/sensitive_url" }
-unused_port = {path = "../../common/unused_port"}
+unused_port = { path = "../../common/unused_port" }
 store = { path = "../store" }
 bytes = "1.1.0"
+beacon_processor = { path = "../beacon_processor" }
 
 [dev-dependencies]
 environment = { path = "../../lighthouse/environment" }
