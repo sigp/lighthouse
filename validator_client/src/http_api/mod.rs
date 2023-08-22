@@ -21,8 +21,6 @@ use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
 };
-use futures::future::ok;
-use hyper::body::to_bytes;
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
@@ -35,15 +33,13 @@ use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::{convert, result};
 use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
-use warp::reply::{Reply, Response as resp};
-use warp::Rejection;
+use warp::reply::Response as resp;
 use warp::{
     http::{
         header::{HeaderValue, CONTENT_TYPE},
@@ -179,32 +175,32 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let signer = warp::any().map(move || signer.clone());
 
     let inner_validator_store = ctx.validator_store.clone();
-    let validator_store_filter = warp::any().map(move || inner_validator_store.clone()).then(
-        |validator_store: Option<_>| async move {
+    let validator_store_filter = warp::any()
+        .map(move || inner_validator_store.clone())
+        .and_then(|validator_store: Option<_>| async move {
             validator_store.ok_or_else(|| {
                 warp_utils::reject::custom_not_found(
                     "validator store is not initialized.".to_string(),
                 )
             })
-        },
-    );
+        });
 
     let inner_task_executor = ctx.task_executor.clone();
     let task_executor_filter = warp::any().map(move || inner_task_executor.clone());
 
     let inner_validator_dir = ctx.validator_dir.clone();
-    let validator_dir_filter = warp::any().map(move || inner_validator_dir.clone()).then(
-        |validator_dir: Option<_>| async move {
+    let validator_dir_filter = warp::any()
+        .map(move || inner_validator_dir.clone())
+        .and_then(|validator_dir: Option<_>| async move {
             validator_dir.ok_or_else(|| {
                 warp_utils::reject::custom_not_found(
                     "validator_dir directory is not initialized.".to_string(),
                 )
             })
-        },
-    );
+        });
 
     let inner_secrets_dir = ctx.secrets_dir.clone();
-    let secrets_dir_filter = warp::any().map(move || inner_secrets_dir.clone()).then(
+    let secrets_dir_filter = warp::any().map(move || inner_secrets_dir.clone()).and_then(
         |secrets_dir: Option<_>| async move {
             secrets_dir.ok_or_else(|| {
                 warp_utils::reject::custom_not_found(
@@ -273,9 +269,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .then(|signer| {
             blocking_signed_json_task(signer, move || {
                 Ok(api_types::GenericResponse::from(api_types::VersionData {
-                    // This will give me a response suppose to
                     version: version_with_platform(),
-                })) // This will weturn
+                }))
             })
         });
 
@@ -1126,7 +1121,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("logs"))
         .and(warp::path::end())
         .and(sse_component_filter)
-        .then(|sse_component: Option<SSELoggingComponents>| {
+        .and_then(|sse_component: Option<SSELoggingComponents>| {
             warp_utils::task::blocking_task(move || {
                 if let Some(logging_components) = sse_component {
                     // Build a JSON stream
@@ -1229,33 +1224,39 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     Ok((listening_socket, server))
 }
 
-/// Convert a warp `Rejection` into a `Response`.
+// Convert a warp `Rejection` into a `Response`.
 ///
 /// This function should *always* be used to convert rejections into responses. This prevents warp
 /// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
-pub async fn convert_with_header<T: Reply>(res: Result<T, warp::Rejection>) -> resp {
+pub async fn convert_with_header<T: Serialize>(
+    res: Result<T, warp::Rejection>,
+) -> Response<hyper::Body> {
     match res {
-        Ok(response) => {
-            // Convert the Reply (T) directly into a Response
-            let mut res = response.into_response();
-
-            // Set the content-type header
-            res.headers_mut().insert(
-                warp::http::header::CONTENT_TYPE,
-                HeaderValue::from_static("application/json"),
-            );
-            res
-        }
-        Err(e) => match warp_utils::reject::handle_rejection(e).await {
-            Ok(reply) => reply.into_response(),
-            Err(_) => warp::reply::with_status(
-                warp::reply::json(&"unhandled error"),
-                eth2::StatusCode::INTERNAL_SERVER_ERROR,
-            )
-            .into_response(),
+        Ok(response) => match serde_json::to_vec(&response) {
+            Ok(body) => {
+                let mut res = Response::new(hyper::Body::from(body));
+                res.headers_mut()
+                    .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                return res; // Explicitly return here
+            }
+            Err(_) => {
+                let error = Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(hyper::Body::from(vec![]))
+                    .expect("can produce simple response from static values");
+                return error; // Explicitly return here
+            }
         },
+        Err(_) => {
+            let error = Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(hyper::Body::from(vec![]))
+                .expect("can produce simple response from static values");
+            return error; // Explicitly return here
+        }
     }
 }
+
 /// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
 /// JSON-encodes the return value of `func`, using the `signer` function to produce a signature of
 /// those bytes.
@@ -1263,10 +1264,10 @@ pub async fn blocking_signed_json_task<S, F, T>(signer: S, func: F) -> resp
 where
     S: Fn(&[u8]) -> String,
     F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
-    T: Serialize + Reply + Send + 'static, // Check the closure of ur FnOnce
+    T: Serialize + Send + 'static, // Check the closure of ur FnOnce
 {
-    let result = warp_utils::task::blocking_task(func).await;
-    let mut conversion = convert_with_header(result).await;
+    let result = warp_utils::task::blocking_task(func).await; // This produce a result
+    let mut conversion = convert_with_header(result).await; // We need to serialize it and turn it into a response
     let body = conversion.body_mut();
     let bytes = hyper::body::to_bytes(body)
         .await

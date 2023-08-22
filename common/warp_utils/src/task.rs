@@ -2,20 +2,15 @@ use serde::Serialize;
 use warp::reply::{Reply, Response};
 
 /// A convenience wrapper around `blocking_task`.
-pub async fn blocking_task<F, T>(func: F) -> Result<Response, warp::Rejection>
+pub async fn blocking_task<F, T>(func: F) -> Result<T, warp::Rejection>
 where
     F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
-    T: Reply + Send + 'static,
+    T: Send + 'static,
 {
-    let result = tokio::task::spawn_blocking(func)
+    tokio::task::spawn_blocking(func)
         .await
-        .unwrap_or_else(|_| Err(warp::reject::reject()));
-    match result {
-        Ok(reply) => Ok(reply.into_response()),
-        Err(rejection) => Err(rejection),
-    }
+        .unwrap_or_else(|_| Err(warp::reject::reject()))
 }
-
 /// A convenience wrapper around `blocking_task` that returns a `warp::reply::Response`.
 ///
 /// Using this method consistently makes it possible to simplify types using `.unify()` or `.uor()`.
