@@ -1228,7 +1228,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_expected_withdrawals(
         &self,
         state_id: &StateId,
-    ) -> Result<NextWithdrawalsResponse<Vec<Withdrawal>>, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<Withdrawal>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()

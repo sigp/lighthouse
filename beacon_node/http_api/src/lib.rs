@@ -2146,10 +2146,10 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => Ok(warp::reply::json(&api_types::NextWithdrawalsResponse {
+                        _ => Ok(warp::reply::json(&api_types::ExecutionOptimisticFinalizedResponse {
                             data: withdrawals,
-                            execution_optimistic,
-                            finalized,
+                            Some(execution_optimistic),
+                            Some(finalized),
                         })
                         .into_response()),
                     }
