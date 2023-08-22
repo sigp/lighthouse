@@ -1,7 +1,7 @@
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, StateSkipConfig, WhenSlotSkipped,
+    BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
 use environment::null_logger;
 use eth2::{
@@ -77,6 +77,7 @@ struct ApiTester {
 
 struct ApiTesterConfig {
     spec: ChainSpec,
+    retain_historic_states: bool,
     builder_threshold: Option<u128>,
 }
 
@@ -86,8 +87,16 @@ impl Default for ApiTesterConfig {
         spec.shard_committee_period = 2;
         Self {
             spec,
+            retain_historic_states: false,
             builder_threshold: None,
         }
+    }
+}
+
+impl ApiTesterConfig {
+    fn retain_historic_states(mut self) -> Self {
+        self.retain_historic_states = true;
+        self
     }
 }
 
@@ -118,6 +127,10 @@ impl ApiTester {
         let harness = Arc::new(
             BeaconChainHarness::builder(MainnetEthSpec)
                 .spec(spec.clone())
+                .chain_config(ChainConfig {
+                    reconstruct_historic_states: config.retain_historic_states,
+                    ..ChainConfig::default()
+                })
                 .logger(logging::test_logger())
                 .deterministic_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
@@ -375,6 +388,7 @@ impl ApiTester {
     pub async fn new_mev_tester_no_builder_threshold() -> Self {
         let mut config = ApiTesterConfig {
             builder_threshold: Some(0),
+            retain_historic_states: false,
             spec: E::default_spec(),
         };
         config.spec.altair_fork_epoch = Some(Epoch::new(0));
@@ -4705,7 +4719,7 @@ async fn get_validator_duties_attester_with_skip_slots() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer() {
-    ApiTester::new()
+    ApiTester::new_from_config(ApiTesterConfig::default().retain_historic_states())
         .await
         .test_get_validator_duties_proposer()
         .await;
@@ -4713,7 +4727,7 @@ async fn get_validator_duties_proposer() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer_with_skip_slots() {
-    ApiTester::new()
+    ApiTester::new_from_config(ApiTesterConfig::default().retain_historic_states())
         .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_duties_proposer()
@@ -5045,6 +5059,7 @@ async fn builder_payload_chosen_by_profit() {
 async fn builder_works_post_capella() {
     let mut config = ApiTesterConfig {
         builder_threshold: Some(0),
+        retain_historic_states: false,
         spec: E::default_spec(),
     };
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
