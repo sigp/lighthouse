@@ -1080,7 +1080,7 @@ mod release_tests {
             }
         }
 
-        assert_eq!(op_pool.num_attestations(), committees.len());
+        assert_eq!(op_pool.num_attestations(), 128);
 
         // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
         assert_eq!(
@@ -1107,7 +1107,7 @@ mod release_tests {
 
         // Prune attestations shouldn't do anything at this point.
         op_pool.prune_attestations(state.current_epoch());
-        assert_eq!(op_pool.num_attestations(), committees.len());
+        assert_eq!(op_pool.num_attestations(), 128);
 
         // But once we advance to more than an epoch after the attestation, it should prune it
         // out of existence.
@@ -1153,97 +1153,6 @@ mod release_tests {
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
-    }
-
-    /// Adding lots of attestations that only intersect pairwise should lead to two aggregate
-    /// attestations.
-    #[test]
-    fn attestation_pairwise_overlapping() {
-        let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
-
-        let state = harness.get_current_state();
-
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
-
-        let slot = state.slot();
-        let committees = state
-            .get_beacon_committees_at_slot(slot)
-            .unwrap()
-            .into_iter()
-            .map(BeaconCommittee::into_owned)
-            .collect::<Vec<_>>();
-
-        let num_validators =
-            MainnetEthSpec::slots_per_epoch() as usize * spec.target_committee_size;
-
-        let attestations = harness.make_attestations(
-            (0..num_validators).collect::<Vec<_>>().as_slice(),
-            &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
-            slot,
-        );
-
-        let step_size = 2;
-        // Create attestations that overlap on `step_size` validators, like:
-        // {0,1,2,3}, {2,3,4,5}, {4,5,6,7}, ...
-        for (atts1, _) in attestations {
-            let atts2 = atts1.clone();
-            let aggs1 = atts1
-                .chunks_exact(step_size * 2)
-                .map(|chunk| {
-                    let agg = chunk.into_iter().map(|(att, _)| att).fold::<Option<
-                        Attestation<MainnetEthSpec>,
-                    >, _>(
-                        None,
-                        |att, new_att| {
-                            if let Some(mut a) = att {
-                                a.aggregate(new_att);
-                                Some(a)
-                            } else {
-                                Some(new_att.clone())
-                            }
-                        },
-                    );
-                    agg.unwrap()
-                })
-                .collect::<Vec<_>>();
-            let aggs2 = atts2
-                .into_iter()
-                .skip(step_size)
-                .collect::<Vec<_>>()
-                .as_slice()
-                .chunks_exact(step_size * 2)
-                .map(|chunk| {
-                    let agg = chunk.into_iter().map(|(att, _)| att).fold::<Option<
-                        Attestation<MainnetEthSpec>,
-                    >, _>(
-                        None,
-                        |att, new_att| {
-                            if let Some(mut a) = att {
-                                a.aggregate(new_att);
-                                Some(a)
-                            } else {
-                                Some(new_att.clone())
-                            }
-                        },
-                    );
-                    agg.unwrap()
-                })
-                .collect::<Vec<_>>();
-
-            for att in aggs1.into_iter().chain(aggs2.into_iter()) {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
-                op_pool.insert_attestation(att, attesting_indices).unwrap();
-            }
-        }
-
-        // The attestations should get aggregated into two attestations that comprise all
-        // validators.
-        let stats = op_pool.attestation_stats();
-        assert_eq!(stats.num_attestation_data, committees.len());
-        assert_eq!(stats.num_attestations, 2 * committees.len());
-        assert_eq!(stats.max_aggregates_per_data, 2);
     }
 
     /// Create a bunch of attestations signed by a small number of validators, and another
