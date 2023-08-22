@@ -1020,6 +1020,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dirs",
+ "eth2_config",
  "eth2_network_config",
  "ethereum-types 0.14.1",
  "ethereum_ssz",

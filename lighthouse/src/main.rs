@@ -238,6 +238,15 @@ fn main() {
 
         )
         .arg(
+            Arg::with_name("genesis-remote-url")
+                .long("genesis-remote-url")
+                .value_name("genesis-remote-url")
+                .help("Remote url that will be used to fetch the genesis file.")
+                .takes_value(true)
+                .global(true)
+
+        )
+        .arg(
             Arg::with_name("dump-config")
                 .long("dump-config")
                 .hidden(true)
@@ -454,10 +463,6 @@ fn run<E: EthSpec>(
     let logfile_compress = matches.is_present("logfile-compress");
 
     let logfile_restricted = !matches.is_present("logfile-no-restricted-perms");
-
-    let genesis_state_url = matches
-        .value_of("genesis-state-url")
-        .ok_or("Expected --genesis-state-url")?;
 
     // Construct the path to the log file.
     let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;

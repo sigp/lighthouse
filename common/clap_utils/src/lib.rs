@@ -1,13 +1,13 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
 use clap::ArgMatches;
+use eth2_config::{Eth2NetArchiveAndDirectory, ETH2_NET_DIRS};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use ethereum_types::U256 as Uint256;
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
 use types::{ChainSpec, Config, EthSpec};
-
 pub mod flags;
 
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
@@ -19,11 +19,13 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
 /// Returns the default hardcoded testnet if neither flags are set.
 pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
     let optional_network_config = if cli_args.is_present("network") {
+        fetch_genesis(cli_args, "network", "")?;
         parse_hardcoded_network(cli_args, "network")?
     } else if cli_args.is_present("testnet-dir") {
         parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
         // if neither is present, assume the default network
+        fetch_genesis(cli_args, "network", "")?;
         Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
     };
 
@@ -82,6 +84,28 @@ pub fn parse_hardcoded_network(
 ) -> Result<Option<Eth2NetworkConfig>, String> {
     let network_name = parse_required::<String>(matches, name)?;
     Eth2NetworkConfig::constant(network_name.as_str())
+}
+
+pub fn fetch_genesis(
+    matches: &ArgMatches,
+    network_arg_name: &str,
+    remote_url_arg_name: &str,
+) -> Result<(), String> {
+    let network = parse_optional::<String>(matches, network_arg_name)?;
+    let remote_url: Option<String> = parse_optional::<String>(matches, remote_url_arg_name)?;
+
+    let network_name = match network {
+        Some(network) => network,
+        None => DEFAULT_HARDCODED_NETWORK.to_string(),
+    };
+
+    let eth2_net_dir = ETH2_NET_DIRS.iter().find(|net| net.name == network_name);
+
+    if let Some(network) = eth2_net_dir {
+        Eth2NetArchiveAndDirectory::uncompress_state(network, remote_url)?;
+    };
+
+    Ok(())
 }
 
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's

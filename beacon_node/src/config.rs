@@ -81,7 +81,7 @@ pub fn get_config<E: EthSpec>(
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref, log)?;
 
     /*
-    * Genesis file
+     * Genesis file
      */
 
     /*
