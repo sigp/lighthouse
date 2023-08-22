@@ -5,26 +5,29 @@ pub fn bron_kerbosch<T, F: Fn(&T, &T) -> bool>(
     vertices: &Vec<T>,
     is_compatible: F,
 ) -> Vec<Vec<usize>> {
-    // build neighbourhoods and degeneracy ordering, also move to index-based reasoning
-    let neighbourhoods = compute_neigbourhoods(vertices, is_compatible);
-    let ordering = degeneracy_order(vertices.len(), &neighbourhoods);
-
     // create empty vector to store cliques
     let mut cliques: Vec<Vec<usize>> = vec![];
-    let mut publish_clique = |c| cliques.push(c);
 
-    for i in 0..ordering.len() {
-        let vi = ordering[i];
-        let p = (i + 1..ordering.len())
-            .filter(|j| neighbourhoods[vi].contains(&ordering[*j]))
-            .map(|j| ordering[j])
-            .collect();
-        let r = vec![vi];
-        let x = (0..i)
-            .filter(|j| neighbourhoods[vi].contains(&ordering[*j]))
-            .map(|j| ordering[j])
-            .collect();
-        bron_kerbosch_aux(r, p, x, &neighbourhoods, &mut publish_clique)
+    if vertices.len() > 0 {
+        // build neighbourhoods and degeneracy ordering, also move to index-based reasoning
+        let neighbourhoods = compute_neigbourhoods(vertices, is_compatible);
+        let ordering = degeneracy_order(vertices.len(), &neighbourhoods);
+
+        let mut publish_clique = |c| cliques.push(c);
+
+        for i in 0..ordering.len() {
+            let vi = ordering[i];
+            let p = (i + 1..ordering.len())
+                .filter(|j| neighbourhoods[vi].contains(&ordering[*j]))
+                .map(|j| ordering[j])
+                .collect();
+            let r = vec![vi];
+            let x = (0..i)
+                .filter(|j| neighbourhoods[vi].contains(&ordering[*j]))
+                .map(|j| ordering[j])
+                .collect();
+            bron_kerbosch_aux(r, p, x, &neighbourhoods, &mut publish_clique)
+        }
     }
 
     cliques
