@@ -7,8 +7,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-eth2_wallet = { path = "../../crypto/eth2_wallet" }
-lockfile = { path = "../lockfile" }
+eth2_wallet = { workspace = true }
+lockfile = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.1.0"
+tempfile = { workspace = true }

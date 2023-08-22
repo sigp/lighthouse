@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-logging = { path = "../../common/logging" }
-slog = "2.7.0"
+logging = { workspace = true }
+slog = { workspace = true }

@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
 
 [dev-dependencies]
-compare_fields_derive = { path = "../compare_fields_derive" }
+compare_fields_derive = { workspace = true }
 
 [package.metadata.cargo-udeps.ignore]
 development = ["compare_fields_derive"] # used in doc-tests

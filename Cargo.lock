@@ -509,7 +509,7 @@ dependencies = [
 name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
- "bitvec 0.20.4",
+ "bitvec 1.0.1",
  "bls",
  "derivative",
  "environment",
@@ -553,7 +553,7 @@ dependencies = [
  "state_processing",
  "store",
  "strum",
- "superstruct 0.5.0",
+ "superstruct",
  "task_executor",
  "tempfile",
  "tokio",
@@ -734,7 +734,7 @@ dependencies = [
  "ethereum_ssz",
  "hex",
  "milagro_bls",
- "rand 0.7.3",
+ "rand 0.8.5",
  "serde",
  "serde_derive",
  "tree_hash",
@@ -1521,7 +1521,7 @@ dependencies = [
  "hex",
  "reqwest",
  "serde_json",
- "sha2 0.10.7",
+ "sha2 0.9.9",
  "tree_hash",
  "types",
 ]
@@ -2043,7 +2043,7 @@ dependencies = [
  "slog",
  "sloggers",
  "state_processing",
- "superstruct 0.5.0",
+ "superstruct",
  "task_executor",
  "tokio",
  "tree_hash",
@@ -2127,7 +2127,7 @@ dependencies = [
  "hex",
  "num-bigint-dig",
  "ring",
- "sha2 0.10.7",
+ "sha2 0.9.9",
  "zeroize",
 ]
 
@@ -2546,7 +2546,7 @@ dependencies = [
  "ssz_types",
  "state_processing",
  "strum",
- "superstruct 0.6.0",
+ "superstruct",
  "task_executor",
  "tempfile",
  "tokio",
@@ -4413,7 +4413,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_derive",
- "sha2 0.10.7",
+ "sha2 0.9.9",
  "slog",
  "slog-async",
  "slog-term",
@@ -4421,7 +4421,7 @@ dependencies = [
  "snap",
  "ssz_types",
  "strum",
- "superstruct 0.5.0",
+ "superstruct",
  "task_executor",
  "tempfile",
  "tiny-keccak",
@@ -5974,7 +5974,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_yaml",
- "superstruct 0.5.0",
+ "superstruct",
  "types",
 ]
 
@@ -7510,20 +7510,6 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "superstruct"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95a99807a055ff4ff5d249bb84c80d9eabb55ca3c452187daae43fd5b51ef695"
-dependencies = [
- "darling",
- "itertools",
- "proc-macro2",
- "quote",
- "smallvec 1.11.0",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "superstruct"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75b9e5728aa1a87141cefd4e7509903fc01fa0dcb108022b1e841a67c5159fc5"
@@ -8382,7 +8368,7 @@ dependencies = [
  "ssz_types",
  "state_processing",
  "strum",
- "superstruct 0.6.0",
+ "superstruct",
  "swap_or_not_shuffle",
  "tempfile",
  "test_random_derive",
@@ -8681,7 +8667,7 @@ dependencies = [
 [[package]]
 name = "warp"
 version = "0.3.5"
-source = "git+https://github.com/seanmonstar/warp.git?rev=149913fe#149913fed948bbe2149b52b9016170bcaef950ab"
+source = "git+https://github.com/seanmonstar/warp.git#149913fed948bbe2149b52b9016170bcaef950ab"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -8853,7 +8839,7 @@ dependencies = [
  "log",
  "network",
  "r2d2",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",

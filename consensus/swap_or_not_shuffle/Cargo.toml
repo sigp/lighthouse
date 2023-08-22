@@ -9,11 +9,11 @@ name = "benches"
 harness = false
 
 [dev-dependencies]
-criterion = "0.3.3"
+criterion = { workspace = true }
 
 [dependencies]
-ethereum_hashing = "1.0.0-beta.2"
-ethereum-types = "0.14.1"
+ethereum_hashing = { workspace = true }
+ethereum-types = { workspace = true }
 
 [features]
 arbitrary = ["ethereum-types/arbitrary"]

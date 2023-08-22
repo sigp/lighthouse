@@ -5,8 +5,8 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
 
 [dependencies]
-bytes = "1.0.1"
+bytes = { workspace = true }
 
 [dev-dependencies]
 yaml-rust = "0.4.4"
-hex = "0.4.2"
+hex = { workspace = true }

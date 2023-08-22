@@ -5,5 +5,5 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
 
 [dependencies]
-types = { path = "../../consensus/types" }
-paste = "1.0.5"
+types = { workspace = true }
+paste = { workspace = true }
