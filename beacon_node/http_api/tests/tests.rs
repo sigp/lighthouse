@@ -5182,6 +5182,7 @@ async fn builder_works_post_capella() {
 async fn builder_works_post_deneb() {
     let mut config = ApiTesterConfig {
         builder_threshold: Some(0),
+        retain_historic_states: false,
         spec: E::default_spec(),
     };
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
