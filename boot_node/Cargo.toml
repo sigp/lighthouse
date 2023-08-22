@@ -2,7 +2,7 @@
 name = "boot_node"
 version = "4.3.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
 beacon_node = { workspace = true }

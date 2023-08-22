@@ -2,7 +2,7 @@
 name = "network"
 version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dev-dependencies]
 sloggers = { workspace = true }

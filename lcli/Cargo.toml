@@ -3,7 +3,7 @@ name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
 version = "4.3.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [features]
 portable = ["bls/supranational-portable"]

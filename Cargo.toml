@@ -89,10 +89,14 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+edition = "2021"
+
 [workspace.dependencies]
 arbitrary = { version = "1", features = ["derive"] }
 bitvec = "1"
 bytes = "1"
+byteorder = "1"
 clap = "2"
 criterion = "0.3"
 compare_fields_derive = { path = "common/compare_fields_derive" }

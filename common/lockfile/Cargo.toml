@@ -2,7 +2,7 @@
 name = "lockfile"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
 fs2 = { workspace = true }

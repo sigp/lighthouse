@@ -2,7 +2,7 @@
 name = "slasher_service"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
 beacon_chain = { workspace = true }

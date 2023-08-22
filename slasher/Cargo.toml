@@ -2,7 +2,7 @@
 name = "slasher"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [features]
 default = ["lmdb"]
@@ -11,7 +11,7 @@ lmdb = ["lmdb-rkv", "lmdb-rkv-sys"]
 
 [dependencies]
 bincode = { workspace = true }
-byteorder = "1.3.4"
+byteorder = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }

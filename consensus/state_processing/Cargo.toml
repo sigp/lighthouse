@@ -2,7 +2,7 @@
 name = "state_processing"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Michael Sproul <michael@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dev-dependencies]
 env_logger = { workspace = true }

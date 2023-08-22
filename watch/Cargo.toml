@@ -1,7 +1,7 @@
 [package]
 name = "watch"
 version = "0.1.0"
-edition = "2018"
+edition = { workspace = true }
 
 [lib]
 name = "watch"
@@ -30,7 +30,7 @@ url = { workspace = true }
 rand = { workspace = true }
 diesel = { version = "2.0.2", features = ["postgres", "r2d2"] }
 diesel_migrations = { version = "2.0.0", features = ["postgres"] }
-byteorder = "1.4.3"
+byteorder = { workspace = true }
 bls = { workspace = true }
 hex = { workspace = true }
 r2d2 = { workspace = true }

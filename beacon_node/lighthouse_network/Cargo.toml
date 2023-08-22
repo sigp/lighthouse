@@ -2,7 +2,7 @@
 name = "lighthouse_network"
 version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
 discv5 = { workspace = true }

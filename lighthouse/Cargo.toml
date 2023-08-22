@@ -2,7 +2,7 @@
 name = "lighthouse"
 version = "4.3.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 autotests = false
 rust-version = "1.68.2"
 

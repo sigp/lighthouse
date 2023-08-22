@@ -2,7 +2,7 @@
 name = "logging"
 version = "0.2.0"
 authors = ["blacktemplar <blacktemplar@a1.net>"]
-edition = "2021"
+edition = { workspace = true }
 
 [features]
 test_logger = [] # Print log output to stderr when running tests instead of dropping it

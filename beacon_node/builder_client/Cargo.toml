@@ -1,7 +1,7 @@
 [package]
 name = "builder_client"
 version = "0.1.0"
-edition = "2021"
+edition = { workspace = true }
 authors = ["Sean Anderson <sean@sigmaprime.io>"]
 
 [dependencies]
