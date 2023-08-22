@@ -43,6 +43,7 @@ use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
 pub use types::*;
 
+// FIXME(sproul): abstract over non-32-byte keys
 pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
 pub type ColumnKeyIter<'a> = Box<dyn Iterator<Item = Result<Hash256, Error>> + 'a>;
 
