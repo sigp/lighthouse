@@ -3,7 +3,7 @@ use beacon_chain::{
     test_utils::{
         BeaconChainHarness, BoxedMutator, Builder as HarnessBuilder, EphemeralHarnessType,
     },
-    BeaconChain, BeaconChainTypes,
+    BeaconChain,
 };
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig};
 use directory::DEFAULT_ROOT_DIR;
@@ -38,6 +38,7 @@ pub const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0/tcp/9000";
 /// HTTP API tester that allows interaction with the underlying beacon chain harness.
 pub struct InteractiveTester<E: EthSpec> {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+    pub ctx: Arc<Context<EphemeralHarnessType<E>>>,
     pub client: BeaconNodeHttpClient,
     pub network_rx: NetworkReceivers<E>,
 }
@@ -47,6 +48,7 @@ pub struct InteractiveTester<E: EthSpec> {
 /// Glue-type between `tests::ApiTester` and `InteractiveTester`.
 pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub server: SFut,
+    pub ctx: Arc<Context<EphemeralHarnessType<E>>>,
     pub listening_socket: SocketAddr,
     pub network_rx: NetworkReceivers<E>,
     pub local_enr: Enr,
@@ -94,6 +96,7 @@ impl<E: EthSpec> InteractiveTester<E> {
 
         let ApiServer {
             server,
+            ctx,
             listening_socket,
             network_rx,
             ..
@@ -118,35 +121,36 @@ impl<E: EthSpec> InteractiveTester<E> {
 
         Self {
             harness,
+            ctx,
             client,
             network_rx,
         }
     }
 }
 
-pub async fn create_api_server<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
+pub async fn create_api_server<E: EthSpec>(
+    chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     test_runtime: &TestRuntime,
     log: Logger,
-) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
+) -> ApiServer<E, impl Future<Output = ()>> {
     // Get a random unused port.
     let port = unused_port::unused_tcp4_port().unwrap();
     create_api_server_on_port(chain, test_runtime, log, port).await
 }
 
-pub async fn create_api_server_on_port<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
+pub async fn create_api_server_on_port<E: EthSpec>(
+    chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     test_runtime: &TestRuntime,
     log: Logger,
     port: u16,
-) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
+) -> ApiServer<E, impl Future<Output = ()>> {
     let (network_senders, network_receivers) = NetworkSenders::new();
 
     // Default metadata
     let meta_data = MetaData::V2(MetaDataV2 {
         seq_number: SEQ_NUMBER,
-        attnets: EnrAttestationBitfield::<T::EthSpec>::default(),
-        syncnets: EnrSyncCommitteeBitfield::<T::EthSpec>::default(),
+        attnets: EnrAttestationBitfield::<E>::default(),
+        syncnets: EnrSyncCommitteeBitfield::<E>::default(),
     });
     let enr_key = CombinedKey::generate_secp256k1();
     let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
@@ -239,10 +243,12 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
         log,
     });
 
-    let (listening_socket, server) = crate::serve(ctx, test_runtime.task_executor.exit()).unwrap();
+    let (listening_socket, server) =
+        crate::serve(ctx.clone(), test_runtime.task_executor.exit()).unwrap();
 
     ApiServer {
         server,
+        ctx,
         listening_socket,
         network_rx: network_receivers,
         local_enr: enr,

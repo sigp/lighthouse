@@ -1,4 +1,5 @@
 use crate::metrics;
+use crate::task_spawner::{Priority, TaskSpawner};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, IntoGossipVerifiedBlock,
@@ -76,7 +77,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
     let gossip_verified_block = block.into_gossip_verified_block(&chain).map_err(|e| {
-        warn!(log, "Not publishing block, not gossip verified"; "slot" => beacon_block.slot(), "error" => ?e);
+        warn!(log, "Not publishing block - not gossip verified"; "slot" => beacon_block.slot(), "error" => ?e);
         warp_utils::reject::custom_bad_request(e.to_string())
     })?;
 
@@ -205,16 +206,59 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
+    task_spawner: TaskSpawner<T::EthSpec>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
     validation_level: BroadcastValidation,
 ) -> Result<(), Rejection> {
     let block_root = block.canonical_root();
-    let full_block: ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>> =
-        reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
+
+    // Complete gossip verification and publication to the relay in parallel.
+    // This avoids tripping the gossip duplicate filter.
+    let block_to_verify = Arc::new(block.clone());
+    let chain_verify = chain.clone();
+    let log_verify = log.clone();
+    let gossip_verification_task = task_spawner
+        .clone()
+        .spawn_async_with_rejection_no_conversion(Priority::P0, async move {
+            block_to_verify
+                .clone()
+                .into_gossip_verified_block(&chain_verify)
+                .map_err(|e| {
+                    warn!(
+                        log_verify,
+                        "Not publishing block - not gossip verified";
+                        "slot" => block_to_verify.slot(),
+                        "error" => ?e
+                    );
+                    warp_utils::reject::custom_bad_request(format!("{e:?}"))
+                })
+        });
+
+    let chain_reconstruct = chain.clone();
+    let log_reconstruct = log.clone();
+    let reconstruction_task = task_spawner
+        .spawn_async_with_rejection_no_conversion(Priority::P0, async move {
+            reconstruct_block(chain_reconstruct, block_root, block, log_reconstruct).await
+        });
+
+    let (gossip_result, reconstruction_result) =
+        futures::join!(gossip_verification_task, reconstruction_task);
+    let gossip_verified_blinded_block = gossip_result?;
+    let full_block = reconstruction_result?;
+
+    let provenanced_gossip_verified_block = match full_block {
+        ProvenancedBlock::Local(block, phantom) => {
+            ProvenancedBlock::Local(gossip_verified_blinded_block.unblind(block), phantom)
+        }
+        ProvenancedBlock::Builder(block, phantom) => {
+            ProvenancedBlock::Builder(gossip_verified_blinded_block.unblind(block), phantom)
+        }
+    };
+
     publish_block::<T, _>(
         Some(block_root),
-        full_block,
+        provenanced_gossip_verified_block,
         chain,
         network_tx,
         log,

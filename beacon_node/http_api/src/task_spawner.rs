@@ -29,6 +29,7 @@ impl Priority {
 }
 
 /// Spawns tasks on the `BeaconProcessor` or directly on the tokio executor.
+#[derive(Clone)]
 pub struct TaskSpawner<E: EthSpec> {
     /// Used to send tasks to the `BeaconProcessor`. The tokio executor will be
     /// used if this is `None`.
@@ -122,11 +123,11 @@ impl<E: EthSpec> TaskSpawner<E> {
     ///
     /// If you call this function you MUST convert the rejection to a response and not let it
     /// propagate into Warp's filters. See `convert_rejection`.
-    pub async fn spawn_async_with_rejection_no_conversion(
+    pub async fn spawn_async_with_rejection_no_conversion<T: Send + Sync + 'static>(
         self,
         priority: Priority,
-        func: impl Future<Output = Result<Response, warp::Rejection>> + Send + Sync + 'static,
-    ) -> Result<Response, warp::Rejection> {
+        func: impl Future<Output = Result<T, warp::Rejection>> + Send + Sync + 'static,
+    ) -> Result<T, warp::Rejection> {
         if let Some(beacon_processor_send) = &self.beacon_processor_send {
             // Create a wrapper future that will execute `func` and send the
             // result to a channel held by this thread.

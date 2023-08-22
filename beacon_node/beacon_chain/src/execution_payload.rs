@@ -338,11 +338,14 @@ pub async fn is_optimistic_candidate_block<T: BeaconChainTypes>(
 
 /// Validate the gossip block's execution_payload according to the checks described here:
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#beacon_block
-pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
+pub fn validate_execution_payload_for_gossip<
+    T: BeaconChainTypes,
+    Payload: AbstractExecPayload<T::EthSpec>,
+>(
     parent_block: &ProtoBlock,
-    block: BeaconBlockRef<'_, T::EthSpec>,
+    block: BeaconBlockRef<'_, T::EthSpec, Payload>,
     chain: &BeaconChain<T>,
-) -> Result<(), BlockError<T::EthSpec>> {
+) -> Result<(), BlockError<T::EthSpec, Payload>> {
     // Only apply this validation if this is a merge beacon block.
     if let Ok(execution_payload) = block.body().execution_payload() {
         // This logic should match `is_execution_enabled`. We use only the execution block hash of

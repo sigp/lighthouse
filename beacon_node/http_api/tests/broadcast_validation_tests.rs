@@ -4,7 +4,10 @@ use beacon_chain::{
 };
 use eth2::types::{BroadcastValidation, SignedBeaconBlock, SignedBlindedBeaconBlock};
 use http_api::test_utils::InteractiveTester;
-use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
+use http_api::{
+    publish_blinded_block, publish_block, reconstruct_block, task_spawner::TaskSpawner,
+    ProvenancedBlock,
+};
 use tree_hash::TreeHash;
 use types::{Hash256, MainnetEthSpec, Slot};
 use warp::Rejection;
@@ -1294,9 +1297,11 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
 
     let channel = tokio::sync::mpsc::unbounded_channel();
 
+    let task_spawner = TaskSpawner::new(tester.ctx.beacon_processor_send.clone());
     let publication_result: Result<(), Rejection> = publish_blinded_block(
         block_b,
         tester.harness.chain,
+        task_spawner,
         &channel.0,
         test_logger,
         validation_level.unwrap(),
