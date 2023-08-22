@@ -2305,17 +2305,19 @@ pub fn serve<T: BeaconChainTypes>(
     // GET builder/states/{state_id}/expected_withdrawals
     let get_expected_withdrawals = builder_states_path
         .clone()
+        .and(task_spawner_filter.clone())
         .and(warp::path::param::<StateId>())
         .and(warp::path("expected_withdrawals"))
         .and(warp::query::<api_types::ExpectedWithdrawalsQuery>())
         .and(warp::path::end())
         .and(warp::header::optional::<api_types::Accept>("accept"))
-        .and_then(
+        .then(
             |chain: Arc<BeaconChain<T>>,
+             task_spawner: TaskSpawner<T::EthSpec>,
              state_id: StateId,
              query: api_types::ExpectedWithdrawalsQuery,
              accept_header: Option<api_types::Accept>| {
-                blocking_response_task(move || {
+                task_spawner.blocking_response_task(Priority::P1, move || {
                     let (state, execution_optimistic, finalized) = state_id.state(&chain)?;
                     let proposal_slot = query.proposal_slot.unwrap_or(state.slot() + 1);
                     let withdrawals =
@@ -2334,8 +2336,8 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => Ok(warp::reply::json(&api_types::ExecutionOptimisticFinalizedResponse {
                             data: withdrawals,
-                            Some(execution_optimistic),
-                            Some(finalized),
+                            execution_optimistic: Some(execution_optimistic),
+                            finalized: Some(finalized),
                         })
                         .into_response()),
                     }

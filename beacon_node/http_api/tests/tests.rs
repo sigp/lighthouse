@@ -4380,8 +4380,8 @@ impl ApiTester {
         let result = self.client.get_expected_withdrawals(&state_id).await;
         match result {
             Ok(withdrawal_response) => {
-                assert_eq!(withdrawal_response.execution_optimistic, false);
-                assert_eq!(withdrawal_response.finalized, false);
+                assert_eq!(withdrawal_response.execution_optimistic, Some(false));
+                assert_eq!(withdrawal_response.finalized, Some(false));
                 assert_eq!(withdrawal_response.data, expected_withdrawals.to_vec());
             }
             Err(e) => {
