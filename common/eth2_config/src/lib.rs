@@ -145,10 +145,7 @@ impl<'a> Eth2NetArchiveAndDirectory<'a> {
         Ok(())
     }
 
-    async fn fetch_compressed_genesis_state(
-        url: String,
-        save_path: PathBuf,
-    ) -> Result<File, String> {
+    async fn fetch_compressed_genesis_state(url: String, save_path: PathBuf) -> Result<File, String> {
         let response = reqwest::get(url)
             .await
             .map_err(|e| format!("Error fetching file from remote url: {}", e))?;
@@ -170,7 +167,10 @@ impl<'a> Eth2NetArchiveAndDirectory<'a> {
         Err("Could not find file from remote url".to_string())
     }
 
-    async fn fetch_genesis_state_wrapper(url: String, save_path: PathBuf) -> Result<File, String> {
+    async fn fetch_genesis_state_wrapper(
+        url:  String,
+        save_path: PathBuf,
+    ) -> Result<File, String> {
         let join_handle = task::spawn_blocking(|| {
             let inner_runtime = runtime::Runtime::new().unwrap();
             inner_runtime.block_on(Eth2NetArchiveAndDirectory::fetch_compressed_genesis_state(
