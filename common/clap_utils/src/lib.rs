@@ -19,13 +19,13 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
 /// Returns the default hardcoded testnet if neither flags are set.
 pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
     let optional_network_config = if cli_args.is_present("network") {
-        fetch_genesis(cli_args, "network", "")?;
+        fetch_genesis(cli_args, "network", "genesis-remote-url")?;
         parse_hardcoded_network(cli_args, "network")?
     } else if cli_args.is_present("testnet-dir") {
         parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
         // if neither is present, assume the default network
-        fetch_genesis(cli_args, "network", "")?;
+        fetch_genesis(cli_args, "network", "genesis-remote-url")?;
         Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
     };
 

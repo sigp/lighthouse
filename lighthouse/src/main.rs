@@ -540,8 +540,6 @@ fn run<E: EthSpec>(
         );
     }
 
-    // check if genesis state exists. if not, download from the provided url
-
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
         warn!(
