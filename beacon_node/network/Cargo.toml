@@ -37,7 +37,6 @@ logging = { path = "../../common/logging" }
 task_executor = { path = "../../common/task_executor" }
 igd = "0.12.1"
 itertools = "0.10.0"
-num_cpus = "1.13.0"
 lru_cache = { path = "../../common/lru_cache" }
 if-addrs = "0.6.4"
 strum = "0.24.0"

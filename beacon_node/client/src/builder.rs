@@ -30,8 +30,6 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
-use state_processing::per_slot_processing;
-use std::cmp;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -161,7 +159,10 @@ where
         let context = runtime_context.service_context("beacon".into());
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
-            Some(ServerSentEventHandler::new(context.log().clone()))
+            Some(ServerSentEventHandler::new(
+                context.log().clone(),
+                self.http_api_config.sse_capacity_multiplier,
+            ))
         } else {
             None
         };
@@ -316,7 +317,6 @@ where
                         config.chain.checkpoint_sync_url_timeout,
                     )),
                 );
-                let slots_per_epoch = TEthSpec::slots_per_epoch();
 
                 let deposit_snapshot = if config.sync_eth1_chain {
                     // We want to fetch deposit snapshot before fetching the finalized beacon state to
@@ -367,7 +367,7 @@ where
                     context.log(),
                     "Downloading finalized state";
                 );
-                let mut state = remote
+                let state = remote
                     .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Finalized, &spec)
                     .await
                     .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
@@ -392,16 +392,6 @@ where
                     .ok_or("Finalized block missing from remote, it returned 404")?;
 
                 debug!(context.log(), "Downloaded finalized block");
-
-                let epoch_boundary_slot = state.slot() % slots_per_epoch;
-                if epoch_boundary_slot != 0 {
-                    debug!(context.log(), "Advancing state to epoch boundary"; "state_slot" => state.slot(), "epoch_boundary_slot" => epoch_boundary_slot);
-                }
-
-                while state.slot() % slots_per_epoch != 0 {
-                    per_slot_processing(&mut state, None, &spec)
-                        .map_err(|e| format!("Error advancing state: {:?}", e))?;
-                }
 
                 let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
@@ -775,7 +765,6 @@ where
                 BeaconProcessor {
                     network_globals: network_globals.clone(),
                     executor: beacon_processor_context.executor.clone(),
-                    max_workers: cmp::max(1, num_cpus::get()),
                     current_workers: 0,
                     config: beacon_processor_config,
                     log: beacon_processor_context.log().clone(),

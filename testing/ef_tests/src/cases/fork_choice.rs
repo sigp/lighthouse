@@ -7,7 +7,7 @@ use beacon_chain::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainTypes, CachedHead, NotifyExecutionLayer,
+    BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
 };
 use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
 use serde::Deserialize;
@@ -303,6 +303,10 @@ impl<E: EthSpec> Tester<E> {
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
             .spec(spec.clone())
             .keypairs(vec![])
+            .chain_config(ChainConfig {
+                reconstruct_historic_states: true,
+                ..ChainConfig::default()
+            })
             .genesis_state_ephemeral_store(case.anchor_state.clone())
             .mock_execution_layer()
             .recalculate_fork_times_with_genesis(0)

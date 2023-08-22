@@ -66,7 +66,10 @@ use tokio::sync::{
     mpsc::{Sender, UnboundedSender},
     oneshot,
 };
-use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tokio_stream::{
+    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
+    StreamExt,
+};
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
     BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
@@ -132,6 +135,7 @@ pub struct Config {
     pub allow_sync_stalled: bool,
     pub spec_fork_name: Option<ForkName>,
     pub data_dir: PathBuf,
+    pub sse_capacity_multiplier: usize,
     pub enable_beacon_processor: bool,
 }
 
@@ -146,6 +150,7 @@ impl Default for Config {
             allow_sync_stalled: false,
             spec_fork_name: None,
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
+            sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
         }
     }
@@ -4373,22 +4378,29 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                             };
 
-                            receivers.push(BroadcastStream::new(receiver).map(|msg| {
-                                match msg {
-                                    Ok(data) => Event::default()
-                                        .event(data.topic_name())
-                                        .json_data(data)
-                                        .map_err(|e| {
-                                            warp_utils::reject::server_sent_event_error(format!(
-                                                "{:?}",
-                                                e
-                                            ))
-                                        }),
-                                    Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                                        format!("{:?}", e),
-                                    )),
-                                }
-                            }));
+                            receivers.push(
+                                BroadcastStream::new(receiver)
+                                    .map(|msg| {
+                                        match msg {
+                                            Ok(data) => Event::default()
+                                                .event(data.topic_name())
+                                                .json_data(data)
+                                                .unwrap_or_else(|e| {
+                                                    Event::default()
+                                                        .comment(format!("error - bad json: {e:?}"))
+                                                }),
+                                            // Do not terminate the stream if the channel fills
+                                            // up. Just drop some messages and send a comment to
+                                            // the client.
+                                            Err(BroadcastStreamRecvError::Lagged(n)) => {
+                                                Event::default().comment(format!(
+                                                    "error - dropped {n} messages"
+                                                ))
+                                            }
+                                        }
+                                    })
+                                    .map(Ok::<_, std::convert::Infallible>),
+                            );
                         }
                     } else {
                         return Err(warp_utils::reject::custom_server_error(
@@ -4398,7 +4410,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let s = futures::stream::select_all(receivers);
 
-                    Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+                    Ok(warp::sse::reply(warp::sse::keep_alive().stream(s)))
                 })
             },
         );
