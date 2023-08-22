@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::io::{Read, Write};
-use types::{BeaconState, ChainSpec, Epoch, EthSpec, VList};
+use types::{BeaconState, ChainSpec, EthSpec, Slot, VList};
 use zstd::{Decoder, Encoder};
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ pub struct HierarchyModuli {
 #[derive(Debug, PartialEq, Eq)]
 pub enum StorageStrategy {
     Nothing,
-    DiffFrom(Epoch),
+    DiffFrom(Slot),
     Snapshot,
 }
 
@@ -198,7 +198,7 @@ impl XorDiff {
 impl Default for HierarchyConfig {
     fn default() -> Self {
         HierarchyConfig {
-            exponents: vec![0, 4, 6, 8, 11, 13, 16],
+            exponents: vec![5, 9, 11, 13, 16, 18, 21],
         }
     }
 }
@@ -226,30 +226,36 @@ impl HierarchyConfig {
 }
 
 impl HierarchyModuli {
-    pub fn storage_strategy(&self, epoch: Epoch) -> Result<StorageStrategy, Error> {
+    pub fn storage_strategy(&self, slot: Slot) -> Result<StorageStrategy, Error> {
         let last = self.moduli.last().copied().ok_or(Error::InvalidHierarchy)?;
 
-        if epoch % last == 0 {
+        if slot % last == 0 {
             return Ok(StorageStrategy::Snapshot);
         }
 
-        let diff_from = self.moduli.iter().rev().find_map(|&n| {
-            (epoch % n == 0).then(|| {
-                // Diff from the previous state.
-                (epoch - 1) / n * n
-            })
-        });
+        let diff_from = self
+            .moduli
+            .iter()
+            .rev()
+            .tuple_windows()
+            .find_map(|(&n_big, &n_small)| {
+                (slot % n_small == 0).then(|| {
+                    eprintln!("state at slot {slot} is divis by {n_small}");
+                    // Diff from the previous layer.
+                    dbg!(slot / n_big * n_big)
+                })
+            });
         Ok(diff_from.map_or(StorageStrategy::Nothing, StorageStrategy::DiffFrom))
     }
 
-    /// Return the smallest epoch greater than or equal to `epoch` at which a full snapshot should
+    /// Return the smallest slot greater than or equal to `slot` at which a full snapshot should
     /// be stored.
-    pub fn next_snapshot_epoch(&self, epoch: Epoch) -> Result<Epoch, Error> {
+    pub fn next_snapshot_slot(&self, slot: Slot) -> Result<Slot, Error> {
         let last = self.moduli.last().copied().ok_or(Error::InvalidHierarchy)?;
-        if epoch % last == 0 {
-            Ok(epoch)
+        if slot % last == 0 {
+            Ok(slot)
         } else {
-            Ok((epoch / last + 1) * last)
+            Ok((slot / last + 1) * last)
         }
     }
 }
@@ -266,9 +272,9 @@ mod tests {
         let moduli = config.to_moduli().unwrap();
 
         // Full snapshots at multiples of 2^16.
-        let snapshot_freq = Epoch::new(1 << 16);
+        let snapshot_freq = Slot::new(1 << 16);
         assert_eq!(
-            moduli.storage_strategy(Epoch::new(0)).unwrap(),
+            moduli.storage_strategy(Slot::new(0)).unwrap(),
             StorageStrategy::Snapshot
         );
         assert_eq!(
@@ -281,7 +287,7 @@ mod tests {
         );
 
         // For the first layer of diffs
-        let first_layer = Epoch::new(1 << 13);
+        let first_layer = Slot::new(1 << 13);
         assert_eq!(
             moduli.storage_strategy(first_layer * 2).unwrap(),
             StorageStrategy::DiffFrom(first_layer)
@@ -289,31 +295,31 @@ mod tests {
     }
 
     #[test]
-    fn next_snapshot_epoch() {
+    fn next_snapshot_slot() {
         let config = HierarchyConfig::default();
         config.validate().unwrap();
 
         let moduli = config.to_moduli().unwrap();
-        let snapshot_freq = Epoch::new(1 << 16);
+        let snapshot_freq = Slot::new(1 << 16);
 
         assert_eq!(
-            moduli.next_snapshot_epoch(snapshot_freq).unwrap(),
+            moduli.next_snapshot_slot(snapshot_freq).unwrap(),
             snapshot_freq
         );
         assert_eq!(
-            moduli.next_snapshot_epoch(snapshot_freq + 1).unwrap(),
+            moduli.next_snapshot_slot(snapshot_freq + 1).unwrap(),
             snapshot_freq * 2
         );
         assert_eq!(
-            moduli.next_snapshot_epoch(snapshot_freq * 2 - 1).unwrap(),
+            moduli.next_snapshot_slot(snapshot_freq * 2 - 1).unwrap(),
             snapshot_freq * 2
         );
         assert_eq!(
-            moduli.next_snapshot_epoch(snapshot_freq * 2).unwrap(),
+            moduli.next_snapshot_slot(snapshot_freq * 2).unwrap(),
             snapshot_freq * 2
         );
         assert_eq!(
-            moduli.next_snapshot_epoch(snapshot_freq * 100).unwrap(),
+            moduli.next_snapshot_slot(snapshot_freq * 100).unwrap(),
             snapshot_freq * 100
         );
     }
