@@ -943,7 +943,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/ethereum//c-kzg-4844?rev=13cec820c08f45318f82ed4e0da0300042758b92#13cec820c08f45318f82ed4e0da0300042758b92"
+source = "git+https://github.com/ethereum//c-kzg-4844?rev=fa3c62989527073fdce8b2138bb27a52bb2407c5#fa3c62989527073fdce8b2138bb27a52bb2407c5"
 dependencies = [
  "bindgen 0.64.0",
  "cc",
@@ -956,7 +956,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/ethereum/c-kzg-4844?rev=13cec820c08f45318f82ed4e0da0300042758b92#13cec820c08f45318f82ed4e0da0300042758b92"
+source = "git+https://github.com/ethereum/c-kzg-4844?rev=fa3c62989527073fdce8b2138bb27a52bb2407c5#fa3c62989527073fdce8b2138bb27a52bb2407c5"
 dependencies = [
  "bindgen 0.64.0",
  "cc",
@@ -3951,8 +3951,8 @@ name = "kzg"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "c-kzg 0.1.0 (git+https://github.com/ethereum//c-kzg-4844?rev=13cec820c08f45318f82ed4e0da0300042758b92)",
- "c-kzg 0.1.0 (git+https://github.com/ethereum/c-kzg-4844?rev=13cec820c08f45318f82ed4e0da0300042758b92)",
+ "c-kzg 0.1.0 (git+https://github.com/ethereum//c-kzg-4844?rev=fa3c62989527073fdce8b2138bb27a52bb2407c5)",
+ "c-kzg 0.1.0 (git+https://github.com/ethereum/c-kzg-4844?rev=fa3c62989527073fdce8b2138bb27a52bb2407c5)",
  "derivative",
  "ethereum_hashing",
  "ethereum_serde_utils",
