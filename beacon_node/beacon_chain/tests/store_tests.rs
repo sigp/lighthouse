@@ -2380,10 +2380,10 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let (unadvanced_split_state, unadvanced_split_state_root) =
         harness.get_current_state_and_root();
 
-    let (invalid_fork_block, _) = harness
+    let ((invalid_fork_block, _), _) = harness
         .make_block(unadvanced_split_state.clone(), split_slot)
         .await;
-    let (valid_fork_block, _) = harness
+    let ((valid_fork_block, _), _) = harness
         .make_block(unadvanced_split_state.clone(), split_slot + 1)
         .await;
 
