@@ -48,7 +48,7 @@ pub struct StoreConfig {
 // FIXME(sproul): schema migration, add hdiff
 pub struct OnDiskStoreConfig {
     pub linear_blocks: bool,
-    pub linear_restore_points: bool,
+    pub hierarchy_config: HierarchyConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -80,7 +80,7 @@ impl StoreConfig {
     pub fn as_disk_config(&self) -> OnDiskStoreConfig {
         OnDiskStoreConfig {
             linear_blocks: self.linear_blocks,
-            linear_restore_points: self.linear_restore_points,
+            hierarchy_config: self.hierarchy_config.clone(),
         }
     }
 

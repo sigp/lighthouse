@@ -11,13 +11,13 @@ use zstd::{Decoder, Encoder};
 #[derive(Debug)]
 pub enum Error {
     InvalidHierarchy,
-    XorDeletionsNotSupported,
+    U64DiffDeletionsNotSupported,
     UnableToComputeDiff,
     UnableToApplyDiff,
     Compression(std::io::Error),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct HierarchyConfig {
     exponents: Vec<u8>,
 }
@@ -45,7 +45,7 @@ pub struct HDiffBuffer {
 #[derive(Debug, Encode, Decode)]
 pub struct HDiff {
     state_diff: BytesDiff,
-    balances_diff: XorDiff,
+    balances_diff: CompressedU64Diff,
 }
 
 #[derive(Debug, Encode, Decode)]
@@ -54,7 +54,7 @@ pub struct BytesDiff {
 }
 
 #[derive(Debug, Encode, Decode)]
-pub struct XorDiff {
+pub struct CompressedU64Diff {
     bytes: Vec<u8>,
 }
 
@@ -78,7 +78,7 @@ impl HDiffBuffer {
 impl HDiff {
     pub fn compute(source: &HDiffBuffer, target: &HDiffBuffer) -> Result<Self, Error> {
         let state_diff = BytesDiff::compute(&source.state, &target.state)?;
-        let balances_diff = XorDiff::compute(&source.balances, &target.balances)?;
+        let balances_diff = CompressedU64Diff::compute(&source.balances, &target.balances)?;
 
         Ok(Self {
             state_diff,
@@ -138,10 +138,10 @@ impl BytesDiff {
     }
 }
 
-impl XorDiff {
+impl CompressedU64Diff {
     pub fn compute(xs: &[u64], ys: &[u64]) -> Result<Self, Error> {
         if xs.len() > ys.len() {
-            return Err(Error::XorDeletionsNotSupported);
+            return Err(Error::U64DiffDeletionsNotSupported);
         }
 
         let uncompressed_bytes: Vec<u8> = ys
@@ -164,7 +164,7 @@ impl XorDiff {
             .map_err(Error::Compression)?;
         encoder.finish().map_err(Error::Compression)?;
 
-        Ok(XorDiff {
+        Ok(CompressedU64Diff {
             bytes: compressed_bytes,
         })
     }
@@ -198,7 +198,7 @@ impl XorDiff {
 impl Default for HierarchyConfig {
     fn default() -> Self {
         HierarchyConfig {
-            exponents: vec![5, 9, 11, 13, 16, 18, 21],
+            exponents: vec![4, 9, 11, 13, 16, 18, 21],
         }
     }
 }
@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn xor_vs_bytes_diff() {
+    fn compressed_u64_vs_bytes_diff() {
         let x_values = vec![99u64, 55, 123, 6834857, 0, 12];
         let y_values = vec![98u64, 55, 312, 1, 1, 2, 4, 5];
 
@@ -335,12 +335,12 @@ mod tests {
         let x_bytes = to_bytes(&x_values);
         let y_bytes = to_bytes(&y_values);
 
-        let xor_diff = XorDiff::compute(&x_values, &y_values).unwrap();
+        let u64_diff = CompressedU64Diff::compute(&x_values, &y_values).unwrap();
 
-        let mut y_from_xor = x_values;
-        xor_diff.apply(&mut y_from_xor).unwrap();
+        let mut y_from_u64_diff = x_values;
+        u64_diff.apply(&mut y_from_u64_diff).unwrap();
 
-        assert_eq!(y_values, y_from_xor);
+        assert_eq!(y_values, y_from_u64_diff);
 
         let bytes_diff = BytesDiff::compute(&x_bytes, &y_bytes).unwrap();
 
@@ -349,7 +349,7 @@ mod tests {
 
         assert_eq!(y_bytes, y_from_bytes);
 
-        // XOR diff wins by more than a factor of 3
-        assert!(xor_diff.bytes.len() < 3 * bytes_diff.bytes.len());
+        // U64 diff wins by more than a factor of 3
+        assert!(u64_diff.bytes.len() < 3 * bytes_diff.bytes.len());
     }
 }

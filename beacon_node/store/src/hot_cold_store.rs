@@ -1403,10 +1403,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         self.store_cold_state_summary(state_root, state.slot(), ops)?;
 
-        if state.slot() % E::slots_per_epoch() != 0 {
-            return Ok(());
-        }
-
         let slot = state.slot();
         match self.hierarchy.storage_strategy(slot)? {
             StorageStrategy::Nothing => {
