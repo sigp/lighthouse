@@ -470,28 +470,19 @@ pub fn get_config<E: EthSpec>(
 
     // If the `--genesis-state-url` is defined, use that to download the
     // genesis state bytes. If it's not defined, try `--checkpoint-sync-url`.
-    let genesis_state_url = if let Some(genesis_state_url) =
-        clap_utils::parse_optional::<String>(cli_args, "genesis-state-url")?
-    {
-        Some(genesis_state_url)
-    } else if let Some(checkpoint_sync_url) =
-        clap_utils::parse_optional::<String>(cli_args, "checkpoint-sync-url")?
-    {
-        Some(checkpoint_sync_url)
-    } else {
-        None
-    };
+    let genesis_state_url_opt =
+        clap_utils::parse_optional::<String>(cli_args, "genesis-state-url")?;
+    let checkpoint_sync_url_opt =
+        clap_utils::parse_optional::<String>(cli_args, "checkpoint-sync-url")?;
+    let genesis_state_url = genesis_state_url_opt.or(checkpoint_sync_url_opt);
 
     let genesis_state_url_timeout =
         clap_utils::parse_required(cli_args, "genesis-state-url-timeout")
             .map(Duration::from_secs)?;
 
     client_config.genesis = if let Some(genesis_state_bytes) = eth2_network_config
-        .genesis_state_bytes(
-            genesis_state_url.as_deref(),
-            genesis_state_url_timeout,
-            &log,
-        )? {
+        .genesis_state_bytes(genesis_state_url.as_deref(), genesis_state_url_timeout, log)?
+    {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
         if let (Some(initial_state_path), Some(initial_block_path)) = (
             cli_args.value_of("checkpoint-state"),

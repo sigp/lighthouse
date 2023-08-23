@@ -51,8 +51,8 @@ pub struct Eth2NetworkConfig {
     /// value to be the block number where the first deposit occurs.
     pub deposit_contract_deploy_block: u64,
     pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
-    genesis_state_source: GenesisStateSource,
-    genesis_state_bytes: Option<Vec<u8>>,
+    pub genesis_state_source: GenesisStateSource,
+    pub genesis_state_bytes: Option<Vec<u8>>,
     pub config: Config,
 }
 

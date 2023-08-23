@@ -76,7 +76,8 @@ impl Eth2Config {
 pub enum GenesisStateSource {
     /// The genesis state for this network is not yet know.
     Unknown,
-    /// The genesis state for this network is included in the binary via `include_bytes!`.
+    /// The genesis state for this network is included in the binary via
+    /// `include_bytes!` or by loading from a testnet dir.
     IncludedBytes,
     /// The genesis state for this network should be downloaded from a URL.
     Url {
