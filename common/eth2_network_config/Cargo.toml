@@ -21,3 +21,4 @@ eth2_config = { path = "../eth2_config" }
 discv5 = "0.3.1"
 reqwest = { version = "0.11.0", features = ["blocking"] }
 pretty_reqwest_error = { path = "../pretty_reqwest_error" }
+sha2 = "0.10"

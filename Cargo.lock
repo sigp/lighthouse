@@ -2156,6 +2156,7 @@ dependencies = [
  "pretty_reqwest_error",
  "reqwest",
  "serde_yaml",
+ "sha2 0.10.7",
  "tempfile",
  "types",
  "zip",

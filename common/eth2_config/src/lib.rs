@@ -23,6 +23,11 @@ pub const PREDEFINED_NETWORKS_DIR: &str = predefined_networks_dir!();
 pub const GENESIS_FILE_NAME: &str = "genesis.ssz";
 pub const GENESIS_ZIP_FILE_NAME: &str = "genesis.ssz.zip";
 
+const HOLESKY_GENESIS_SOURCE: GenesisStateSource = GenesisStateSource::Url {
+    urls: &["https://github.com/eth-clients/holesky/raw/main/custom_config_data/genesis.ssz"],
+    checksum: "0x76631cd0b9ddc5b2c766b496e23f16759ce1181446a4efb40e5540cd15b78a07",
+};
+
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone)]
 pub struct Eth2Config {
@@ -69,8 +74,16 @@ pub enum GenesisStateSource {
     Unknown,
     /// The genesis state for this network is included in the binary via `include_bytes!`.
     IncludedBytes,
-    /// The genesis state for this network should be downloaded from one of the following URLs.
-    Url(&'static [&'static str]),
+    /// The genesis state for this network should be downloaded from a URL.
+    Url {
+        /// URLs to try to download the file from, in order.
+        urls: &'static [&'static str],
+        /// The SHA256 of the genesis state bytes. This is *not* a hash tree root
+        /// avoid needing to get the `EthSpec` involved.
+        ///
+        /// The format should be 0x-prefixed ASCII bytes.
+        checksum: &'static str,
+    },
 }
 
 /// A directory that can be built by downloading files via HTTP.
@@ -227,10 +240,6 @@ macro_rules! define_hardcoded_nets {
         }
     };
 }
-
-const HOLESKY_GENESIS_SOURCE: GenesisStateSource = GenesisStateSource::Url(&[
-    "https://github.com/eth-clients/holesky/raw/main/custom_config_data/genesis.ssz",
-]);
 
 // Add a new "built-in" network by adding it to the list below.
 //

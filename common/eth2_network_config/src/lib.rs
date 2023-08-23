@@ -15,10 +15,12 @@ use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest;
+use sha2::{Digest, Sha256};
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId};
+use std::str::FromStr;
+use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId, Hash256};
 
 pub use eth2_config::GenesisStateSource;
 
@@ -47,6 +49,7 @@ pub struct Eth2NetworkConfig {
     pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
     genesis_state_source: GenesisStateSource,
     genesis_state_bytes: Option<Vec<u8>>,
+    genesis_state_bytes_checksum: Option<Hash256>,
     pub config: Config,
 }
 
@@ -63,6 +66,16 @@ impl Eth2NetworkConfig {
 
     /// Instantiates `Self` from a `HardcodedNet`.
     fn from_hardcoded_net(net: &HardcodedNet) -> Result<Self, String> {
+        let genesis_state_bytes_checksum = if let GenesisStateSource::Url { checksum, .. } =
+            &net.genesis_state_source
+        {
+            let checksum = Hash256::from_str(checksum)
+                .map_err(|e| format!("Unable to parse genesis state bytes checksum: {:?}", e))?;
+            Some(checksum)
+        } else {
+            None
+        };
+
         Ok(Self {
             deposit_contract_deploy_block: serde_yaml::from_reader(net.deploy_block)
                 .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
@@ -73,6 +86,7 @@ impl Eth2NetworkConfig {
             genesis_state_source: net.genesis_state_source,
             genesis_state_bytes: Some(net.genesis_state_bytes.to_vec())
                 .filter(|bytes| !bytes.is_empty()),
+            genesis_state_bytes_checksum,
             config: serde_yaml::from_reader(net.config)
                 .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?,
         })
@@ -112,11 +126,17 @@ impl Eth2NetworkConfig {
                 .clone()
                 .ok_or_else(|| "Genesis state bytes are missing".to_string())
                 .map(Option::Some),
-            GenesisStateSource::Url(built_in_urls) => {
+            GenesisStateSource::Url {
+                urls: built_in_urls,
+                ..
+            } => {
+                let checksum = self
+                    .genesis_state_bytes_checksum
+                    .ok_or_else(|| "No checksum supplied for genesis state download")?;
                 let state = if let Some(specified_url) = genesis_state_url {
-                    download_genesis_state(&[specified_url])
+                    download_genesis_state(&[specified_url], checksum)
                 } else {
-                    download_genesis_state(built_in_urls)
+                    download_genesis_state(built_in_urls, checksum)
                 }?;
                 Ok(Some(state))
             }
@@ -251,17 +271,29 @@ impl Eth2NetworkConfig {
             boot_enr,
             genesis_state_source,
             genesis_state_bytes,
+            // Genesis states are never downloaded from a URL when loading from
+            // a testnet dir so there's no need for a checksum.
+            genesis_state_bytes_checksum: None,
             config,
         })
     }
 }
 
-fn download_genesis_state(urls: &[&str]) -> Result<Vec<u8>, String> {
+fn download_genesis_state(urls: &[&str], checksum: Hash256) -> Result<Vec<u8>, String> {
     let mut errors = vec![];
     for url in urls {
         match reqwest::blocking::get(*url).and_then(|r| r.bytes()) {
-            // TODO(paul): checksum
-            Ok(bytes) => return Ok(bytes.into()),
+            Ok(bytes) => {
+                let digest = Sha256::digest(bytes.as_ref());
+                if &digest[..] == &checksum[..] {
+                    return Ok(bytes.into());
+                } else {
+                    errors.push(format!(
+                        "Response from {} did not match local checksum",
+                        url
+                    ))
+                }
+            }
             Err(e) => errors.push(PrettyReqwestError::from(e).to_string()),
         }
     }
@@ -308,7 +340,7 @@ mod tests {
     fn mainnet_genesis_state() {
         let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
         config
-            .beacon_state::<E>(None)
+            .genesis_state::<E>(None)
             .expect("beacon state can decode");
     }
 
