@@ -45,15 +45,12 @@ pub fn build_transport(
     local_private_key: Keypair,
     quic_support: bool,
 ) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
-    // Creates the TCP transport layer
-    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true));
-    // Enables DNS over the TCP transport.
-    let transport = libp2p::dns::TokioDnsConfig::system(tcp)?;
-
     // yamux config
     let mut yamux_config = yamux::Config::default();
     yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());
-    let transport = transport
+
+    // Creates the TCP transport layer
+    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
         .multiplex(yamux_config)
@@ -63,16 +60,18 @@ pub fn build_transport(
         // Enables Quic
         // The default quic configuration suits us for now.
         let quic_config = libp2p_quic::Config::new(&local_private_key);
-        transport
-            .or_transport(libp2p_quic::tokio::Transport::new(quic_config))
+        tcp.or_transport(libp2p_quic::tokio::Transport::new(quic_config))
             .map(|either_output, _| match either_output {
                 Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
                 Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
             })
             .with_bandwidth_logging()
     } else {
-        transport.with_bandwidth_logging()
+        tcp.with_bandwidth_logging()
     };
+
+    // // Enables DNS over the transport.
+    let transport = libp2p::dns::TokioDnsConfig::system(transport)?.boxed();
 
     Ok((transport, bandwidth))
 }
