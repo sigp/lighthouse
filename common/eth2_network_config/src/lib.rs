@@ -257,7 +257,12 @@ impl Eth2NetworkConfig {
                 })?;
 
             let state = Some(bytes).filter(|bytes| !bytes.is_empty());
-            (state, GenesisStateSource::IncludedBytes)
+            let genesis_state_source = if state.is_some() {
+                GenesisStateSource::IncludedBytes
+            } else {
+                GenesisStateSource::Unknown
+            };
+            (state, genesis_state_source)
         } else {
             (None, GenesisStateSource::Unknown)
         };
@@ -284,7 +289,7 @@ fn download_genesis_state(
     if urls.is_empty() {
         return Err(
             "The genesis state is not present in the binary and there are no known download URLs. \
-            Please specify a --genesis-state-url value."
+            Please use --checkpoint-sync-url or --genesis-state-url."
                 .to_string(),
         );
     }
@@ -293,10 +298,7 @@ fn download_genesis_state(
     for url in urls {
         // URLs are always expected to be the base URL of a server that supports
         // the beacon-API.
-        let url = Url::parse(url)
-            .map_err(|e| format!("Invalid genesis state URL: {:?}", e))?
-            .join("eth/v2/debug/beacon/states/genesis")
-            .map_err(|e| format!("Failed to append genesis state path to URL: {:?}", e))?;
+        let url = parse_state_download_url(url)?;
         let redacted_url = SensitiveUrl::new(url.clone())
             .map(|url| url.to_string())
             .unwrap_or_else(|_| "<REDACTED>".to_string());
@@ -343,6 +345,14 @@ fn download_genesis_state(
         errors.len(),
         errors.join(",")
     ))
+}
+
+/// Parses the `url` and joins the necessary state download path.
+fn parse_state_download_url(url: &str) -> Result<Url, String> {
+    Url::parse(url)
+        .map_err(|e| format!("Invalid genesis state URL: {:?}", e))?
+        .join("eth/v2/debug/beacon/states/genesis")
+        .map_err(|e| format!("Failed to append genesis state path to URL: {:?}", e))
 }
 
 #[cfg(test)]
@@ -418,13 +428,9 @@ mod tests {
 
             if let GenesisStateSource::Url { urls, checksum } = net.genesis_state_source {
                 Hash256::from_str(checksum).expect("the checksum must be a valid 32-byte value");
-                // We could consider removing this constraint once we're
-                // confident that users can always obtain the states from a
-                // checkpoint sync server.
-                assert!(
-                    !urls.is_empty(),
-                    "there should be at least one url from which to download genesis states"
-                );
+                for url in urls {
+                    parse_state_download_url(url).expect("url must be valid");
+                }
             }
 
             assert_eq!(config.config.config_name, Some(net.config_dir.to_string()));
@@ -462,10 +468,16 @@ mod tests {
         let base_dir = temp_dir.path().join("my_testnet");
         let deposit_contract_deploy_block = 42;
 
+        let genesis_state_source = if genesis_state.is_some() {
+            GenesisStateSource::IncludedBytes
+        } else {
+            GenesisStateSource::Unknown
+        };
+
         let testnet: Eth2NetworkConfig = Eth2NetworkConfig {
             deposit_contract_deploy_block,
             boot_enr,
-            genesis_state_source: GenesisStateSource::IncludedBytes,
+            genesis_state_source,
             genesis_state_bytes: genesis_state.as_ref().map(Encode::as_ssz_bytes),
             config,
         };
