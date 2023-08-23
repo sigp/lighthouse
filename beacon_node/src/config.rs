@@ -468,16 +468,16 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.checkpoint_sync_url_timeout =
         clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
-    // If the `--checkpoint-sync-url` is defined, use that to download the
-    // genesis state bytes. If it's not defined, try `--genesis-state-url`.
-    let genesis_state_url = if let Some(checkpoint_sync_url) =
-        clap_utils::parse_optional::<String>(cli_args, "checkpoint-sync-url")?
-    {
-        Some(checkpoint_sync_url)
-    } else if let Some(genesis_state_url) =
+    // If the `--genesis-state-url` is defined, use that to download the
+    // genesis state bytes. If it's not defined, try `--checkpoint-sync-url`.
+    let genesis_state_url = if let Some(genesis_state_url) =
         clap_utils::parse_optional::<String>(cli_args, "genesis-state-url")?
     {
         Some(genesis_state_url)
+    } else if let Some(checkpoint_sync_url) =
+        clap_utils::parse_optional::<String>(cli_args, "checkpoint-sync-url")?
+    {
+        Some(checkpoint_sync_url)
     } else {
         None
     };
@@ -485,14 +485,6 @@ pub fn get_config<E: EthSpec>(
     let genesis_state_url_timeout =
         clap_utils::parse_required(cli_args, "genesis-state-url-timeout")
             .map(Duration::from_secs)?;
-
-    if cli_args.is_present("checkpoint-sync-url") && cli_args.is_present("genesis-state-url") {
-        warn!(
-            log,
-            "Ignoring --genesis-state-url";
-            "info" => "--checkpoint-sync-url takes precedence"
-        );
-    }
 
     client_config.genesis = if let Some(genesis_state_bytes) = eth2_network_config
         .genesis_state_bytes(

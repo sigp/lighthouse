@@ -320,7 +320,7 @@ fn download_genesis_state(
         match response {
             Ok(bytes) => {
                 // Check the server response against our local checksum.
-                if &Sha256::digest(bytes.as_ref())[..] == &checksum[..] {
+                if Sha256::digest(bytes.as_ref())[..] == checksum[..] {
                     return Ok(bytes.into());
                 } else {
                     warn!(
@@ -385,7 +385,7 @@ mod tests {
     fn mainnet_genesis_state() {
         let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
         config
-            .genesis_state::<E>(None)
+            .genesis_state::<E>(None, Duration::from_secs(1), &logging::test_logger())
             .expect("beacon state can decode");
     }
 
@@ -417,7 +417,7 @@ mod tests {
             );
 
             if let GenesisStateSource::Url { urls, checksum } = net.genesis_state_source {
-                Hash256::from_str(&checksum).expect("the checksum must be a valid 32-byte value");
+                Hash256::from_str(checksum).expect("the checksum must be a valid 32-byte value");
                 // We could consider removing this constraint once we're
                 // confident that users can always obtain the states from a
                 // checkpoint sync server.
