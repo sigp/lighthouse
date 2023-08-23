@@ -1425,7 +1425,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
+            |block: SignedBlindedBeaconBlock<T::EthSpec>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1466,16 +1466,13 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner
                     .clone()
                     .spawn_async_with_rejection(Priority::P0, async move {
-                        let block =
-                            SignedBeaconBlock::<T::EthSpec, BlindedPayload<_>>::from_ssz_bytes(
-                                &block_bytes,
-                                &chain.spec,
-                            )
-                            .map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "invalid SSZ: {e:?}"
-                                ))
-                            })?;
+                        let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
+                            &block_bytes,
+                            &chain.spec,
+                        )
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                        })?;
                         publish_blocks::publish_blinded_block(
                             block,
                             chain,
@@ -1502,7 +1499,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .then(
             |validation_level: api_types::BroadcastValidationQuery,
-             block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
+             block: SignedBlindedBeaconBlock<T::EthSpec>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,

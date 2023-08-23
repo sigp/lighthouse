@@ -247,6 +247,8 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     let gossip_verified_blinded_block = gossip_result?;
     let full_block = reconstruction_result?;
 
+    // Pass the gossip-verified full block to `publish_block` so that it doesn't re-run
+    // gossip verification.
     let provenanced_gossip_verified_block = match full_block {
         ProvenancedBlock::Local(block, phantom) => {
             ProvenancedBlock::Local(gossip_verified_blinded_block.unblind(block), phantom)
