@@ -437,14 +437,10 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 
 ### <a name="net-bn-vc"></a> My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?
 
-1. If the beacon node and validator clients are on different servers *in the same network*, the settings are as follows:
+The setting on the beacon node is the same for all cases below. In the beacon node, specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than `localhost`. You can find the `local_IP` by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
 
-    i. Beacon node: 
-   
-   Specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than `localhost`. You can find the `local_IP` by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
-
-    ii. Validator client:
-
+1. If the beacon node and validator clients are on different servers *in the same network*, the setting in the validator client is as follows:
+ 
    Use the flag `--beacon-nodes` to point to the beacon node. For example, `lighthouse vc --beacon-nodes http://local_IP:5052` where `local_IP` is the local IP address of the beacon node and `5052` is the default `http-port` of the beacon node.
 
    If you have firewall setup, e.g., `ufw`, you will need to allow port 5052 (assuming that the default port is used) with `sudo ufw allow 5052`.
@@ -457,23 +453,24 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 
    You can refer to [Redundancy](./redundancy.md) for more information.
 
-2. If the beacon node and validator clients are on different servers *and different networks*, it is necessary to perform port forwarding of the SSH port (e.g., the default port 22) on the router, and also allow firewall on the SSH port. After this is done, there are two methods to connect to the beacon node: 
+2. If the beacon node and validator clients are on different servers *and different networks*, it is necessary to perform port forwarding of the SSH port (e.g., the default port 22) on the router, and also allow firewall on the SSH port. As the validator client will connect to the beacon node over the internet, we strongly recommend that transport-layer encryption (e.g. HTTPS or SSL tunneling) is used to protect the BN/VC connection from malicious actors.
+ We recommend two methods to connect to the beacon node: 
 
-    - Via port forwarding on the router:
+    - Port forwarding on the router:
 
-      i. Beacon node:
-
-       The setting is the same as in scenario 1.
-
-       ii. Validator client:
-      Use the flag `--beacon-nodes` to point to the beacon node. However, since the beacon node and the validator client are on different networks, the IP address to use is the public IP address of the beacon node, i.e., `lighthouse vc --beacon-nodes http://public_IP:5052`. You can get the public IP address of the beacon node by running the command ` dig +short myip.opendns.com @resolver1.opendns.com` on the server running the beacon node.
+      In the validator client, use the flag `--beacon-nodes` to point to the beacon node. However, since the beacon node and the validator client are on different networks, the IP address to use is the public IP address of the beacon node, i.e., `lighthouse vc --beacon-nodes http://public_IP:5052`. You can get the public IP address of the beacon node by running the command ` dig +short myip.opendns.com @resolver1.opendns.com` on the server running the beacon node.
 
       Additionally, port forwarding of port 5052 on the router connected to the beacon node is required for the vc to connect to the bn. To do port forwarding, refer to [how to open ports](./advanced_networking.md#how-to-open-ports).
 
 
-      If you have firewall setup, e.g., `ufw`, you will need to allow connections to port 5052 (assuming that the default port is used). Since the beacon node is now exposed to the internet due to port forwarding, it is highly recommended to only allow access from a specific IP address, i.e., the IP address of the validator client.  This can be done using the command `sudo ufw allow from vc_IP_address proto tcp to any port 5052` where `vc_IP_address` is the public IP address of the validator client.
+      If you have firewall setup, e.g., `ufw`, you will need to allow connections to port 5052 (assuming that the default port is used). Since the beacon node HTTP/HTTPS API is public-facing (i.e., the 5052 port is now exposed to the internet due to port forwarding), we strongly recommend users to apply IP-address filtering to restrict access to the API. This can be done using the command"
+      
+      ```
+      sudo ufw allow from vc_IP_address proto tcp to any port 5052
+      ```
+      where `vc_IP_address` is the public IP address of the validator client. The command will only allow connections to the beacon node from the validator client IP address. This can prevent malicious attacks on the beacon node over the internet.
 
-   2. Via SSH tunneling:
+   2. SSH tunneling:
     
       In the server running the validator client, use the command below to create an SSH tunnel:
 
@@ -483,13 +480,7 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 
       where `local_IP` and `public_IP` are the local IP and public IP addresses of the beacon node. 
 
-       i. Beacon node: 
-
-      The setting is the same as in scenario 1.
-
-       ii. Validator client:
-
-       Use the flag `--beacon-nodes http://127.0.0.1:5052` to connect to the beacon node. 
+       In the validator client, use the flag `--beacon-nodes http://127.0.0.1:5052` to connect to the beacon node. 
 
 
 
