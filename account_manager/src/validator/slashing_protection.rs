@@ -85,12 +85,13 @@ pub fn cli_run<T: EthSpec>(
     let genesis_state_url: Option<String> =
         clap_utils::parse_optional(matches, "genesis-state-url")?;
 
+    let context = env.core_context();
     let eth2_network_config = env
         .eth2_network_config
         .ok_or("Unable to get testnet configuration from the environment")?;
 
     let genesis_validators_root = eth2_network_config
-        .genesis_state::<T>(genesis_state_url.as_deref())?
+        .genesis_state::<T>(genesis_state_url.as_deref(), context.log())?
         .ok_or_else(|| "Unable to get genesis state, has genesis occurred?".to_string())?
         .genesis_validators_root();
 

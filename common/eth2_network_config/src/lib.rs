@@ -17,14 +17,18 @@ use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::blocking::Client;
 use sensitive_url::SensitiveUrl;
 use sha2::{Digest, Sha256};
+use slog::{info, warn, Logger};
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId, Hash256};
 use url::Url;
 
 pub use eth2_config::GenesisStateSource;
+
+pub const GENESIS_STATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
@@ -108,6 +112,7 @@ impl Eth2NetworkConfig {
     pub fn genesis_state_bytes(
         &self,
         genesis_state_url: Option<&str>,
+        log: &Logger,
     ) -> Result<Option<Vec<u8>>, String> {
         match &self.genesis_state_source {
             GenesisStateSource::Unknown => Ok(None),
@@ -124,9 +129,9 @@ impl Eth2NetworkConfig {
                     format!("Unable to parse genesis state bytes checksum: {:?}", e)
                 })?;
                 let state = if let Some(specified_url) = genesis_state_url {
-                    download_genesis_state(&[specified_url], checksum)
+                    download_genesis_state(&[specified_url], checksum, log)
                 } else {
-                    download_genesis_state(built_in_urls, checksum)
+                    download_genesis_state(built_in_urls, checksum, log)
                 }?;
                 Ok(Some(state))
             }
@@ -140,9 +145,10 @@ impl Eth2NetworkConfig {
     pub fn genesis_state<E: EthSpec>(
         &self,
         genesis_state_url: Option<&str>,
+        log: &Logger,
     ) -> Result<Option<BeaconState<E>>, String> {
         let spec = self.chain_spec::<E>()?;
-        self.genesis_state_bytes(genesis_state_url)?
+        self.genesis_state_bytes(genesis_state_url, log)?
             .map(|bytes| {
                 BeaconState::from_ssz_bytes(&bytes, &spec)
                     .map_err(|e| format!("Genesis state SSZ bytes are invalid: {:?}", e))
@@ -269,7 +275,11 @@ impl Eth2NetworkConfig {
 /// Try to download a genesis state from each of the `urls` in the order they
 /// are defined. Return `Ok` if any url returns a response that matches the
 /// given `checksum`.
-fn download_genesis_state(urls: &[&str], checksum: Hash256) -> Result<Vec<u8>, String> {
+fn download_genesis_state(
+    urls: &[&str],
+    checksum: Hash256,
+    log: &Logger,
+) -> Result<Vec<u8>, String> {
     if urls.is_empty() {
         return Err(
             "The genesis state is not present in the binary and there are no known download URLs. \
@@ -286,11 +296,23 @@ fn download_genesis_state(urls: &[&str], checksum: Hash256) -> Result<Vec<u8>, S
             .map_err(|e| format!("Invalid genesis state URL: {:?}", e))?
             .join("eth/v2/debug/beacon/states/genesis")
             .map_err(|e| format!("Failed to append genesis state path to URL: {:?}", e))?;
+        let redacted_url = SensitiveUrl::new(url.clone())
+            .map(|url| url.to_string())
+            .unwrap_or_else(|_| "<REDACTED>".to_string());
+
+        info!(
+            log,
+            "Downloading genesis state";
+            "server" => &redacted_url,
+            "timeout" => ?GENESIS_STATE_DOWNLOAD_TIMEOUT,
+            "info" => "this may take some time on testnets with large validator counts"
+        );
 
         let client = Client::new();
         let response = client
-            .get(url.clone())
+            .get(url)
             .header("Accept", "application/octet-stream")
+            .timeout(GENESIS_STATE_DOWNLOAD_TIMEOUT)
             .send()
             .and_then(|r| r.error_for_status().and_then(|r| r.bytes()));
 
@@ -300,9 +322,12 @@ fn download_genesis_state(urls: &[&str], checksum: Hash256) -> Result<Vec<u8>, S
                 if &Sha256::digest(bytes.as_ref())[..] == &checksum[..] {
                     return Ok(bytes.into());
                 } else {
-                    let redacted_url = SensitiveUrl::new(url)
-                        .map(|url| url.to_string())
-                        .unwrap_or_else(|_| "<REDACTED>".to_string());
+                    warn!(
+                        log,
+                        "Genesis state download failed";
+                        "server" => &redacted_url,
+                        "timeout" => ?GENESIS_STATE_DOWNLOAD_TIMEOUT,
+                    );
                     errors.push(format!(
                         "Response from {} did not match local checksum",
                         redacted_url

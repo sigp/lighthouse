@@ -95,7 +95,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
                 if eth2_network_config.beacon_state_is_known() {
                     let genesis_state = eth2_network_config
-                        .genesis_state::<T>(genesis_state_url.as_deref())?
+                        .genesis_state::<T>(genesis_state_url.as_deref(), &logger)?
                         .ok_or_else(|| {
                             "The genesis state for this network is not known, this is an unsupported mode"
                                 .to_string()

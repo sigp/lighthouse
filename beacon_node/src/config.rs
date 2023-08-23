@@ -491,7 +491,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     client_config.genesis = if let Some(genesis_state_bytes) =
-        eth2_network_config.genesis_state_bytes(genesis_state_url.as_deref())?
+        eth2_network_config.genesis_state_bytes(genesis_state_url.as_deref(), &log)?
     {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
         if let (Some(initial_state_path), Some(initial_block_path)) = (

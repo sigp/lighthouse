@@ -10,6 +10,7 @@ use eth2_keystore::Keystore;
 use eth2_network_config::Eth2NetworkConfig;
 use safe_arith::SafeArith;
 use sensitive_url::SensitiveUrl;
+use slog::Logger;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -108,6 +109,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         no_wait,
         no_confirmation,
         genesis_state_url,
+        env.core_context().log(),
     ))?;
 
     Ok(())
@@ -125,10 +127,11 @@ async fn publish_voluntary_exit<E: EthSpec>(
     no_wait: bool,
     no_confirmation: bool,
     genesis_state_url: Option<String>,
+    log: &Logger,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = eth2_network_config
-        .genesis_state::<E>(genesis_state_url.as_deref())?
+        .genesis_state::<E>(genesis_state_url.as_deref(), log)?
         .ok_or_else(|| "Genesis state is unknown")?
         .genesis_validators_root();
 
