@@ -437,7 +437,7 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 
 ### <a name="net-bn-vc"></a> My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?
 
-The setting on the beacon node is the same for all cases below. In the beacon node, specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than `localhost`. You can find the `local_IP` by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
+The setting on the beacon node is the same for both cases below. In the beacon node, specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than `localhost`. You can find the `local_IP` by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
 
 1. If the beacon node and validator clients are on different servers *in the same network*, the setting in the validator client is as follows:
  
@@ -463,12 +463,12 @@ The setting on the beacon node is the same for all cases below. In the beacon no
       Additionally, port forwarding of port 5052 on the router connected to the beacon node is required for the vc to connect to the bn. To do port forwarding, refer to [how to open ports](./advanced_networking.md#how-to-open-ports).
 
 
-      If you have firewall setup, e.g., `ufw`, you will need to allow connections to port 5052 (assuming that the default port is used). Since the beacon node HTTP/HTTPS API is public-facing (i.e., the 5052 port is now exposed to the internet due to port forwarding), we strongly recommend users to apply IP-address filtering to restrict access to the API. This can be done using the command"
+      If you have firewall setup, e.g., `ufw`, you will need to allow connections to port 5052 (assuming that the default port is used). Since the beacon node HTTP/HTTPS API is public-facing (i.e., the 5052 port is now exposed to the internet due to port forwarding), we strongly recommend users to apply IP-address filtering to restrict access to the API. This can be done using the command:
       
       ```
       sudo ufw allow from vc_IP_address proto tcp to any port 5052
       ```
-      where `vc_IP_address` is the public IP address of the validator client. The command will only allow connections to the beacon node from the validator client IP address. This can prevent malicious attacks on the beacon node over the internet.
+      where `vc_IP_address` is the public IP address of the validator client. The command will only allow connections to the beacon node from the validator client IP address to prevent malicious attacks on the beacon node over the internet.
 
    2. SSH tunneling:
     
@@ -484,7 +484,7 @@ The setting on the beacon node is the same for all cases below. In the beacon no
 
 
 
-It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://local_IP:5052` on the validator client.
+It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://IP-address:5052` on the validator client.
 
 ### <a name="net-ip"></a> Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?
 No. Lighthouse will auto-detect the change and update your Ethereum Node Record (ENR). You just need to make sure you are not manually setting the ENR with `--enr-address` (which, for common use cases, this flag is not used).
