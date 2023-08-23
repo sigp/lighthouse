@@ -7,6 +7,7 @@ use slashing_protection::{
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 
 pub const CMD: &str = "slashing-protection";
@@ -84,6 +85,9 @@ pub fn cli_run<T: EthSpec>(
 
     let genesis_state_url: Option<String> =
         clap_utils::parse_optional(matches, "genesis-state-url")?;
+    let genesis_state_url_timeout =
+        clap_utils::parse_required(matches, "genesis-state-url-timeout")
+            .map(Duration::from_secs)?;
 
     let context = env.core_context();
     let eth2_network_config = env
@@ -91,7 +95,11 @@ pub fn cli_run<T: EthSpec>(
         .ok_or("Unable to get testnet configuration from the environment")?;
 
     let genesis_validators_root = eth2_network_config
-        .genesis_state::<T>(genesis_state_url.as_deref(), context.log())?
+        .genesis_state::<T>(
+            genesis_state_url.as_deref(),
+            genesis_state_url_timeout,
+            context.log(),
+        )?
         .ok_or_else(|| "Unable to get genesis state, has genesis occurred?".to_string())?
         .genesis_validators_root();
 

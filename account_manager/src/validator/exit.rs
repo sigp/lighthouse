@@ -81,6 +81,9 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
 
     let genesis_state_url: Option<String> =
         clap_utils::parse_optional(matches, "genesis-state-url")?;
+    let genesis_state_url_timeout =
+        clap_utils::parse_required(matches, "genesis-state-url-timeout")
+            .map(Duration::from_secs)?;
 
     let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
     let no_wait = matches.is_present(NO_WAIT);
@@ -109,6 +112,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         no_wait,
         no_confirmation,
         genesis_state_url,
+        genesis_state_url_timeout,
         env.core_context().log(),
     ))?;
 
@@ -127,11 +131,12 @@ async fn publish_voluntary_exit<E: EthSpec>(
     no_wait: bool,
     no_confirmation: bool,
     genesis_state_url: Option<String>,
+    genesis_state_url_timeout: Duration,
     log: &Logger,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = eth2_network_config
-        .genesis_state::<E>(genesis_state_url.as_deref(), log)?
+        .genesis_state::<E>(genesis_state_url.as_deref(), genesis_state_url_timeout, log)?
         .ok_or_else(|| "Genesis state is unknown")?
         .genesis_validators_root();
 

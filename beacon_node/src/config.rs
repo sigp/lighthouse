@@ -482,6 +482,10 @@ pub fn get_config<E: EthSpec>(
         None
     };
 
+    let genesis_state_url_timeout =
+        clap_utils::parse_required(cli_args, "genesis-state-url-timeout")
+            .map(Duration::from_secs)?;
+
     if cli_args.is_present("checkpoint-sync-url") && cli_args.is_present("genesis-state-url") {
         warn!(
             log,
@@ -490,9 +494,12 @@ pub fn get_config<E: EthSpec>(
         );
     }
 
-    client_config.genesis = if let Some(genesis_state_bytes) =
-        eth2_network_config.genesis_state_bytes(genesis_state_url.as_deref(), &log)?
-    {
+    client_config.genesis = if let Some(genesis_state_bytes) = eth2_network_config
+        .genesis_state_bytes(
+            genesis_state_url.as_deref(),
+            genesis_state_url_timeout,
+            &log,
+        )? {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
         if let (Some(initial_state_path), Some(initial_block_path)) = (
             cli_args.value_of("checkpoint-state"),

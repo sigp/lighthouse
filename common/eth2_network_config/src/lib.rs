@@ -28,8 +28,6 @@ use url::Url;
 
 pub use eth2_config::GenesisStateSource;
 
-pub const GENESIS_STATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
-
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
@@ -112,6 +110,7 @@ impl Eth2NetworkConfig {
     pub fn genesis_state_bytes(
         &self,
         genesis_state_url: Option<&str>,
+        timeout: Duration,
         log: &Logger,
     ) -> Result<Option<Vec<u8>>, String> {
         match &self.genesis_state_source {
@@ -129,9 +128,9 @@ impl Eth2NetworkConfig {
                     format!("Unable to parse genesis state bytes checksum: {:?}", e)
                 })?;
                 let state = if let Some(specified_url) = genesis_state_url {
-                    download_genesis_state(&[specified_url], checksum, log)
+                    download_genesis_state(&[specified_url], timeout, checksum, log)
                 } else {
-                    download_genesis_state(built_in_urls, checksum, log)
+                    download_genesis_state(built_in_urls, timeout, checksum, log)
                 }?;
                 Ok(Some(state))
             }
@@ -145,10 +144,11 @@ impl Eth2NetworkConfig {
     pub fn genesis_state<E: EthSpec>(
         &self,
         genesis_state_url: Option<&str>,
+        timeout: Duration,
         log: &Logger,
     ) -> Result<Option<BeaconState<E>>, String> {
         let spec = self.chain_spec::<E>()?;
-        self.genesis_state_bytes(genesis_state_url, log)?
+        self.genesis_state_bytes(genesis_state_url, timeout, log)?
             .map(|bytes| {
                 BeaconState::from_ssz_bytes(&bytes, &spec)
                     .map_err(|e| format!("Genesis state SSZ bytes are invalid: {:?}", e))
@@ -277,6 +277,7 @@ impl Eth2NetworkConfig {
 /// given `checksum`.
 fn download_genesis_state(
     urls: &[&str],
+    timeout: Duration,
     checksum: Hash256,
     log: &Logger,
 ) -> Result<Vec<u8>, String> {
@@ -304,7 +305,7 @@ fn download_genesis_state(
             log,
             "Downloading genesis state";
             "server" => &redacted_url,
-            "timeout" => ?GENESIS_STATE_DOWNLOAD_TIMEOUT,
+            "timeout" => ?timeout,
             "info" => "this may take some time on testnets with large validator counts"
         );
 
@@ -312,7 +313,7 @@ fn download_genesis_state(
         let response = client
             .get(url)
             .header("Accept", "application/octet-stream")
-            .timeout(GENESIS_STATE_DOWNLOAD_TIMEOUT)
+            .timeout(timeout)
             .send()
             .and_then(|r| r.error_for_status().and_then(|r| r.bytes()));
 
@@ -326,7 +327,7 @@ fn download_genesis_state(
                         log,
                         "Genesis state download failed";
                         "server" => &redacted_url,
-                        "timeout" => ?GENESIS_STATE_DOWNLOAD_TIMEOUT,
+                        "timeout" => ?timeout,
                     );
                     errors.push(format!(
                         "Response from {} did not match local checksum",

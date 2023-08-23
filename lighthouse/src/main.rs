@@ -338,6 +338,17 @@ fn main() {
                 .takes_value(true)
                 .global(true),
         )
+        .arg(
+            Arg::with_name("genesis-state-url-timeout")
+                .long("genesis-state-url-timeout")
+                .value_name("SECONDS")
+                .help(
+                    "The timeout in seconds for the request to --genesis-state-url.",
+                )
+                .takes_value(true)
+                .default_value("60")
+                .global(true),
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
