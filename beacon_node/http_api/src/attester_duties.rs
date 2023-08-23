@@ -35,7 +35,6 @@ pub fn attester_duties<T: BeaconChainTypes>(
         .epoch(T::EthSpec::slots_per_epoch());
 
     if request_epoch == current_epoch
-        || request_epoch == tolerant_current_epoch
         || request_epoch == current_epoch + 1
         || request_epoch == tolerant_current_epoch + 1
     {
@@ -46,7 +45,7 @@ pub fn attester_duties<T: BeaconChainTypes>(
             request_epoch, current_epoch
         )))
     } else {
-        // request_epoch < current_epoch
+        // request_epoch < current_epoch, in fact we only allow `request_epoch == current_epoch-1` in this case
         compute_historic_attester_duties(request_epoch, request_indices, chain)
     }
 }

@@ -1,8 +1,9 @@
 #![recursion_limit = "256"]
 #![cfg(unix)]
 
-use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+use beacon_chain::{
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    ChainConfig,
 };
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use http_api::test_utils::{create_api_server, ApiServer};
@@ -91,6 +92,10 @@ impl TesterBuilder {
     pub async fn new() -> TesterBuilder {
         let harness = BeaconChainHarness::builder(E::default())
             .default_spec()
+            .chain_config(ChainConfig {
+                reconstruct_historic_states: true,
+                ..ChainConfig::default()
+            })
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .build();

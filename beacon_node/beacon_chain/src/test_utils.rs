@@ -1893,11 +1893,11 @@ where
         self.set_current_slot(slot);
         let (block, blobs) = block_contents;
         // Note: we are just dropping signatures here and skipping signature verification.
-        let blobs_without_signatures = blobs.as_ref().map(|blobs| {
+        let blobs_without_signatures = blobs.map(|blobs| {
             VariableList::from(
                 blobs
                     .into_iter()
-                    .map(|blob| blob.message.clone())
+                    .map(|blob| blob.message)
                     .collect::<Vec<_>>(),
             )
         });
@@ -1922,11 +1922,11 @@ where
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         let (block, blobs) = block_contents;
         // Note: we are just dropping signatures here and skipping signature verification.
-        let blobs_without_signatures = blobs.as_ref().map(|blobs| {
+        let blobs_without_signatures = blobs.map(|blobs| {
             VariableList::from(
                 blobs
                     .into_iter()
-                    .map(|blob| blob.message.clone())
+                    .map(|blob| blob.message)
                     .collect::<Vec<_>>(),
             )
         });

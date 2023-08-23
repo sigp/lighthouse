@@ -289,6 +289,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         debug!(log, "Database consolidation started");
 
         let finalized_state_root = notif.finalized_state_root;
+        let finalized_block_root = notif.finalized_checkpoint.root;
 
         let finalized_state = match db.get_state(&finalized_state_root.into(), None) {
             Ok(Some(state)) => state,
@@ -342,7 +343,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             }
         };
 
-        match migrate_database(db.clone(), finalized_state_root.into(), &finalized_state) {
+        match migrate_database(
+            db.clone(),
+            finalized_state_root.into(),
+            finalized_block_root,
+            &finalized_state,
+        ) {
             Ok(()) => {}
             Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                 debug!(

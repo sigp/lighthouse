@@ -751,7 +751,7 @@ where
             .unrealized_justified_checkpoint
             .zip(parent_block.unrealized_finalized_checkpoint)
             .filter(|(parent_justified, parent_finalized)| {
-                parent_justified.epoch == block_epoch && parent_finalized.epoch + 1 >= block_epoch
+                parent_justified.epoch == block_epoch && parent_finalized.epoch + 1 == block_epoch
             });
 
         let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = if let Some((
