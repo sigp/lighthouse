@@ -585,6 +585,7 @@ dependencies = [
  "task_executor",
  "types",
  "unused_port",
+ "url",
 ]
 
 [[package]]

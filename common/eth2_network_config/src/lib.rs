@@ -265,6 +265,14 @@ impl Eth2NetworkConfig {
 }
 
 fn download_genesis_state(urls: &[&str], checksum: Hash256) -> Result<Vec<u8>, String> {
+    if urls.is_empty() {
+        return Err(
+            "The genesis state is not present in the binary and there are no known download URLs. \
+            Please specify a --genesis-state-url value."
+                .to_string(),
+        );
+    }
+
     let mut errors = vec![];
     for url in urls {
         match reqwest::blocking::get(*url).and_then(|r| r.bytes()) {

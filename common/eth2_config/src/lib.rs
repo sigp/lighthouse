@@ -24,7 +24,11 @@ pub const GENESIS_FILE_NAME: &str = "genesis.ssz";
 pub const GENESIS_ZIP_FILE_NAME: &str = "genesis.ssz.zip";
 
 const HOLESKY_GENESIS_SOURCE: GenesisStateSource = GenesisStateSource::Url {
-    urls: &["https://github.com/eth-clients/holesky/raw/main/custom_config_data/genesis.ssz"],
+    urls: &[
+        // This is an AWS S3 bucket hosted by Sigma Prime. See Paul Hauner for
+        // more details.
+        "https://sigp-public-genesis-states.s3.ap-southeast-2.amazonaws.com/holesky/genesis.ssz",
+    ],
     checksum: "0x76631cd0b9ddc5b2c766b496e23f16759ce1181446a4efb40e5540cd15b78a07",
 };
 
