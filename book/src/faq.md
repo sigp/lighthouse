@@ -441,7 +441,7 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 
     i. Beacon node: 
    
-   Specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than on the `localhost`. You can find the local_IP by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
+   Specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than `localhost`. You can find the local_IP by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
 
     ii. Validator client:
 
@@ -457,19 +457,41 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 
    You can refer to [Redundancy](./redundancy.md) for more information.
 
-2. If the beacon node and validator clients are on different servers *and different networks*, the settings are as follows:   
+2. If the beacon node and validator clients are on different servers *and different networks*, it is necessary to perform port forwarding of the SSH port (e.g., the default port 22) on the router, and also allow firewall on the SSH port. After this is done, there are two methods to connect to the beacon node: 
 
-    i. Beacon node:
+    - Via port forwarding on the router:
 
-   The setting is the same as in scenario 1.
+      i. Beacon node:
 
-    ii. Validator client:
-    Use the flag `--beacon-nodes` to point to the beacon node. However, since the beacon node and the validator client are on different networks, the IP address to use is the public IP address of the beacon node, i.e., `lighthouse vc --beacon-nodes http://public_IP:5052`. You can get the public IP address of the beacon node by running the command ` dig +short myip.opendns.com @resolver1.opendns.com` on the server running the beacon node.
+       The setting is the same as in scenario 1.
 
-    Additionally, port forwarding of port 5052 on the router connected to the beacon node is required for the vc to connect to the bn. To do port forwarding, refer to [how to open ports](./advanced_networking.md#how-to-open-ports).
+       ii. Validator client:
+      Use the flag `--beacon-nodes` to point to the beacon node. However, since the beacon node and the validator client are on different networks, the IP address to use is the public IP address of the beacon node, i.e., `lighthouse vc --beacon-nodes http://public_IP:5052`. You can get the public IP address of the beacon node by running the command ` dig +short myip.opendns.com @resolver1.opendns.com` on the server running the beacon node.
+
+      Additionally, port forwarding of port 5052 on the router connected to the beacon node is required for the vc to connect to the bn. To do port forwarding, refer to [how to open ports](./advanced_networking.md#how-to-open-ports).
 
 
-   If you have firewall setup, e.g., `ufw`, you will need to allow port 5052 (assuming that the default port is used). Since the beacon node is now exposed to the internet due to port forwarding, it is highly recommended to only allow access from a specific IP address, i.e., the IP address of the validator client.  This can be done using the command `sudo ufw allow from vc_IP_address proto tcp to any port 5052` (where `vc_IP_address` is the public IP address of the validator client) to only allow the IP address of the validator client to connect to the beacon node.
+      If you have firewall setup, e.g., `ufw`, you will need to allow connections to port 5052 (assuming that the default port is used). Since the beacon node is now exposed to the internet due to port forwarding, it is highly recommended to only allow access from a specific IP address, i.e., the IP address of the validator client.  This can be done using the command `sudo ufw allow from vc_IP_address proto tcp to any port 5052` where `vc_IP_address` is the public IP address of the validator client.
+
+   2. Via SSH tunneling:
+    
+      In the server running the validator client, use the command below to create an SSH tunnel:
+
+      ```
+      ssh -N -L 5052:local_IP:5052 username@public_IP
+      ```
+
+      where `local_IP` and `public_IP` are the local IP and public IP addresses of the beacon node. 
+
+       i. Beacon node: 
+
+      The setting is the same as in scenario 1.
+
+       ii. Validator client:
+
+       Use the flag `--beacon-nodes http://127.0.0.1:5052` to connect to the beacon node. 
+
+
 
 It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://local_IP:5052` on the validator client.
 
