@@ -49,7 +49,6 @@ pub struct Eth2NetworkConfig {
     pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
     genesis_state_source: GenesisStateSource,
     genesis_state_bytes: Option<Vec<u8>>,
-    genesis_state_bytes_checksum: Option<Hash256>,
     pub config: Config,
 }
 
@@ -66,16 +65,6 @@ impl Eth2NetworkConfig {
 
     /// Instantiates `Self` from a `HardcodedNet`.
     fn from_hardcoded_net(net: &HardcodedNet) -> Result<Self, String> {
-        let genesis_state_bytes_checksum = if let GenesisStateSource::Url { checksum, .. } =
-            &net.genesis_state_source
-        {
-            let checksum = Hash256::from_str(checksum)
-                .map_err(|e| format!("Unable to parse genesis state bytes checksum: {:?}", e))?;
-            Some(checksum)
-        } else {
-            None
-        };
-
         Ok(Self {
             deposit_contract_deploy_block: serde_yaml::from_reader(net.deploy_block)
                 .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
@@ -86,7 +75,6 @@ impl Eth2NetworkConfig {
             genesis_state_source: net.genesis_state_source,
             genesis_state_bytes: Some(net.genesis_state_bytes.to_vec())
                 .filter(|bytes| !bytes.is_empty()),
-            genesis_state_bytes_checksum,
             config: serde_yaml::from_reader(net.config)
                 .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?,
         })
@@ -128,11 +116,11 @@ impl Eth2NetworkConfig {
                 .map(Option::Some),
             GenesisStateSource::Url {
                 urls: built_in_urls,
-                ..
+                checksum,
             } => {
-                let checksum = self
-                    .genesis_state_bytes_checksum
-                    .ok_or_else(|| "No checksum supplied for genesis state download")?;
+                let checksum = Hash256::from_str(checksum).map_err(|e| {
+                    format!("Unable to parse genesis state bytes checksum: {:?}", e)
+                })?;
                 let state = if let Some(specified_url) = genesis_state_url {
                     download_genesis_state(&[specified_url], checksum)
                 } else {
@@ -271,9 +259,6 @@ impl Eth2NetworkConfig {
             boot_enr,
             genesis_state_source,
             genesis_state_bytes,
-            // Genesis states are never downloaded from a URL when loading from
-            // a testnet dir so there's no need for a checksum.
-            genesis_state_bytes_checksum: None,
             config,
         })
     }
@@ -370,6 +355,18 @@ mod tests {
                 "{:?}",
                 net.name
             );
+
+            if let GenesisStateSource::Url { urls, checksum } = net.genesis_state_source {
+                Hash256::from_str(&checksum).expect("the checksum must be a valid 32-byte value");
+                // We could consider removing this constraint once we're
+                // confident that users can always obtain the states from a
+                // checkpoint sync server.
+                assert!(
+                    !urls.is_empty(),
+                    "there should be at least one url from which to download genesis states"
+                );
+            }
+
             assert_eq!(config.config.config_name, Some(net.config_dir.to_string()));
         }
     }
