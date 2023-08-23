@@ -528,7 +528,7 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 [[package]]
 name = "beacon-api-client"
 version = "0.1.0"
-source = "git+https://github.com/ralexstokes/beacon-api-client?rev=56a290c#56a290ca9d2c67086917a0929cdf2fe35e5f917f"
+source = "git+https://github.com/ralexstokes/beacon-api-client?rev=d838d93#d838d930f80fdfcadfe32147bcb2e805aec074bc"
 dependencies = [
  "clap 4.3.21",
  "ethereum-consensus",
@@ -2413,7 +2413,7 @@ dependencies = [
 [[package]]
 name = "ethereum-consensus"
 version = "0.1.1"
-source = "git+https://github.com/jimmygchen/ethereum-consensus?rev=2354493#2354493fd631b736c189868b7dc1b415a160f0f7"
+source = "git+https://github.com/ralexstokes/ethereum-consensus?rev=2bcb975#2bcb97563bb8dcb15802d1a280b58f21577ea3e2"
 dependencies = [
  "async-stream",
  "blst",
@@ -4906,7 +4906,7 @@ dependencies = [
 [[package]]
 name = "mev-rs"
 version = "0.3.0"
-source = "git+https://github.com/ralexstokes/mev-rs?rev=9d88a2386b58c2948fa850f0dd4b3dfe18bd4962#9d88a2386b58c2948fa850f0dd4b3dfe18bd4962"
+source = "git+https://github.com/ralexstokes/mev-rs?rev=e01daed#e01daedd1706c3ec9d70d7e2baf301f0ad3645f8"
 dependencies = [
  "anvil-rpc",
  "async-trait",
