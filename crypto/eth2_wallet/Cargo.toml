@@ -14,7 +14,7 @@ uuid = { workspace = true }
 rand = { workspace = true }
 eth2_keystore = { workspace = true }
 eth2_key_derivation = { workspace = true }
-tiny-bip39 = "0.8.1"
+tiny-bip39 = "1"
 
 [dev-dependencies]
 hex = { workspace = true }

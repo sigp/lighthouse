@@ -9,7 +9,7 @@ edition = { workspace = true }
 [dependencies]
 sha2 = { workspace = true }
 zeroize = { workspace = true }
-num-bigint-dig = { version = "0.6.0", features = ["zeroize"] }
+num-bigint-dig = { version = "0.8.4", features = ["zeroize"] }
 ring = { workspace = true }
 bls = { workspace = true }
 
