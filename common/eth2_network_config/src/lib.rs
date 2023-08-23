@@ -21,6 +21,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId, Hash256};
+use url::Url;
 
 pub use eth2_config::GenesisStateSource;
 
@@ -275,7 +276,12 @@ fn download_genesis_state(urls: &[&str], checksum: Hash256) -> Result<Vec<u8>, S
 
     let mut errors = vec![];
     for url in urls {
-        match reqwest::blocking::get(*url).and_then(|r| r.bytes()) {
+        let url = Url::parse(url)
+            .map_err(|e| format!("Invalid genesis state URL: {:?}", e))?
+            .join("eth/v2/debug/beacon/states/genesis")
+            .map_err(|e| format!("Failed to append genesis state path to URL: {:?}", e))?;
+
+        match reqwest::blocking::get(url).and_then(|r| r.bytes()) {
             Ok(bytes) => {
                 let digest = Sha256::digest(bytes.as_ref());
                 if &digest[..] == &checksum[..] {

@@ -23,11 +23,11 @@ pub const PREDEFINED_NETWORKS_DIR: &str = predefined_networks_dir!();
 pub const GENESIS_FILE_NAME: &str = "genesis.ssz";
 pub const GENESIS_ZIP_FILE_NAME: &str = "genesis.ssz.zip";
 
-const HOLESKY_GENESIS_SOURCE: GenesisStateSource = GenesisStateSource::Url {
+const HOLESKY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
     urls: &[
         // This is an AWS S3 bucket hosted by Sigma Prime. See Paul Hauner for
         // more details.
-        "https://sigp-public-genesis-states.s3.ap-southeast-2.amazonaws.com/holesky/genesis.ssz",
+        "https://sigp-public-genesis-states.s3.ap-southeast-2.amazonaws.com/holesky",
     ],
     checksum: "0x76631cd0b9ddc5b2c766b496e23f16759ce1181446a4efb40e5540cd15b78a07",
 };
@@ -314,6 +314,6 @@ define_hardcoded_nets!(
         // directory where the configuration files are located for this network.
         "holesky",
         // Describes how the genesis state can be obtained.
-        HOLESKY_GENESIS_SOURCE
+        HOLESKY_GENESIS_STATE_SOURCE
     )
 );
