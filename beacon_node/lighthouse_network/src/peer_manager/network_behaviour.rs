@@ -197,7 +197,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         endpoint: &ConnectedPoint,
         other_established: usize,
     ) {
-        debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => ?endpoint.to_endpoint());
+        debug!(self.log, "Connection established"; "peer_id" => %peer_id,
+            "multiaddr" => %endpoint.get_remote_address(),
+            "connection" => ?endpoint.to_endpoint()
+        );
+
         if other_established == 0 {
             self.events.push(PeerManagerEvent::MetaData(peer_id));
         }
