@@ -2155,6 +2155,7 @@ dependencies = [
  "ethereum_ssz",
  "pretty_reqwest_error",
  "reqwest",
+ "sensitive_url",
  "serde_yaml",
  "sha2 0.10.7",
  "tempfile",

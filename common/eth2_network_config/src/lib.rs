@@ -14,7 +14,8 @@
 use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
 use pretty_reqwest_error::PrettyReqwestError;
-use reqwest;
+use reqwest::blocking::Client;
+use sensitive_url::SensitiveUrl;
 use sha2::{Digest, Sha256};
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
@@ -265,6 +266,9 @@ impl Eth2NetworkConfig {
     }
 }
 
+/// Try to download a genesis state from each of the `urls` in the order they
+/// are defined. Return `Ok` if any url returns a response that matches the
+/// given `checksum`.
 fn download_genesis_state(urls: &[&str], checksum: Hash256) -> Result<Vec<u8>, String> {
     if urls.is_empty() {
         return Err(
@@ -276,27 +280,43 @@ fn download_genesis_state(urls: &[&str], checksum: Hash256) -> Result<Vec<u8>, S
 
     let mut errors = vec![];
     for url in urls {
+        // URLs are always expected to be the base URL of a server that supports
+        // the beacon-API.
         let url = Url::parse(url)
             .map_err(|e| format!("Invalid genesis state URL: {:?}", e))?
             .join("eth/v2/debug/beacon/states/genesis")
             .map_err(|e| format!("Failed to append genesis state path to URL: {:?}", e))?;
 
-        match reqwest::blocking::get(url).and_then(|r| r.bytes()) {
+        let client = Client::new();
+        let response = client
+            .get(url.clone())
+            .header("Accept", "application/octet-stream")
+            .send()
+            .and_then(|r| r.error_for_status().and_then(|r| r.bytes()));
+
+        match response {
             Ok(bytes) => {
-                let digest = Sha256::digest(bytes.as_ref());
-                if &digest[..] == &checksum[..] {
+                // Check the server response against our local checksum.
+                if &Sha256::digest(bytes.as_ref())[..] == &checksum[..] {
                     return Ok(bytes.into());
                 } else {
+                    let redacted_url = SensitiveUrl::new(url)
+                        .map(|url| url.to_string())
+                        .unwrap_or_else(|_| "<REDACTED>".to_string());
                     errors.push(format!(
                         "Response from {} did not match local checksum",
-                        url
+                        redacted_url
                     ))
                 }
             }
             Err(e) => errors.push(PrettyReqwestError::from(e).to_string()),
         }
     }
-    Err(errors.join(","))
+    Err(format!(
+        "Unable to download a genesis state from {} source(s): {}",
+        errors.len(),
+        errors.join(",")
+    ))
 }
 
 #[cfg(test)]

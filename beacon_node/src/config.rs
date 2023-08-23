@@ -25,7 +25,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
-use url::Url;
 
 /// Gets the fully-initialized global client.
 ///
@@ -469,22 +468,27 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.checkpoint_sync_url_timeout =
         clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
-    let genesis_state_url: Option<String> =
-        if let Some(remote_bn_url) = cli_args.value_of("checkpoint-sync-url") {
-            // If a checkpoint sync URL is defined, use that server to download the genesis state.
-            let url = Url::parse(remote_bn_url)
-                .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?
-                .join("eth/v2/debug/beacon/states/genesis")
-                .map_err(|e| {
-                    format!(
-                        "Failed to append genesis state path to checkpoint sync URL: {:?}",
-                        e
-                    )
-                })?;
-            Some(url.into())
-        } else {
-            clap_utils::parse_optional(cli_args, "genesis-state-url")?
-        };
+    // If the `--checkpoint-sync-url` is defined, use that to download the
+    // genesis state bytes. If it's not defined, try `--genesis-state-url`.
+    let genesis_state_url = if let Some(checkpoint_sync_url) =
+        clap_utils::parse_optional::<String>(cli_args, "checkpoint-sync-url")?
+    {
+        Some(checkpoint_sync_url)
+    } else if let Some(genesis_state_url) =
+        clap_utils::parse_optional::<String>(cli_args, "genesis-state-url")?
+    {
+        Some(genesis_state_url)
+    } else {
+        None
+    };
+
+    if cli_args.is_present("checkpoint-sync-url") && cli_args.is_present("genesis-state-url") {
+        warn!(
+            log,
+            "Ignoring --genesis-state-url";
+            "info" => "--checkpoint-sync-url takes precedence"
+        );
+    }
 
     client_config.genesis = if let Some(genesis_state_bytes) =
         eth2_network_config.genesis_state_bytes(genesis_state_url.as_deref())?

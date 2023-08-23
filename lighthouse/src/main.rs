@@ -329,9 +329,11 @@ fn main() {
                 .long("genesis-state-url")
                 .value_name("URL")
                 .help(
-                    "A URL from which to download the genesis state. If not supplied, a default URL \
-                    may be used. If the genesis state is already included in this binary then this \
-                    value will be ignored.",
+                    "A URL of a beacon-API compatible server from which to download the genesis state. \
+                    Generally, checkpoint sync server URLs can be used with this flag. \
+                    If not supplied, a default URL may be used. If the genesis state is already included \
+                    in this binary then this value will be ignored. This value will be ignored if \
+                    --checkpoint-sync-url is provided.",
                 )
                 .takes_value(true)
                 .global(true),

@@ -23,3 +23,4 @@ reqwest = { version = "0.11.0", features = ["blocking"] }
 pretty_reqwest_error = { path = "../pretty_reqwest_error" }
 sha2 = "0.10"
 url = "2.2.2"
+sensitive_url = { path = "../sensitive_url" }
