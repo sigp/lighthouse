@@ -1,8 +1,9 @@
 #![recursion_limit = "256"]
 #![cfg(unix)]
 
-use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+use beacon_chain::{
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    ChainConfig,
 };
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use http_api::test_utils::{create_api_server, ApiServer};
@@ -85,13 +86,16 @@ struct TesterBuilder {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub config: Config,
     _bn_network_rx: NetworkReceivers<E>,
-    _bn_api_shutdown_tx: oneshot::Sender<()>,
 }
 
 impl TesterBuilder {
     pub async fn new() -> TesterBuilder {
         let harness = BeaconChainHarness::builder(E::default())
             .default_spec()
+            .chain_config(ChainConfig {
+                reconstruct_historic_states: true,
+                ..ChainConfig::default()
+            })
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .build();
@@ -102,10 +106,14 @@ impl TesterBuilder {
         let ApiServer {
             server,
             listening_socket: bn_api_listening_socket,
-            shutdown_tx: _bn_api_shutdown_tx,
             network_rx: _bn_network_rx,
             ..
-        } = create_api_server(harness.chain.clone(), harness.logger().clone()).await;
+        } = create_api_server(
+            harness.chain.clone(),
+            &harness.runtime,
+            harness.logger().clone(),
+        )
+        .await;
         tokio::spawn(server);
 
         /*
@@ -139,7 +147,6 @@ impl TesterBuilder {
             harness,
             config,
             _bn_network_rx,
-            _bn_api_shutdown_tx,
         }
     }
     pub async fn build(self, pool: PgPool) -> Tester {
@@ -186,7 +193,6 @@ impl TesterBuilder {
             config: self.config,
             updater,
             _bn_network_rx: self._bn_network_rx,
-            _bn_api_shutdown_tx: self._bn_api_shutdown_tx,
             _watch_shutdown_tx,
         }
     }
@@ -204,7 +210,6 @@ struct Tester {
     pub config: Config,
     pub updater: UpdateHandler<E>,
     _bn_network_rx: NetworkReceivers<E>,
-    _bn_api_shutdown_tx: oneshot::Sender<()>,
     _watch_shutdown_tx: oneshot::Sender<()>,
 }
 
