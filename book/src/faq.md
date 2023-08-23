@@ -441,7 +441,7 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 
     i. Beacon node: 
    
-   Specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than `localhost`. You can find the local_IP by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
+   Specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than `localhost`. You can find the `local_IP` by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
 
     ii. Validator client:
 
