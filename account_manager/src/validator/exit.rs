@@ -78,6 +78,9 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let password_file_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
 
+    let genesis_state_url: Option<String> =
+        clap_utils::parse_optional(matches, "genesis-state-url")?;
+
     let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
     let no_wait = matches.is_present(NO_WAIT);
     let no_confirmation = matches.is_present(NO_CONFIRMATION);
@@ -104,6 +107,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         &eth2_network_config,
         no_wait,
         no_confirmation,
+        genesis_state_url,
     ))?;
 
     Ok(())
@@ -120,12 +124,12 @@ async fn publish_voluntary_exit<E: EthSpec>(
     eth2_network_config: &Eth2NetworkConfig,
     no_wait: bool,
     no_confirmation: bool,
+    genesis_state_url: Option<String>,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = eth2_network_config
-        .beacon_state::<E>()
-        .as_ref()
-        .expect("network should have valid genesis state")
+        .genesis_state::<E>(genesis_state_url.as_deref())?
+        .ok_or_else(|| "Genesis state is unknown")?
         .genesis_validators_root();
 
     // Verify that the beacon node and validator being exited are on the same network.

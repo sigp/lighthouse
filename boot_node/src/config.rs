@@ -90,8 +90,16 @@ impl<T: EthSpec> BootNodeConfig<T> {
             let enr_fork = {
                 let spec = eth2_network_config.chain_spec::<T>()?;
 
+                let genesis_state_url: Option<String> =
+                    clap_utils::parse_optional(matches, "genesis-state-url")?;
+
                 if eth2_network_config.beacon_state_is_known() {
-                    let genesis_state = eth2_network_config.beacon_state::<T>()?;
+                    let genesis_state = eth2_network_config
+                        .genesis_state::<T>(genesis_state_url.as_deref())?
+                        .ok_or_else(|| {
+                            "The genesis state for this network is not known, this is an unsupported mode"
+                                .to_string()
+                        })?;
 
                     slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
                     let enr_fork = spec.enr_fork_id::<T>(

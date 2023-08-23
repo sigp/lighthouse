@@ -13,10 +13,14 @@
 
 use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
+use pretty_reqwest_error::PrettyReqwestError;
+use reqwest;
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId};
+
+pub use eth2_config::GenesisStateSource;
 
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
@@ -41,7 +45,8 @@ pub struct Eth2NetworkConfig {
     /// value to be the block number where the first deposit occurs.
     pub deposit_contract_deploy_block: u64,
     pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
-    pub genesis_state_bytes: Option<Vec<u8>>,
+    genesis_state_source: GenesisStateSource,
+    genesis_state_bytes: Option<Vec<u8>>,
     pub config: Config,
 }
 
@@ -65,6 +70,7 @@ impl Eth2NetworkConfig {
                 serde_yaml::from_reader(net.boot_enr)
                     .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
             ),
+            genesis_state_source: net.genesis_state_source,
             genesis_state_bytes: Some(net.genesis_state_bytes.to_vec())
                 .filter(|bytes| !bytes.is_empty()),
             config: serde_yaml::from_reader(net.config)
@@ -95,16 +101,43 @@ impl Eth2NetworkConfig {
         })
     }
 
-    /// Attempts to deserialize `self.beacon_state`, returning an error if it's missing or invalid.
-    pub fn beacon_state<E: EthSpec>(&self) -> Result<BeaconState<E>, String> {
-        let spec = self.chain_spec::<E>()?;
-        let genesis_state_bytes = self
-            .genesis_state_bytes
-            .as_ref()
-            .ok_or("Genesis state is unknown")?;
+    pub fn genesis_state_bytes(
+        &self,
+        genesis_state_url: Option<&str>,
+    ) -> Result<Option<Vec<u8>>, String> {
+        match &self.genesis_state_source {
+            GenesisStateSource::Unknown => Ok(None),
+            GenesisStateSource::IncludedBytes => self
+                .genesis_state_bytes
+                .clone()
+                .ok_or_else(|| "Genesis state bytes are missing".to_string())
+                .map(Option::Some),
+            GenesisStateSource::Url(built_in_urls) => {
+                let state = if let Some(specified_url) = genesis_state_url {
+                    download_genesis_state(&[specified_url])
+                } else {
+                    download_genesis_state(built_in_urls)
+                }?;
+                Ok(Some(state))
+            }
+        }
+    }
 
-        BeaconState::from_ssz_bytes(genesis_state_bytes, &spec)
-            .map_err(|e| format!("Genesis state SSZ bytes are invalid: {:?}", e))
+    /// Attempts to deserialize `self.beacon_state`, returning an error if it's missing or invalid.
+    ///
+    /// If the genesis state is configured to be downloaded from a URL, then the
+    /// `genesis_state_url` will override the built-in list of download URLs.
+    pub fn genesis_state<E: EthSpec>(
+        &self,
+        genesis_state_url: Option<&str>,
+    ) -> Result<Option<BeaconState<E>>, String> {
+        let spec = self.chain_spec::<E>()?;
+        self.genesis_state_bytes(genesis_state_url)?
+            .map(|bytes| {
+                BeaconState::from_ssz_bytes(&bytes, &spec)
+                    .map_err(|e| format!("Genesis state SSZ bytes are invalid: {:?}", e))
+            })
+            .transpose()
     }
 
     /// Write the files to the directory.
@@ -198,7 +231,7 @@ impl Eth2NetworkConfig {
 
         // The genesis state is a special case because it uses SSZ, not YAML.
         let genesis_file_path = base_dir.join(GENESIS_STATE_FILE);
-        let genesis_state_bytes = if genesis_file_path.exists() {
+        let (genesis_state_bytes, genesis_state_source) = if genesis_file_path.exists() {
             let mut bytes = vec![];
             File::open(&genesis_file_path)
                 .map_err(|e| format!("Unable to open {:?}: {:?}", genesis_file_path, e))
@@ -207,18 +240,32 @@ impl Eth2NetworkConfig {
                         .map_err(|e| format!("Unable to read {:?}: {:?}", file, e))
                 })?;
 
-            Some(bytes).filter(|bytes| !bytes.is_empty())
+            let state = Some(bytes).filter(|bytes| !bytes.is_empty());
+            (state, GenesisStateSource::IncludedBytes)
         } else {
-            None
+            (None, GenesisStateSource::Unknown)
         };
 
         Ok(Self {
             deposit_contract_deploy_block,
             boot_enr,
+            genesis_state_source,
             genesis_state_bytes,
             config,
         })
     }
+}
+
+fn download_genesis_state(urls: &[&str]) -> Result<Vec<u8>, String> {
+    let mut errors = vec![];
+    for url in urls {
+        match reqwest::blocking::get(*url).and_then(|r| r.bytes()) {
+            // TODO(paul): checksum
+            Ok(bytes) => return Ok(bytes.into()),
+            Err(e) => errors.push(PrettyReqwestError::from(e).to_string()),
+        }
+    }
+    Err(errors.join(","))
 }
 
 #[cfg(test)]
@@ -260,7 +307,9 @@ mod tests {
     #[test]
     fn mainnet_genesis_state() {
         let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
-        config.beacon_state::<E>().expect("beacon state can decode");
+        config
+            .beacon_state::<E>(None)
+            .expect("beacon state can decode");
     }
 
     #[test]
@@ -285,7 +334,7 @@ mod tests {
 
             assert_eq!(
                 config.genesis_state_bytes.is_some(),
-                net.genesis_is_known,
+                net.genesis_state_source == GenesisStateSource::IncludedBytes,
                 "{:?}",
                 net.name
             );
@@ -327,6 +376,7 @@ mod tests {
         let testnet: Eth2NetworkConfig = Eth2NetworkConfig {
             deposit_contract_deploy_block,
             boot_enr,
+            genesis_state_source: GenesisStateSource::IncludedBytes,
             genesis_state_bytes: genesis_state.as_ref().map(Encode::as_ssz_bytes),
             config,
         };

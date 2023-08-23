@@ -2153,6 +2153,8 @@ dependencies = [
  "discv5",
  "eth2_config",
  "ethereum_ssz",
+ "pretty_reqwest_error",
+ "reqwest",
  "serde_yaml",
  "tempfile",
  "types",

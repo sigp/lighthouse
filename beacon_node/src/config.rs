@@ -468,8 +468,11 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.checkpoint_sync_url_timeout =
         clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
+    let genesis_state_url: Option<String> =
+        clap_utils::parse_optional(cli_args, "genesis-state-url")?;
+
     client_config.genesis = if let Some(genesis_state_bytes) =
-        eth2_network_config.genesis_state_bytes.clone()
+        eth2_network_config.genesis_state_bytes(genesis_state_url.as_deref())?
     {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
         if let (Some(initial_state_path), Some(initial_block_path)) = (

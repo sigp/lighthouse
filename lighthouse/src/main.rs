@@ -324,6 +324,18 @@ fn main() {
                 .takes_value(true)
                 .global(true)
         )
+        .arg(
+            Arg::with_name("genesis-state-url")
+                .long("genesis-state-url")
+                .value_name("URL")
+                .help(
+                    "A URL from which to download the genesis state. If not supplied, a default URL \
+                    may be used. If the genesis state is already included in this binary then this \
+                    value will be ignored.",
+                )
+                .takes_value(true)
+                .global(true),
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
