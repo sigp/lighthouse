@@ -150,6 +150,9 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.allow_sync_stalled = true;
     }
 
+    client_config.http_api.sse_capacity_multiplier =
+        parse_required(cli_args, "http-sse-capacity-multiplier")?;
+
     client_config.http_api.enable_beacon_processor =
         parse_required(cli_args, "http-enable-beacon-processor")?;
 
@@ -349,6 +352,8 @@ pub fn get_config<E: EthSpec>(
         el_config.default_datadir = client_config.data_dir().clone();
         el_config.builder_profit_threshold =
             clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
+        el_config.always_prefer_builder_payload =
+            cli_args.is_present("always-prefer-builder-payload");
         el_config.ignore_builder_override_suggestion_threshold =
             clap_utils::parse_required(cli_args, "ignore-builder-override-suggestion-threshold")?;
         let execution_timeout_multiplier =
@@ -836,10 +841,6 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("genesis-backfill") {
         client_config.chain.genesis_backfill = true;
-    }
-    // Payload selection configs
-    if cli_args.is_present("always-prefer-builder-payload") {
-        client_config.always_prefer_builder_payload = true;
     }
 
     // Backfill sync rate-limiting
