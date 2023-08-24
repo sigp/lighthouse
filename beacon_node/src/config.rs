@@ -474,15 +474,13 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_optional::<String>(cli_args, "genesis-state-url")?;
     let checkpoint_sync_url_opt =
         clap_utils::parse_optional::<String>(cli_args, "checkpoint-sync-url")?;
-    let genesis_state_url = genesis_state_url_opt.or(checkpoint_sync_url_opt);
+    client_config.genesis_state_url = genesis_state_url_opt.or(checkpoint_sync_url_opt);
 
-    let genesis_state_url_timeout =
+    client_config.genesis_state_url_timeout =
         clap_utils::parse_required(cli_args, "genesis-state-url-timeout")
             .map(Duration::from_secs)?;
 
-    client_config.genesis = if let Some(genesis_state_bytes) = eth2_network_config
-        .genesis_state_bytes(genesis_state_url.as_deref(), genesis_state_url_timeout, log)?
-    {
+    client_config.genesis = if eth2_network_config.genesis_state_is_known() {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
         if let (Some(initial_state_path), Some(initial_block_path)) = (
             cli_args.value_of("checkpoint-state"),
@@ -504,7 +502,6 @@ pub fn get_config<E: EthSpec>(
             let anchor_block_bytes = read(initial_block_path)?;
 
             ClientGenesis::WeakSubjSszBytes {
-                genesis_state_bytes,
                 anchor_state_bytes,
                 anchor_block_bytes,
             }
@@ -512,17 +509,9 @@ pub fn get_config<E: EthSpec>(
             let url = SensitiveUrl::parse(remote_bn_url)
                 .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
 
-            ClientGenesis::CheckpointSyncUrl {
-                genesis_state_bytes,
-                url,
-            }
+            ClientGenesis::CheckpointSyncUrl { url }
         } else {
-            // Note: re-serializing the genesis state is not so efficient, however it avoids adding
-            // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
-            // effects.
-            ClientGenesis::SszBytes {
-                genesis_state_bytes,
-            }
+            ClientGenesis::GenesisState
         }
     } else {
         if cli_args.is_present("checkpoint-state") || cli_args.is_present("checkpoint-sync-url") {

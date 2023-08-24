@@ -93,8 +93,8 @@ impl Eth2NetworkConfig {
     }
 
     /// Returns `true` if this configuration contains a `BeaconState`.
-    pub fn beacon_state_is_known(&self) -> bool {
-        self.genesis_state_bytes.is_some()
+    pub fn genesis_state_is_known(&self) -> bool {
+        self.genesis_state_source != GenesisStateSource::Unknown
     }
 
     /// Construct a consolidated `ChainSpec` from the YAML config.
