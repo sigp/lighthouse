@@ -153,10 +153,6 @@ where
         let store = store.ok_or("beacon_chain_start_method requires a store")?;
         let runtime_context =
             runtime_context.ok_or("beacon_chain_start_method requires a runtime context")?;
-        let eth2_network_config = runtime_context
-            .eth2_network_config
-            .as_ref()
-            .ok_or("beacon_chain_start_method requires a eth2_network_config")?;
         let context = runtime_context.service_context("beacon".into());
         let log = context.log();
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
@@ -260,6 +256,10 @@ where
                     "Starting from known genesis state";
                 );
 
+                let eth2_network_config = runtime_context
+                    .eth2_network_config
+                    .as_ref()
+                    .ok_or("genesis state client genesis requires a eth2_network_config")?;
                 let genesis_state = eth2_network_config
                     .genesis_state::<TEthSpec>(
                         config.genesis_state_url.as_deref(),
@@ -286,6 +286,11 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
+
+                let eth2_network_config = runtime_context
+                    .eth2_network_config
+                    .as_ref()
+                    .ok_or("weak subj ssz bytes client genesis requires a eth2_network_config")?;
                 let genesis_state = eth2_network_config
                     .genesis_state::<TEthSpec>(
                         config.genesis_state_url.as_deref(),
@@ -393,6 +398,10 @@ where
 
                 debug!(context.log(), "Downloaded finalized block");
 
+                let eth2_network_config = runtime_context
+                    .eth2_network_config
+                    .as_ref()
+                    .ok_or("checkpoint sync url genesis requires a eth2_network_config")?;
                 let genesis_state = eth2_network_config
                     .genesis_state::<TEthSpec>(
                         config.genesis_state_url.as_deref(),
