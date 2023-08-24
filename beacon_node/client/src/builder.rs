@@ -34,6 +34,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
+use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
@@ -256,17 +257,7 @@ where
                     "Starting from known genesis state";
                 );
 
-                let eth2_network_config = runtime_context
-                    .eth2_network_config
-                    .as_ref()
-                    .ok_or("genesis state client genesis requires a eth2_network_config")?;
-                let genesis_state = eth2_network_config
-                    .genesis_state::<TEthSpec>(
-                        config.genesis_state_url.as_deref(),
-                        config.genesis_state_url_timeout,
-                        log,
-                    )?
-                    .ok_or("Genesis state is unknown")?;
+                let genesis_state = genesis_state(&runtime_context, &config, log)?;
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
@@ -286,18 +277,7 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
-
-                let eth2_network_config = runtime_context
-                    .eth2_network_config
-                    .as_ref()
-                    .ok_or("weak subj ssz bytes client genesis requires a eth2_network_config")?;
-                let genesis_state = eth2_network_config
-                    .genesis_state::<TEthSpec>(
-                        config.genesis_state_url.as_deref(),
-                        config.genesis_state_url_timeout,
-                        log,
-                    )?
-                    .ok_or("Genesis state is unknown")?;
+                let genesis_state = genesis_state(&runtime_context, &config, log)?;
 
                 builder
                     .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
@@ -398,17 +378,7 @@ where
 
                 debug!(context.log(), "Downloaded finalized block");
 
-                let eth2_network_config = runtime_context
-                    .eth2_network_config
-                    .as_ref()
-                    .ok_or("checkpoint sync url genesis requires a eth2_network_config")?;
-                let genesis_state = eth2_network_config
-                    .genesis_state::<TEthSpec>(
-                        config.genesis_state_url.as_deref(),
-                        config.genesis_state_url_timeout,
-                        log,
-                    )?
-                    .ok_or("Genesis state is unknown")?;
+                let genesis_state = genesis_state(&runtime_context, &config, log)?;
 
                 info!(
                     context.log(),
@@ -1111,4 +1081,23 @@ where
         self.slot_clock = Some(slot_clock);
         Ok(self)
     }
+}
+
+/// Obtain the genesis state from the `eth2_network_config` in `context`.
+fn genesis_state<T: EthSpec>(
+    context: &RuntimeContext<T>,
+    config: &ClientConfig,
+    log: &Logger,
+) -> Result<BeaconState<T>, String> {
+    let eth2_network_config = context
+        .eth2_network_config
+        .as_ref()
+        .ok_or("genesis state client genesis requires a eth2_network_config")?;
+    eth2_network_config
+        .genesis_state::<T>(
+            config.genesis_state_url.as_deref(),
+            config.genesis_state_url_timeout,
+            log,
+        )?
+        .ok_or_else(|| "Genesis state is unknown".to_string())
 }

@@ -83,8 +83,9 @@ pub enum GenesisStateSource {
     Url {
         /// URLs to try to download the file from, in order.
         urls: &'static [&'static str],
-        /// The SHA256 of the genesis state bytes. This is *not* a hash tree root
-        /// avoid needing to get the `EthSpec` involved.
+        /// The SHA256 of the genesis state bytes. This is *not* a hash tree
+        /// root to simplify the types (i.e., to avoid getting EthSpec
+        /// involved).
         ///
         /// The format should be 0x-prefixed ASCII bytes.
         checksum: &'static str,
