@@ -137,6 +137,8 @@ pub struct Config {
     pub data_dir: PathBuf,
     pub sse_capacity_multiplier: usize,
     pub enable_beacon_processor: bool,
+    #[serde(with = "eth2::types::serde_status_code")]
+    pub duplicate_block_status_code: StatusCode,
 }
 
 impl Default for Config {
@@ -152,6 +154,7 @@ impl Default for Config {
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
+            duplicate_block_status_code: StatusCode::ACCEPTED,
         }
     }
 }
@@ -507,6 +510,8 @@ pub fn serve<T: BeaconChainTypes>(
         .filter(|_| config.enable_beacon_processor);
     let task_spawner_filter =
         warp::any().map(move || TaskSpawner::new(beacon_processor_send.clone()));
+
+    let duplicate_block_status_code = ctx.config.duplicate_block_status_code;
 
     /*
      *
@@ -1282,11 +1287,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            |block: Arc<SignedBeaconBlock<T::EthSpec>>,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
+            move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
+                  task_spawner: TaskSpawner<T::EthSpec>,
+                  chain: Arc<BeaconChain<T>>,
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_block(
                         None,
@@ -1295,9 +1300,9 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         log,
                         BroadcastValidation::default(),
+                        duplicate_block_status_code,
                     )
                     .await
-                    .map(|()| warp::reply().into_response())
                 })
             },
         );
@@ -1312,11 +1317,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            |block_bytes: Bytes,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
+            move |block_bytes: Bytes,
+                  task_spawner: TaskSpawner<T::EthSpec>,
+                  chain: Arc<BeaconChain<T>>,
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block =
                         SignedBeaconBlock::<T::EthSpec>::from_ssz_bytes(&block_bytes, &chain.spec)
@@ -1332,9 +1337,9 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         log,
                         BroadcastValidation::default(),
+                        duplicate_block_status_code,
                     )
                     .await
-                    .map(|()| warp::reply().into_response())
                 })
             },
         );
@@ -1350,12 +1355,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            |validation_level: api_types::BroadcastValidationQuery,
-             block: Arc<SignedBeaconBlock<T::EthSpec>>,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
+            move |validation_level: api_types::BroadcastValidationQuery,
+                  block: Arc<SignedBeaconBlock<T::EthSpec>>,
+                  task_spawner: TaskSpawner<T::EthSpec>,
+                  chain: Arc<BeaconChain<T>>,
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_block(
                         None,
@@ -1364,9 +1369,9 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         log,
                         validation_level.broadcast_validation,
+                        duplicate_block_status_code,
                     )
                     .await
-                    .map(|()| warp::reply().into_response())
                 })
             },
         );
@@ -1382,12 +1387,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            |validation_level: api_types::BroadcastValidationQuery,
-             block_bytes: Bytes,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
+            move |validation_level: api_types::BroadcastValidationQuery,
+                  block_bytes: Bytes,
+                  task_spawner: TaskSpawner<T::EthSpec>,
+                  chain: Arc<BeaconChain<T>>,
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block =
                         SignedBeaconBlock::<T::EthSpec>::from_ssz_bytes(&block_bytes, &chain.spec)
@@ -1403,9 +1408,9 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         log,
                         validation_level.broadcast_validation,
+                        duplicate_block_status_code,
                     )
                     .await
-                    .map(|()| warp::reply().into_response())
                 })
             },
         );
@@ -1425,11 +1430,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
+            move |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
+                  task_spawner: TaskSpawner<T::EthSpec>,
+                  chain: Arc<BeaconChain<T>>,
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
                         block,
@@ -1437,9 +1442,9 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         log,
                         BroadcastValidation::default(),
+                        duplicate_block_status_code,
                     )
                     .await
-                    .map(|()| warp::reply().into_response())
                 })
             },
         );
@@ -1455,11 +1460,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            |block_bytes: Bytes,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
+            move |block_bytes: Bytes,
+                  task_spawner: TaskSpawner<T::EthSpec>,
+                  chain: Arc<BeaconChain<T>>,
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block = SignedBeaconBlock::<T::EthSpec, BlindedPayload<_>>::from_ssz_bytes(
                         &block_bytes,
@@ -1474,9 +1479,9 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         log,
                         BroadcastValidation::default(),
+                        duplicate_block_status_code,
                     )
                     .await
-                    .map(|()| warp::reply().into_response())
                 })
             },
         );
@@ -1492,87 +1497,63 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            |validation_level: api_types::BroadcastValidationQuery,
-             block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
-                task_spawner.spawn_async(Priority::P0, async move {
-                    match publish_blocks::publish_blinded_block(
+            move |validation_level: api_types::BroadcastValidationQuery,
+                  block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
+                  task_spawner: TaskSpawner<T::EthSpec>,
+                  chain: Arc<BeaconChain<T>>,
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  log: Logger| {
+                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    publish_blocks::publish_blinded_block(
                         block,
                         chain,
                         &network_tx,
                         log,
                         validation_level.broadcast_validation,
+                        duplicate_block_status_code,
                     )
                     .await
-                    {
-                        Ok(()) => warp::reply().into_response(),
-                        Err(e) => match warp_utils::reject::handle_rejection(e).await {
-                            Ok(reply) => reply.into_response(),
-                            Err(_) => warp::reply::with_status(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                eth2::StatusCode::INTERNAL_SERVER_ERROR,
-                            )
-                            .into_response(),
-                        },
-                    }
                 })
             },
         );
 
-    let post_beacon_blinded_blocks_v2_ssz =
-        eth_v2
-            .and(warp::path("beacon"))
-            .and(warp::path("blinded_blocks"))
-            .and(warp::query::<api_types::BroadcastValidationQuery>())
-            .and(warp::path::end())
-            .and(warp::body::bytes())
-            .and(chain_filter.clone())
-            .and(network_tx_filter.clone())
-            .and(log_filter.clone())
-            .then(
-                |validation_level: api_types::BroadcastValidationQuery,
-                 block_bytes: Bytes,
-                 chain: Arc<BeaconChain<T>>,
-                 network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                 log: Logger| async move {
-                    let block =
-                        match SignedBeaconBlock::<T::EthSpec, BlindedPayload<_>>::from_ssz_bytes(
-                            &block_bytes,
-                            &chain.spec,
-                        ) {
-                            Ok(data) => data,
-                            Err(_) => {
-                                return warp::reply::with_status(
-                                    StatusCode::BAD_REQUEST,
-                                    eth2::StatusCode::BAD_REQUEST,
-                                )
-                                .into_response();
-                            }
-                        };
-                    match publish_blocks::publish_blinded_block(
+    let post_beacon_blinded_blocks_v2_ssz = eth_v2
+        .and(warp::path("beacon"))
+        .and(warp::path("blinded_blocks"))
+        .and(warp::query::<api_types::BroadcastValidationQuery>())
+        .and(warp::path::end())
+        .and(warp::body::bytes())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
+        .and(log_filter.clone())
+        .then(
+            move |validation_level: api_types::BroadcastValidationQuery,
+                  block_bytes: Bytes,
+                  task_spawner: TaskSpawner<T::EthSpec>,
+                  chain: Arc<BeaconChain<T>>,
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  log: Logger| {
+                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
+                        &block_bytes,
+                        &chain.spec,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                    })?;
+                    publish_blocks::publish_blinded_block(
                         block,
                         chain,
                         &network_tx,
                         log,
                         validation_level.broadcast_validation,
+                        duplicate_block_status_code,
                     )
                     .await
-                    {
-                        Ok(()) => warp::reply().into_response(),
-                        Err(e) => match warp_utils::reject::handle_rejection(e).await {
-                            Ok(reply) => reply.into_response(),
-                            Err(_) => warp::reply::with_status(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                eth2::StatusCode::INTERNAL_SERVER_ERROR,
-                            )
-                            .into_response(),
-                        },
-                    }
-                },
-            );
+                })
+            },
+        );
 
     let block_id_or_err = warp::path::param::<BlockId>().or_else(|_| async {
         Err(warp_utils::reject::custom_bad_request(

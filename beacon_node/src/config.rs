@@ -155,6 +155,9 @@ pub fn get_config<E: EthSpec>(
     client_config.http_api.enable_beacon_processor =
         parse_required(cli_args, "http-enable-beacon-processor")?;
 
+    client_config.http_api.duplicate_block_status_code =
+        parse_required(cli_args, "http-duplicate-block-status")?;
+
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
     }

@@ -2381,3 +2381,22 @@ fn http_sse_capacity_multiplier_override() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.sse_capacity_multiplier, 10));
 }
+
+#[test]
+fn http_duplicate_block_status_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.http_api.duplicate_block_status_code.as_u16(), 202)
+        });
+}
+
+#[test]
+fn http_duplicate_block_status_override() {
+    CommandLineTest::new()
+        .flag("http-duplicate-block-status", Some("301"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.http_api.duplicate_block_status_code.as_u16(), 301)
+        });
+}

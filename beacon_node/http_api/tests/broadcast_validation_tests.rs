@@ -364,13 +364,14 @@ pub async fn consensus_partial_pass_only_consensus() {
     /* submit `block_b` which should induce equivocation */
     let channel = tokio::sync::mpsc::unbounded_channel();
 
-    let publication_result: Result<(), Rejection> = publish_block(
+    let publication_result = publish_block(
         None,
         ProvenancedBlock::local(gossip_block_b.unwrap()),
         tester.harness.chain.clone(),
         &channel.0,
         test_logger,
         validation_level.unwrap(),
+        StatusCode::ACCEPTED,
     )
     .await;
 
@@ -641,13 +642,14 @@ pub async fn equivocation_consensus_late_equivocation() {
 
     let channel = tokio::sync::mpsc::unbounded_channel();
 
-    let publication_result: Result<(), Rejection> = publish_block(
+    let publication_result = publish_block(
         None,
         ProvenancedBlock::local(gossip_block_b.unwrap()),
         tester.harness.chain,
         &channel.0,
         test_logger,
         validation_level.unwrap(),
+        StatusCode::ACCEPTED,
     )
     .await;
 
@@ -1294,12 +1296,13 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
 
     let channel = tokio::sync::mpsc::unbounded_channel();
 
-    let publication_result: Result<(), Rejection> = publish_blinded_block(
+    let publication_result = publish_blinded_block(
         block_b,
         tester.harness.chain,
         &channel.0,
         test_logger,
         validation_level.unwrap(),
+        StatusCode::ACCEPTED,
     )
     .await;
 
