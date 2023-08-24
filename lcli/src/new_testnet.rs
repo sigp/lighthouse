@@ -190,7 +190,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
     let testnet = Eth2NetworkConfig {
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
-        genesis_state_bytes,
+        genesis_state_bytes: genesis_state_bytes.map(Into::into),
         genesis_state_source: GenesisStateSource::IncludedBytes,
         config: Config::from_chain_spec::<T>(&spec),
     };

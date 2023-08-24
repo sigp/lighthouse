@@ -42,6 +42,35 @@ instantiate_hardcoded_nets!(eth2_config);
 
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 
+/// A simple slice-or-vec enum to avoid cloning the beacon state bytes in the
+/// binary whilst also supporting loading them from a file at runtime.
+#[derive(Clone, PartialEq, Debug)]
+pub enum GenesisStateBytes {
+    Slice(&'static [u8]),
+    Vec(Vec<u8>),
+}
+
+impl AsRef<[u8]> for GenesisStateBytes {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            GenesisStateBytes::Slice(slice) => slice,
+            GenesisStateBytes::Vec(vec) => vec.as_ref(),
+        }
+    }
+}
+
+impl From<&'static [u8]> for GenesisStateBytes {
+    fn from(slice: &'static [u8]) -> Self {
+        GenesisStateBytes::Slice(slice)
+    }
+}
+
+impl From<Vec<u8>> for GenesisStateBytes {
+    fn from(vec: Vec<u8>) -> Self {
+        GenesisStateBytes::Vec(vec)
+    }
+}
+
 /// Specifies an Eth2 network.
 ///
 /// See the crate-level documentation for more details.
@@ -52,7 +81,7 @@ pub struct Eth2NetworkConfig {
     pub deposit_contract_deploy_block: u64,
     pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
     pub genesis_state_source: GenesisStateSource,
-    pub genesis_state_bytes: Option<Vec<u8>>,
+    pub genesis_state_bytes: Option<GenesisStateBytes>,
     pub config: Config,
 }
 
@@ -77,8 +106,9 @@ impl Eth2NetworkConfig {
                     .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
             ),
             genesis_state_source: net.genesis_state_source,
-            genesis_state_bytes: Some(net.genesis_state_bytes.to_vec())
-                .filter(|bytes| !bytes.is_empty()),
+            genesis_state_bytes: Some(net.genesis_state_bytes)
+                .filter(|bytes| !bytes.is_empty())
+                .map(Into::into),
             config: serde_yaml::from_reader(net.config)
                 .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?,
         })
@@ -107,36 +137,6 @@ impl Eth2NetworkConfig {
         })
     }
 
-    pub fn genesis_state_bytes(
-        &self,
-        genesis_state_url: Option<&str>,
-        timeout: Duration,
-        log: &Logger,
-    ) -> Result<Option<Vec<u8>>, String> {
-        match &self.genesis_state_source {
-            GenesisStateSource::Unknown => Ok(None),
-            GenesisStateSource::IncludedBytes => self
-                .genesis_state_bytes
-                .clone()
-                .ok_or_else(|| "Genesis state bytes are missing".to_string())
-                .map(Option::Some),
-            GenesisStateSource::Url {
-                urls: built_in_urls,
-                checksum,
-            } => {
-                let checksum = Hash256::from_str(checksum).map_err(|e| {
-                    format!("Unable to parse genesis state bytes checksum: {:?}", e)
-                })?;
-                let state = if let Some(specified_url) = genesis_state_url {
-                    download_genesis_state(&[specified_url], timeout, checksum, log)
-                } else {
-                    download_genesis_state(built_in_urls, timeout, checksum, log)
-                }?;
-                Ok(Some(state))
-            }
-        }
-    }
-
     /// Attempts to deserialize `self.beacon_state`, returning an error if it's missing or invalid.
     ///
     /// If the genesis state is configured to be downloaded from a URL, then the
@@ -148,12 +148,35 @@ impl Eth2NetworkConfig {
         log: &Logger,
     ) -> Result<Option<BeaconState<E>>, String> {
         let spec = self.chain_spec::<E>()?;
-        self.genesis_state_bytes(genesis_state_url, timeout, log)?
-            .map(|bytes| {
-                BeaconState::from_ssz_bytes(&bytes, &spec)
-                    .map_err(|e| format!("Genesis state SSZ bytes are invalid: {:?}", e))
-            })
-            .transpose()
+        match &self.genesis_state_source {
+            GenesisStateSource::Unknown => Ok(None),
+            GenesisStateSource::IncludedBytes => self
+                .genesis_state_bytes
+                .as_ref()
+                .map(|bytes| {
+                    BeaconState::from_ssz_bytes(bytes.as_ref(), &spec).map_err(|e| {
+                        format!("Built-in genesis state SSZ bytes are invalid: {:?}", e)
+                    })
+                })
+                .transpose(),
+            GenesisStateSource::Url {
+                urls: built_in_urls,
+                checksum,
+            } => {
+                let checksum = Hash256::from_str(checksum).map_err(|e| {
+                    format!("Unable to parse genesis state bytes checksum: {:?}", e)
+                })?;
+                let bytes = if let Some(specified_url) = genesis_state_url {
+                    download_genesis_state(&[specified_url], timeout, checksum, log)
+                } else {
+                    download_genesis_state(built_in_urls, timeout, checksum, log)
+                }?;
+                let state = BeaconState::from_ssz_bytes(bytes.as_ref(), &spec).map_err(|e| {
+                    format!("Downloaded genesis state SSZ bytes are invalid: {:?}", e)
+                })?;
+                Ok(Some(state))
+            }
+        }
     }
 
     /// Write the files to the directory.
@@ -211,7 +234,7 @@ impl Eth2NetworkConfig {
             File::create(&file)
                 .map_err(|e| format!("Unable to create {:?}: {:?}", file, e))
                 .and_then(|mut file| {
-                    file.write_all(genesis_state_bytes)
+                    file.write_all(genesis_state_bytes.as_ref())
                         .map_err(|e| format!("Unable to write {:?}: {:?}", file, e))
                 })?;
         }
@@ -271,7 +294,7 @@ impl Eth2NetworkConfig {
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_source,
-            genesis_state_bytes,
+            genesis_state_bytes: genesis_state_bytes.map(Into::into),
             config,
         })
     }
@@ -478,7 +501,10 @@ mod tests {
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_source,
-            genesis_state_bytes: genesis_state.as_ref().map(Encode::as_ssz_bytes),
+            genesis_state_bytes: genesis_state
+                .as_ref()
+                .map(Encode::as_ssz_bytes)
+                .map(Into::into),
             config,
         };
 
