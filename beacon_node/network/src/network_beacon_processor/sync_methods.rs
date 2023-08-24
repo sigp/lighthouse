@@ -279,9 +279,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         _seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
-        let Some(slot) = blobs.iter().find_map(|blob|{
-            blob.as_ref().map(|blob| blob.slot)
-        }) else {
+        let Some(slot) = blobs
+            .iter()
+            .find_map(|blob| blob.as_ref().map(|blob| blob.slot))
+        else {
             return;
         };
 

@@ -135,8 +135,8 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// 4. `Err`: The child is required, but has failed consistency checks.
     pub fn get_cached_child_block(&self) -> CachedChild<T::EthSpec> {
         if let Some(components) = self.cached_child_components.as_ref() {
-            let Some(block) = components.downloaded_block.as_ref()else {
-              return CachedChild::DownloadIncomplete
+            let Some(block) = components.downloaded_block.as_ref() else {
+                return CachedChild::DownloadIncomplete;
             };
 
             if !self.missing_blob_ids().is_empty() {

@@ -149,12 +149,14 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
             .copied()
             .map(PeerShouldHave::BlockAndBlobs);
 
-        let Some(peer_id) = available_peer_opt.or_else(||request_state
-            .potential_peers
-            .iter()
-            .choose(&mut rand::thread_rng())
-            .copied()
-            .map(PeerShouldHave::Neither)) else {
+        let Some(peer_id) = available_peer_opt.or_else(|| {
+            request_state
+                .potential_peers
+                .iter()
+                .choose(&mut rand::thread_rng())
+                .copied()
+                .map(PeerShouldHave::Neither)
+        }) else {
             return Err(LookupRequestError::NoPeers);
         };
         request_state.used_peers.insert(peer_id.to_peer_id());

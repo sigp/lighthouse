@@ -241,7 +241,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     let Some(parent_block) = chain
         .canonical_head
         .fork_choice_read_lock()
-        .get_block(&block_parent_root) else {
+        .get_block(&block_parent_root)
+    else {
         return Err(GossipBlobError::BlobParentUnknown(
             signed_blob_sidecar.message,
         ));
