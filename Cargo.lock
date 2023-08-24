@@ -4118,6 +4118,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-mplex"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93959ed08b6caf9810e067655e25f1362098797fef7c44d3103e63dcb6f0fabe"
+dependencies = [
+ "asynchronous-codec",
+ "bytes",
+ "futures",
+ "libp2p-core",
+ "libp2p-identity",
+ "log",
+ "nohash-hasher",
+ "parking_lot 0.12.1",
+ "rand 0.8.5",
+ "smallvec 1.11.0",
+ "unsigned-varint 0.7.1",
+]
+
+[[package]]
 name = "libp2p-noise"
 version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4382,6 +4401,7 @@ dependencies = [
  "hex",
  "lazy_static",
  "libp2p",
+ "libp2p-mplex",
  "lighthouse_metrics",
  "lighthouse_version",
  "lru 0.7.8",
