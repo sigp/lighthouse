@@ -22,6 +22,9 @@ use PeerConnectionStatus::*;
 pub struct PeerInfo<T: EthSpec> {
     /// The peers reputation
     score: Score,
+    /// Time at which peer was banned
+    #[serde(skip)]
+    banned_since: Option<Instant>,
     /// Client managing this peer
     client: Client,
     /// Connection status of this peer
@@ -57,6 +60,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
     fn default() -> PeerInfo<TSpec> {
         PeerInfo {
             score: Score::default(),
+            banned_since: None,
             client: Client::default(),
             connection_status: Default::default(),
             listening_addresses: Vec::new(),
@@ -283,10 +287,18 @@ impl<T: EthSpec> PeerInfo<T> {
         self.is_connected() || self.is_dialing()
     }
 
+    pub fn banned_since(&self) -> Option<Instant> {
+        self.banned_since
+    }
+
+    pub fn banned_since_mut(&mut self) -> &mut Option<Instant> {
+        &mut self.banned_since
+    }
+
     /// Checks if the connection status is banned. This can lag behind the score state
     /// temporarily.
     pub fn is_banned(&self) -> bool {
-        matches!(self.connection_status, PeerConnectionStatus::Banned { .. })
+        self.score_is_banned()
     }
 
     /// Checks if the peer's score is banned.
@@ -405,7 +417,7 @@ impl<T: EthSpec> PeerInfo<T> {
             Connected { .. } => return Err("Dialing connected peer"),
             Dialing { .. } => return Err("Dialing an already dialing peer"),
             Disconnecting { .. } => return Err("Dialing a disconnecting peer"),
-            Disconnected { .. } | Banned { .. } | Unknown => {}
+            Disconnected { .. } | Unknown => {}
         }
         self.connection_status = Dialing {
             since: Instant::now(),
@@ -418,11 +430,7 @@ impl<T: EthSpec> PeerInfo<T> {
     pub(super) fn connect_ingoing(&mut self, seen_address: Option<SocketAddr>) {
         match &mut self.connection_status {
             Connected { n_in, .. } => *n_in += 1,
-            Disconnected { .. }
-            | Banned { .. }
-            | Dialing { .. }
-            | Disconnecting { .. }
-            | Unknown => {
+            Disconnected { .. } | Dialing { .. } | Disconnecting { .. } | Unknown => {
                 self.connection_status = Connected { n_in: 1, n_out: 0 };
                 self.connection_direction = Some(ConnectionDirection::Incoming);
             }
@@ -438,11 +446,7 @@ impl<T: EthSpec> PeerInfo<T> {
     pub(super) fn connect_outgoing(&mut self, seen_address: Option<SocketAddr>) {
         match &mut self.connection_status {
             Connected { n_out, .. } => *n_out += 1,
-            Disconnected { .. }
-            | Banned { .. }
-            | Dialing { .. }
-            | Disconnecting { .. }
-            | Unknown => {
+            Disconnected { .. } | Dialing { .. } | Disconnecting { .. } | Unknown => {
                 self.connection_status = Connected { n_in: 0, n_out: 1 };
                 self.connection_direction = Some(ConnectionDirection::Outgoing);
             }
@@ -496,11 +500,6 @@ pub enum PeerConnectionStatus {
         /// last time the peer was connected or discovered.
         since: Instant,
     },
-    /// The peer has been banned and is disconnected.
-    Banned {
-        /// moment when the peer was banned.
-        since: Instant,
-    },
     /// We are currently dialing this peer.
     Dialing {
         /// time since we last communicated with the peer.
@@ -536,13 +535,6 @@ impl Serialize for PeerConnectionStatus {
                 s.serialize_field("connections_out", &0)?;
                 s.serialize_field("last_seen", &since.elapsed().as_secs())?;
                 s.serialize_field("banned_ips", &Vec::<IpAddr>::new())?;
-                s.end()
-            }
-            Banned { since } => {
-                s.serialize_field("status", "banned")?;
-                s.serialize_field("connections_in", &0)?;
-                s.serialize_field("connections_out", &0)?;
-                s.serialize_field("last_seen", &since.elapsed().as_secs())?;
                 s.end()
             }
             Dialing { since } => {

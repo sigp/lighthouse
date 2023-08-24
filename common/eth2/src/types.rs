@@ -785,9 +785,9 @@ impl PeerState {
             PeerConnectionStatus::Connected { .. } => PeerState::Connected,
             PeerConnectionStatus::Dialing { .. } => PeerState::Connecting,
             PeerConnectionStatus::Disconnecting { .. } => PeerState::Disconnecting,
-            PeerConnectionStatus::Disconnected { .. }
-            | PeerConnectionStatus::Banned { .. }
-            | PeerConnectionStatus::Unknown => PeerState::Disconnected,
+            PeerConnectionStatus::Disconnected { .. } | PeerConnectionStatus::Unknown => {
+                PeerState::Disconnected
+            }
         }
     }
 }
