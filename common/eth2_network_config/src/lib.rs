@@ -150,15 +150,18 @@ impl Eth2NetworkConfig {
         let spec = self.chain_spec::<E>()?;
         match &self.genesis_state_source {
             GenesisStateSource::Unknown => Ok(None),
-            GenesisStateSource::IncludedBytes => self
-                .genesis_state_bytes
-                .as_ref()
-                .map(|bytes| {
-                    BeaconState::from_ssz_bytes(bytes.as_ref(), &spec).map_err(|e| {
-                        format!("Built-in genesis state SSZ bytes are invalid: {:?}", e)
+            GenesisStateSource::IncludedBytes => {
+                let state = self
+                    .genesis_state_bytes
+                    .as_ref()
+                    .map(|bytes| {
+                        BeaconState::from_ssz_bytes(bytes.as_ref(), &spec).map_err(|e| {
+                            format!("Built-in genesis state SSZ bytes are invalid: {:?}", e)
+                        })
                     })
-                })
-                .transpose(),
+                    .ok_or("Genesis state bytes missing from Eth2NetworkConfig")??;
+                Ok(Some(state))
+            }
             GenesisStateSource::Url {
                 urls: built_in_urls,
                 checksum,
