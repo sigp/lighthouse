@@ -1261,6 +1261,23 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    // GET builder/states/{state_id}/expected_withdrawals
+    pub async fn get_expected_withdrawals(
+        &self,
+        state_id: &StateId,
+    ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<Withdrawal>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("builder")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("expected_withdrawals");
+
+        self.get(path).await
+    }
+
     /// `POST validator/contribution_and_proofs`
     pub async fn post_validator_contribution_and_proofs<T: EthSpec>(
         &self,
