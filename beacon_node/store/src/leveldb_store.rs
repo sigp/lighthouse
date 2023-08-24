@@ -167,7 +167,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
             )
         };
 
-        for (start_key, end_key) in vec![
+        for (start_key, end_key) in [
             endpoints(DBColumn::BeaconStateTemporary),
             endpoints(DBColumn::BeaconState),
         ] {

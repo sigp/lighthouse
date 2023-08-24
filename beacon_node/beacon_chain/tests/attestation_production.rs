@@ -136,13 +136,15 @@ async fn produces_attestations() {
             let rpc_block =
                 RpcBlock::<MainnetEthSpec>::new(Arc::new(block.clone()), Some(blobs.clone()))
                     .unwrap();
-            let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(available_block) = chain
+            let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(
+                available_block,
+            ) = chain
                 .data_availability_checker
                 .check_rpc_block_availability(rpc_block)
                 .unwrap()
-                else {
-                    panic!("block should be available")
-                };
+            else {
+                panic!("block should be available")
+            };
 
             let early_attestation = {
                 let proto_block = chain
@@ -212,13 +214,15 @@ async fn early_attester_cache_old_request() {
 
     let rpc_block =
         RpcBlock::<MainnetEthSpec>::new(head.beacon_block.clone(), Some(head_blobs)).unwrap();
-    let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(available_block) = harness.chain
-        .data_availability_checker
-        .check_rpc_block_availability(rpc_block)
-        .unwrap()
-        else {
-            panic!("block should be available")
-        };
+    let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(available_block) =
+        harness
+            .chain
+            .data_availability_checker
+            .check_rpc_block_availability(rpc_block)
+            .unwrap()
+    else {
+        panic!("block should be available")
+    };
 
     harness
         .chain

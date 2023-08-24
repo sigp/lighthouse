@@ -981,6 +981,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         macro_rules! prune_peers {
             ($filter: expr) => {
+                let filter = $filter;
                 for (peer_id, info) in self
                     .network_globals
                     .peers
@@ -988,7 +989,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .worst_connected_peers()
                     .iter()
                     .filter(|(_, info)| {
-                        !info.has_future_duty() && !info.is_trusted() && $filter(*info)
+                        !info.has_future_duty() && !info.is_trusted() && filter(*info)
                     })
                 {
                     if peers_to_prune.len()
