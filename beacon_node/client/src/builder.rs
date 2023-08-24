@@ -34,7 +34,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
@@ -166,7 +165,7 @@ where
             None
         };
 
-        let execution_layer = if let Some(config) = config.execution_layer {
+        let execution_layer = if let Some(config) = config.execution_layer.clone() {
             let context = runtime_context.service_context("exec".into());
             let execution_layer = ExecutionLayer::from_config(
                 config,
@@ -1092,7 +1091,7 @@ fn genesis_state<T: EthSpec>(
     let eth2_network_config = context
         .eth2_network_config
         .as_ref()
-        .ok_or("genesis state client genesis requires a eth2_network_config")?;
+        .ok_or("An eth2_network_config is required to obtain the genesis state")?;
     eth2_network_config
         .genesis_state::<T>(
             config.genesis_state_url.as_deref(),
