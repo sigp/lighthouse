@@ -268,7 +268,6 @@ impl ProcessHealth {
             .stat()
             .map_err(|e| format!("Unable to get stat: {:?}", e))?;
 
-        // let stat = pid::stat_self().map_err(|e| format!("Unable to get stat: {:?}", e))?;
         let process_times = process
             .cpu_times()
             .map_err(|e| format!("Unable to get process cpu times : {:?}", e))?;
