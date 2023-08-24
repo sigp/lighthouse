@@ -160,7 +160,7 @@ uuid = { version = "0.8", features = ["serde", "v4"] }
 # TODO update to warp 0.3.6 after released.
 warp = { git = "https://github.com/seanmonstar/warp.git", features = ["tls"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
-zip = "0.6"
+zip = "0.5"
 
 # Local crates.
 account_utils = { path = "common/account_utils" }
