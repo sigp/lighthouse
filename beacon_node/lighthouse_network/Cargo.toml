@@ -44,6 +44,7 @@ prometheus-client = "0.21.0"
 unused_port = { path = "../../common/unused_port" }
 delay_map = "0.3.0"
 void = "1"
+libp2p-mplex = "0.40.0"
 
 [dependencies.libp2p]
 version = "0.52"
