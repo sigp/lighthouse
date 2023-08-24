@@ -43,9 +43,8 @@ use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
 pub use types::*;
 
-// FIXME(sproul): abstract over non-32-byte keys
-pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
-pub type ColumnKeyIter<'a> = Box<dyn Iterator<Item = Result<Hash256, Error>> + 'a>;
+pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
+pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
@@ -81,15 +80,34 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn compact(&self) -> Result<(), Error>;
 
     /// Iterate through all keys and values in a particular column.
-    fn iter_column(&self, _column: DBColumn) -> ColumnIter {
-        // Default impl for non LevelDB databases
-        Box::new(std::iter::empty())
+    fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+        self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
+    /// Iterate through all keys and values in a column from a given starting point.
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
+
     /// Iterate through all keys in a particular column.
-    fn iter_column_keys(&self, _column: DBColumn) -> ColumnKeyIter {
-        // Default impl for non LevelDB databases
-        Box::new(std::iter::empty())
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
+}
+
+pub trait Key: Sized + 'static {
+    fn from_bytes(key: &[u8]) -> Result<Self, Error>;
+}
+
+impl Key for Hash256 {
+    fn from_bytes(key: &[u8]) -> Result<Self, Error> {
+        if key.len() == 32 {
+            Ok(Hash256::from_slice(key))
+        } else {
+            Err(Error::InvalidKey)
+        }
+    }
+}
+
+impl Key for Vec<u8> {
+    fn from_bytes(key: &[u8]) -> Result<Self, Error> {
+        Ok(key.to_vec())
     }
 }
 
@@ -230,6 +248,33 @@ impl DBColumn {
 
     pub fn as_bytes(self) -> &'static [u8] {
         self.as_str().as_bytes()
+    }
+
+    /// Most database keys are 32 bytes, but some freezer DB keys are 8 bytes.
+    ///
+    /// This function returns the number of bytes used by keys in a given column.
+    pub fn key_size(self) -> usize {
+        match self {
+            Self::BeaconMeta
+            | Self::BeaconBlock
+            | Self::BeaconState
+            | Self::BeaconStateSummary
+            | Self::BeaconStateTemporary
+            | Self::ExecPayload
+            | Self::BeaconChain
+            | Self::OpPool
+            | Self::Eth1Cache
+            | Self::ForkChoice
+            | Self::PubkeyCache
+            | Self::BeaconRestorePoint
+            | Self::DhtEnrs
+            | Self::OptimisticTransitionBlock => 32,
+            Self::BeaconBlockRoots
+            | Self::BeaconStateRoots
+            | Self::BeaconHistoricalRoots
+            | Self::BeaconHistoricalSummaries
+            | Self::BeaconRandaoMixes => 8,
+        }
     }
 }
 

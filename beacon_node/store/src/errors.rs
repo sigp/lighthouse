@@ -45,6 +45,7 @@ pub enum Error {
     SlotClockUnavailableForMigration,
     UnableToDowngrade,
     InconsistentFork(InconsistentFork),
+    InvalidKey,
 }
 
 pub trait HandleUnavailable<T> {

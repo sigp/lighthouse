@@ -222,20 +222,22 @@ pub fn inspect_db<E: EthSpec>(
             .map_err(|e| format!("Unable to create import directory: {:?}", e))?;
     }
 
-    for res in db.hot_db.iter_column(inspect_config.column) {
+    for res in db.hot_db.iter_column::<Vec<u8>>(inspect_config.column) {
         let (key, value) = res.map_err(|e| format!("{:?}", e))?;
 
         match inspect_config.target {
             InspectTarget::ValueSizes => {
-                println!("{:?}: {} bytes", key, value.len());
-                total += value.len();
+                println!("{}: {} bytes", hex::encode(&key), value.len());
             }
             InspectTarget::ValueTotal => {
                 total += value.len();
             }
             InspectTarget::Values => {
-                let file_path =
-                    base_path.join(format!("{}_{}.ssz", inspect_config.column.as_str(), key));
+                let file_path = base_path.join(format!(
+                    "{}_{}.ssz",
+                    inspect_config.column.as_str(),
+                    hex::encode(&key)
+                ));
 
                 let write_result = fs::OpenOptions::new()
                     .create(true)

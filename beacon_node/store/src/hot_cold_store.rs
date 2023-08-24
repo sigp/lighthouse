@@ -1736,11 +1736,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ];
 
         for column in columns {
-            for res in self.cold_db.iter_column_keys(column) {
+            for res in self.cold_db.iter_column_keys::<Vec<u8>>(column) {
                 match res {
                     Ok(key) => cold_ops.push(KeyValueStoreOp::DeleteKey(get_key_for_col(
                         column.as_str(),
-                        key.as_bytes(),
+                        &key,
                     ))),
                     Err(e) if ignore_errors => {
                         warn!(
