@@ -50,13 +50,21 @@ pub fn build_transport(
         transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
     };
 
+    // mplex config
+    let mut mplex_config = libp2p_mplex::MplexConfig::new();
+    mplex_config.set_max_buffer_size(256);
+    mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
+
     // yamux config
     let mut yamux_config = yamux::Config::default();
     yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());
     let (transport, bandwidth) = transport
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(yamux_config)
+        .multiplex(core::upgrade::SelectUpgrade::new(
+            yamux_config,
+            mplex_config,
+        ))
         .timeout(Duration::from_secs(10))
         .boxed()
         .with_bandwidth_logging();

@@ -299,7 +299,8 @@ macro_rules! field {
             }
 
             fn update_pattern(spec: &ChainSpec) -> UpdatePattern {
-                $update_pattern(spec)
+                let update_pattern = $update_pattern;
+                update_pattern(spec)
             }
 
             fn get_value(
@@ -307,7 +308,8 @@ macro_rules! field {
                 vindex: u64,
                 spec: &ChainSpec,
             ) -> Result<Self::Value, ChunkError> {
-                $get_value(state, vindex, spec)
+                let get_value = $get_value;
+                get_value(state, vindex, spec)
             }
 
             fn is_fixed_length() -> bool {
