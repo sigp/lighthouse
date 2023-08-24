@@ -33,6 +33,7 @@ pub type PayloadId = [u8; 8];
 #[derive(Debug)]
 pub enum Error {
     HttpClient(PrettyReqwestError),
+    WebsocketError(String),
     Auth(auth::Error),
     BadResponse(String),
     RequestFailed(String),

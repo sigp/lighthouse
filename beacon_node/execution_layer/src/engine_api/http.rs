@@ -9,6 +9,7 @@ use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
 use tokio::sync::Mutex;
+use ajsonrpc::{WsRouter, WsError};
 
 use std::time::{Duration, Instant};
 use types::EthSpec;
@@ -583,8 +584,19 @@ impl CapabilitiesCacheEntry {
     }
 }
 
+// used to house the id of the next jsonrpc request and the status of the ws intialization and router since we need to syncronize them all
+pub struct WsPackage {
+    id: u64,
+    status: u8,
+    wsrouter: Option<WsRouter>,
+}
+
+
+// should be initialized: 0: ws needs to be initialized, 1: ws is initialized 2: no need
+
 pub struct HttpJsonRpc {
-    pub client: Client,
+    pub client: Option<Client>,
+    pub wspackage: Mutex<WsPackage>,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
     pub engine_capabilities_cache: Mutex<Option<CapabilitiesCacheEntry>>,
@@ -596,8 +608,21 @@ impl HttpJsonRpc {
         url: SensitiveUrl,
         execution_timeout_multiplier: Option<u32>,
     ) -> Result<Self, Error> {
+        if url.redacted.starts_with("ws") {
+
+            return Ok(Self {
+                client: None,
+                wspackage: Mutex::new(WsPackage{id: 0, status: 0, wsrouter: None}),
+                url,
+                execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
+                engine_capabilities_cache: Mutex::new(None),
+                auth: None,
+            });
+        }
+
         Ok(Self {
-            client: Client::builder().build()?,
+            client: Some(Client::builder().build()?),
+            wspackage: Mutex::new(WsPackage{id: 0, status: 2, wsrouter: None}),
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
@@ -610,8 +635,21 @@ impl HttpJsonRpc {
         auth: Auth,
         execution_timeout_multiplier: Option<u32>,
     ) -> Result<Self, Error> {
+        if url.redacted.starts_with("ws") {
+
+            return Ok(Self {
+                client: None,
+                wspackage: Mutex::new(WsPackage{id: 0, status: 0, wsrouter: None}),
+                url,
+                execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
+                engine_capabilities_cache: Mutex::new(None),
+                auth: Some(auth),
+            });
+        }
+
         Ok(Self {
-            client: Client::builder().build()?,
+            client: Some(Client::builder().build()?),
+            wspackage: Mutex::new(WsPackage{id: 0, status: 2, wsrouter: None}),
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
@@ -625,40 +663,108 @@ impl HttpJsonRpc {
         params: serde_json::Value,
         timeout: Duration,
     ) -> Result<D, Error> {
-        let body = JsonRequestBody {
-            jsonrpc: JSONRPC_VERSION,
-            method,
-            params,
-            id: json!(STATIC_ID),
-        };
 
-        let mut request = self
-            .client
+        if let Some(client) = &self.client {
+
+            let body = JsonRequestBody {
+                jsonrpc: JSONRPC_VERSION,
+                method,
+                params,
+                id: json!(STATIC_ID),
+            };
+
+            let mut request = client
             .post(self.url.full.clone())
             .timeout(timeout)
             .header(CONTENT_TYPE, "application/json")
             .json(&body);
 
-        // Generate and add a jwt token to the header if auth is defined.
-        if let Some(auth) = &self.auth {
-            request = request.bearer_auth(auth.generate_token()?);
-        };
+            // Generate and add a jwt token to the header if auth is defined.
+            if let Some(auth) = &self.auth {
+                request = request.bearer_auth(auth.generate_token()?);
+            };
 
-        let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
+            let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
 
-        match (body.result, body.error) {
-            (result, None) => serde_json::from_value(result).map_err(Into::into),
-            (_, Some(error)) => {
-                if error.message.contains(EIP155_ERROR_STR) {
-                    Err(Error::Eip155Failure)
-                } else {
-                    Err(Error::ServerMessage {
-                        code: error.code,
-                        message: error.message,
-                    })
+            match (body.result, body.error) {
+                (result, None) => serde_json::from_value(result).map_err(Into::into),
+                (_, Some(error)) => {
+                    if error.message.contains(EIP155_ERROR_STR) {
+                        Err(Error::Eip155Failure)
+                    } else {
+                        Err(Error::ServerMessage {
+                            code: error.code,
+                            message: error.message,
+                        })
+                    }
                 }
             }
         }
+        else {
+
+            let mut wspackage = self.wspackage.lock().await;
+            wspackage.id += 1;
+
+            if wspackage.status == 0 {
+                if let Some(auth) = &self.auth {
+                    let wsrouter = WsRouter::new_with_jwt(self.url.redacted.clone(), auth.generate_token()?).await.map_err(|e| Error::WebsocketError(e.to_string()))?;
+                    wspackage.wsrouter = Some(wsrouter);
+                    wspackage.status = 1;
+                }
+                else {
+                    let wsrouter = WsRouter::new(self.url.redacted.clone()).await.map_err(|e| Error::WebsocketError(e.to_string()))?;
+                    wspackage.wsrouter = Some(wsrouter);
+                    wspackage.status = 1;
+                }
+            }
+
+            let body = JsonRequestBody {
+                jsonrpc: JSONRPC_VERSION,
+                method,
+                params,
+                id: json!(&wspackage.id),
+            };
+
+            let payload = serde_json::to_string(&body)?;
+            // map Timeout error to our own
+            // map Other to our own
+            let response = wspackage.wsrouter.as_ref().unwrap().make_request_timeout(payload, wspackage.id, timeout).await;
+            let response = match response {
+                Err(e) => {
+                    match e {
+                        WsError::Timeout => {
+                            return Err(Error::WebsocketError("Timeout".to_string()));
+                        }
+                        WsError::Other(s) => {
+                            return Err(Error::WebsocketError(s.to_string()));
+                        }
+                    }
+                },
+                Ok(response) => response,
+            };
+
+            std::mem::drop(wspackage);
+
+                
+
+            let body = serde_json::from_str::<JsonResponseBody>(&response)?;
+
+            match (body.result, body.error) {
+                (result, None) => serde_json::from_value(result).map_err(Into::into),
+                (_, Some(error)) => {
+                    if error.message.contains(EIP155_ERROR_STR) {
+                        Err(Error::Eip155Failure)
+                    } else {
+                        Err(Error::ServerMessage {
+                            code: error.code,
+                            message: error.message,
+                        })
+                    }
+                }
+            }
+
+        }
+        
     }
 }
 

@@ -129,12 +129,22 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .beacon_chain_builder(client_genesis, client_config.clone())
             .await?;
         let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend {
-            info!(
-                log,
-                "Block production enabled";
-                "endpoint" => format!("{:?}", &client_config.eth1.endpoint),
-                "method" => "json rpc via http"
-            );
+            if client_config.eth1.endpoint.get_endpoint().redacted.starts_with("ws") {
+                info!(
+                    log,
+                    "Block production enabled";
+                    "endpoint" => format!("{:?}", &client_config.eth1.endpoint),
+                    "method" => "json rpc via websocket"
+                );
+            }
+            else {
+                info!(
+                    log,
+                    "Block production enabled";
+                    "endpoint" => format!("{:?}", &client_config.eth1.endpoint),
+                    "method" => "json rpc via http"
+                );
+            }
             builder
                 .caching_eth1_backend(client_config.eth1.clone())
                 .await?
