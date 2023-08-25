@@ -4,7 +4,8 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::{
-    BeaconSnapshot, BlockError, ChainSegmentResult, IntoExecutionPendingBlock, NotifyExecutionLayer,
+    BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
+    NotifyExecutionLayer,
 };
 use lazy_static::lazy_static;
 use logging::test_logger;
@@ -69,6 +70,10 @@ async fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
+        .chain_config(ChainConfig {
+            reconstruct_historic_states: true,
+            ..ChainConfig::default()
+        })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()

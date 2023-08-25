@@ -24,8 +24,9 @@ use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
-use slog::{crit, error, info, Logger};
+use slog::{crit, debug, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
+use state_processing::per_slot_processing;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -287,7 +288,7 @@ where
         let genesis_state = store
             .get_state(&genesis_block.state_root(), Some(genesis_block.slot()))
             .map_err(|e| descriptive_db_error("genesis state", &e))?
-            .ok_or("Genesis block not found in store")?;
+            .ok_or("Genesis state not found in store")?;
 
         self.genesis_time = Some(genesis_state.genesis_time());
 
@@ -382,6 +383,16 @@ where
         let (genesis, updated_builder) = self.set_genesis_state(beacon_state)?;
         self = updated_builder;
 
+        // Stage the database's metadata fields for atomic storage when `build` is called.
+        // Since v4.4.0 we will set the anchor with a dummy state upper limit in order to prevent
+        // historic states from being retained (unless `--reconstruct-historic-states` is set).
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(genesis.beacon_block.message(), retain_historic_states)
+                .map_err(|e| format!("Failed to initialize genesis anchor: {:?}", e))?,
+        );
+
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
         let current_slot = None;
@@ -408,30 +419,28 @@ where
         weak_subj_block: SignedBeaconBlock<TEthSpec>,
         genesis_state: BeaconState<TEthSpec>,
     ) -> Result<Self, String> {
-        let store = self.store.clone().ok_or("genesis_state requires a store")?;
+        let store = self
+            .store
+            .clone()
+            .ok_or("weak_subjectivity_state requires a store")?;
+        let log = self
+            .log
+            .as_ref()
+            .ok_or("weak_subjectivity_state requires a log")?;
 
-        let weak_subj_slot = weak_subj_state.slot();
-        let weak_subj_block_root = weak_subj_block.canonical_root();
-        let weak_subj_state_root = weak_subj_block.state_root();
-
-        // Check that the given block lies on an epoch boundary. Due to the database only storing
-        // full states on epoch boundaries and at restore points it would be difficult to support
-        // starting from a mid-epoch state.
-        if weak_subj_slot % TEthSpec::slots_per_epoch() != 0 {
-            return Err(format!(
-                "Checkpoint block at slot {} is not aligned to epoch start. \
-                 Please supply an aligned checkpoint with block.slot % 32 == 0",
-                weak_subj_block.slot(),
-            ));
-        }
-
-        // Check that the block and state have consistent slots and state roots.
-        if weak_subj_state.slot() != weak_subj_block.slot() {
-            return Err(format!(
-                "Slot of snapshot block ({}) does not match snapshot state ({})",
-                weak_subj_block.slot(),
-                weak_subj_state.slot(),
-            ));
+        // Ensure the state is advanced to an epoch boundary.
+        let slots_per_epoch = TEthSpec::slots_per_epoch();
+        if weak_subj_state.slot() % slots_per_epoch != 0 {
+            debug!(
+                log,
+                "Advancing checkpoint state to boundary";
+                "state_slot" => weak_subj_state.slot(),
+                "block_slot" => weak_subj_block.slot(),
+            );
+            while weak_subj_state.slot() % slots_per_epoch != 0 {
+                per_slot_processing(&mut weak_subj_state, None, &self.spec)
+                    .map_err(|e| format!("Error advancing state: {e:?}"))?;
+            }
         }
 
         // Prime all caches before storing the state in the database and computing the tree hash
@@ -439,15 +448,19 @@ where
         weak_subj_state
             .build_caches(&self.spec)
             .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
-
-        let computed_state_root = weak_subj_state
+        let weak_subj_state_root = weak_subj_state
             .update_tree_hash_cache()
             .map_err(|e| format!("Error computing checkpoint state root: {:?}", e))?;
 
-        if weak_subj_state_root != computed_state_root {
+        let weak_subj_slot = weak_subj_state.slot();
+        let weak_subj_block_root = weak_subj_block.canonical_root();
+
+        // Validate the state's `latest_block_header` against the checkpoint block.
+        let state_latest_block_root = weak_subj_state.get_latest_block_root(weak_subj_state_root);
+        if weak_subj_block_root != state_latest_block_root {
             return Err(format!(
-                "Snapshot state root does not match block, expected: {:?}, got: {:?}",
-                weak_subj_state_root, computed_state_root
+                "Snapshot state's most recent block root does not match block, expected: {:?}, got: {:?}",
+                weak_subj_block_root, state_latest_block_root
             ));
         }
 
@@ -464,7 +477,7 @@ where
 
         // Set the store's split point *before* storing genesis so that genesis is stored
         // immediately in the freezer DB.
-        store.set_split(weak_subj_slot, weak_subj_state_root);
+        store.set_split(weak_subj_slot, weak_subj_state_root, weak_subj_block_root);
         let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
         self = updated_builder;
 
@@ -480,10 +493,11 @@ where
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
         // info or split point is written before the `PersistedBeaconChain`.
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
         self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store
-                .init_anchor_info(weak_subj_block.message())
+                .init_anchor_info(weak_subj_block.message(), retain_historic_states)
                 .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
         );
 
@@ -503,13 +517,12 @@ where
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
 
-        let current_slot = Some(snapshot.beacon_block.slot());
         let fork_choice = ForkChoice::from_anchor(
             fc_store,
             snapshot.beacon_block_root,
             &snapshot.beacon_block,
             &snapshot.beacon_state,
-            current_slot,
+            Some(weak_subj_slot),
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -672,9 +685,8 @@ where
                 Err(e) => return Err(descriptive_db_error("head block", &e)),
             };
 
-        let head_state_root = head_block.state_root();
-        let head_state = store
-            .get_state(&head_state_root, Some(head_block.slot()))
+        let (_head_state_root, head_state) = store
+            .get_advanced_hot_state(head_block_root, current_slot, head_block.state_root())
             .map_err(|e| descriptive_db_error("head state", &e))?
             .ok_or("Head state not found in store")?;
 

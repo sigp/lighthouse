@@ -366,21 +366,6 @@ fn genesis_backfill_with_historic_flag() {
         .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
 }
 
-#[test]
-fn always_prefer_builder_payload_flag() {
-    CommandLineTest::new()
-        .flag("always-prefer-builder-payload", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.always_prefer_builder_payload));
-}
-
-#[test]
-fn no_flag_sets_always_prefer_builder_payload_to_false() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.always_prefer_builder_payload));
-}
-
 // Tests for Eth1 flags.
 #[test]
 fn dummy_eth1_flag() {
@@ -732,6 +717,38 @@ fn builder_fallback_flags() {
                     .unwrap()
                     .builder_profit_threshold,
                 0
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("always-prefer-builder-payload"),
+        None,
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .always_prefer_builder_payload,
+                true
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .always_prefer_builder_payload,
+                false
             );
         },
     );

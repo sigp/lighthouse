@@ -81,6 +81,7 @@ impl ForkChoiceTestDefinition {
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
         let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             self.finalized_block_slot,
+            self.finalized_block_slot,
             Hash256::zero(),
             self.justified_checkpoint,
             self.finalized_checkpoint,

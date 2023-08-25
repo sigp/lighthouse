@@ -115,6 +115,9 @@ pub fn testing_client_config() -> ClientConfig {
         genesis_time: now,
     };
 
+    // Simulator tests expect historic states to be available for post-run checks.
+    client_config.chain.reconstruct_historic_states = true;
+
     // Specify a constant count of beacon processor workers. Having this number
     // too low can cause annoying HTTP timeouts, especially on Github runners
     // with 2 logical CPUs.

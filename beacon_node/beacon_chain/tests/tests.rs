@@ -6,7 +6,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
-    BeaconChain, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
+    BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
 use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
@@ -28,6 +28,10 @@ lazy_static! {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
+        .chain_config(ChainConfig {
+            reconstruct_historic_states: true,
+            ..ChainConfig::default()
+        })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
