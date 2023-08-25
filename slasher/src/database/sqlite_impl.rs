@@ -208,7 +208,7 @@ impl<'env> Cursor<'env> {
             Some(result) => {
                 let r: QueryResult = result?;
                 let key = Cow::from(r.value);
-                self.current_id = Some(r.id.clone());
+                self.current_id = Some(r.id);
                 Ok(Some(key))
             }
             None => Ok(None),
@@ -232,7 +232,7 @@ impl<'env> Cursor<'env> {
             Some(result) => {
                 let r: FullQueryResult = result?;
                 let key = Cow::from(r.key);
-                self.current_id = Some(r.id.clone());
+                self.current_id = Some(r.id);
                 Ok(Some(key))
             }
             None => Ok(None),
@@ -263,7 +263,7 @@ impl<'env> Cursor<'env> {
             Some(result) => {
                 let r: QueryResult = result?;
                 let key = Cow::from(r.value);
-                self.current_id = Some(r.id.clone());
+                self.current_id = Some(r.id);
                 Ok(Some(key))
             }
             None => Ok(None),

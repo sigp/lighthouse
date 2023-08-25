@@ -93,7 +93,7 @@ impl From<lmdb::Error> for Error {
 #[cfg(feature = "sqlite")]
 impl From<rusqlite::Error> for Error {
     fn from(e: rusqlite::Error) -> Self {
-        Error::DatabaseSqliteError(e.into())
+        Error::DatabaseSqliteError(e)
     }
 }
 
