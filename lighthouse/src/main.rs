@@ -345,7 +345,7 @@ fn main() {
                     "The timeout in seconds for the request to --genesis-state-url.",
                 )
                 .takes_value(true)
-                .default_value("60")
+                .default_value("180")
                 .global(true),
         )
         .subcommand(beacon_node::cli_app())
