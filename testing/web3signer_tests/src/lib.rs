@@ -51,11 +51,11 @@ mod tests {
 
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
     /// assume it failed to start.
-    const UPCHECK_TIMEOUT: Duration = Duration::from_secs(120);
+    const UPCHECK_TIMEOUT: Duration = Duration::from_secs(30);
 
     /// Set to `false` to send the Web3Signer logs to the console during tests. Logs are useful when
     /// debugging.
-    const SUPPRESS_WEB3SIGNER_LOGS: bool = false;
+    const SUPPRESS_WEB3SIGNER_LOGS: bool = true;
 
     lazy_static! {
         static ref TEMP_DIR: Arc<Mutex<TempDir>> = Arc::new(Mutex::new(
