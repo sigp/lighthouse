@@ -32,7 +32,6 @@ tree_hash_derive = "0.5.0"
 types = { path = "../consensus/types" }
 strum = { version = "0.24.1", features = ["derive"] }
 
-base64 = "0.21.2"
 rusqlite = { version = "*", optional = true}
 
 # MDBX is pinned at the last version with Windows and macOS support.
