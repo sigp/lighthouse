@@ -3,7 +3,7 @@
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
-use libp2p::core::ConnectedPoint;
+use libp2p::core::{multiaddr, ConnectedPoint};
 use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
@@ -137,9 +137,11 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             }
             FromSwarm::ConnectionClosed(ConnectionClosed {
                 peer_id,
+                                endpoint,
+
                 remaining_established,
                 ..
-            }) => self.on_connection_closed(peer_id, remaining_established),
+            }) => self.on_connection_closed(peer_id, endpoint, remaining_established),
             FromSwarm::DialFailure(DialFailure {
                 peer_id,
                 error,
@@ -251,25 +253,48 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // NOTE: We don't register peers that we are disconnecting immediately. The network service
         // does not need to know about these peers.
-        match endpoint {
+        let remote_addr = match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
                 self.inject_connect_ingoing(&peer_id, send_back_addr.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedIncoming(peer_id));
+                send_back_addr
             }
             ConnectedPoint::Dialer { address, .. } => {
                 self.inject_connect_outgoing(&peer_id, address.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedOutgoing(peer_id));
+                address
             }
-        }
+        };
 
         // increment prometheus metrics
+        match remote_addr.iter().find(|proto| {
+            matches!(
+                proto,
+                multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
+            )
+        }) {
+            Some(multiaddr::Protocol::Quic) => {
+                metrics::inc_gauge(&metrics::QUIC_PEERS_CONNECTED);
+            }
+            Some(multiaddr::Protocol::Tcp(_)) => {
+                metrics::inc_gauge(&metrics::TCP_PEERS_CONNECTED);
+            }
+            Some(_) => unreachable!(),
+            None => error!(self.log, "Connected via unknown transport"; "addr" => %remote_addr),
+        };
+
         self.update_connected_peer_metrics();
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
     }
 
-    fn on_connection_closed(&mut self, peer_id: PeerId, remaining_established: usize) {
+    fn on_connection_closed(
+        &mut self,
+        peer_id: PeerId,
+        endpoint: &ConnectedPoint,
+        remaining_established: usize,
+    ) {
         if remaining_established > 0 {
             return;
         }
@@ -295,7 +320,31 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // reference so that peer manager can track this peer.
         self.inject_disconnect(&peer_id);
 
+        let remote_addr = match endpoint {
+            ConnectedPoint::Listener { send_back_addr, .. } => {
+                send_back_addr
+            }
+            ConnectedPoint::Dialer { address, .. } => {
+                address
+            }
+        };
+
         // Update the prometheus metrics
+        match remote_addr.iter().find(|proto| {
+            matches!(
+                proto,
+                multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
+            )
+        }) {
+            Some(multiaddr::Protocol::Quic) => {
+                metrics::dec_gauge(&metrics::QUIC_PEERS_CONNECTED);
+            }
+            Some(multiaddr::Protocol::Tcp(_)) => {
+                metrics::dec_gauge(&metrics::TCP_PEERS_CONNECTED);
+            }
+            // If it's an unknown protocol we already logged when connection was established.
+            _ => {}
+        };
         self.update_connected_peer_metrics();
         metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
     }
