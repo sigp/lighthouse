@@ -225,9 +225,9 @@ macro_rules! define_nets {
 /// `build.rs` which will unzip the genesis states. Then, that `eth2_network_configs` crate can
 /// perform the final step of using `std::include_bytes` to bake the files (bytes) into the binary.
 macro_rules! define_hardcoded_nets {
-    ($(($name_ident: ident, $config_dir: tt, $genesis_is_known: path)),+) => {
+    ($(($name_ident: ident, $config_dir: tt, $genesis_state_source: path)),+) => {
         $(
-        define_archive!($name_ident, $config_dir, $genesis_is_known);
+        define_archive!($name_ident, $config_dir, $genesis_state_source);
         )+
 
         pub const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[$($name_ident::ETH2_NET_DIR,)+];
