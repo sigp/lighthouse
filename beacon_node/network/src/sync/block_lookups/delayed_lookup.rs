@@ -9,7 +9,7 @@ use tokio::time::interval_at;
 use tokio::time::Instant;
 use types::Hash256;
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub enum DelayedLookupMessage {
     /// A lookup for all components of a block or blob seen over gossip.
     MissingComponents(Hash256),

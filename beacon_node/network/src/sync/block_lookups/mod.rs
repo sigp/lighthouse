@@ -232,23 +232,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /// Trigger any lookups that are waiting for the given `block_root`.
     pub fn trigger_lookup_by_root(&mut self, block_root: Hash256, cx: &SyncNetworkContext<T>) {
-        self.single_block_lookups.retain(|_id, lookup| {
+        self.single_block_lookups.retain(|id, lookup| {
             if lookup.block_root() == block_root {
-                if lookup.da_checker.is_deneb() {
-                    let blob_indices = lookup.blob_request_state.requested_ids.indices();
-                    debug!(
-                        self.log,
-                        "Triggering delayed single lookup";
-                        "block" => ?block_root,
-                        "blob_indices" => ?blob_indices
-                    );
-                } else {
-                    debug!(
-                        self.log,
-                        "Triggering delayed single lookup";
-                        "block" => ?block_root,
-                    );
-                }
+                trace!(self.log, "Processing delayed lookup"; "block" => ?block_root, "lookup_id" => id);
 
                 if let Err(e) = lookup.request_block_and_blobs(cx) {
                     debug!(self.log, "Delayed single block lookup failed";
