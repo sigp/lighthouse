@@ -443,7 +443,7 @@ The setting on the beacon node is the same for both cases below. In the beacon n
  
    Use the flag `--beacon-nodes` to point to the beacon node. For example, `lighthouse vc --beacon-nodes http://local_IP:5052` where `local_IP` is the local IP address of the beacon node and `5052` is the default `http-port` of the beacon node.
 
-   If you have firewall setup, e.g., `ufw`, you will need to allow port 5052 (assuming that the default port is used) with `sudo ufw allow 5052`.
+   If you have firewall setup, e.g., `ufw`, you will need to allow port 5052 (assuming that the default port is used) with `sudo ufw allow 5052`. Note: this will allow all IP addresses to access the HTTP API of the beacon node. If you are on an untrusted network (e.g., a university or public WiFi) or the host is exposed to the internet, use apply IP-address filtering as described later in this section.
 
    You can test that the setup is working with by running the following command on the validator client host:
 
