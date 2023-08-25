@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use crate::database::lmdb_impl;
 #[cfg(feature = "mdbx")]
 use crate::database::mdbx_impl;
-#[cfg(feature = "rusqlite")]
+#[cfg(feature = "sqlite")]
 use crate::database::sqlite_impl;
 
 #[derive(Debug)]
@@ -16,7 +16,7 @@ pub enum Environment {
     Mdbx(mdbx_impl::Environment),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::Environment),
-    #[cfg(feature = "rusqlite")]
+    #[cfg(feature = "sqlite")]
     Sqlite(sqlite_impl::Environment),
     Disabled,
 }
@@ -27,7 +27,7 @@ pub enum RwTransaction<'env> {
     Mdbx(mdbx_impl::RwTransaction<'env>),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::RwTransaction<'env>),
-    #[cfg(feature = "rusqlite")]
+    #[cfg(feature = "sqlite")]
     Sqlite(sqlite_impl::RwTransaction<'env>),
     Disabled(PhantomData<&'env ()>),
 }
@@ -38,7 +38,7 @@ pub enum Database<'env> {
     Mdbx(mdbx_impl::Database<'env>),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::Database<'env>),
-    #[cfg(feature = "rusqlite")]
+    #[cfg(feature = "sqlite")]
     Sqlite(sqlite_impl::Database<'env>),
     Disabled(PhantomData<&'env ()>),
 }
@@ -62,7 +62,7 @@ pub enum Cursor<'env> {
     Mdbx(mdbx_impl::Cursor<'env>),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::Cursor<'env>),
-    #[cfg(feature = "rusqlite")]
+    #[cfg(feature = "sqlite")]
     Sqlite(sqlite_impl::Cursor<'env>),
     Disabled(PhantomData<&'env ()>),
 }
@@ -77,8 +77,10 @@ impl Environment {
             DatabaseBackend::Mdbx => mdbx_impl::Environment::new(config).map(Environment::Mdbx),
             #[cfg(feature = "lmdb")]
             DatabaseBackend::Lmdb => lmdb_impl::Environment::new(config).map(Environment::Lmdb),
-            #[cfg(feature = "rusqlite")]
-            DatabaseBackend::Sqlite => sqlite_impl::Environment::new(config).map(Environment::Sqlite),
+            #[cfg(feature = "sqlite")]
+            DatabaseBackend::Sqlite => {
+                sqlite_impl::Environment::new(config).map(Environment::Sqlite)
+            }
             DatabaseBackend::Disabled => Err(Error::SlasherDatabaseBackendDisabled),
         }
     }
@@ -89,6 +91,8 @@ impl Environment {
             Self::Mdbx(env) => env.create_databases(),
             #[cfg(feature = "lmdb")]
             Self::Lmdb(env) => env.create_databases(),
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(env) => env.create_databases(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -99,6 +103,8 @@ impl Environment {
             Self::Mdbx(env) => env.begin_rw_txn().map(RwTransaction::Mdbx),
             #[cfg(feature = "lmdb")]
             Self::Lmdb(env) => env.begin_rw_txn().map(RwTransaction::Lmdb),
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(env) => env.begin_rw_txn().map(RwTransaction::Sqlite),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -110,6 +116,8 @@ impl Environment {
             Self::Mdbx(env) => env.filenames(config),
             #[cfg(feature = "lmdb")]
             Self::Lmdb(env) => env.filenames(config),
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(env) => env.filenames(config),
             _ => vec![],
         }
     }
@@ -126,7 +134,7 @@ impl<'env> RwTransaction<'env> {
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.get(db, key),
             #[cfg(feature = "lmdb")]
             (Self::Lmdb(txn), Database::Lmdb(db)) => txn.get(db, key),
-            #[cfg(feature = "rusqlite")]
+            #[cfg(feature = "sqlite")]
             (Self::Sqlite(txn), Database::Sqlite(db)) => txn.get(db, key),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
@@ -143,6 +151,8 @@ impl<'env> RwTransaction<'env> {
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.put(db, key, value),
             #[cfg(feature = "lmdb")]
             (Self::Lmdb(txn), Database::Lmdb(db)) => txn.put(db, key, value),
+            #[cfg(feature = "sqlite")]
+            (Self::Sqlite(txn), Database::Sqlite(db)) => txn.put(db, key, value),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -153,16 +163,20 @@ impl<'env> RwTransaction<'env> {
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.del(db, key),
             #[cfg(feature = "lmdb")]
             (Self::Lmdb(txn), Database::Lmdb(db)) => txn.del(db, key),
+            #[cfg(feature = "sqlite")]
+            (Self::Sqlite(txn), Database::Sqlite(db)) => txn.del(db, key),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
 
-    pub fn cursor<'a>(&'a mut self, db: &Database) -> Result<Cursor<'a>, Error> {
+    pub fn cursor<'a>(&'a mut self, db: &'a Database) -> Result<Cursor<'a>, Error> {
         match (self, db) {
             #[cfg(feature = "mdbx")]
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.cursor(db).map(Cursor::Mdbx),
             #[cfg(feature = "lmdb")]
             (Self::Lmdb(txn), Database::Lmdb(db)) => txn.cursor(db).map(Cursor::Lmdb),
+            #[cfg(feature = "sqlite")]
+            (Self::Sqlite(txn), Database::Sqlite(db)) => txn.cursor(db).map(Cursor::Sqlite),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -173,6 +187,8 @@ impl<'env> RwTransaction<'env> {
             Self::Mdbx(txn) => txn.commit(),
             #[cfg(feature = "lmdb")]
             Self::Lmdb(txn) => txn.commit(),
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(txn) => txn.commit(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -186,6 +202,8 @@ impl<'env> Cursor<'env> {
             Cursor::Mdbx(cursor) => cursor.first_key(),
             #[cfg(feature = "lmdb")]
             Cursor::Lmdb(cursor) => cursor.first_key(),
+            #[cfg(feature = "sqlite")]
+            Cursor::Sqlite(cursor) => cursor.first_key(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -197,6 +215,8 @@ impl<'env> Cursor<'env> {
             Cursor::Mdbx(cursor) => cursor.last_key(),
             #[cfg(feature = "lmdb")]
             Cursor::Lmdb(cursor) => cursor.last_key(),
+            #[cfg(feature = "sqlite")]
+            Cursor::Sqlite(cursor) => cursor.last_key(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -207,6 +227,8 @@ impl<'env> Cursor<'env> {
             Cursor::Mdbx(cursor) => cursor.next_key(),
             #[cfg(feature = "lmdb")]
             Cursor::Lmdb(cursor) => cursor.next_key(),
+            #[cfg(feature = "sqlite")]
+            Cursor::Sqlite(cursor) => cursor.next_key(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -218,6 +240,8 @@ impl<'env> Cursor<'env> {
             Cursor::Mdbx(cursor) => cursor.get_current(),
             #[cfg(feature = "lmdb")]
             Cursor::Lmdb(cursor) => cursor.get_current(),
+            #[cfg(feature = "sqlite")]
+            Cursor::Sqlite(cursor) => cursor.get_current(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -228,6 +252,8 @@ impl<'env> Cursor<'env> {
             Cursor::Mdbx(cursor) => cursor.delete_current(),
             #[cfg(feature = "lmdb")]
             Cursor::Lmdb(cursor) => cursor.delete_current(),
+            #[cfg(feature = "sqlite")]
+            Cursor::Sqlite(cursor) => cursor.delete_current(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -238,6 +264,8 @@ impl<'env> Cursor<'env> {
             Self::Mdbx(cursor) => cursor.put(key, value),
             #[cfg(feature = "lmdb")]
             Self::Lmdb(cursor) => cursor.put(key, value),
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(cursor) => cursor.put(key, value),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }

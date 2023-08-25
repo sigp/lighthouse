@@ -1,10 +1,11 @@
-#![cfg(feature = "rusqlite")]
+#![cfg(feature = "sqlite")]
+use base64::{engine::general_purpose, Engine as _};
+use rusqlite::{params, OptionalExtension, ToSql};
 use std::fmt;
 use std::{
     borrow::{Borrow, Cow},
     path::PathBuf,
 };
-use base64::{Engine as _, engine::{general_purpose}};
 
 use crate::{
     database::{
@@ -16,10 +17,23 @@ use crate::{
 
 const BASE_DB: &str = "slasher_db";
 
+impl<'env> Database<'env> {}
+
+struct QueryResult {
+    id: u8,
+    value: Vec<u8>,
+}
+
+struct FullQueryResult {
+    id: u8,
+    key: Vec<u8>,
+    value: Vec<u8>,
+}
+
 #[derive(Debug)]
 pub struct Environment {
     _db_count: usize,
-    db: rusqlite::Connection,
+    db_path: String,
 }
 
 #[derive(Debug)]
@@ -44,18 +58,8 @@ impl<'env> Drop for RwTransaction<'env> {
 #[derive(Debug)]
 pub struct Cursor<'env> {
     db: &'env Database<'env>,
-    current_key: Option<Cow<'env, [u8]>>,
+    current_id: Option<u8>,
 }
-
-/*
-pub struct WriteTransaction<'env>(redb::WriteTransaction<'env>);
-
-impl<'env> fmt::Debug for WriteTransaction<'env> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "InternalStruct {{ /* fields and their values */ }}")
-    }
-}
-*/
 
 impl Environment {
     pub fn new(config: &Config) -> Result<Environment, Error> {
@@ -63,15 +67,14 @@ impl Environment {
             Some(path) => path.to_string(),
             None => "".to_string(),
         };
-        let database = rusqlite::Connection::open(db_path)?;
-        
+        let _ = rusqlite::Connection::open(&db_path)?;
+
         Ok(Environment {
             _db_count: MAX_NUM_DBS,
-            db: database,
+            db_path,
         })
     }
 
-    
     pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
         let indexed_attestation_db = self.create_table(INDEXED_ATTESTATION_DB)?;
         let indexed_attestation_id_db = self.create_table(INDEXED_ATTESTATION_ID_DB)?;
@@ -100,21 +103,25 @@ impl Environment {
         &'env self,
         table_name: &'env str,
     ) -> Result<crate::Database<'env>, Error> {
-
-        let create_table_command = format!( 
+        let create_table_command = format!(
             "CREATE TABLE {} (
-                key   INTEGER PRIMARY KEY,
-                value INTEGER
-            );", table_name);
+                id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                key   BLOB UNIQUE,
+                value BLOB
+            );",
+            table_name
+        );
 
-        self.db.execute(&create_table_command, ())?;
+        let database = rusqlite::Connection::open(&self.db_path)?;
+
+        database.execute(&create_table_command, ())?;
 
         Ok(crate::Database::Sqlite(Database {
             table_name,
             env: self,
         }))
     }
-    
+
     pub fn filenames(&self, config: &Config) -> Vec<PathBuf> {
         vec![config.database_path.join(BASE_DB)]
     }
@@ -126,197 +133,187 @@ impl Environment {
     }
 }
 
-
-impl<'env> Database<'env> {
-}
-
-struct QueryResult {
-    value: Vec<u8>
-}
-
 impl<'env> RwTransaction<'env> {
     pub fn get<K: AsRef<[u8]> + ?Sized>(
         &'env self,
         db: &Database<'env>,
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
-        let encoded_key = general_purpose::STANDARD.encode(&key);
-        let query_statement = format!("SELECT value FROM {} where key = {}", db.table_name, encoded_key);
-        let database = &db.env.db;
+        let query_statement = format!("SELECT * FROM {} where key =:key;", db.table_name);
+        let database = rusqlite::Connection::open(&db.env.db_path)?;
         let mut stmt = database.prepare(&query_statement)?;
-        
-        let result = stmt.query_row([], |row| {
-            Ok(QueryResult {
-                value: row.get(0)?,
-            })
-        })?;
 
-        Ok(Some(Cow::from(result.value)))
+        let query_result = stmt
+            .query_row([key.as_ref()], |row| {
+                Ok(FullQueryResult {
+                    id: row.get(0)?,
+                    key: row.get(1)?,
+                    value: row.get(2)?,
+                })
+            })
+            .optional()?;
+
+        match query_result {
+            Some(result) => Ok(Some(Cow::from(result.value))),
+            None => Ok(None),
+        }
     }
-/* 
+
     pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(
         &mut self,
         db: &Database,
         key: K,
         value: V,
     ) -> Result<(), Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(db.table_name);
-        let database = &db.env.db;
-        let tx = database.begin_write()?;
-        {
-            let mut table = tx.open_table(table_definition)?;
-            table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
-        }
-        tx.commit()?;
+        let insert_statement = format!(
+            "INSERT OR REPLACE INTO {} (key, value) VALUES (?1, ?2)",
+            db.table_name
+        );
+        let database = rusqlite::Connection::open(&db.env.db_path)?;
+        let _ = database.execute(&insert_statement, params![key.as_ref(), value.as_ref()])?;
         Ok(())
     }
 
     pub fn del<K: AsRef<[u8]>>(&mut self, db: &Database, key: K) -> Result<(), Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(db.table_name);
-        let database = &db.env.db;
-        let tx = database.begin_write()?;
-        {
-            let mut table = tx.open_table(table_definition)?;
-            table.remove(key.as_ref().borrow())?;
-        }
-        tx.commit()?;
+        let encoded_key = general_purpose::STANDARD.encode(&key);
+        let delete_statement = format!("DELETE FROM {} WHERE key=?1", db.table_name);
+        let database = rusqlite::Connection::open(&db.env.db_path)?;
+        let _ = database.execute(&delete_statement, [encoded_key])?;
         Ok(())
     }
 
-    pub fn cursor<'a>(&'a mut self, db: &'a Database<'a>) -> Result<Cursor<'a>, Error> {
+    pub fn cursor<'a>(&'a mut self, db: &'a Database) -> Result<Cursor<'a>, Error> {
         Ok(Cursor {
             db,
-            current_key: None,
+            current_id: None,
         })
     }
 
     pub fn commit(self) -> Result<(), Error> {
         Ok(())
-        
-        match self.txn.unwrap().commit() {
-            Ok(_) => {
-                self.txn = None;
-                Ok(())
-            }
-            Err(_) => panic!(),
-        }
     }
-    */
 }
-/* 
+
 impl<'env> Cursor<'env> {
     pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(self.db.table_name);
-        let database = &self.db.env.db;
-        let tx = database.begin_read()?;
+        let query_statement = format!("SELECT id, key FROM {} ORDER BY id ASC", self.db.table_name);
+        let database = rusqlite::Connection::open(&self.db.env.db_path)?;
+        let mut stmt = database.prepare(&query_statement)?;
+        let mut query_result = stmt.query_map([], |row| {
+            Ok(QueryResult {
+                id: row.get(0)?,
+                value: row.get(1)?,
+            })
+        })?;
 
-        let table = tx.open_table(table_definition)?;
-
-        let first = table
-            .iter()?
-            .next()
-            .map(|x| x.map(|(key, _)| (key.value()).to_vec()));
-
-        if let Some(owned_key) = first {
-            let owned_key = owned_key?;
-            self.current_key = Some(Cow::from(owned_key));
-            Ok(self.current_key.clone())
-        } else {
-            Ok(None)
+        match query_result.next() {
+            Some(result) => {
+                let r: QueryResult = result?;
+                let key = Cow::from(r.value);
+                self.current_id = Some(r.id.clone());
+                Ok(Some(key))
+            }
+            None => Ok(None),
         }
     }
 
     pub fn last_key(&mut self) -> Result<Option<Key<'env>>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(self.db.table_name);
-        let database = &self.db.env.db;
-        let tx = database.begin_read()?;
+        let query_statement = format!("SELECT * FROM {} ORDER BY id ASC", self.db.table_name);
+        let database = rusqlite::Connection::open(&self.db.env.db_path)?;
+        let mut stmt = database.prepare(&query_statement)?;
 
-        let table = tx.open_table(table_definition)?;
+        let mut query_result = stmt.query_map([], |row| {
+            Ok(FullQueryResult {
+                id: row.get(0)?,
+                key: row.get(1)?,
+                value: row.get(2)?,
+            })
+        })?;
 
-        let last = table
-            .iter()?
-            .rev()
-            .next_back()
-            .map(|x| x.map(|(key, _)| (key.value()).to_vec()));
-
-        if let Some(owned_key) = last {
-            let owned_key = owned_key?;
-            self.current_key = Some(Cow::from(owned_key));
-            return Ok(self.current_key.clone());
+        match query_result.last() {
+            Some(result) => {
+                let r: FullQueryResult = result?;
+                let key = Cow::from(r.key);
+                self.current_id = Some(r.id.clone());
+                Ok(Some(key))
+            }
+            None => Ok(None),
         }
-        Ok(None)
     }
 
     pub fn next_key(&mut self) -> Result<Option<Key<'env>>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(self.db.table_name);
-        let database = &self.db.env.db;
-        let tx = database.begin_read()?;
-
-        if let Some(current_key) = &self.current_key.clone() {
-            let range: std::ops::RangeFrom<&[u8]> = current_key..;
-            let table = tx.open_table(table_definition)?;
-
-            let next = table
-                .range(range)?
-                .next()
-                .map(|x| x.map(|(key, _)| (key.value()).to_vec()));
-
-            if let Some(owned_key) = next {
-                let owned_key = owned_key?;
-                self.current_key = Some(Cow::from(owned_key));
-                return Ok(self.current_key.clone());
-            }
+        let mut query_statement = "".to_string();
+        if let Some(current_id) = &self.current_id {
+            query_statement = format!(
+                "SELECT id, key FROM {} where id > {} ORDER BY id ASC",
+                self.db.table_name, current_id
+            );
+        } else {
+            query_statement = format!("SELECT id, key FROM {} ORDER BY id ASC", self.db.table_name);
         }
-        Ok(None)
+        let database = rusqlite::Connection::open(&self.db.env.db_path)?;
+        let mut stmt = database.prepare(&query_statement)?;
+
+        let mut query_result = stmt.query_map([], |row| {
+            Ok(QueryResult {
+                id: row.get(0)?,
+                value: row.get(1)?,
+            })
+        })?;
+
+        match query_result.next() {
+            Some(result) => {
+                let r: QueryResult = result?;
+                let key = Cow::from(r.value);
+                self.current_id = Some(r.id.clone());
+                Ok(Some(key))
+            }
+            None => Ok(None),
+        }
     }
 
     pub fn get_current(&mut self) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
-        if let Some(key) = &self.current_key {
-            let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-                TableDefinition::new(self.db.table_name);
-            let database = &self.db.env.db;
-            let tx = database.begin_read()?;
-            let table = tx.open_table(table_definition)?;
-            let result = table.get(key.as_ref())?;
+        if let Some(current_id) = &self.current_id {
+            let query_statement = format!(
+                "SELECT id, key, value FROM {} where id=?1",
+                self.db.table_name
+            );
+            let database = rusqlite::Connection::open(&self.db.env.db_path)?;
+            let mut stmt = database.prepare(&query_statement)?;
+            let query_result = stmt
+                .query_row([current_id], |row| {
+                    Ok(FullQueryResult {
+                        id: row.get(0)?,
+                        key: row.get(1)?,
+                        value: row.get(2)?,
+                    })
+                })
+                .optional()?;
 
-            if let Some(access_guard) = result {
-                let value = access_guard.value().to_vec().clone();
-                return Ok(Some((key.clone(), Cow::from(value))));
+            if let Some(result) = query_result {
+                return Ok(Some((Cow::from(result.key), Cow::from(result.value))));
             }
         }
         Ok(None)
     }
 
     pub fn delete_current(&mut self) -> Result<(), Error> {
-        if let Some(key) = &self.current_key {
-            let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-                TableDefinition::new(self.db.table_name);
-            let database = &self.db.env.db;
-            let tx = database.begin_write()?;
-            {
-                let mut table = tx.open_table(table_definition)?;
-                table.remove(key.as_ref())?;
-            }
-            tx.commit()?;
+        if let Some(current_id) = &self.current_id {
+            let delete_statement = format!("DELETE FROM {} WHERE id=?1", self.db.table_name);
+            let database = rusqlite::Connection::open(&self.db.env.db_path)?;
+            let _ = database.execute(&delete_statement, [current_id])?;
+            self.current_id = None;
         }
         Ok(())
     }
 
     pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Result<(), Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(self.db.table_name);
-        let database = &self.db.env.db;
-        let tx = database.begin_write()?;
-        {
-            let mut table = tx.open_table(table_definition)?;
-            table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
-        }
-        tx.commit()?;
+        let insert_statement = format!(
+            "INSERT OR REPLACE INTO {} (key, value) VALUES (?1, ?2)",
+            self.db.table_name
+        );
+        let database = rusqlite::Connection::open(&self.db.env.db_path)?;
+        let _ = database.execute(&insert_statement, params![key.as_ref(), value.as_ref()])?;
         Ok(())
     }
-}*/
+}

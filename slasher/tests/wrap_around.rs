@@ -1,4 +1,4 @@
-#![cfg(any(feature = "mdbx", feature = "lmdb"))]
+#![cfg(any(feature = "mdbx", feature = "lmdb", feature = "sqlite"))]
 
 use logging::test_logger;
 use slasher::{test_utils::indexed_att, Config, Slasher};

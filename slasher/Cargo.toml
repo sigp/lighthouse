@@ -5,9 +5,10 @@ authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = "2021"
 
 [features]
-default = ["rusqlite"]
+default = ["sqlite"]
 mdbx = ["dep:mdbx"]
 lmdb = ["lmdb-rkv", "lmdb-rkv-sys"]
+sqlite = ["dep:rusqlite"]
 
 [dependencies]
 bincode = "1.3.1"

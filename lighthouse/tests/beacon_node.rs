@@ -1997,11 +1997,11 @@ fn slasher_backend_override_to_default() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-max-db-size", Some("1"))
-        .flag("slasher-backend", Some("lmdb"))
+        .flag("slasher-backend", Some("sqlite"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config.slasher.as_ref().unwrap();
-            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Lmdb);
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Sqlite);
         });
 }
 

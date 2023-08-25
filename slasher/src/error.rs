@@ -8,7 +8,7 @@ pub enum Error {
     DatabaseMdbxError(mdbx::Error),
     #[cfg(feature = "lmdb")]
     DatabaseLmdbError(lmdb::Error),
-    #[cfg(feature = "rusqlite")]
+    #[cfg(feature = "sqlite")]
     DatabaseSqliteError(rusqlite::Error),
     SlasherDatabaseBackendDisabled,
     MismatchedDatabaseVariant,
@@ -90,7 +90,7 @@ impl From<lmdb::Error> for Error {
     }
 }
 
-#[cfg(feature = "rusqlite")]
+#[cfg(feature = "sqlite")]
 impl From<rusqlite::Error> for Error {
     fn from(e: rusqlite::Error) -> Self {
         Error::DatabaseSqliteError(e.into())

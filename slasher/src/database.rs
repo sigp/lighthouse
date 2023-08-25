@@ -273,7 +273,6 @@ impl<E: EthSpec> SlasherDB<E> {
         };
 
         db = db.migrate()?;
-
         let mut txn = db.begin_rw_txn()?;
         if let Some(on_disk_config) = db.load_config(&mut txn)? {
             let current_disk_config = db.config.disk_config();
@@ -706,7 +705,6 @@ impl<E: EthSpec> SlasherDB<E> {
             let (slot, _) = ProposerKey::parse(key_bytes)?;
             if slot < min_slot {
                 cursor.delete_current()?;
-
                 // End the loop if there is no next entry.
                 if cursor.next_key()?.is_none() {
                     break;
