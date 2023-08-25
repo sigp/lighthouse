@@ -1,5 +1,4 @@
 #![cfg(feature = "sqlite")]
-use base64::{engine::general_purpose, Engine as _};
 use rusqlite::{params, OptionalExtension, ToSql};
 use std::fmt;
 use std::{
@@ -175,10 +174,9 @@ impl<'env> RwTransaction<'env> {
     }
 
     pub fn del<K: AsRef<[u8]>>(&mut self, db: &Database, key: K) -> Result<(), Error> {
-        let encoded_key = general_purpose::STANDARD.encode(&key);
         let delete_statement = format!("DELETE FROM {} WHERE key=?1", db.table_name);
         let database = rusqlite::Connection::open(&db.env.db_path)?;
-        let _ = database.execute(&delete_statement, [encoded_key])?;
+        let _ = database.execute(&delete_statement, [key.as_ref()])?;
         Ok(())
     }
 
