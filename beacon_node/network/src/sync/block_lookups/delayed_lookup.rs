@@ -2,6 +2,7 @@ use crate::network_beacon_processor::NetworkBeaconProcessor;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use slog::crit;
 use slot_clock::SlotClock;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::interval_at;
@@ -66,7 +67,12 @@ pub fn spawn_delayed_lookup_service<T: BeaconChainTypes>(
             let mut interval = interval_at(interval_start, slot_duration);
             loop {
                 interval.tick().await;
+                // Used to de-duplicate lookups.
+                let mut lookups = HashSet::new();
                 while let Ok(msg) = delayed_lookups_recv.try_recv() {
+                    lookups.insert(msg);
+                }
+                for msg in lookups {
                     match msg {
                         DelayedLookupMessage::MissingComponents(block_root) => {
                             beacon_processor
