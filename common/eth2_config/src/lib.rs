@@ -74,7 +74,7 @@ impl Eth2Config {
 /// Describes how a genesis state may be obtained.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum GenesisStateSource {
-    /// The genesis state for this network is not yet know.
+    /// The genesis state for this network is not yet known.
     Unknown,
     /// The genesis state for this network is included in the binary via
     /// `include_bytes!` or by loading from a testnet dir.
