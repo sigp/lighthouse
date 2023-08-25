@@ -94,23 +94,29 @@ edition = "2021"
 
 [workspace.dependencies]
 arbitrary = { version = "1", features = ["derive"] }
+bincode = "1"
 bitvec = "1"
-bytes = "1"
 byteorder = "1"
+bytes = "1"
 clap = "2"
-criterion = "0.3"
 compare_fields_derive = { path = "common/compare_fields_derive" }
+criterion = "0.3"
 delay_map = "0.3"
+derivative = "2"
+dirs = "3"
 discv5 = { version = "0.3", features = ["libp2p"] }
 env_logger = "0.9"
-ethers-core = "1"
+error-chain = "0.12"
+ethereum-types = "0.14"
 ethereum_hashing = "1.0.0-beta.2"
+ethereum_serde_utils = "0.5"
 ethereum_ssz = "0.5"
 ethereum_ssz_derive = "0.5"
-ethereum_serde_utils = "0.5"
-ethereum-types = "0.14"
+ethers-core = "1"
+ethers-providers = { version = "1", default-features = false }
 exit-future = "0.2"
 fnv = "1"
+fs2 = "0.4"
 futures = "0.3"
 hex = "0.4"
 hyper = "0.14"
@@ -122,28 +128,28 @@ lru = "0.7"
 maplit = "1"
 num_cpus = "1"
 parking_lot = "0.12"
+paste = "1"
 quickcheck = "1"
 quickcheck_macros = "1"
 quote = "1"
-paste = "1"
+r2d2 = "0.8"
 rand = "0.8"
+rayon = "1.7"
 regex = "1"
 reqwest = { version = "0.11", features = ["blocking", "json", "stream", "native-tls-vendored"] }
-r2d2 = "0.8"
-rayon = "1.7"
 ring = "0.16"
 rusqlite = { version = "0.28", features = ["bundled"] }
-sha2 = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_repr = "0.1"
 serde_yaml = "0.8"
-smallvec = "1"
-snap = "1"
+sha2 = "0.9"
 slog = { version = "2", features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "2"
 slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
+smallvec = "1"
+snap = "1"
 ssz_types = "0.5"
 strum = { version = "0.24", features = ["derive"] }
 superstruct = "0.6"
@@ -158,44 +164,38 @@ tree_hash_derive = "0.5"
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 # TODO update to warp 0.3.6 after released.
-warp = { git = "https://github.com/seanmonstar/warp.git", features = ["tls"] }
+warp = { git = "https://github.com/seanmonstar/warp.git", default-features = false, features = ["tls"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
-zip = "0.5"
+zip = "0.6"
 
 # Local crates.
 account_utils = { path = "common/account_utils" }
 beacon_chain = { path = "beacon_node/beacon_chain" }
 beacon_node = { path = "beacon_node" }
 beacon_processor =  { path = "beacon_node/beacon_processor" }
-bincode = "1"
 bls = { path = "crypto/bls" }
-clap_utils = { path = "common/clap_utils" }
 cached_tree_hash = { path = "consensus/cached_tree_hash" }
+clap_utils = { path = "common/clap_utils" }
 compare_fields = { path = "common/compare_fields" }
 deposit_contract = { path = "common/deposit_contract" }
-derivative = "2"
 directory = { path = "common/directory" }
-dirs = "3"
 environment = { path = "lighthouse/environment" }
-execution_layer = { path = "beacon_node/execution_layer" }
-error-chain = "0.12"
 eth1 = { path = "beacon_node/eth1" }
+eth1_test_rig = { path = "testing/eth1_test_rig" }
 eth2 = { path = "common/eth2" }
 eth2_config = { path = "common/eth2_config" }
-eth2_keystore = { path = "crypto/eth2_keystore" }
 eth2_key_derivation = { path = "crypto/eth2_key_derivation" }
+eth2_keystore = { path = "crypto/eth2_keystore" }
 eth2_network_config = { path = "common/eth2_network_config" }
-eth1_test_rig = { path = "testing/eth1_test_rig" }
 eth2_wallet = { path = "crypto/eth2_wallet" }
-ethers-providers = "1"
+execution_layer = { path = "beacon_node/execution_layer" }
 filesystem = { path = "common/filesystem" }
 fork_choice = { path = "consensus/fork_choice" }
-fs2 = "0.4"
-http_api = { path = "beacon_node/http_api" }
 genesis = { path = "beacon_node/genesis" }
+http_api = { path = "beacon_node/http_api" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
-lighthouse_network = { path = "beacon_node/lighthouse_network" }
 lighthouse_metrics = { path = "common/lighthouse_metrics" }
+lighthouse_network = { path = "beacon_node/lighthouse_network" }
 lighthouse_version = { path = "common/lighthouse_version" }
 lockfile = { path = "common/lockfile" }
 logging = { path = "common/logging" }
@@ -207,8 +207,8 @@ network = { path = "beacon_node/network" }
 operation_pool = { path = "beacon_node/operation_pool" }
 pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 proto_array = { path = "consensus/proto_array" }
-sensitive_url = { path = "common/sensitive_url" }
 safe_arith = {path = "consensus/safe_arith"}
+sensitive_url = { path = "common/sensitive_url" }
 slasher = { path = "slasher" }
 slashing_protection = { path = "validator_client/slashing_protection" }
 slot_clock = { path = "common/slot_clock" }
