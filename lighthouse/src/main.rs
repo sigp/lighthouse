@@ -331,8 +331,8 @@ fn main() {
                 .help(
                     "A URL of a beacon-API compatible server from which to download the genesis state. \
                     Checkpoint sync server URLs can generally be used with this flag. \
-                    If not supplied, a default URL may be used. If the genesis state is already included \
-                    in this binary then this value will be ignored.",
+                    If not supplied, a default URL or the --checkpoint-sync-url may be used. \
+                    If the genesis state is already included in this binary then this value will be ignored.",
                 )
                 .takes_value(true)
                 .global(true),
