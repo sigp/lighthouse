@@ -1692,12 +1692,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
-    /// Delete ALL states from the freezer database and update the anchor accordingly.
+    /// Delete *all* states from the freezer database and update the anchor accordingly.
+    ///
+    /// WARNING: this method deletes the genesis state and replaces it with the provided
+    /// `genesis_state`. This is to support its use in schema migrations where the storage scheme of
+    /// the genesis state may be modified. It is the responsibility of the caller to ensure that the
+    /// genesis state is correct, else a corrupt database will be created.
     pub fn prune_historic_states(
         &self,
         genesis_state_root: Hash256,
         genesis_state: &BeaconState<E>,
-        ignore_errors: bool,
     ) -> Result<(), Error> {
         // Update the anchor to use the dummy state upper limit and disable historic state storage.
         let old_anchor = self.get_anchor_info();
@@ -1737,29 +1741,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         for column in columns {
             for res in self.cold_db.iter_column_keys::<Vec<u8>>(column) {
-                match res {
-                    Ok(key) => cold_ops.push(KeyValueStoreOp::DeleteKey(get_key_for_col(
-                        column.as_str(),
-                        &key,
-                    ))),
-                    Err(e) if ignore_errors => {
-                        warn!(
-                            self.log,
-                            "Ignoring error while reading key";
-                            "column" => ?column,
-                            "err" => ?e,
-                        );
-                    }
-                    Err(e) => {
-                        return Err(e);
-                    }
-                }
+                let key = res?;
+                cold_ops.push(KeyValueStoreOp::DeleteKey(get_key_for_col(
+                    column.as_str(),
+                    &key,
+                )));
             }
         }
 
         // XXX: We need to commit the mass deletion here *before* re-storing the genesis state, as
         // the current schema performs reads as part of `store_cold_state`. This can be deleted
-        // once the target schema is tree-states.
+        // once the target schema is tree-states. If the process is killed before the genesis state
+        // is written this can be fixed by re-running.
         info!(
             self.log,
             "Deleting historic states";
@@ -1767,11 +1760,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         );
         self.cold_db.do_atomically(std::mem::take(&mut cold_ops))?;
 
-        // Store the genesis state using the *current* schema, which may be different from the
-        // schema of the genesis state we just deleted.
-        // FIXME(sproul): check split > 0 or this is invalid
-        self.store_cold_state(&genesis_state_root, genesis_state, &mut cold_ops)?;
-        self.cold_db.do_atomically(cold_ops)?;
+        // If we just deleted the the genesis state, re-store it using the *current* schema, which
+        // may be different from the schema of the genesis state we just deleted.
+        if self.get_split_slot() > 0 {
+            info!(
+                self.log,
+                "Re-storing genesis state";
+                "state_root" => ?genesis_state_root,
+            );
+            self.store_cold_state(&genesis_state_root, genesis_state, &mut cold_ops)?;
+            self.cold_db.do_atomically(cold_ops)?;
+        }
 
         Ok(())
     }
