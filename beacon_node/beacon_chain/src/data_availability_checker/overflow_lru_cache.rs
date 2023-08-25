@@ -586,8 +586,9 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             let Some(verified_blobs) = Vec::from(pending_components.verified_blobs)
                 .into_iter()
                 .take(num_blobs_expected)
-                .collect::<Option<Vec<_>>>() else {
-                 return Ok(Availability::MissingComponents(import_data.block_root))
+                .collect::<Option<Vec<_>>>()
+            else {
+                return Ok(Availability::MissingComponents(import_data.block_root));
             };
 
             let available_block = make_available(block, verified_blobs)?;

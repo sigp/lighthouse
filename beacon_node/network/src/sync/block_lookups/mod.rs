@@ -597,7 +597,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             if response.is_some() {
                 debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
             }
-            return
+            return;
         };
 
         match self.parent_lookup_response_inner::<R>(
@@ -781,7 +781,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 "peer_id" => %peer_id,
                 "error" => msg
             );
-            return
+            return;
         };
         R::request_state_mut(&mut parent_lookup.current_parent_request)
             .register_failure_downloading();
@@ -845,14 +845,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let Some(mut lookup) = self.single_block_lookups.remove(&target_id) else {
-           return;
-       };
+            return;
+        };
 
         let root = lookup.block_root();
         let request_state = R::request_state_mut(&mut lookup);
 
-        let Ok(peer_id)  = request_state.get_state().processing_peer() else {
-           return
+        let Ok(peer_id) = request_state.get_state().processing_peer() else {
+            return;
         };
         debug!(
             self.log,
@@ -1044,7 +1044,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .find(|(_, lookup)| lookup.chain_hash() == chain_hash)
             .map(|(index, _)| index);
 
-        let Some(mut parent_lookup) = index.map(|index|self.parent_lookups.remove(index)) else {
+        let Some(mut parent_lookup) = index.map(|index| self.parent_lookups.remove(index)) else {
             return debug!(self.log, "Process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
         };
 
@@ -1187,7 +1187,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .iter()
             .find_map(|(id, lookup)| (lookup.block_root() == chain_hash).then_some(*id))
         {
-            let Some(child_lookup) = self.single_block_lookups.get_mut(&child_lookup_id)  else {
+            let Some(child_lookup) = self.single_block_lookups.get_mut(&child_lookup_id) else {
                 debug!(self.log, "Missing child for parent lookup request"; "child_root" => ?chain_hash);
                 return blocks;
             };
@@ -1233,9 +1233,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         mut parent_lookup: ParentLookup<T>,
     ) {
         // We should always have a block peer.
-        let Ok(block_peer_id) =
-            parent_lookup.block_processing_peer() else {
-            return
+        let Ok(block_peer_id) = parent_lookup.block_processing_peer() else {
+            return;
         };
         let block_peer_id = block_peer_id.to_peer_id();
 
@@ -1301,15 +1300,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 let Some(id) = self
                     .single_block_lookups
                     .iter()
-                    .find_map(|(id, req)|
-                        (req.block_root() == chain_hash).then_some(*id)) else {
+                    .find_map(|(id, req)| (req.block_root() == chain_hash).then_some(*id))
+                else {
                     warn!(self.log, "No id found for single block lookup"; "chain_hash" => %chain_hash);
                     return;
                 };
 
-                let Some(lookup) = self
-                    .single_block_lookups
-                    .get_mut(&id) else {
+                let Some(lookup) = self.single_block_lookups.get_mut(&id) else {
                     warn!(self.log, "No id found for single block lookup"; "chain_hash" => %chain_hash);
                     return;
                 };

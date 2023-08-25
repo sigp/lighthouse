@@ -57,8 +57,8 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
             for blob in blob_list {
                 let blob_index = blob.index as usize;
                 let Some(blob_opt) = blobs_buffer.get_mut(blob_index) else {
-                        return Err("Invalid blob index");
-                    };
+                    return Err("Invalid blob index");
+                };
                 if blob_opt.is_some() {
                     return Err("Repeat blob index");
                 } else {

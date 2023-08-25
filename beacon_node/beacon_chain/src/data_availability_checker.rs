@@ -349,11 +349,8 @@ pub fn consistency_checks<T: EthSpec>(
     block: &SignedBeaconBlock<T>,
     blobs: &[Arc<BlobSidecar<T>>],
 ) -> Result<(), AvailabilityCheckError> {
-    let Ok(block_kzg_commitments) = block
-        .message()
-        .body()
-        .blob_kzg_commitments() else {
-        return Ok(())
+    let Ok(block_kzg_commitments) = block.message().body().blob_kzg_commitments() else {
+        return Ok(());
     };
 
     if blobs.len() != block_kzg_commitments.len() {
