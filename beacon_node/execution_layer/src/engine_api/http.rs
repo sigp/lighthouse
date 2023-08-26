@@ -707,12 +707,12 @@ impl HttpJsonRpc {
 
             if wspackage.status == 0 {
                 if let Some(auth) = &self.auth {
-                    let wsrouter = WsRouter::new_with_jwt(self.url.redacted.clone(), auth.generate_token()?).await.map_err(|e| Error::WebsocketError(e.to_string()))?;
+                    let wsrouter = WsRouter::new_with_jwt(self.url.full.to_string(), auth.generate_token()?).await.map_err(|e| Error::WebsocketError(e.to_string()))?;
                     wspackage.wsrouter = Some(wsrouter);
                     wspackage.status = 1;
                 }
                 else {
-                    let wsrouter = WsRouter::new(self.url.redacted.clone()).await.map_err(|e| Error::WebsocketError(e.to_string()))?;
+                    let wsrouter = WsRouter::new(self.url.full.to_string()).await.map_err(|e| Error::WebsocketError(e.to_string()))?;
                     wspackage.wsrouter = Some(wsrouter);
                     wspackage.status = 1;
                 }
