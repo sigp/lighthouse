@@ -54,7 +54,7 @@ printf "%s\n\n" "$general" "$a" "$a_validator" "$a_validator_m" "$a_validator_s"
 
 if [[ -f ./scripts/cli_manual.txt ]];
 then
-changes=$(diff -u ./scripts/cli_manual.txt ./scripts/cli.txt | tee update )
+changes=$(diff -u ./scripts/cli_manual.txt cli.txt | tee update )
 else
 echo "cli_manual.txt is not found"
 exit 1
