@@ -52,8 +52,32 @@ printf "%s\n\n" "$general" "$a" "$a_validator" "$a_validator_m" "$a_validator_s"
 # Run the bash script to generate cli_manual.txt
 #./cli_manual.sh
 
-# find the difference and create a patch file: https://www.techtarget.com/searchdatacenter/tip/An-introduction-to-using-diff-and-patch-together
-diff -u cli_manual.txt cli.txt > patchfile.patch
+if [[ -f cli_manual.txt ]];
+then
+changes=$(diff -u cli_manual.txt cli.txt | tee update )
+else
+echo "cli_manual.txt is not found"
+exit 1
+fi
+
+# compare two files to see if there are any differences: https://www.geeksforgeeks.org/cmp-command-in-linux-with-examples/
+# compare=$(cmp cli_manual.txt cli.txt)
+
+# to display the changes, commented for now
+# echo $changes
+
+# -z checks if a file is null: https://www.cyberciti.biz/faq/bash-shell-find-out-if-a-variable-has-null-value-or-not/
+if [[ -z $changes ]];
+then
+    no_change=true
+echo "cli_manual.txt is up to date"
+exit 1
+# if the difference is empty, use true to execute nothing: https://stackoverflow.com/questions/17583578/what-command-means-do-nothing-in-a-conditional-in-bash
+else
+patch cli_manual.txt update
+echo "cli_manual.txt has been updated"
+fi
 
 # update cli_manual.sh
-patch cli_manual.txt patchfile.patch
+#patch cli_manual.txt patchfile.patch
+
