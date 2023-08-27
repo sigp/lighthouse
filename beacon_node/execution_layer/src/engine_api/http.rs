@@ -3,6 +3,7 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
+use crate::info;
 use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
@@ -728,7 +729,10 @@ impl HttpJsonRpc {
             let payload = serde_json::to_string(&body)?;
             // map Timeout error to our own
             // map Other to our own
+            let start = Instant::now();
             let response = wspackage.wsrouter.as_ref().unwrap().make_request_timeout(payload, wspackage.id, timeout).await;
+            let elapsed = start.elapsed();
+            println!("Websocket request took {:?} for {}", elapsed.as_secs(), method);
             let response = match response {
                 Err(e) => {
                     match e {
