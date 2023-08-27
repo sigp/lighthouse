@@ -1,4 +1,4 @@
-Lighthouse v4.3.0-dfcb336
+Lighthouse v4.3.0-9a5626d
 Sigma Prime <contact@sigmaprime.io>
 Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon node, a validator client and utilities for managing
 validator accounts.
@@ -905,7 +905,7 @@ OPTIONS:
             Set the maximum number of attestation roots for the slasher to cache
 
         --slasher-backend <DATABASE>
-            Set the database backend to be used by the slasher. [possible values: mdbx, lmdb, disabled]
+            Set the database backend to be used by the slasher. [possible values: lmdb, disabled]
 
         --slasher-broadcast <slasher-broadcast>
             Broadcast slashings found by the slasher to the rest of the network [Enabled by default]. [default: true]
