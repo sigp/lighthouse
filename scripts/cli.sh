@@ -52,9 +52,9 @@ printf "%s\n\n" "$general" "$a" "$a_validator" "$a_validator_m" "$a_validator_s"
 # Run the bash script to generate cli_manual.txt
 #./cli_manual.sh
 
-if [[ -f cli_manual.txt ]];
+if [[ -f ./scripts/cli_manual.txt ]];
 then
-changes=$(diff -u cli_manual.txt cli.txt | tee update )
+changes=$(diff -u ./scripts/cli_manual.txt ./scripts/cli.txt | tee update )
 else
 echo "cli_manual.txt is not found"
 exit 1
@@ -74,7 +74,7 @@ echo "cli_manual.txt is up to date"
 exit 1
 # if the difference is empty, use true to execute nothing: https://stackoverflow.com/questions/17583578/what-command-means-do-nothing-in-a-conditional-in-bash
 else
-patch cli_manual.txt update
+patch ./scripts/cli_manual.txt update
 echo "cli_manual.txt has been updated"
 fi
 
