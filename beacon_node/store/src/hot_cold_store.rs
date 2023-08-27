@@ -1599,6 +1599,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         )
     }
 
+    /// Update the linear array of frozen block roots with the block root for several skipped slots.
+    ///
+    /// Write the block root at all slots from `start_slot` (inclusive) to `end_slot` (exclusive).
+    pub fn store_frozen_block_root_at_skip_slots(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+        block_root: Hash256,
+    ) -> Result<Vec<KeyValueStoreOp>, Error> {
+        let mut ops = vec![];
+        let mut block_root_writer =
+            ChunkWriter::<BlockRoots, _, _>::new(&self.cold_db, start_slot.as_usize())?;
+        for slot in start_slot.as_usize()..end_slot.as_usize() {
+            block_root_writer.set(slot, block_root, &mut ops)?;
+        }
+        block_root_writer.write(&mut ops)?;
+        Ok(ops)
+    }
+
     /// Try to prune all execution payloads, returning early if there is no need to prune.
     pub fn try_prune_execution_payloads(&self, force: bool) -> Result<(), Error> {
         let split = self.get_split_info();
@@ -1771,6 +1790,9 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         // Delete the old summary, and the full state if we lie on an epoch boundary.
         hot_db_ops.push(StoreOp::DeleteState(state_root, Some(slot)));
 
+        // Store the block root for this slot in the linear array of frozen block roots.
+        block_root_writer.set(slot.as_usize(), block_root, &mut cold_db_ops)?;
+
         // Do not try to store states if a restore point is yet to be stored, or will never be
         // stored (see `STATE_UPPER_LIMIT_NO_RETAIN`). Make an exception for the genesis state
         // which always needs to be copied from the hot DB to the freezer and should not be deleted.
@@ -1780,12 +1802,6 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
                 .map_or(false, |anchor| slot < anchor.state_upper_limit)
         {
             debug!(store.log, "Pruning finalized state"; "slot" => slot);
-
-            // Store the block root for this slot in the linear array of frozen block roots.
-            // We do this *only* in the case where the state isn't being stored in order to avoid
-            // unnecessarily writing the values twice (storing the state will also store the block
-            // roots).
-            block_root_writer.set(slot.as_usize(), block_root, &mut cold_db_ops)?;
 
             continue;
         }
