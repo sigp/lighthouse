@@ -10,6 +10,7 @@ use lighthouse_network::{
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};
+use std::time::Duration;
 use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
 
@@ -90,8 +91,19 @@ impl<T: EthSpec> BootNodeConfig<T> {
             let enr_fork = {
                 let spec = eth2_network_config.chain_spec::<T>()?;
 
-                if eth2_network_config.beacon_state_is_known() {
-                    let genesis_state = eth2_network_config.beacon_state::<T>()?;
+                let genesis_state_url: Option<String> =
+                    clap_utils::parse_optional(matches, "genesis-state-url")?;
+                let genesis_state_url_timeout =
+                    clap_utils::parse_required(matches, "genesis-state-url-timeout")
+                        .map(Duration::from_secs)?;
+
+                if eth2_network_config.genesis_state_is_known() {
+                    let genesis_state = eth2_network_config
+                        .genesis_state::<T>(genesis_state_url.as_deref(), genesis_state_url_timeout, &logger)?
+                        .ok_or_else(|| {
+                            "The genesis state for this network is not known, this is an unsupported mode"
+                                .to_string()
+                        })?;
 
                     slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
                     let enr_fork = spec.enr_fork_id::<T>(

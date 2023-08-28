@@ -17,6 +17,6 @@ sloggers = { version = "2.1.1", features = ["json"] }
 slog-async = "2.7.0"
 take_mut = "0.2.2"
 parking_lot = "0.12.1"
-serde = "1.0.153" 
+serde = "1.0.153"
 serde_json = "1.0.94"
-chrono = "0.4.23"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
