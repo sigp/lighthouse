@@ -841,7 +841,7 @@ mod tests {
                     let mut store = $type::default();
                     let max_cap = store.max_capacity();
 
-                    let to_skip = vec![1_u64, 3, 4, 5];
+                    let to_skip = [1_u64, 3, 4, 5];
                     let periods = (0..max_cap * 3)
                         .into_iter()
                         .filter(|i| !to_skip.contains(i))
@@ -1012,7 +1012,7 @@ mod tests {
                     let mut store = $type::default();
                     let max_cap = store.max_capacity();
 
-                    let to_skip = vec![1_u64, 3, 4, 5];
+                    let to_skip = [1_u64, 3, 4, 5];
                     let periods = (0..max_cap * 3)
                         .into_iter()
                         .filter(|i| !to_skip.contains(i))
@@ -1121,7 +1121,7 @@ mod tests {
                     let mut store = $type::default();
                     let max_cap = store.max_capacity();
 
-                    let to_skip = vec![1_u64, 3, 4, 5];
+                    let to_skip = [1_u64, 3, 4, 5];
                     let periods = (0..max_cap * 3)
                         .into_iter()
                         .filter(|i| !to_skip.contains(i))

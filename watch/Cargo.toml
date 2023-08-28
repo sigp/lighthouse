@@ -41,6 +41,7 @@ tokio-postgres = "0.7.5"
 http_api = { path = "../beacon_node/http_api" }
 beacon_chain = { path = "../beacon_node/beacon_chain" }
 network = { path = "../beacon_node/network" }
-testcontainers = "0.14.0"
+# TODO: update to 0.15 when released: https://github.com/testcontainers/testcontainers-rs/issues/497
+testcontainers = { git = "https://github.com/testcontainers/testcontainers-rs/", rev = "0f2c9851" }
 unused_port = { path = "../common/unused_port" }
 task_executor = { path = "../common/task_executor" }
