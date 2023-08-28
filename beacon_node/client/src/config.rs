@@ -7,6 +7,7 @@ use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 use types::{Graffiti, PublicKeyBytes};
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
@@ -25,18 +26,13 @@ pub enum ClientGenesis {
     /// contract.
     #[default]
     DepositContract,
-    /// Loads the genesis state from SSZ-encoded `BeaconState` bytes.
-    ///
-    /// We include the bytes instead of the `BeaconState<E>` because the `EthSpec` type
-    /// parameter would be very annoying.
-    SszBytes { genesis_state_bytes: Vec<u8> },
+    /// Loads the genesis state from the genesis state in the `Eth2NetworkConfig`.
+    GenesisState,
     WeakSubjSszBytes {
-        genesis_state_bytes: Vec<u8>,
         anchor_state_bytes: Vec<u8>,
         anchor_block_bytes: Vec<u8>,
     },
     CheckpointSyncUrl {
-        genesis_state_bytes: Vec<u8>,
         url: SensitiveUrl,
     },
 }
@@ -81,6 +77,8 @@ pub struct Config {
     pub slasher: Option<slasher::Config>,
     pub logger_config: LoggerConfig,
     pub beacon_processor: BeaconProcessorConfig,
+    pub genesis_state_url: Option<String>,
+    pub genesis_state_url_timeout: Duration,
 }
 
 impl Default for Config {
@@ -108,6 +106,9 @@ impl Default for Config {
             validator_monitor_individual_tracking_threshold: DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
             logger_config: LoggerConfig::default(),
             beacon_processor: <_>::default(),
+            genesis_state_url: <_>::default(),
+            // This default value should always be overwritten by the CLI default value.
+            genesis_state_url_timeout: Duration::from_secs(60),
         }
     }
 }

@@ -2406,3 +2406,28 @@ fn http_duplicate_block_status_override() {
             assert_eq!(config.http_api.duplicate_block_status_code.as_u16(), 301)
         });
 }
+
+#[test]
+fn genesis_state_url_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.genesis_state_url, None);
+            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(180));
+        });
+}
+
+#[test]
+fn genesis_state_url_value() {
+    CommandLineTest::new()
+        .flag("genesis-state-url", Some("http://genesis.com"))
+        .flag("genesis-state-url-timeout", Some("42"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.genesis_state_url.as_deref(),
+                Some("http://genesis.com")
+            );
+            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
+        });
+}

@@ -23,6 +23,16 @@ pub const PREDEFINED_NETWORKS_DIR: &str = predefined_networks_dir!();
 pub const GENESIS_FILE_NAME: &str = "genesis.ssz";
 pub const GENESIS_ZIP_FILE_NAME: &str = "genesis.ssz.zip";
 
+const HOLESKY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
+    urls: &[
+        // This is an AWS S3 bucket hosted by Sigma Prime. See Paul Hauner for
+        // more details.
+        "https://sigp-public-genesis-states.s3.ap-southeast-2.amazonaws.com/holesky/",
+    ],
+    checksum: "0x76631cd0b9ddc5b2c766b496e23f16759ce1181446a4efb40e5540cd15b78a07",
+    genesis_validators_root: "0x9143aa7c615a7f7115e2b6aac319c03529df8242ae705fba9df39b79c59fa8b1",
+};
+
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone)]
 pub struct Eth2Config {
@@ -62,6 +72,32 @@ impl Eth2Config {
     }
 }
 
+/// Describes how a genesis state may be obtained.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum GenesisStateSource {
+    /// The genesis state for this network is not yet known.
+    Unknown,
+    /// The genesis state for this network is included in the binary via
+    /// `include_bytes!` or by loading from a testnet dir.
+    IncludedBytes,
+    /// The genesis state for this network should be downloaded from a URL.
+    Url {
+        /// URLs to try to download the file from, in order.
+        urls: &'static [&'static str],
+        /// The SHA256 of the genesis state bytes. This is *not* a hash tree
+        /// root to simplify the types (i.e., to avoid getting EthSpec
+        /// involved).
+        ///
+        /// The format should be 0x-prefixed ASCII bytes.
+        checksum: &'static str,
+        /// The `genesis_validators_root` of the genesis state. Used to avoid
+        /// downloading the state for simple signing operations.
+        ///
+        /// The format should be 0x-prefixed ASCII bytes.
+        genesis_validators_root: &'static str,
+    },
+}
+
 /// A directory that can be built by downloading files via HTTP.
 ///
 /// Used by the `eth2_network_config` crate to initialize the network directories during build and
@@ -70,7 +106,7 @@ impl Eth2Config {
 pub struct Eth2NetArchiveAndDirectory<'a> {
     pub name: &'a str,
     pub config_dir: &'a str,
-    pub genesis_is_known: bool,
+    pub genesis_state_source: GenesisStateSource,
 }
 
 impl<'a> Eth2NetArchiveAndDirectory<'a> {
@@ -89,15 +125,11 @@ impl<'a> Eth2NetArchiveAndDirectory<'a> {
     }
 }
 
-/// Indicates that the `genesis.ssz.zip` file is present on the filesystem. This means that the
-/// deposit ceremony has concluded and the final genesis `BeaconState` is known.
-const GENESIS_STATE_IS_KNOWN: bool = true;
-
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HardcodedNet {
     pub name: &'static str,
     pub config_dir: &'static str,
-    pub genesis_is_known: bool,
+    pub genesis_state_source: GenesisStateSource,
     pub config: &'static [u8],
     pub deploy_block: &'static [u8],
     pub boot_enr: &'static [u8],
@@ -109,7 +141,7 @@ pub struct HardcodedNet {
 /// It also defines a `include_<title>_file!` macro which provides a wrapper around
 /// `std::include_bytes`, allowing the inclusion of bytes from the specific testnet directory.
 macro_rules! define_archive {
-    ($name_ident: ident, $config_dir: tt, $genesis_is_known: ident) => {
+    ($name_ident: ident, $config_dir: tt, $genesis_state_source: path) => {
         paste! {
             #[macro_use]
             pub mod $name_ident {
@@ -118,7 +150,7 @@ macro_rules! define_archive {
                 pub const ETH2_NET_DIR: Eth2NetArchiveAndDirectory = Eth2NetArchiveAndDirectory {
                     name: stringify!($name_ident),
                     config_dir: $config_dir,
-                    genesis_is_known: $genesis_is_known,
+                    genesis_state_source: $genesis_state_source,
                 };
 
                 /// A wrapper around `std::include_bytes` which includes a file from a specific network
@@ -151,7 +183,7 @@ macro_rules! define_net {
         $this_crate::HardcodedNet {
             name: ETH2_NET_DIR.name,
             config_dir: ETH2_NET_DIR.config_dir,
-            genesis_is_known: ETH2_NET_DIR.genesis_is_known,
+            genesis_state_source: ETH2_NET_DIR.genesis_state_source,
             config: $this_crate::$include_file!($this_crate, "../", "config.yaml"),
             deploy_block: $this_crate::$include_file!($this_crate, "../", "deploy_block.txt"),
             boot_enr: $this_crate::$include_file!($this_crate, "../", "boot_enr.yaml"),
@@ -199,9 +231,9 @@ macro_rules! define_nets {
 /// `build.rs` which will unzip the genesis states. Then, that `eth2_network_configs` crate can
 /// perform the final step of using `std::include_bytes` to bake the files (bytes) into the binary.
 macro_rules! define_hardcoded_nets {
-    ($(($name_ident: ident, $config_dir: tt, $genesis_is_known: ident)),+) => {
+    ($(($name_ident: ident, $config_dir: tt, $genesis_state_source: path)),+) => {
         $(
-        define_archive!($name_ident, $config_dir, $genesis_is_known);
+        define_archive!($name_ident, $config_dir, $genesis_state_source);
         )+
 
         pub const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[$($name_ident::ETH2_NET_DIR,)+];
@@ -242,9 +274,8 @@ define_hardcoded_nets!(
         // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "mainnet",
-        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
-        // directory.
-        GENESIS_STATE_IS_KNOWN
+        // Describes how the genesis state can be obtained.
+        GenesisStateSource::IncludedBytes
     ),
     (
         // Network name (must be unique among all networks).
@@ -252,9 +283,8 @@ define_hardcoded_nets!(
         // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "prater",
-        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
-        // directory.
-        GENESIS_STATE_IS_KNOWN
+        // Describes how the genesis state can be obtained.
+        GenesisStateSource::IncludedBytes
     ),
     (
         // Network name (must be unique among all networks).
@@ -264,9 +294,8 @@ define_hardcoded_nets!(
         //
         // The Goerli network is effectively an alias to Prater.
         "prater",
-        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
-        // directory.
-        GENESIS_STATE_IS_KNOWN
+        // Describes how the genesis state can be obtained.
+        GenesisStateSource::IncludedBytes
     ),
     (
         // Network name (must be unique among all networks).
@@ -274,9 +303,8 @@ define_hardcoded_nets!(
         // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "gnosis",
-        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
-        // directory.
-        GENESIS_STATE_IS_KNOWN
+        // Describes how the genesis state can be obtained.
+        GenesisStateSource::IncludedBytes
     ),
     (
         // Network name (must be unique among all networks).
@@ -284,8 +312,16 @@ define_hardcoded_nets!(
         // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "sepolia",
-        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
-        // directory.
-        GENESIS_STATE_IS_KNOWN
+        // Describes how the genesis state can be obtained.
+        GenesisStateSource::IncludedBytes
+    ),
+    (
+        // Network name (must be unique among all networks).
+        holesky,
+        // The name of the directory in the `eth2_network_config/built_in_network_configs`
+        // directory where the configuration files are located for this network.
+        "holesky",
+        // Describes how the genesis state can be obtained.
+        HOLESKY_GENESIS_STATE_SOURCE
     )
 );
