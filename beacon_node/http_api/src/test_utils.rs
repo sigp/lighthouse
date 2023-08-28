@@ -23,7 +23,7 @@ use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
@@ -184,7 +184,14 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let eth1_service =
         eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone()).unwrap();
 
-    let beacon_processor_config = BeaconProcessorConfig::default();
+    let beacon_processor_config = BeaconProcessorConfig {
+        // The number of workers must be greater than one. Tests which use the
+        // builder workflow sometimes require an internal HTTP request in order
+        // to fulfill an already in-flight HTTP request, therefore having only
+        // one worker will result in a deadlock.
+        max_workers: 2,
+        ..BeaconProcessorConfig::default()
+    };
     let BeaconProcessorChannels {
         beacon_processor_tx,
         beacon_processor_rx,
@@ -196,11 +203,6 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     BeaconProcessor {
         network_globals: network_globals.clone(),
         executor: test_runtime.task_executor.clone(),
-        // The number of workers must be greater than one. Tests which use the
-        // builder workflow sometimes require an internal HTTP request in order
-        // to fulfill an already in-flight HTTP request, therefore having only
-        // one worker will result in a deadlock.
-        max_workers: 2,
         current_workers: 0,
         config: beacon_processor_config,
         log: log.clone(),
@@ -218,15 +220,9 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let ctx = Arc::new(Context {
         config: Config {
             enabled: true,
-            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: port,
-            allow_origin: None,
-            tls_config: None,
-            allow_sync_stalled: false,
             data_dir: std::path::PathBuf::from(DEFAULT_ROOT_DIR),
-            spec_fork_name: None,
-            sse_capacity_multiplier: 1,
-            enable_beacon_processor: true,
+            ..Config::default()
         },
         chain: Some(chain),
         network_senders: Some(network_senders),

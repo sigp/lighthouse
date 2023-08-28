@@ -392,6 +392,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        Increasing this value can prevent messages from being dropped.")
         )
         .arg(
+            Arg::with_name("http-duplicate-block-status")
+                .long("http-duplicate-block-status")
+                .takes_value(true)
+                .default_value("202")
+                .value_name("STATUS_CODE")
+                .help("Status code to send when a block that is already known is POSTed to the \
+                       HTTP API.")
+        )
+        .arg(
             Arg::with_name("http-enable-beacon-processor")
                 .long("http-enable-beacon-processor")
                 .value_name("BOOLEAN")
@@ -1125,7 +1134,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("gui")
                 .long("gui")
-                .hidden(true)
                 .help("Enable the graphical user interface and all its requirements. \
                       This enables --http and --validator-monitor-auto and enables SSE logging.")
                 .takes_value(false)

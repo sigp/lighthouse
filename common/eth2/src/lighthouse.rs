@@ -95,8 +95,8 @@ pub struct ValidatorInclusionData {
 
 #[cfg(target_os = "linux")]
 use {
-    procinfo::pid, psutil::cpu::os::linux::CpuTimesExt,
-    psutil::memory::os::linux::VirtualMemoryExt, psutil::process::Process,
+    psutil::cpu::os::linux::CpuTimesExt, psutil::memory::os::linux::VirtualMemoryExt,
+    psutil::process::Process,
 };
 
 /// Reports on the health of the Lighthouse instance.
@@ -238,7 +238,7 @@ pub struct ProcessHealth {
     /// The pid of this process.
     pub pid: u32,
     /// The number of threads used by this pid.
-    pub pid_num_threads: i32,
+    pub pid_num_threads: i64,
     /// The total resident memory used by this pid.
     pub pid_mem_resident_set_size: u64,
     /// The total virtual memory used by this pid.
@@ -262,7 +262,12 @@ impl ProcessHealth {
             .memory_info()
             .map_err(|e| format!("Unable to get process memory info: {:?}", e))?;
 
-        let stat = pid::stat_self().map_err(|e| format!("Unable to get stat: {:?}", e))?;
+        let me = procfs::process::Process::myself()
+            .map_err(|e| format!("Unable to get process: {:?}", e))?;
+        let stat = me
+            .stat()
+            .map_err(|e| format!("Unable to get stat: {:?}", e))?;
+
         let process_times = process
             .cpu_times()
             .map_err(|e| format!("Unable to get process cpu times : {:?}", e))?;
