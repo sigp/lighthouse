@@ -10,7 +10,8 @@ use crate::{
     validator_store::{Error as ValidatorStoreError, ValidatorStore},
 };
 use environment::RuntimeContext;
-use eth2::BeaconNodeHttpClient;
+use eth2::{BeaconNodeHttpClient, StatusCode};
+use slog::Logger;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::fmt::Debug;
@@ -593,12 +594,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             beacon_node
                                 .post_beacon_blocks(&signed_block)
                                 .await
-                                .map_err(|e| {
-                                    BlockError::Irrecoverable(format!(
-                                        "Error from beacon node when publishing block: {:?}",
-                                        e
-                                    ))
-                                })?
+                                .or_else(|e| handle_block_post_error(e, slot, log))?
                         }
                         BlockType::Blinded => {
                             let _post_timer = metrics::start_timer_vec(
@@ -608,12 +604,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             beacon_node
                                 .post_beacon_blinded_blocks(&signed_block)
                                 .await
-                                .map_err(|e| {
-                                    BlockError::Irrecoverable(format!(
-                                        "Error from beacon node when publishing block: {:?}",
-                                        e
-                                    ))
-                                })?
+                                .or_else(|e| handle_block_post_error(e, slot, log))?
                         }
                     }
                     Ok::<_, BlockError>(())
@@ -633,4 +624,30 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         Ok(())
     }
+}
+
+fn handle_block_post_error(err: eth2::Error, slot: Slot, log: &Logger) -> Result<(), BlockError> {
+    // Handle non-200 success codes.
+    if let Some(status) = err.status() {
+        if status == StatusCode::ACCEPTED {
+            info!(
+                log,
+                "Block is already known to BN or might be invalid";
+                "slot" => slot,
+                "status_code" => status.as_u16(),
+            );
+            return Ok(());
+        } else if status.is_success() {
+            debug!(
+                log,
+                "Block published with non-standard success code";
+                "slot" => slot,
+                "status_code" => status.as_u16(),
+            );
+            return Ok(());
+        }
+    }
+    Err(BlockError::Irrecoverable(format!(
+        "Error from beacon node when publishing block: {err:?}",
+    )))
 }
