@@ -2424,7 +2424,10 @@ fn genesis_state_url_value() {
         .flag("genesis-state-url-timeout", Some("42"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.genesis_state_url.as_deref(), Some("http://genesis.com"));
+            assert_eq!(
+                config.genesis_state_url.as_deref(),
+                Some("http://genesis.com")
+            );
             assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
         });
 }

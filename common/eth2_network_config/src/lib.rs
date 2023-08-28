@@ -129,13 +129,25 @@ impl Eth2NetworkConfig {
 
     /// The `genesis_validators_root` of the genesis state. May download the
     /// genesis state if the value is not already available.
-    pub fn genesis_validators_root<E: EthSpec>(&self, genesis_state_url: Option<&str>,
+    pub fn genesis_validators_root<E: EthSpec>(
+        &self,
+        genesis_state_url: Option<&str>,
         timeout: Duration,
-        log: &Logger) -> Result<Option<Hash256>, String> {
-        if let GenesisStateSource::Url { genesis_validators_root, .. } = self.genesis_state_source {
-            Hash256::from_str(genesis_validators_root).map(Option::Some).map_err(|e| {
-                format!("Unable to parse genesis state genesis_validators_root: {:?}", e)
-            })
+        log: &Logger,
+    ) -> Result<Option<Hash256>, String> {
+        if let GenesisStateSource::Url {
+            genesis_validators_root,
+            ..
+        } = self.genesis_state_source
+        {
+            Hash256::from_str(genesis_validators_root)
+                .map(Option::Some)
+                .map_err(|e| {
+                    format!(
+                        "Unable to parse genesis state genesis_validators_root: {:?}",
+                        e
+                    )
+                })
         } else {
             self.genesis_state::<E>(genesis_state_url, timeout, log)?
                 .map(|state| state.genesis_validators_root())
@@ -182,7 +194,7 @@ impl Eth2NetworkConfig {
             GenesisStateSource::Url {
                 urls: built_in_urls,
                 checksum,
-                genesis_validators_root
+                genesis_validators_root,
             } => {
                 let checksum = Hash256::from_str(checksum).map_err(|e| {
                     format!("Unable to parse genesis state bytes checksum: {:?}", e)
@@ -196,9 +208,13 @@ impl Eth2NetworkConfig {
                     format!("Downloaded genesis state SSZ bytes are invalid: {:?}", e)
                 })?;
 
-                let genesis_validators_root = Hash256::from_str(genesis_validators_root).map_err(|e| {
-                    format!("Unable to parse genesis state genesis_validators_root: {:?}", e)
-                })?;
+                let genesis_validators_root =
+                    Hash256::from_str(genesis_validators_root).map_err(|e| {
+                        format!(
+                            "Unable to parse genesis state genesis_validators_root: {:?}",
+                            e
+                        )
+                    })?;
                 if state.genesis_validators_root() != genesis_validators_root {
                     return Err(format!(
                         "Downloaded genesis validators root {:?} does not match expected {:?}",
@@ -482,9 +498,15 @@ mod tests {
                 net.name
             );
 
-            if let GenesisStateSource::Url { urls, checksum, genesis_validators_root } = net.genesis_state_source {
+            if let GenesisStateSource::Url {
+                urls,
+                checksum,
+                genesis_validators_root,
+            } = net.genesis_state_source
+            {
                 Hash256::from_str(checksum).expect("the checksum must be a valid 32-byte value");
-                Hash256::from_str(genesis_validators_root).expect("the GVR must be a valid 32-byte value");
+                Hash256::from_str(genesis_validators_root)
+                    .expect("the GVR must be a valid 32-byte value");
                 for url in urls {
                     parse_state_download_url(url).expect("url must be valid");
                 }
