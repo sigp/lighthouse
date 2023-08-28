@@ -4,10 +4,7 @@ mod tests {
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
-    use beacon_processor::{
-        BeaconProcessorChannels, BeaconProcessorSend, MAX_SCHEDULED_WORK_QUEUE_LEN,
-        MAX_WORK_EVENT_QUEUE_LEN,
-    };
+    use beacon_processor::{BeaconProcessorChannels, BeaconProcessorConfig};
     use futures::StreamExt;
     use lighthouse_network::types::{GossipEncoding, GossipKind};
     use lighthouse_network::{Enr, GossipTopic};
@@ -15,9 +12,8 @@ mod tests {
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
-    use tokio::{runtime::Runtime, sync::mpsc};
+    use tokio::runtime::Runtime;
     use types::{Epoch, EthSpec, ForkName, MinimalEthSpec, SubnetId};
-
 
     fn get_logger(actual_log: bool) -> Logger {
         if actual_log {
@@ -147,18 +143,15 @@ mod tests {
             config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
             config.upnp_enabled = false;
 
-            let (beacon_processor_send, _beacon_processor_receive) =
-                mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
-            let (beacon_processor_reprocess_tx, _beacon_processor_reprocess_rx) =
-                mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
-
+            let beacon_processor_channels =
+                BeaconProcessorChannels::new(&BeaconProcessorConfig::default());
             NetworkService::build(
                 beacon_chain.clone(),
                 &config,
                 executor.clone(),
                 None,
-                BeaconProcessorSend(beacon_processor_send),
-                beacon_processor_reprocess_tx,
+                beacon_processor_channels.beacon_processor_tx,
+                beacon_processor_channels.work_reprocessing_tx,
             )
             .await
             .unwrap()
