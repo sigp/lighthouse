@@ -22,7 +22,6 @@ task_executor = { workspace = true }
 environment = { workspace = true }
 account_utils = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 serde_yaml = { workspace = true }
 eth2_network_config = { workspace = true }
 serde_json = { workspace = true }

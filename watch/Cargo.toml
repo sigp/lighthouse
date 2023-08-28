@@ -45,3 +45,4 @@ network = { workspace = true }
 testcontainers = { git = "https://github.com/testcontainers/testcontainers-rs/", rev = "0f2c9851" }
 unused_port = { workspace = true }
 task_executor = { workspace = true }
+logging = { workspace = true }

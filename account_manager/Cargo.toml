@@ -1,7 +1,10 @@
 [package]
 name = "account_manager"
 version = "0.3.5"
-authors = ["Paul Hauner <paul@paulhauner.com>", "Luke Anderson <luke@sigmaprime.io>"]
+authors = [
+    "Paul Hauner <paul@paulhauner.com>",
+    "Luke Anderson <luke@sigmaprime.io>",
+]
 edition = { workspace = true }
 
 [dependencies]
@@ -26,6 +29,7 @@ filesystem = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+slog = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

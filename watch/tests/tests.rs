@@ -7,12 +7,21 @@ use beacon_chain::{
 };
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use http_api::test_utils::{create_api_server, ApiServer};
+use log::error;
+use logging::test_logger;
 use network::NetworkReceivers;
-
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use std::collections::HashMap;
+use std::env;
+use std::net::SocketAddr;
+use std::time::Duration;
+use testcontainers::{clients::Cli, core::WaitFor, Image, RunnableImage};
 use tokio::sync::oneshot;
+use tokio::{runtime, task::JoinHandle};
+use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
 use types::{Hash256, MainnetEthSpec, Slot};
+use unused_port::unused_tcp4_port;
 use url::Url;
 use watch::{
     client::WatchHttpClient,
@@ -21,17 +30,6 @@ use watch::{
     server::{start_server, Config as ServerConfig},
     updater::{handler::*, run_updater, Config as UpdaterConfig, WatchSpec},
 };
-
-use log::error;
-use std::collections::HashMap;
-use std::env;
-use std::net::SocketAddr;
-use std::time::Duration;
-use tokio::{runtime, task::JoinHandle};
-use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
-use unused_port::unused_tcp4_port;
-
-use testcontainers::{clients::Cli, core::WaitFor, Image, RunnableImage};
 
 #[derive(Debug)]
 pub struct Postgres(HashMap<String, String>);
@@ -132,6 +130,7 @@ impl TesterBuilder {
                 reconstruct_historic_states: true,
                 ..ChainConfig::default()
             })
+            .logger(test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .build();
