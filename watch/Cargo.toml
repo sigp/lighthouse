@@ -45,3 +45,4 @@ network = { path = "../beacon_node/network" }
 testcontainers = { git = "https://github.com/testcontainers/testcontainers-rs/", rev = "0f2c9851" }
 unused_port = { path = "../common/unused_port" }
 task_executor = { path = "../common/task_executor" }
+logging = { path = "../common/logging" }
