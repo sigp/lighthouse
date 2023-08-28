@@ -2381,3 +2381,25 @@ fn http_sse_capacity_multiplier_override() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.sse_capacity_multiplier, 10));
 }
+
+#[test]
+fn genesis_state_url_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.genesis_state_url, None);
+            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(180));
+        });
+}
+
+#[test]
+fn genesis_state_url_value() {
+    CommandLineTest::new()
+        .flag("genesis-state-url", Some("http://genesis.com"))
+        .flag("genesis-state-url-timeout", Some("42"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.genesis_state_url.as_deref(), Some("http://genesis.com"));
+            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
+        });
+}
