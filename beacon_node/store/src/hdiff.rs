@@ -19,7 +19,7 @@ pub enum Error {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct HierarchyConfig {
-    exponents: Vec<u8>,
+    pub exponents: Vec<u8>,
 }
 
 #[derive(Debug)]
