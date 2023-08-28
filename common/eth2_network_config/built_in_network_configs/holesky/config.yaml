@@ -6,8 +6,7 @@ CONFIG_NAME: holesky
 # ---------------------------------------------------------------
 # `2**14` (= 16,384)
 MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 16384
-# Sep-15-2023 14:55:00 +UTC
-# This is an invalid valid and should be updated when you create the genesis
+# Sep-15-2023 13:55:00 +UTC
 MIN_GENESIS_TIME: 1694786100
 GENESIS_FORK_VERSION: 0x00017000
 # Genesis delay 5 mins
