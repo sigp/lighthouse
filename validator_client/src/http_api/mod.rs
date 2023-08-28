@@ -1237,14 +1237,14 @@ pub async fn convert_with_header<T: Serialize>(
                 let mut res = Response::new(hyper::Body::from(body));
                 res.headers_mut()
                     .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-                res
+                return res; // Explicitly return here
             }
             Err(_) => {
                 let error = Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
                     .body(hyper::Body::from(vec![]))
                     .expect("can produce simple response from static values");
-                error
+                return error; // Explicitly return here
             }
         },
         Err(_) => {
@@ -1252,7 +1252,7 @@ pub async fn convert_with_header<T: Serialize>(
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(hyper::Body::from(vec![]))
                 .expect("can produce simple response from static values");
-            error
+            return error; // Explicitly return here
         }
     }
 }
