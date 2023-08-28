@@ -170,6 +170,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
          .arg(
              Arg::with_name("http-address")
                  .long("http-address")
+                 .requires("http")
                  .value_name("ADDRESS")
                  .help("Set the address for the HTTP address. The HTTP server is not encrypted \
                         and therefore it is unsafe to publish on a public network. When this \
@@ -189,6 +190,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-port")
                 .long("http-port")
+                .requires("http")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .default_value("5062")
@@ -197,6 +199,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-allow-origin")
                 .long("http-allow-origin")
+                .requires("http")
                 .value_name("ORIGIN")
                 .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
@@ -207,6 +210,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-allow-keystore-export")
                 .long("http-allow-keystore-export")
+                .requires("http")
                 .help("If present, allow access to the DELETE /lighthouse/keystores HTTP \
                     API method, which allows exporting keystores and passwords to HTTP API \
                     consumers who have access to the API token. This method is useful for \
@@ -218,6 +222,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-store-passwords-in-secrets-dir")
                 .long("http-store-passwords-in-secrets-dir")
+                .requires("http")
                 .help("If present, any validators created via the HTTP will have keystore \
                     passwords stored in the secrets-dir rather than the validator \
                     definitions file.")
@@ -234,6 +239,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("metrics-address")
                 .long("metrics-address")
+                .requires("metrics")
                 .value_name("ADDRESS")
                 .help("Set the listen address for the Prometheus metrics HTTP server.")
                 .default_value("127.0.0.1")
@@ -242,6 +248,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("metrics-port")
                 .long("metrics-port")
+                .requires("metrics")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the Prometheus metrics HTTP server.")
                 .default_value("5064")
@@ -250,6 +257,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("metrics-allow-origin")
                 .long("metrics-allow-origin")
+                .requires("metrics")
                 .value_name("ORIGIN")
                 .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
