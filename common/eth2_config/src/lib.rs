@@ -30,6 +30,7 @@ const HOLESKY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url
         "https://sigp-public-genesis-states.s3.ap-southeast-2.amazonaws.com/holesky/",
     ],
     checksum: "0x76631cd0b9ddc5b2c766b496e23f16759ce1181446a4efb40e5540cd15b78a07",
+    genesis_validators_root: "0x9143aa7c615a7f7115e2b6aac319c03529df8242ae705fba9df39b79c59fa8b1"
 };
 
 /// The core configuration of a Lighthouse beacon node.
@@ -89,6 +90,11 @@ pub enum GenesisStateSource {
         ///
         /// The format should be 0x-prefixed ASCII bytes.
         checksum: &'static str,
+        /// The `genesis_validators_root` of the genesis state. Used for
+        /// verifying checkpoint states.
+        /// 
+        /// The format should be 0x-prefixed ASCII bytes.
+        genesis_validators_root: &'static str,
     },
 }
 

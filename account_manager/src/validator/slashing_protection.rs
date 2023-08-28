@@ -95,13 +95,12 @@ pub fn cli_run<T: EthSpec>(
         .ok_or("Unable to get testnet configuration from the environment")?;
 
     let genesis_validators_root = eth2_network_config
-        .genesis_state::<T>(
+        .genesis_validators_root::<T>(
             genesis_state_url.as_deref(),
             genesis_state_url_timeout,
             context.log(),
         )?
-        .ok_or_else(|| "Unable to get genesis state, has genesis occurred?".to_string())?
-        .genesis_validators_root();
+        .ok_or_else(|| "Unable to get genesis state, has genesis occurred?".to_string())?;
 
     match matches.subcommand() {
         (IMPORT_CMD, Some(matches)) => {
