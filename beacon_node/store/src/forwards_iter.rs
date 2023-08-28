@@ -142,6 +142,7 @@ impl Iterator for SimpleForwardsIterator {
 pub enum HybridForwardsIterator<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     PreFinalization {
         iter: Box<FrozenForwardsIterator<'a, E, F, Hot, Cold>>,
+        end_slot: Option<Slot>,
         /// Data required by the `PostFinalization` iterator when we get to it.
         continuation_data: Option<Box<(BeaconState<E>, Hash256)>>,
     },
@@ -153,6 +154,7 @@ pub enum HybridForwardsIterator<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, C
     PostFinalization {
         iter: SimpleForwardsIterator,
     },
+    Finished,
 }
 
 impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
@@ -202,6 +204,7 @@ impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
                 };
             PreFinalization {
                 iter,
+                end_slot,
                 continuation_data,
             }
         } else {
@@ -221,6 +224,7 @@ impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
         match self {
             PreFinalization {
                 iter,
+                end_slot,
                 continuation_data,
             } => {
                 match iter.next() {
@@ -229,10 +233,17 @@ impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
                     // to a post-finalization iterator beginning from the last slot
                     // of the pre iterator.
                     None => {
+                        // If the iterator has an end slot (inclusive) which has already been
+                        // covered by the (exclusive) frozen forwards iterator, then we're done!
+                        let iter_end_slot = Slot::from(iter.inner.end_vindex);
+                        if end_slot.map_or(false, |end_slot| iter_end_slot == end_slot + 1) {
+                            *self = Finished;
+                            return Ok(None);
+                        }
+
                         let continuation_data = continuation_data.take();
                         let store = iter.inner.store;
-                        let start_slot = Slot::from(iter.inner.end_vindex);
-
+                        let start_slot = iter_end_slot;
                         *self = PostFinalizationLazy {
                             continuation_data,
                             store,
@@ -256,6 +267,7 @@ impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
                 self.do_next()
             }
             PostFinalization { iter } => iter.next().transpose(),
+            Finished => Ok(None),
         }
     }
 }

@@ -8907,6 +8907,7 @@ dependencies = [
  "http_api",
  "hyper",
  "log",
+ "logging",
  "network",
  "r2d2",
  "rand 0.7.3",
