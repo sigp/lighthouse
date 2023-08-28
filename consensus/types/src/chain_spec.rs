@@ -6,6 +6,7 @@ use serde_derive::Deserialize;
 use serde_utils::quoted_u64::MaybeQuoted;
 use std::fs::File;
 use std::path::Path;
+use std::time::Duration;
 use tree_hash::TreeHash;
 
 /// Each of the BLS signature domains.
@@ -170,7 +171,15 @@ pub struct ChainSpec {
     pub attestation_subnet_count: u64,
     pub subnets_per_node: u8,
     pub epochs_per_subnet_subscription: u64,
+    pub gossip_max_size: u64,
+    pub min_epochs_for_block_requests: u64,
+    pub max_chunk_size: u64,
+    pub ttfb_timeout: u64,
+    pub resp_timeout: u64,
+    pub message_domain_invalid_snappy: [u8; 4],
+    pub message_domain_valid_snappy: [u8; 4],
     pub attestation_subnet_extra_bits: u8,
+    pub attestation_subnet_prefix_bits: u8,
 
     /*
      * Application params
@@ -451,10 +460,16 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
-    #[allow(clippy::arithmetic_side_effects)]
-    pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
-        let attestation_subnet_count_bits = self.attestation_subnet_count.ilog2();
-        self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
+    pub fn maximum_gossip_clock_disparity(&self) -> Duration {
+        Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
+    }
+
+    pub fn ttfb_timeout(&self) -> Duration {
+        Duration::from_secs(self.ttfb_timeout)
+    }
+
+    pub fn resp_timeout(&self) -> Duration {
+        Duration::from_secs(self.resp_timeout)
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -617,8 +632,15 @@ impl ChainSpec {
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_subnet_subscription: 256,
-            attestation_subnet_extra_bits: 0,
-
+            gossip_max_size: default_gossip_max_size(),
+            min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
+            max_chunk_size: default_max_chunk_size(),
+            ttfb_timeout: default_ttfb_timeout(),
+            resp_timeout: default_resp_timeout(),
+            message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
+            message_domain_valid_snappy: default_message_domain_valid_snappy(),
+            attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
+            attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
             /*
              * Application specific
              */
@@ -842,7 +864,15 @@ impl ChainSpec {
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_subnet_subscription: 256,
-            attestation_subnet_extra_bits: 0,
+            gossip_max_size: default_gossip_max_size(),
+            min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
+            max_chunk_size: default_max_chunk_size(),
+            ttfb_timeout: default_ttfb_timeout(),
+            resp_timeout: default_resp_timeout(),
+            message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
+            message_domain_valid_snappy: default_message_domain_valid_snappy(),
+            attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
+            attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
 
             /*
              * Application specific
@@ -953,6 +983,34 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
+
+    #[serde(default = "default_gossip_max_size")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    gossip_max_size: u64,
+    #[serde(default = "default_min_epochs_for_block_requests")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_epochs_for_block_requests: u64,
+    #[serde(default = "default_max_chunk_size")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_chunk_size: u64,
+    #[serde(default = "default_ttfb_timeout")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    ttfb_timeout: u64,
+    #[serde(default = "default_resp_timeout")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    resp_timeout: u64,
+    #[serde(default = "default_message_domain_invalid_snappy")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    message_domain_invalid_snappy: [u8; 4],
+    #[serde(default = "default_message_domain_valid_snappy")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    message_domain_valid_snappy: [u8; 4],
+    #[serde(default = "default_attestation_subnet_extra_bits")]
+    #[serde(with = "serde_utils::quoted_u8")]
+    attestation_subnet_extra_bits: u8,
+    #[serde(default = "default_attestation_subnet_prefix_bits")]
+    #[serde(with = "serde_utils::quoted_u8")]
+    attestation_subnet_prefix_bits: u8,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -991,6 +1049,42 @@ fn default_safe_slots_to_import_optimistically() -> u64 {
 
 fn default_subnets_per_node() -> u8 {
     2u8
+}
+
+const fn default_gossip_max_size() -> u64 {
+    10485760
+}
+
+const fn default_min_epochs_for_block_requests() -> u64 {
+    33024
+}
+
+const fn default_max_chunk_size() -> u64 {
+    10485760
+}
+
+const fn default_ttfb_timeout() -> u64 {
+    5
+}
+
+const fn default_resp_timeout() -> u64 {
+    10
+}
+
+const fn default_message_domain_invalid_snappy() -> [u8; 4] {
+    [0, 0, 0, 0]
+}
+
+const fn default_message_domain_valid_snappy() -> [u8; 4] {
+    [1, 0, 0, 0]
+}
+
+const fn default_attestation_subnet_extra_bits() -> u8 {
+    0
+}
+
+const fn default_attestation_subnet_prefix_bits() -> u8 {
+    6
 }
 
 impl Default for Config {
@@ -1088,6 +1182,16 @@ impl Config {
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
+
+            gossip_max_size: spec.gossip_max_size,
+            min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
+            max_chunk_size: spec.max_chunk_size,
+            ttfb_timeout: spec.ttfb_timeout,
+            resp_timeout: spec.resp_timeout,
+            message_domain_invalid_snappy: spec.message_domain_invalid_snappy,
+            message_domain_valid_snappy: spec.message_domain_valid_snappy,
+            attestation_subnet_extra_bits: spec.attestation_subnet_extra_bits,
+            attestation_subnet_prefix_bits: spec.attestation_subnet_prefix_bits,
         }
     }
 
@@ -1132,6 +1236,15 @@ impl Config {
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
+            gossip_max_size,
+            min_epochs_for_block_requests,
+            max_chunk_size,
+            ttfb_timeout,
+            resp_timeout,
+            message_domain_invalid_snappy,
+            message_domain_valid_snappy,
+            attestation_subnet_extra_bits,
+            attestation_subnet_prefix_bits,
         } = self;
 
         if preset_base != T::spec_name().to_string().as_str() {
@@ -1169,6 +1282,15 @@ impl Config {
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
             safe_slots_to_import_optimistically,
+            gossip_max_size,
+            min_epochs_for_block_requests,
+            max_chunk_size,
+            ttfb_timeout,
+            resp_timeout,
+            message_domain_invalid_snappy,
+            message_domain_valid_snappy,
+            attestation_subnet_extra_bits,
+            attestation_subnet_prefix_bits,
             ..chain_spec.clone()
         })
     }
@@ -1306,6 +1428,7 @@ mod tests {
 #[cfg(test)]
 mod yaml_tests {
     use super::*;
+    use paste::paste;
     use tempfile::NamedTempFile;
 
     #[test]
@@ -1410,29 +1533,35 @@ mod yaml_tests {
         "#;
 
         let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
-        assert_eq!(
-            chain_spec.terminal_total_difficulty,
-            default_terminal_total_difficulty()
-        );
-        assert_eq!(
-            chain_spec.terminal_block_hash,
-            default_terminal_block_hash()
-        );
-        assert_eq!(
-            chain_spec.terminal_block_hash_activation_epoch,
-            default_terminal_block_hash_activation_epoch()
-        );
-        assert_eq!(
-            chain_spec.safe_slots_to_import_optimistically,
-            default_safe_slots_to_import_optimistically()
-        );
+
+        // Asserts that `chain_spec.$name` and `default_$name()` are equal.
+        macro_rules! check_default {
+            ($name: ident) => {
+                paste! {
+                    assert_eq!(
+                        chain_spec.$name,
+                        [<default_ $name>](),
+                        "{} does not match default", stringify!($name));
+                }
+            };
+        }
+
+        check_default!(terminal_total_difficulty);
+        check_default!(terminal_block_hash);
+        check_default!(terminal_block_hash_activation_epoch);
+        check_default!(safe_slots_to_import_optimistically);
+        check_default!(bellatrix_fork_version);
+        check_default!(gossip_max_size);
+        check_default!(min_epochs_for_block_requests);
+        check_default!(max_chunk_size);
+        check_default!(ttfb_timeout);
+        check_default!(resp_timeout);
+        check_default!(message_domain_invalid_snappy);
+        check_default!(message_domain_valid_snappy);
+        check_default!(attestation_subnet_extra_bits);
+        check_default!(attestation_subnet_prefix_bits);
 
         assert_eq!(chain_spec.bellatrix_fork_epoch, None);
-
-        assert_eq!(
-            chain_spec.bellatrix_fork_version,
-            default_bellatrix_fork_version()
-        );
     }
 
     #[test]

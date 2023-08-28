@@ -4,6 +4,7 @@ use beacon_chain::chain_config::{
 };
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
+use clap_utils::parse_required;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -147,6 +148,15 @@ pub fn get_config<E: EthSpec>(
     if cli_args.is_present("http-allow-sync-stalled") {
         client_config.http_api.allow_sync_stalled = true;
     }
+
+    client_config.http_api.sse_capacity_multiplier =
+        parse_required(cli_args, "http-sse-capacity-multiplier")?;
+
+    client_config.http_api.enable_beacon_processor =
+        parse_required(cli_args, "http-enable-beacon-processor")?;
+
+    client_config.http_api.duplicate_block_status_code =
+        parse_required(cli_args, "http-duplicate-block-status")?;
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
@@ -344,6 +354,9 @@ pub fn get_config<E: EthSpec>(
         el_config.default_datadir = client_config.data_dir().clone();
         el_config.builder_profit_threshold =
             clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
+        el_config.always_prefer_builder_payload =
+            cli_args.is_present("always-prefer-builder-payload");
+
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
@@ -458,9 +471,30 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.checkpoint_sync_url_timeout =
         clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
-    client_config.genesis = if let Some(genesis_state_bytes) =
-        eth2_network_config.genesis_state_bytes.clone()
-    {
+    client_config.genesis_state_url_timeout =
+        clap_utils::parse_required(cli_args, "genesis-state-url-timeout")
+            .map(Duration::from_secs)?;
+
+    let genesis_state_url_opt =
+        clap_utils::parse_optional::<String>(cli_args, "genesis-state-url")?;
+    let checkpoint_sync_url_opt =
+        clap_utils::parse_optional::<String>(cli_args, "checkpoint-sync-url")?;
+
+    // If the `--genesis-state-url` is defined, use that to download the
+    // genesis state bytes. If it's not defined, try `--checkpoint-sync-url`.
+    client_config.genesis_state_url = if let Some(genesis_state_url) = genesis_state_url_opt {
+        Some(genesis_state_url)
+    } else if let Some(checkpoint_sync_url) = checkpoint_sync_url_opt {
+        // If the checkpoint sync URL is going to be used to download the
+        // genesis state, adopt the timeout from the checkpoint sync URL too.
+        client_config.genesis_state_url_timeout =
+            Duration::from_secs(client_config.chain.checkpoint_sync_url_timeout);
+        Some(checkpoint_sync_url)
+    } else {
+        None
+    };
+
+    client_config.genesis = if eth2_network_config.genesis_state_is_known() {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
         if let (Some(initial_state_path), Some(initial_block_path)) = (
             cli_args.value_of("checkpoint-state"),
@@ -482,7 +516,6 @@ pub fn get_config<E: EthSpec>(
             let anchor_block_bytes = read(initial_block_path)?;
 
             ClientGenesis::WeakSubjSszBytes {
-                genesis_state_bytes,
                 anchor_state_bytes,
                 anchor_block_bytes,
             }
@@ -490,17 +523,9 @@ pub fn get_config<E: EthSpec>(
             let url = SensitiveUrl::parse(remote_bn_url)
                 .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
 
-            ClientGenesis::CheckpointSyncUrl {
-                genesis_state_bytes,
-                url,
-            }
+            ClientGenesis::CheckpointSyncUrl { url }
         } else {
-            // Note: re-serializing the genesis state is not so efficient, however it avoids adding
-            // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
-            // effects.
-            ClientGenesis::SszBytes {
-                genesis_state_bytes,
-            }
+            ClientGenesis::GenesisState
         }
     } else {
         if cli_args.is_present("checkpoint-state") || cli_args.is_present("checkpoint-sync-url") {
@@ -581,8 +606,10 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
-    client_config.chain.max_network_size =
-        lighthouse_network::gossip_max_size(spec.bellatrix_fork_epoch.is_some());
+    client_config.chain.max_network_size = lighthouse_network::gossip_max_size(
+        spec.bellatrix_fork_epoch.is_some(),
+        spec.gossip_max_size as usize,
+    );
 
     if cli_args.is_present("slasher") {
         let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
@@ -792,13 +819,9 @@ pub fn get_config<E: EthSpec>(
     if cli_args.is_present("genesis-backfill") {
         client_config.chain.genesis_backfill = true;
     }
-    // Payload selection configs
-    if cli_args.is_present("always-prefer-builder-payload") {
-        client_config.always_prefer_builder_payload = true;
-    }
 
     // Backfill sync rate-limiting
-    client_config.chain.enable_backfill_rate_limiting =
+    client_config.beacon_processor.enable_backfill_rate_limiting =
         !cli_args.is_present("disable-backfill-rate-limiting");
 
     if let Some(path) = clap_utils::parse_optional(cli_args, "invalid-gossip-verified-blocks-path")?
@@ -811,6 +834,28 @@ pub fn get_config<E: EthSpec>(
     {
         client_config.chain.progressive_balances_mode = progressive_balances_mode;
     }
+
+    if let Some(max_workers) = clap_utils::parse_optional(cli_args, "beacon-processor-max-workers")?
+    {
+        client_config.beacon_processor.max_workers = max_workers;
+    }
+
+    if client_config.beacon_processor.max_workers == 0 {
+        return Err("--beacon-processor-max-workers must be a non-zero value".to_string());
+    }
+
+    client_config.beacon_processor.max_work_event_queue_len =
+        clap_utils::parse_required(cli_args, "beacon-processor-work-queue-len")?;
+    client_config.beacon_processor.max_scheduled_work_queue_len =
+        clap_utils::parse_required(cli_args, "beacon-processor-reprocess-queue-len")?;
+    client_config
+        .beacon_processor
+        .max_gossip_attestation_batch_size =
+        clap_utils::parse_required(cli_args, "beacon-processor-attestation-batch-size")?;
+    client_config
+        .beacon_processor
+        .max_gossip_aggregate_batch_size =
+        clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
 
     Ok(client_config)
 }

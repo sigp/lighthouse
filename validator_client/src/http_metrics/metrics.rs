@@ -29,6 +29,7 @@ pub const UPDATE_ATTESTERS_FETCH: &str = "update_attesters_fetch";
 pub const UPDATE_ATTESTERS_STORE: &str = "update_attesters_store";
 pub const ATTESTER_DUTIES_HTTP_POST: &str = "attester_duties_http_post";
 pub const PROPOSER_DUTIES_HTTP_GET: &str = "proposer_duties_http_get";
+pub const VALIDATOR_DUTIES_SYNC_HTTP_POST: &str = "validator_duties_sync_http_post";
 pub const VALIDATOR_ID_HTTP_GET: &str = "validator_id_http_get";
 pub const SUBSCRIPTIONS_HTTP_POST: &str = "subscriptions_http_post";
 pub const UPDATE_PROPOSERS: &str = "update_proposers";

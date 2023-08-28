@@ -4,7 +4,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, IntoGossipVerifiedBlock,
     NotifyExecutionLayer,
 };
-use eth2::types::BroadcastValidation;
+use eth2::types::{BroadcastValidation, ErrorMessage};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -19,7 +19,8 @@ use types::{
     AbstractExecPayload, BeaconBlockRef, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
     FullPayload, Hash256, SignedBeaconBlock,
 };
-use warp::Rejection;
+use warp::http::StatusCode;
+use warp::{reply::Response, Rejection, Reply};
 
 pub enum ProvenancedBlock<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>> {
     /// The payload was built using a local EE.
@@ -47,7 +48,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
     validation_level: BroadcastValidation,
-) -> Result<(), Rejection> {
+    duplicate_status_code: StatusCode,
+) -> Result<Response, Rejection> {
     let seen_timestamp = timestamp_now();
     let (block, is_locally_built_block) = match provenanced_block {
         ProvenancedBlock::Local(block, _) => (block, true),
@@ -75,10 +77,30 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     };
 
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
-    let gossip_verified_block = block.into_gossip_verified_block(&chain).map_err(|e| {
-        warn!(log, "Not publishing block, not gossip verified"; "slot" => beacon_block.slot(), "error" => ?e);
-        warp_utils::reject::custom_bad_request(e.to_string())
-    })?;
+    let gossip_verified_block = match block.into_gossip_verified_block(&chain) {
+        Ok(b) => b,
+        Err(BlockError::BlockIsAlreadyKnown) => {
+            // Allow the status code for duplicate blocks to be overridden based on config.
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&ErrorMessage {
+                    code: duplicate_status_code.as_u16(),
+                    message: "duplicate block".to_string(),
+                    stacktraces: vec![],
+                }),
+                duplicate_status_code,
+            )
+            .into_response());
+        }
+        Err(e) => {
+            warn!(
+                log,
+                "Not publishing block - not gossip verified";
+                "slot" => beacon_block.slot(),
+                "error" => ?e
+            );
+            return Err(warp_utils::reject::custom_bad_request(e.to_string()));
+        }
+    };
 
     let block_root = block_root.unwrap_or(gossip_verified_block.block_root);
 
@@ -167,8 +189,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                     &log,
                 )
             }
-
-            Ok(())
+            Ok(warp::reply().into_response())
         }
         Err(BlockError::BeaconChainError(BeaconChainError::UnableToPublish)) => {
             Err(warp_utils::reject::custom_server_error(
@@ -178,10 +199,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         Err(BlockError::Slashable) => Err(warp_utils::reject::custom_bad_request(
             "proposal for this slot and proposer has already been seen".to_string(),
         )),
-        Err(BlockError::BlockIsAlreadyKnown) => {
-            info!(log, "Block from HTTP API already known"; "block" => ?block_root);
-            Ok(())
-        }
         Err(e) => {
             if let BroadcastValidation::Gossip = validation_level {
                 Err(warp_utils::reject::broadcast_without_import(format!("{e}")))
@@ -208,7 +225,8 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
     validation_level: BroadcastValidation,
-) -> Result<(), Rejection> {
+    duplicate_status_code: StatusCode,
+) -> Result<Response, Rejection> {
     let block_root = block.canonical_root();
     let full_block: ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>> =
         reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
@@ -219,6 +237,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
         network_tx,
         log,
         validation_level,
+        duplicate_status_code,
     )
     .await
 }

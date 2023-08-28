@@ -21,8 +21,11 @@ pub struct ServerSentEventHandler<T: EthSpec> {
 }
 
 impl<T: EthSpec> ServerSentEventHandler<T> {
-    pub fn new(log: Logger) -> Self {
-        Self::new_with_capacity(log, DEFAULT_CHANNEL_CAPACITY)
+    pub fn new(log: Logger, capacity_multiplier: usize) -> Self {
+        Self::new_with_capacity(
+            log,
+            capacity_multiplier.saturating_mul(DEFAULT_CHANNEL_CAPACITY),
+        )
     }
 
     pub fn new_with_capacity(log: Logger, capacity: usize) -> Self {

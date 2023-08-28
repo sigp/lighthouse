@@ -1,5 +1,9 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
-use crate::{duties_service::DutiesService, validator_store::ValidatorStore, OfflineOnFailure};
+use crate::{
+    duties_service::DutiesService,
+    validator_store::{Error as ValidatorStoreError, ValidatorStore},
+    OfflineOnFailure,
+};
 use environment::RuntimeContext;
 use eth2::types::BlockId;
 use futures::future::join_all;
@@ -264,6 +268,18 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 .await
             {
                 Ok(signature) => Some(signature),
+                Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                    // A pubkey can be missing when a validator was recently
+                    // removed via the API.
+                    debug!(
+                        log,
+                        "Missing pubkey for sync committee signature";
+                        "pubkey" => ?pubkey,
+                        "validator_index" => duty.validator_index,
+                        "slot" => slot,
+                    );
+                    None
+                }
                 Err(e) => {
                     crit!(
                         log,
@@ -405,6 +421,17 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                     .await
                 {
                     Ok(signed_contribution) => Some(signed_contribution),
+                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                        // A pubkey can be missing when a validator was recently
+                        // removed via the API.
+                        debug!(
+                            log,
+                            "Missing pubkey for sync contribution";
+                            "pubkey" => ?pubkey,
+                            "slot" => slot,
+                        );
+                        None
+                    }
                     Err(e) => {
                         crit!(
                             log,

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use libp2p::core::connection::ConnectionId;
+use libp2p::swarm::ConnectionId;
 use types::light_client_bootstrap::LightClientBootstrap;
 use types::{EthSpec, SignedBeaconBlock};
 

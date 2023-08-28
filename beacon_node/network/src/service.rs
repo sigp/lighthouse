@@ -235,6 +235,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // build the channels for external comms
         let (network_senders, network_recievers) = NetworkSenders::new();
 
+        #[cfg(feature = "disable-backfill")]
+        warn!(
+            network_log,
+            "Backfill is disabled. DO NOT RUN IN PRODUCTION"
+        );
+
         // try and construct UPnP port mappings if required.
         if let Some(upnp_config) = crate::nat::UPnPConfig::from_config(config) {
             let upnp_log = network_log.new(o!("service" => "UPnP"));
@@ -512,10 +518,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                 self.send_to_router(RouterMessage::StatusPeer(peer_id));
             }
-            NetworkEvent::PeerConnectedIncoming(_)
-            | NetworkEvent::PeerBanned(_)
-            | NetworkEvent::PeerUnbanned(_) => {
-                // No action required for these events.
+            NetworkEvent::PeerConnectedIncoming(_) => {
+                // No action required for this event.
             }
             NetworkEvent::PeerDisconnected(peer_id) => {
                 self.send_to_router(RouterMessage::PeerDisconnected(peer_id));

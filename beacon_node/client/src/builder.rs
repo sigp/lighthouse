@@ -13,10 +13,8 @@ use beacon_chain::{
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
 };
-use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessor, BeaconProcessorSend,
-    WorkEvent, MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
-};
+use beacon_processor::BeaconProcessorConfig;
+use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2::{
@@ -31,13 +29,12 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
-use std::cmp;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -76,11 +73,9 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     http_api_config: http_api::Config,
     http_metrics_config: http_metrics::Config,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    beacon_processor_config: Option<BeaconProcessorConfig>,
+    beacon_processor_channels: Option<BeaconProcessorChannels<T::EthSpec>>,
     eth_spec_instance: T::EthSpec,
-    beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-    beacon_processor_receive: mpsc::Receiver<WorkEvent<T::EthSpec>>,
-    work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
-    work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
@@ -96,10 +91,6 @@ where
     ///
     /// The `eth_spec_instance` parameter is used to concretize `TEthSpec`.
     pub fn new(eth_spec_instance: TEthSpec) -> Self {
-        let (beacon_processor_send, beacon_processor_receive) =
-            mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
-        let (work_reprocessing_tx, work_reprocessing_rx) =
-            mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
         Self {
             slot_clock: None,
             store: None,
@@ -117,10 +108,8 @@ where
             http_metrics_config: <_>::default(),
             slasher: None,
             eth_spec_instance,
-            beacon_processor_send: BeaconProcessorSend(beacon_processor_send),
-            beacon_processor_receive,
-            work_reprocessing_tx,
-            work_reprocessing_rx,
+            beacon_processor_config: None,
+            beacon_processor_channels: None,
         }
     }
 
@@ -133,6 +122,12 @@ where
     /// Specifies the `ChainSpec`.
     pub fn chain_spec(mut self, spec: ChainSpec) -> Self {
         self.chain_spec = Some(spec);
+        self
+    }
+
+    pub fn beacon_processor(mut self, config: BeaconProcessorConfig) -> Self {
+        self.beacon_processor_channels = Some(BeaconProcessorChannels::new(&config));
+        self.beacon_processor_config = Some(config);
         self
     }
 
@@ -159,14 +154,18 @@ where
         let runtime_context =
             runtime_context.ok_or("beacon_chain_start_method requires a runtime context")?;
         let context = runtime_context.service_context("beacon".into());
+        let log = context.log();
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
-            Some(ServerSentEventHandler::new(context.log().clone()))
+            Some(ServerSentEventHandler::new(
+                context.log().clone(),
+                self.http_api_config.sse_capacity_multiplier,
+            ))
         } else {
             None
         };
 
-        let execution_layer = if let Some(config) = config.execution_layer {
+        let execution_layer = if let Some(config) = config.execution_layer.clone() {
             let context = runtime_context.service_context("exec".into());
             let execution_layer = ExecutionLayer::from_config(
                 config,
@@ -251,23 +250,19 @@ where
                 )?;
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
-            ClientGenesis::SszBytes {
-                genesis_state_bytes,
-            } => {
+            ClientGenesis::GenesisState => {
                 info!(
                     context.log(),
                     "Starting from known genesis state";
                 );
 
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
-                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+                let genesis_state = genesis_state(&runtime_context, &config, log)?;
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
             ClientGenesis::WeakSubjSszBytes {
                 anchor_state_bytes,
                 anchor_block_bytes,
-                genesis_state_bytes,
             } => {
                 info!(context.log(), "Starting checkpoint sync");
                 if config.chain.genesis_backfill {
@@ -281,17 +276,13 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
-                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+                let genesis_state = genesis_state(&runtime_context, &config, log)?;
 
                 builder
                     .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
                     .map(|v| (v, None))?
             }
-            ClientGenesis::CheckpointSyncUrl {
-                genesis_state_bytes,
-                url,
-            } => {
+            ClientGenesis::CheckpointSyncUrl { url } => {
                 info!(
                     context.log(),
                     "Starting checkpoint sync";
@@ -310,7 +301,6 @@ where
                         config.chain.checkpoint_sync_url_timeout,
                     )),
                 );
-                let slots_per_epoch = TEthSpec::slots_per_epoch();
 
                 let deposit_snapshot = if config.sync_eth1_chain {
                     // We want to fetch deposit snapshot before fetching the finalized beacon state to
@@ -357,10 +347,23 @@ where
                     None
                 };
 
-                debug!(context.log(), "Downloading finalized block");
-                // Find a suitable finalized block on an epoch boundary.
-                let mut block = remote
-                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
+                debug!(
+                    context.log(),
+                    "Downloading finalized state";
+                );
+                let state = remote
+                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Finalized, &spec)
+                    .await
+                    .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
+                    .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
+
+                debug!(context.log(), "Downloaded finalized state"; "slot" => ?state.slot());
+
+                let finalized_block_slot = state.latest_block_header().slot;
+
+                debug!(context.log(), "Downloading finalized block"; "block_slot" => ?finalized_block_slot);
+                let block = remote
+                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(finalized_block_slot), &spec)
                     .await
                     .map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
@@ -374,65 +377,14 @@ where
 
                 debug!(context.log(), "Downloaded finalized block");
 
-                let mut block_slot = block.slot();
-
-                while block.slot() % slots_per_epoch != 0 {
-                    block_slot = (block_slot / slots_per_epoch - 1) * slots_per_epoch;
-
-                    debug!(
-                        context.log(),
-                        "Searching for aligned checkpoint block";
-                        "block_slot" => block_slot
-                    );
-
-                    if let Some(found_block) = remote
-                        .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(block_slot), &spec)
-                        .await
-                        .map_err(|e| {
-                            format!("Error fetching block at slot {}: {:?}", block_slot, e)
-                        })?
-                    {
-                        block = found_block;
-                    }
-                }
-
-                debug!(
-                    context.log(),
-                    "Downloaded aligned finalized block";
-                    "block_root" => ?block.canonical_root(),
-                    "block_slot" => block.slot(),
-                );
-
-                let state_root = block.state_root();
-                debug!(
-                    context.log(),
-                    "Downloading finalized state";
-                    "state_root" => ?state_root
-                );
-                let state = remote
-                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Root(state_root), &spec)
-                    .await
-                    .map_err(|e| {
-                        format!(
-                            "Error loading checkpoint state from remote {:?}: {:?}",
-                            state_root, e
-                        )
-                    })?
-                    .ok_or_else(|| {
-                        format!("Checkpoint state missing from remote: {:?}", state_root)
-                    })?;
-
-                debug!(context.log(), "Downloaded finalized state");
-
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
-                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+                let genesis_state = genesis_state(&runtime_context, &config, log)?;
 
                 info!(
                     context.log(),
                     "Loaded checkpoint block and state";
-                    "slot" => block.slot(),
+                    "block_slot" => block.slot(),
+                    "state_slot" => state.slot(),
                     "block_root" => ?block.canonical_root(),
-                    "state_root" => ?state_root,
                 );
 
                 let service =
@@ -496,6 +448,7 @@ where
                         chain: None,
                         network_senders: None,
                         network_globals: None,
+                        beacon_processor_send: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
                         sse_logging_components: runtime_context.sse_logging_components.clone(),
@@ -573,6 +526,10 @@ where
             .as_ref()
             .ok_or("network requires a runtime_context")?
             .clone();
+        let beacon_processor_channels = self
+            .beacon_processor_channels
+            .as_ref()
+            .ok_or("network requires beacon_processor_channels")?;
 
         // If gossipsub metrics are required we build a registry to record them
         let mut gossipsub_registry = if config.metrics_enabled {
@@ -588,8 +545,8 @@ where
             gossipsub_registry
                 .as_mut()
                 .map(|registry| registry.sub_registry_with_prefix("gossipsub")),
-            self.beacon_processor_send.clone(),
-            self.work_reprocessing_tx.clone(),
+            beacon_processor_channels.beacon_processor_tx.clone(),
+            beacon_processor_channels.work_reprocessing_tx.clone(),
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
@@ -712,6 +669,14 @@ where
             .runtime_context
             .as_ref()
             .ok_or("build requires a runtime context")?;
+        let beacon_processor_channels = self
+            .beacon_processor_channels
+            .take()
+            .ok_or("build requires beacon_processor_channels")?;
+        let beacon_processor_config = self
+            .beacon_processor_config
+            .take()
+            .ok_or("build requires a beacon_processor_config")?;
         let log = runtime_context.log().clone();
 
         let http_api_listen_addr = if self.http_api_config.enabled {
@@ -721,6 +686,7 @@ where
                 network_senders: self.network_senders.clone(),
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
+                beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
                 log: log.clone(),
             });
@@ -782,20 +748,18 @@ where
                 BeaconProcessor {
                     network_globals: network_globals.clone(),
                     executor: beacon_processor_context.executor.clone(),
-                    max_workers: cmp::max(1, num_cpus::get()),
                     current_workers: 0,
-                    enable_backfill_rate_limiting: beacon_chain
-                        .config
-                        .enable_backfill_rate_limiting,
+                    config: beacon_processor_config,
                     log: beacon_processor_context.log().clone(),
                 }
                 .spawn_manager(
-                    self.beacon_processor_receive,
-                    self.work_reprocessing_tx,
-                    self.work_reprocessing_rx,
+                    beacon_processor_channels.beacon_processor_rx,
+                    beacon_processor_channels.work_reprocessing_tx,
+                    beacon_processor_channels.work_reprocessing_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
-                );
+                    beacon_chain.spec.maximum_gossip_clock_disparity(),
+                )?;
             }
 
             let state_advance_context = runtime_context.service_context("state_advance".into());
@@ -850,9 +814,6 @@ where
                     execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock>(
                         beacon_chain.slot_clock.clone(),
                     );
-
-                    // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
-                    execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
                 }
 
                 // Spawn a service to publish BLS to execution changes at the Capella fork.
@@ -1119,4 +1080,23 @@ where
         self.slot_clock = Some(slot_clock);
         Ok(self)
     }
+}
+
+/// Obtain the genesis state from the `eth2_network_config` in `context`.
+fn genesis_state<T: EthSpec>(
+    context: &RuntimeContext<T>,
+    config: &ClientConfig,
+    log: &Logger,
+) -> Result<BeaconState<T>, String> {
+    let eth2_network_config = context
+        .eth2_network_config
+        .as_ref()
+        .ok_or("An eth2_network_config is required to obtain the genesis state")?;
+    eth2_network_config
+        .genesis_state::<T>(
+            config.genesis_state_url.as_deref(),
+            config.genesis_state_url_timeout,
+            log,
+        )?
+        .ok_or_else(|| "Genesis state is unknown".to_string())
 }
