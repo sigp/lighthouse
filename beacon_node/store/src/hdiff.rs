@@ -240,9 +240,8 @@ impl HierarchyModuli {
             .tuple_windows()
             .find_map(|(&n_big, &n_small)| {
                 (slot % n_small == 0).then(|| {
-                    eprintln!("state at slot {slot} is divis by {n_small}");
                     // Diff from the previous layer.
-                    dbg!(slot / n_big * n_big)
+                    slot / n_big * n_big
                 })
             });
         Ok(diff_from.map_or(StorageStrategy::Nothing, StorageStrategy::DiffFrom))
@@ -271,8 +270,8 @@ mod tests {
 
         let moduli = config.to_moduli().unwrap();
 
-        // Full snapshots at multiples of 2^16.
-        let snapshot_freq = Slot::new(1 << 16);
+        // Full snapshots at multiples of 2^21.
+        let snapshot_freq = Slot::new(1 << 21);
         assert_eq!(
             moduli.storage_strategy(Slot::new(0)).unwrap(),
             StorageStrategy::Snapshot
@@ -286,11 +285,11 @@ mod tests {
             StorageStrategy::Snapshot
         );
 
-        // For the first layer of diffs
-        let first_layer = Slot::new(1 << 13);
+        // Diffs should be from the previous layer (the snapshot in this case), and not the previous diff in the same layer.
+        let first_layer = Slot::new(1 << 18);
         assert_eq!(
             moduli.storage_strategy(first_layer * 2).unwrap(),
-            StorageStrategy::DiffFrom(first_layer)
+            StorageStrategy::DiffFrom(Slot::new(0))
         );
     }
 
@@ -300,7 +299,7 @@ mod tests {
         config.validate().unwrap();
 
         let moduli = config.to_moduli().unwrap();
-        let snapshot_freq = Slot::new(1 << 16);
+        let snapshot_freq = Slot::new(1 << 21);
 
         assert_eq!(
             moduli.next_snapshot_slot(snapshot_freq).unwrap(),
