@@ -198,7 +198,7 @@ impl CompressedU64Diff {
 impl Default for HierarchyConfig {
     fn default() -> Self {
         HierarchyConfig {
-            exponents: vec![4, 9, 11, 13, 16, 18, 21],
+            exponents: vec![5, 9, 11, 13, 16, 18, 21],
         }
     }
 }
