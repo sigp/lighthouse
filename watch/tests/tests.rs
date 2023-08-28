@@ -23,6 +23,7 @@ use watch::{
 };
 
 use log::error;
+use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -30,7 +31,42 @@ use tokio::{runtime, task::JoinHandle};
 use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
 use unused_port::unused_tcp4_port;
 
-use testcontainers::{clients::Cli, images::postgres::Postgres, RunnableImage};
+use testcontainers::{clients::Cli, core::WaitFor, Image, RunnableImage};
+
+#[derive(Debug)]
+pub struct Postgres(HashMap<String, String>);
+
+impl Default for Postgres {
+    fn default() -> Self {
+        let mut env_vars = HashMap::new();
+        env_vars.insert("POSTGRES_DB".to_owned(), "postgres".to_owned());
+        env_vars.insert("POSTGRES_HOST_AUTH_METHOD".into(), "trust".into());
+
+        Self(env_vars)
+    }
+}
+
+impl Image for Postgres {
+    type Args = ();
+
+    fn name(&self) -> String {
+        "postgres".to_owned()
+    }
+
+    fn tag(&self) -> String {
+        "11-alpine".to_owned()
+    }
+
+    fn ready_conditions(&self) -> Vec<WaitFor> {
+        vec![WaitFor::message_on_stderr(
+            "database system is ready to accept connections",
+        )]
+    }
+
+    fn env_vars(&self) -> Box<dyn Iterator<Item = (&String, &String)> + '_> {
+        Box::new(self.0.iter())
+    }
+}
 
 type E = MainnetEthSpec;
 
