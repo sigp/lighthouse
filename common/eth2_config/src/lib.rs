@@ -90,8 +90,8 @@ pub enum GenesisStateSource {
         ///
         /// The format should be 0x-prefixed ASCII bytes.
         checksum: &'static str,
-        /// The `genesis_validators_root` of the genesis state. Used for
-        /// verifying checkpoint states.
+        /// The `genesis_validators_root` of the genesis state. Used to avoid
+        /// downloading the state for simple signing operations.
         /// 
         /// The format should be 0x-prefixed ASCII bytes.
         genesis_validators_root: &'static str,
