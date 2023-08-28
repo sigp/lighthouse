@@ -202,22 +202,14 @@ mod tests {
         });
 
         // Check that topic_weight on the old topics has been zeroed.
-        // WIP:
-        // There is no way to test topic_weight since libp2p-gossipsub has no getter function to
-        // obtain `TopicScoreParams`. Now I'm working on the PR to add a getter to do that.
-        //
-        // feat(gossipsub): Add getter function to obtain TopicScoreParams #4231
-        // https://github.com/libp2p/rust-libp2p/pull/4231
-        //
-        // Once the PR has been merged, we can do test topic_weight like below.
-        // let old_topic_params1 = network_service
-        //     .get_topic_params(old_topic1)
-        //     .expect("topic score params");
-        // assert_eq!(0.0, old_topic_params1.topic_weight);
-        //
-        // let old_topic_params2 = network_service
-        //     .get_topic_params(old_topic2)
-        //     .expect("topic score params");
-        // assert_eq!(0.0, old_topic_params2.topic_weight);
+        let old_topic_params1 = network_service
+            .get_topic_params(old_topic1)
+            .expect("topic score params");
+        assert_eq!(0.0, old_topic_params1.topic_weight);
+
+        let old_topic_params2 = network_service
+            .get_topic_params(old_topic2)
+            .expect("topic score params");
+        assert_eq!(0.0, old_topic_params2.topic_weight);
     }
 }
