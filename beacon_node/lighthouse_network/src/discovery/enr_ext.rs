@@ -213,7 +213,7 @@ impl EnrExt for Enr {
     /// The vector remains empty if these fields are not defined.
     fn multiaddr_quic(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
-        // Check for quic first as it is less likely
+        // Check for quic first as it is less likely.
         if let Some(quic_port) = self.quic4() {
             if let Some(ip) = self.ip4() {
                 let mut multiaddr: Multiaddr = ip.into();

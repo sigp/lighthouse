@@ -1226,7 +1226,7 @@ pub fn set_network_config(
     if cli_args.is_present("enr-match") {
         // Match the IP and UDP port in the ENR.
 
-        // Set the ENR address to localhost if the address is unspecified
+        // Set the ENR address to localhost if the address is unspecified.
         if let Some(ipv4_addr) = config.listen_addrs().v4().cloned() {
             let ipv4_enr_addr = if ipv4_addr.addr == Ipv4Addr::UNSPECIFIED {
                 Ipv4Addr::LOCALHOST

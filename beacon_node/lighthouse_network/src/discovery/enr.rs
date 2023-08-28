@@ -169,7 +169,7 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
         // Add QUIC fields to the ENR.
         // If `enable_libp2p` is disabled, then we should not support QUIC in the ENR either.
         if !config.disable_quic_support {
-            // If we are listening on ipv4, add the quic ipv4 port
+            // If we are listening on ipv4, add the quic ipv4 port.
             if let Some(quic4_port) = config
                 .enr_quic4_port
                 .or_else(|| config.listen_addrs().v4().map(|v4_addr| v4_addr.quic_port))
@@ -177,7 +177,7 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
                 builder.add_value(QUIC_ENR_KEY, &quic4_port);
             }
 
-            // If we are listening on ipv6, add the quic ipv6 port
+            // If we are listening on ipv6, add the quic ipv6 port.
             if let Some(quic6_port) = config
                 .enr_quic6_port
                 .or_else(|| config.listen_addrs().v6().map(|v6_addr| v6_addr.quic_port))
