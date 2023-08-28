@@ -137,7 +137,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             }
             FromSwarm::ConnectionClosed(ConnectionClosed {
                 peer_id,
-                                endpoint,
+                endpoint,
 
                 remaining_established,
                 ..
@@ -321,12 +321,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.inject_disconnect(&peer_id);
 
         let remote_addr = match endpoint {
-            ConnectedPoint::Listener { send_back_addr, .. } => {
-                send_back_addr
-            }
-            ConnectedPoint::Dialer { address, .. } => {
-                address
-            }
+            ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
+            ConnectedPoint::Dialer { address, .. } => address,
         };
 
         // Update the prometheus metrics
