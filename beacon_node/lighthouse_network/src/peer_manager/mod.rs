@@ -21,7 +21,8 @@ use std::{
 use strum::IntoEnumIterator;
 use types::{EthSpec, SyncSubnetId};
 
-pub use libp2p::core::{identity::Keypair, Multiaddr};
+pub use libp2p::core::Multiaddr;
+pub use libp2p::identity::Keypair;
 
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod peerdb;
@@ -968,6 +969,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         macro_rules! prune_peers {
             ($filter: expr) => {
+                let filter = $filter;
                 for (peer_id, info) in self
                     .network_globals
                     .peers
@@ -975,7 +977,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .worst_connected_peers()
                     .iter()
                     .filter(|(_, info)| {
-                        !info.has_future_duty() && !info.is_trusted() && $filter(*info)
+                        !info.has_future_duty() && !info.is_trusted() && filter(*info)
                     })
                 {
                     if peers_to_prune.len()

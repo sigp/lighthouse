@@ -932,6 +932,20 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
             for result in duty_and_proof_results {
                 let duty_and_proof = match result {
                     Ok(duty_and_proof) => duty_and_proof,
+                    Err(Error::FailedToProduceSelectionProof(
+                        ValidatorStoreError::UnknownPubkey(pubkey),
+                    )) => {
+                        // A pubkey can be missing when a validator was recently
+                        // removed via the API.
+                        warn!(
+                            log,
+                            "Missing pubkey for duty and proof";
+                            "info" => "a validator may have recently been removed from this VC",
+                            "pubkey" => ?pubkey,
+                        );
+                        // Do not abort the entire batch for a single failure.
+                        continue;
+                    }
                     Err(e) => {
                         error!(
                             log,
@@ -1007,7 +1021,7 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
 /// 2. We won't miss a block if the duties for the current slot happen to change with this poll.
 ///
 /// This sounds great, but is it safe? Firstly, the additional notification will only contain block
-/// producers that were not included in the first notification. This should be safety enough.
+/// producers that were not included in the first notification. This should be safe enough.
 /// However, we also have the slashing protection as a second line of defence. These two factors
 /// provide an acceptable level of safety.
 ///

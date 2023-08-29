@@ -4,6 +4,7 @@ mod tests {
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
+    use beacon_processor::BeaconProcessorChannels;
     use lighthouse_network::Enr;
     use slog::{o, Drain, Level, Logger};
     use sloggers::{null::NullLoggerBuilder, Build};
@@ -67,10 +68,23 @@ mod tests {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
-            let _network_service =
-                NetworkService::start(beacon_chain.clone(), &config, executor, None)
-                    .await
-                    .unwrap();
+            let BeaconProcessorChannels {
+                beacon_processor_tx,
+                beacon_processor_rx: _beacon_processor_rx,
+                work_reprocessing_tx,
+                work_reprocessing_rx: _work_reprocessing_rx,
+            } = <_>::default();
+
+            let _network_service = NetworkService::start(
+                beacon_chain.clone(),
+                &config,
+                executor,
+                None,
+                beacon_processor_tx,
+                work_reprocessing_tx,
+            )
+            .await
+            .unwrap();
             drop(signal);
         });
 
