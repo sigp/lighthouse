@@ -1451,10 +1451,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         encoder.write_all(&bytes).map_err(Error::Compression)?;
         encoder.finish().map_err(Error::Compression)?;
 
-        let epoch = state.current_epoch();
         let key = get_key_for_col(
             DBColumn::BeaconStateSnapshot.into(),
-            &epoch.as_u64().to_be_bytes(),
+            &state.slot().as_u64().to_be_bytes(),
         );
         ops.push(KeyValueStoreOp::PutKeyValue(key, compressed_value));
         Ok(())
@@ -1565,7 +1564,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Load buffer for the previous state.
         // This amount of recursion (<10 levels) should be OK.
         let t = std::time::Instant::now();
-        let (slot, mut buffer) = match self.hierarchy.storage_strategy(slot)? {
+        let (_buffer_slot, mut buffer) = match self.hierarchy.storage_strategy(slot)? {
             // Base case.
             StorageStrategy::Snapshot => {
                 let state = self
