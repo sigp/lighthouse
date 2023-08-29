@@ -1405,11 +1405,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let slot = state.slot();
         match self.hierarchy.storage_strategy(slot)? {
-            StorageStrategy::Nothing => {
+            StorageStrategy::ReplayFrom(from) => {
                 debug!(
                     self.log,
                     "Storing cold state";
                     "strategy" => "replay",
+                    "from_slot" => from,
                     "slot" => state.slot(),
                 );
             }
@@ -1491,7 +1492,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         // Load diff base state bytes.
-        let base_buffer = self.load_hdiff_buffer_for_slot(from_slot)?;
+        let (_, base_buffer) = self.load_hdiff_buffer_for_slot(from_slot)?;
         let target_buffer = HDiffBuffer::from_state(state.clone());
         let diff = HDiff::compute(&base_buffer, &target_buffer)?;
         let diff_bytes = diff.as_ssz_bytes();
@@ -1518,8 +1519,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Will reconstruct the state if it lies between restore points.
     pub fn load_cold_state_by_slot(&self, slot: Slot) -> Result<Option<BeaconState<E>>, Error> {
-        let hdiff_buffer = self.load_hdiff_buffer_for_slot(slot)?;
+        let (base_slot, hdiff_buffer) = self.load_hdiff_buffer_for_slot(slot)?;
         let base_state = hdiff_buffer.into_state(&self.spec)?;
+        debug_assert_eq!(base_slot, base_state.slot());
 
         if base_state.slot() == slot {
             return Ok(Some(base_state));
@@ -1548,30 +1550,32 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map_err(Into::into)
     }
 
-    fn load_hdiff_buffer_for_slot(&self, slot: Slot) -> Result<HDiffBuffer, Error> {
+    /// Returns `HDiffBuffer` for the specified slot, or `HDiffBuffer` for the `ReplayFrom` slot if
+    /// the diff for the specified slot is not stored.
+    fn load_hdiff_buffer_for_slot(&self, slot: Slot) -> Result<(Slot, HDiffBuffer), Error> {
         if let Some(buffer) = self.diff_buffer_cache.lock().get(&slot) {
             debug!(
                 self.log,
                 "Hit diff buffer cache";
                 "slot" => slot
             );
-            return Ok(buffer.clone());
+            return Ok((slot, buffer.clone()));
         }
 
         // Load buffer for the previous state.
         // This amount of recursion (<10 levels) should be OK.
         let t = std::time::Instant::now();
-        let mut buffer = match self.hierarchy.storage_strategy(slot)? {
+        let (slot, mut buffer) = match self.hierarchy.storage_strategy(slot)? {
             // Base case.
             StorageStrategy::Snapshot => {
                 let state = self
                     .load_cold_state_as_snapshot(slot)?
                     .ok_or(Error::MissingSnapshot(slot))?;
-                return Ok(HDiffBuffer::from_state(state));
+                return Ok((slot, HDiffBuffer::from_state(state)));
             }
             // Recursive case.
             StorageStrategy::DiffFrom(from) => self.load_hdiff_buffer_for_slot(from)?,
-            StorageStrategy::Nothing => unreachable!("FIXME(sproul)"),
+            StorageStrategy::ReplayFrom(from) => return self.load_hdiff_buffer_for_slot(from),
         };
 
         // Load diff and apply it to buffer.
@@ -1586,7 +1590,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "slot" => slot
         );
 
-        Ok(buffer)
+        Ok((slot, buffer))
     }
 
     /// Load cold blocks between `start_slot` and `end_slot` inclusive.

@@ -29,7 +29,7 @@ pub struct HierarchyModuli {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum StorageStrategy {
-    Nothing,
+    ReplayFrom(Slot),
     DiffFrom(Slot),
     Snapshot,
 }
@@ -228,6 +228,12 @@ impl HierarchyConfig {
 impl HierarchyModuli {
     pub fn storage_strategy(&self, slot: Slot) -> Result<StorageStrategy, Error> {
         let last = self.moduli.last().copied().ok_or(Error::InvalidHierarchy)?;
+        let first = self
+            .moduli
+            .first()
+            .copied()
+            .ok_or(Error::InvalidHierarchy)?;
+        let replay_from = slot / first * first;
 
         if slot % last == 0 {
             return Ok(StorageStrategy::Snapshot);
@@ -244,7 +250,11 @@ impl HierarchyModuli {
                     slot / n_big * n_big
                 })
             });
-        Ok(diff_from.map_or(StorageStrategy::Nothing, StorageStrategy::DiffFrom))
+
+        Ok(diff_from.map_or(
+            StorageStrategy::ReplayFrom(replay_from),
+            StorageStrategy::DiffFrom,
+        ))
     }
 
     /// Return the smallest slot greater than or equal to `slot` at which a full snapshot should
