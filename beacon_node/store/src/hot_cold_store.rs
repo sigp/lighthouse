@@ -1570,7 +1570,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 let state = self
                     .load_cold_state_as_snapshot(slot)?
                     .ok_or(Error::MissingSnapshot(slot))?;
-                return Ok((slot, HDiffBuffer::from_state(state)));
+                let buffer = HDiffBuffer::from_state(state);
+
+                self.diff_buffer_cache.lock().put(slot, buffer.clone());
+                debug!(
+                    self.log,
+                    "Added diff buffer to cache";
+                    "load_time_ms" => t.elapsed().as_millis(),
+                    "slot" => slot
+                );
+
+                return Ok((slot, buffer));
             }
             // Recursive case.
             StorageStrategy::DiffFrom(from) => self.load_hdiff_buffer_for_slot(from)?,
