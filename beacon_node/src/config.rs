@@ -23,6 +23,7 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
+use store::hdiff::HierarchyConfig;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 
 /// Gets the fully-initialized global client.
@@ -420,6 +421,24 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_optional(cli_args, "epochs-per-state-diff")?
     {
         client_config.store.epochs_per_state_diff = epochs_per_state_diff;
+    }
+
+    if let Some(hierarchy_exponents) =
+        clap_utils::parse_optional::<String>(cli_args, "hierarchy-exponents")?
+    {
+        let exponents = hierarchy_exponents
+            .split(',')
+            .map(|s| {
+                s.parse()
+                    .map_err(|e| format!("invalid hierarchy-exponents: {e:?}"))
+            })
+            .collect::<Result<Vec<u8>, _>>()?;
+
+        if exponents.windows(2).any(|w| w[0] >= w[1]) {
+            return Err("hierarchy-exponents must be in ascending order".to_string());
+        }
+
+        client_config.store.hierarchy_config = HierarchyConfig { exponents };
     }
 
     if let Some(epochs_per_migration) =

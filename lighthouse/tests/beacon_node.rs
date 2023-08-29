@@ -15,6 +15,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
+use store::hdiff::HierarchyConfig;
 use tempfile::TempDir;
 use types::{
     Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
@@ -445,6 +446,35 @@ fn eth1_cache_follow_distance_manual() {
             assert_eq!(config.eth1.cache_follow_distance, Some(128));
             assert_eq!(config.eth1.cache_follow_distance(), 128);
         });
+}
+#[test]
+fn hierarchy_exponents_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.hierarchy_config, HierarchyConfig::default());
+        });
+}
+#[test]
+fn hierarchy_exponents_valid() {
+    CommandLineTest::new()
+        .flag("hierarchy-exponents", Some("3,6,9,12"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.hierarchy_config,
+                HierarchyConfig {
+                    exponents: vec![3, 6, 9, 12]
+                }
+            );
+        });
+}
+#[test]
+#[should_panic]
+fn hierarchy_exponents_invalid_order() {
+    CommandLineTest::new()
+        .flag("hierarchy-exponents", Some("7,6,9,12"))
+        .run_with_zero_port();
 }
 
 // Tests for Bellatrix flags.
