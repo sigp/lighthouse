@@ -301,6 +301,12 @@ mod tests {
             moduli.storage_strategy(first_layer * 2).unwrap(),
             StorageStrategy::DiffFrom(Slot::new(0))
         );
+
+        let replay_strategy_slot = first_layer + 1;
+        assert_eq!(
+            moduli.storage_strategy(replay_strategy_slot).unwrap(),
+            StorageStrategy::ReplayFrom(first_layer)
+        );
     }
 
     #[test]

@@ -2489,7 +2489,7 @@ async fn revert_minority_fork_on_resume() {
 }
 
 #[tokio::test]
-// #[ignore]
+#[ignore]
 // FIXME(jimmy): Ignoring this now as the test is flaky :/ It intermittently fails with an IO error
 // "..cold_db/LOCK file held by another process".
 // There seems to be some race condition between dropping the lock file and and re-opening the db.
