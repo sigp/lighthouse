@@ -728,10 +728,7 @@ impl HttpJsonRpc {
             let payload = serde_json::to_string(&body)?;
             // map Timeout error to our own
             // map Other to our own
-            let start = Instant::now();
             let response = wspackage.wsrouter.as_ref().unwrap().make_request_timeout(payload.clone(), wspackage.id, timeout).await;
-            let elapsed = start.elapsed();
-            println!("Websocket request took {:?} for {}", elapsed.as_secs(), method);
             let response = match response {
                 Err(e) => {
                     match e {
@@ -739,6 +736,17 @@ impl HttpJsonRpc {
                             println!("Websocket request timed out for {}", method);
                             println!("raw req: {}", payload);
                             return Err(Error::WebsocketError("Timeout".to_string()));
+                        }
+                        WsError::ConnectionClosed => {
+                            wspackage.status = 0;
+                            return Err(Error::WebsocketError("Ws connection closed, retrying on next request.".to_string()));
+                        }
+                        WsError::AlreadyClosed => {
+                            wspackage.status = 0;
+                            return Err(Error::WebsocketError("Ws connection closed, retrying on next request.".to_string()));
+                        }
+                        WsError::IoError(e) => {
+                            return Err(Error::WebsocketError(e.to_string()));
                         }
                         WsError::Other(s) => {
                             return Err(Error::WebsocketError(s.to_string()));
