@@ -71,11 +71,11 @@ if [[ -z $changes ]];
 then
     no_change=true
 echo "cli_manual.txt is up to date"
-exit 1
 # if the difference is empty, use true to execute nothing: https://stackoverflow.com/questions/17583578/what-command-means-do-nothing-in-a-conditional-in-bash
 else
-patch ./scripts/cli_manual.txt update
-echo "cli_manual.txt has been updated"
+exit 1
+#patch ./scripts/cli_manual.txt update
+#echo "cli_manual.txt has been updated"
 fi
 
 # update cli_manual.sh
