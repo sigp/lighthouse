@@ -46,10 +46,7 @@ const TRUSTED_SETUP_MINIMAL: &[u8] =
     include_bytes!("../built_in_network_configs/minimal_testing_trusted_setups.json");
 
 pub fn get_trusted_setup<P: KzgPreset>() -> &'static [u8] {
-    match P::spec_name() {
-        KzgPresetId::Mainnet => TRUSTED_SETUP,
-        KzgPresetId::Minimal => TRUSTED_SETUP_MINIMAL,
-    }
+    get_trusted_setup_from_id(P::spec_name())
 }
 
 pub fn get_trusted_setup_from_id(id: KzgPresetId) -> &'static [u8] {
