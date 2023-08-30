@@ -193,7 +193,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("http")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
-                .default_value("5062")
+                .default_value_if("http", None, "5062")
                 .takes_value(true),
         )
         .arg(
@@ -242,7 +242,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("metrics")
                 .value_name("ADDRESS")
                 .help("Set the listen address for the Prometheus metrics HTTP server.")
-                .default_value("127.0.0.1")
+                .default_value_if("metrics", None, "127.0.0.1")
                 .takes_value(true),
         )
         .arg(
@@ -251,7 +251,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("metrics")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the Prometheus metrics HTTP server.")
-                .default_value("5064")
+                .default_value_if("metrics", None, "5064")
                 .takes_value(true),
         )
         .arg(
