@@ -47,6 +47,7 @@ pub fn parse_blob<E: EthSpec>(blob: &str) -> Result<Blob<E>, Error> {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KZGVerifyBlobKZGProofInput {
     pub blob: String,
     pub commitment: String,
@@ -54,7 +55,7 @@ pub struct KZGVerifyBlobKZGProofInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct KZGVerifyBlobKZGProof<E: EthSpec> {
     pub input: KZGVerifyBlobKZGProofInput,
     pub output: Option<bool>,
