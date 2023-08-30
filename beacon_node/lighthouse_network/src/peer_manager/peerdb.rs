@@ -771,12 +771,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                         Protocol::Ip4(ip) => (Some(ip.into()), found_port),
                         Protocol::Ip6(ip) => (Some(ip.into()), found_port),
                         Protocol::Tcp(port) => (found_ip, Some(port)),
+                        // Quic
+                        Protocol::Udp(port) => (found_ip, Some(port)),
                         _ => (found_ip, found_port),
                     },
                 ) {
                     (Some(ip), Some(port)) => Some(SocketAddr::new(ip, port)),
                     (Some(_ip), None) => {
-                        crit!(self.log, "Connected peer has an IP but no TCP port"; "peer_id" => %peer_id);
+                        crit!(self.log, "Connected peer has an IP but no Transport port"; "peer_id" => %peer_id);
                         None
                     }
                     _ => None,
