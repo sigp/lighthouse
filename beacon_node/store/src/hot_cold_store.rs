@@ -2217,15 +2217,19 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
         let mut cold_db_ops: Vec<KeyValueStoreOp> = Vec::new();
 
-        if slot % E::slots_per_epoch() == 0 {
+        // Only store the cold state if it's on a diff boundary
+        if matches!(
+            store.hierarchy.storage_strategy(slot)?,
+            StorageStrategy::ReplayFrom(..)
+        ) {
+            // Store slot -> state_root and state_root -> slot mappings.
+            store.store_cold_state_summary(&state_root, slot, &mut cold_db_ops)?;
+        } else {
             let state: BeaconState<E> = store
                 .get_hot_state(&state_root)?
                 .ok_or(HotColdDBError::MissingStateToFreeze(state_root))?;
 
             store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
-        } else {
-            // Store slot -> state_root and state_root -> slot mappings.
-            store.store_cold_state_summary(&state_root, slot, &mut cold_db_ops)?;
         }
 
         // There are data dependencies between calls to `store_cold_state()` that prevent us from

@@ -21,6 +21,7 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
+use store::hdiff::HierarchyConfig;
 use store::{
     config::StoreConfigError,
     iter::{BlockRootsIterator, StateRootsIterator},
@@ -50,7 +51,13 @@ fn get_store_with_spec(
     db_path: &TempDir,
     spec: ChainSpec,
 ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
-    let config = StoreConfig::default();
+    let config = StoreConfig {
+        // More frequent snapshots and hdiffs in tests for testing
+        hierarchy_config: HierarchyConfig {
+            exponents: vec![1, 3, 5],
+        },
+        ..Default::default()
+    };
     try_get_store_with_spec_and_config(db_path, spec, config).expect("disk store should initialize")
 }
 
