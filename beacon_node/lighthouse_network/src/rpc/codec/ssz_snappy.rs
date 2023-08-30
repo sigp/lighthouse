@@ -723,7 +723,7 @@ mod tests {
         SignedBeaconBlock::from_block(full_block, Signature::empty())
     }
 
-    fn default_blob_sidecar() -> Arc<BlobSidecar<Spec>> {
+    fn empty_blob_sidecar() -> Arc<BlobSidecar<Spec>> {
         Arc::new(BlobSidecar::empty())
     }
 
@@ -1048,21 +1048,21 @@ mod tests {
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlobsByRangeV1,
-                RPCCodedResponse::Success(RPCResponse::BlobsByRange(default_blob_sidecar())),
+                RPCCodedResponse::Success(RPCResponse::BlobsByRange(empty_blob_sidecar())),
                 ForkName::Deneb,
                 &chain_spec
             ),
-            Ok(Some(RPCResponse::BlobsByRange(default_blob_sidecar()))),
+            Ok(Some(RPCResponse::BlobsByRange(empty_blob_sidecar()))),
         );
 
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlobsByRootV1,
-                RPCCodedResponse::Success(RPCResponse::BlobsByRoot(default_blob_sidecar())),
+                RPCCodedResponse::Success(RPCResponse::BlobsByRoot(empty_blob_sidecar())),
                 ForkName::Deneb,
                 &chain_spec
             ),
-            Ok(Some(RPCResponse::BlobsByRoot(default_blob_sidecar()))),
+            Ok(Some(RPCResponse::BlobsByRoot(empty_blob_sidecar()))),
         );
     }
 

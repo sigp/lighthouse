@@ -45,7 +45,6 @@ impl Ord for BlobIdentifier {
     Encode,
     Decode,
     TreeHash,
-    Default,
     TestRandom,
     Derivative,
     arbitrary::Arbitrary,
@@ -120,7 +119,16 @@ impl<T: EthSpec> BlobSidecar<T> {
     }
 
     pub fn empty() -> Self {
-        Self::default()
+        Self {
+            block_root: Hash256::zero(),
+            index: 0,
+            slot: Slot::new(0),
+            block_parent_root: Hash256::zero(),
+            proposer_index: 0,
+            blob: Blob::<T>::default(),
+            kzg_commitment: KzgCommitment::empty_for_testing(),
+            kzg_proof: KzgProof::empty(),
+        }
     }
 
     pub fn random_valid<R: Rng>(rng: &mut R, kzg: &Kzg<T::Kzg>) -> Result<Self, String> {
@@ -154,7 +162,7 @@ impl<T: EthSpec> BlobSidecar<T> {
             blob,
             kzg_commitment: commitment,
             kzg_proof: proof,
-            ..Default::default()
+            ..Self::empty()
         })
     }
 
@@ -198,7 +206,6 @@ impl<T: EthSpec> BlobSidecar<T> {
     Encode,
     Decode,
     TreeHash,
-    Default,
     TestRandom,
     Derivative,
     arbitrary::Arbitrary,

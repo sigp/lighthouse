@@ -292,7 +292,7 @@ fn test_blobs_by_range_chunked_rpc() {
         });
 
         // BlocksByRange Response
-        let blob = BlobSidecar::<E>::default();
+        let blob = BlobSidecar::<E>::empty();
 
         let rpc_response = Response::BlobsByRange(Some(Arc::new(blob)));
 
