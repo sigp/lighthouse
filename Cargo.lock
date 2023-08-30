@@ -150,9 +150,9 @@ dependencies = [
 
 [[package]]
 name = "ajsonrpc"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc922dae642c0dddd4f00e2b9b47c78a7bf11d12bd9d1255bda2533bf1a61784"
+checksum = "ff794929bcef443d8631cd1fb97c53a591436c91d1f83d6a2a27bdbec7b137f1"
 dependencies = [
  "axum",
  "futures",
