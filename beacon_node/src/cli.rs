@@ -263,14 +263,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("disable-discovery")
                 .long("disable-discovery")
                 .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
-                .takes_value(false)
                 .hidden(true)
         )
         .arg(
             Arg::with_name("disable-quic")
                 .long("disable-quic")
                 .help("Disables the quic transport. The node will rely solely on the TCP transport for libp2p connections.")
-                .takes_value(false),
         )
         .arg(
             Arg::with_name("disable-peer-scoring")

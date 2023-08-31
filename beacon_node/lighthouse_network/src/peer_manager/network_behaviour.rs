@@ -269,24 +269,26 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         };
 
         // increment prometheus metrics
-        match remote_addr.iter().find(|proto| {
-            matches!(
-                proto,
-                multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
-            )
-        }) {
-            Some(multiaddr::Protocol::QuicV1) => {
-                metrics::inc_gauge(&metrics::QUIC_PEERS_CONNECTED);
-            }
-            Some(multiaddr::Protocol::Tcp(_)) => {
-                metrics::inc_gauge(&metrics::TCP_PEERS_CONNECTED);
-            }
-            Some(_) => unreachable!(),
-            None => error!(self.log, "Connected via unknown transport"; "addr" => %remote_addr),
-        };
+        if self.metrics_enabled {
+            match remote_addr.iter().find(|proto| {
+                matches!(
+                    proto,
+                    multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
+                )
+            }) {
+                Some(multiaddr::Protocol::QuicV1) => {
+                    metrics::inc_gauge(&metrics::QUIC_PEERS_CONNECTED);
+                }
+                Some(multiaddr::Protocol::Tcp(_)) => {
+                    metrics::inc_gauge(&metrics::TCP_PEERS_CONNECTED);
+                }
+                Some(_) => unreachable!(),
+                None => error!(self.log, "Connected via unknown transport"; "addr" => %remote_addr),
+            };
 
-        self.update_connected_peer_metrics();
-        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+            self.update_connected_peer_metrics();
+            metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+        }
     }
 
     fn on_connection_closed(
@@ -326,23 +328,25 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         };
 
         // Update the prometheus metrics
-        match remote_addr.iter().find(|proto| {
-            matches!(
-                proto,
-                multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
-            )
-        }) {
-            Some(multiaddr::Protocol::Quic) => {
-                metrics::dec_gauge(&metrics::QUIC_PEERS_CONNECTED);
-            }
-            Some(multiaddr::Protocol::Tcp(_)) => {
-                metrics::dec_gauge(&metrics::TCP_PEERS_CONNECTED);
-            }
-            // If it's an unknown protocol we already logged when connection was established.
-            _ => {}
-        };
-        self.update_connected_peer_metrics();
-        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+        if self.metrics_enabled {
+            match remote_addr.iter().find(|proto| {
+                matches!(
+                    proto,
+                    multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
+                )
+            }) {
+                Some(multiaddr::Protocol::Quic) => {
+                    metrics::dec_gauge(&metrics::QUIC_PEERS_CONNECTED);
+                }
+                Some(multiaddr::Protocol::Tcp(_)) => {
+                    metrics::dec_gauge(&metrics::TCP_PEERS_CONNECTED);
+                }
+                // If it's an unknown protocol we already logged when connection was established.
+                _ => {}
+            };
+            self.update_connected_peer_metrics();
+            metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+        }
     }
 
     /// A dial attempt has failed.

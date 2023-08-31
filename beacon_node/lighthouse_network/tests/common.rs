@@ -147,18 +147,8 @@ pub async fn build_node_pair(
     let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name, spec).await;
 
     let receiver_multiaddr = match protocol {
-        Protocol::Tcp => receiver
-            .local_enr()
-            .multiaddr_tcp()
-            .first()
-            .unwrap()
-            .clone(),
-        Protocol::Quic => receiver
-            .local_enr()
-            .multiaddr_quic()
-            .first()
-            .unwrap()
-            .clone(),
+        Protocol::Tcp => receiver.local_enr().multiaddr_tcp().pop().unwrap(),
+        Protocol::Quic => receiver.local_enr().multiaddr_quic().pop().unwrap(),
     };
 
     // let the two nodes set up listeners

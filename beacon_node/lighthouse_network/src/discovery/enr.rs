@@ -167,7 +167,8 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
 
     if enable_libp2p {
         // Add QUIC fields to the ENR.
-        // If `enable_libp2p` is disabled, then we should not support QUIC in the ENR either.
+        // Since QUIC is used as an alternative transport for the libp2p protocols,
+        // the related fields should only be added when both QUIC and libp2p are enabled
         if !config.disable_quic_support {
             // If we are listening on ipv4, add the quic ipv4 port.
             if let Some(quic4_port) = config

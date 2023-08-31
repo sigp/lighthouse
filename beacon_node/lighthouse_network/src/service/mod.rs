@@ -476,7 +476,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 }
             }
 
-            //
             for multiaddr in &bootnode_enr.multiaddr() {
                 // ignore udp multiaddr if it exists
                 let components = multiaddr.iter().collect::<Vec<_>>();
@@ -1076,10 +1075,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             .collect();
 
         // Remove the ENR from the cache to prevent continual re-dialing on disconnects
-        peers_to_dial.iter().for_each(|enr| {
-            self.peer_manager_mut().dial_peer(enr.clone());
+        for enr in peers_to_dial {
+            debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %enr.peer_id());
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
-        });
+            self.peer_manager_mut().dial_peer(enr);
+        }
     }
 
     /* Sub-behaviour event handling functions */
