@@ -35,12 +35,13 @@ pub enum GossipBlobError<T: EthSpec> {
         latest_permissible_slot: Slot,
     },
 
-    /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
+    /// There was an error whilst processing the blob. It is not known if it is
+    /// valid or invalid.
     ///
     /// ## Peer scoring
     ///
-    /// We were unable to process this sync committee message due to an internal error. It's unclear if the
-    /// sync committee message is valid.
+    /// We were unable to process this blob due to an internal error. It's
+    /// unclear if the blob is valid.
     BeaconChainError(BeaconChainError),
 
     /// The `BlobSidecar` was gossiped over an incorrect subnet.
@@ -80,7 +81,7 @@ pub enum GossipBlobError<T: EthSpec> {
     ///
     /// ## Peer scoring
     ///
-    /// The block is invalid and the peer is faulty.
+    /// The blob is invalid and the peer is faulty.
     UnknownValidator(u64),
 
     /// The provided blob is not from a later slot than its parent.
