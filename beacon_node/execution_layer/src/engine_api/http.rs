@@ -7,10 +7,11 @@ use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
-use std::collections::HashSet;
+use std::{collections::HashSet, fs::OpenOptions};
 use tokio::sync::Mutex;
 use tokio::time::timeout as tokio_timeout;
 use ajsonrpc::{WsRouter, WsError};
+use std::io::Write;
 
 use std::time::{Duration, Instant};
 use types::EthSpec;
@@ -691,7 +692,20 @@ impl HttpJsonRpc {
                 request = request.bearer_auth(auth.generate_token()?);
             };
 
-            let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
+            let start = Instant::now();
+            let body = request.send().await;
+            let elapsed = start.elapsed();
+
+            // open file and write the elapsed time in ms in a  new line
+            let mut file = OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open("http_times.txt")
+                .unwrap();
+            writeln!(file, "{}", elapsed.as_millis()).unwrap();
+            drop(file);
+
+            let body: JsonResponseBody = body?.error_for_status()?.json().await?;
 
             match (body.result, body.error) {
                 (result, None) => serde_json::from_value(result).map_err(Into::into),
@@ -738,9 +752,20 @@ impl HttpJsonRpc {
 
             let payload = serde_json::to_string(&body)?;
           
-
+            let start = Instant::now();
             let response = wspackage.wsrouter.as_ref().unwrap().send(payload.clone(), wspackage.id).await;
+            let elapsed = start.elapsed();
             drop(wspackage);    // drop lock as quickly as possible to free up
+
+            // open file and write the elapsed time in ms in a  new line
+            let mut file = OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open("ws_times.txt")
+                .unwrap();
+            writeln!(file, "{}", elapsed.as_millis()).unwrap();
+            drop(file);
+
             let response = match response {
                 Err(e) => {
                     match e {
