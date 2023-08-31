@@ -16,11 +16,11 @@ To enable the HTTP API for the beacon node, utilize the `--gui` CLI flag. This a
 
 > The Beacon Node must be run with the `--gui` flag set.
 
-If you require accessibility from another machine within the network, configure the `--http-address` as `0.0.0.0`.
+If you require accessibility from another machine within the network, configure the `--http-address` to match the local LAN IP of the system running the Beacon Node and Validator Client.
 
-> To access from another machine on the same network set the Beacon Node and Validator Client `--http-address` as `0.0.0.0`.
+> To access from another machine on the same network (192.168.0.200) set the Beacon Node and Validator Client `--http-address` as `192.168.0.200`.
 
-In a similar manner, the validator client requires activation of the `--http` flag, along with the optional consideration of configuring the `--http-address` flag. These settings will ensure compatibility with Siren's connectivity requirements.
+In a similar manner, the validator client requires activation of the `--http` flag, along with the optional consideration of configuring the `--http-address` flag. If `--http-address` flag is set on the Validator Client, then the `--unencrypted-http-transport` flag is required as well. These settings will ensure compatibility with Siren's connectivity requirements.
 
 If you run Siren in the browser (by entering `localhost` in the browser), you will need to allow CORS in the HTTP API. This can be done by adding the flag `--http-allow-origin "*"` for both beacon node and validator client.
 
