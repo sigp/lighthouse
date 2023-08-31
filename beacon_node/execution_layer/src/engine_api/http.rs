@@ -753,25 +753,15 @@ impl HttpJsonRpc {
             let payload = serde_json::to_string(&body)?;
           
             let start = Instant::now();
-            let response = wspackage.wsrouter.as_ref().unwrap().send(payload.clone(), wspackage.id).await;
-            let elapsed = start.elapsed();
+            let response = wspackage.wsrouter.as_ref().unwrap().send(payload, wspackage.id).await;
+            
             drop(wspackage);    // drop lock as quickly as possible to free up
 
-            // open file and write the elapsed time in ms in a  new line
-            let mut file = OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open("ws_times.txt")
-                .unwrap();
-            writeln!(file, "{}", elapsed.as_millis()).unwrap();
-            drop(file);
 
             let response = match response {
                 Err(e) => {
                     match e {
-                        WsError::Timeout => {
-                            println!("Websocket request timed out for {}", method);         // REMOVE THIS BEFORE MERGING!!!!
-                            println!("raw req: {}", payload);
+                        WsError::Timeout => {   // shouldn't ever happen since we do the tiemout after this match
                             return Err(Error::WebsocketError("Timeout".to_string()));
                         }
                         WsError::ConnectionClosed => {
@@ -796,6 +786,17 @@ impl HttpJsonRpc {
             let response = tokio_timeout(timeout, response).await
                 .map_err(|_| Error::WebsocketError("Timeout".to_string()))?     // map timeout
                 .map_err(|e| Error::WebsocketError(e.to_string()))?;          // map error with the oneshot channel
+
+            let elapsed = start.elapsed();
+
+            // open file and write the elapsed time in ms in a  new line
+            let mut file = OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open("ws_times.txt")
+                .unwrap();
+            writeln!(file, "{}", elapsed.as_millis()).unwrap();
+            drop(file);
 
 
             let body = serde_json::from_str::<JsonResponseBody>(&response)?;
