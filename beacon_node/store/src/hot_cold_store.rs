@@ -663,7 +663,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             start_slot,
             None,
             || (end_state, end_block_root),
-            spec,
+            spec
         )
     }
 

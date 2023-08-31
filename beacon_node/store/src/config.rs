@@ -3,6 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::{EthSpec, MinimalEthSpec};
+use strum::{Display, EnumString, EnumVariantNames};
 
 pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
@@ -26,6 +27,8 @@ pub struct StoreConfig {
     pub compact_on_prune: bool,
     /// Whether to prune payloads on initialization and finalization.
     pub prune_payloads: bool,
+    /// Database backend to use.
+    pub backend: DatabaseBackend,
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
@@ -50,6 +53,7 @@ impl Default for StoreConfig {
             compact_on_init: false,
             compact_on_prune: true,
             prune_payloads: true,
+            backend: DatabaseBackend::LevelDb
         }
     }
 }
@@ -87,4 +91,13 @@ impl StoreItem for OnDiskStoreConfig {
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self::from_ssz_bytes(bytes)?)
     }
+}
+
+
+#[derive(
+    Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Display, EnumString, EnumVariantNames,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum DatabaseBackend {
+    LevelDb
 }
