@@ -34,7 +34,7 @@ impl<E: EthSpec> Case for KZGBlobToKZGCommitment<E> {
         let kzg = get_kzg::<E::Kzg>()?;
 
         let commitment = parse_blob::<E>(&self.input.blob).and_then(|blob| {
-            blob_to_kzg_commitment::<E>(&kzg, blob).map_err(|e| {
+            blob_to_kzg_commitment::<E>(&kzg, &blob).map_err(|e| {
                 Error::InternalError(format!("Failed to compute kzg commitment: {:?}", e))
             })
         });
