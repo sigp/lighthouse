@@ -18,7 +18,7 @@ use crate::metadata::{
 };
 use crate::metrics;
 use crate::{
-    get_key_for_col, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
+    get_key_for_col, ChunkWriter, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
     PartialBeaconState, StoreItem, StoreOp,
 };
 use itertools::process_results;
@@ -963,6 +963,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops.push(op);
 
         // 2. Store updated vector entries.
+        // Block roots need to be written here as well as by the `ChunkWriter` in `migrate_db`
+        // because states may require older block roots, and the writer only stores block roots
+        // between the previous split point and the new split point.
         let db = &self.cold_db;
         store_updated_vector(BlockRoots, db, state, &self.spec, ops)?;
         store_updated_vector(StateRoots, db, state, &self.spec, ops)?;
@@ -1243,10 +1246,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
     }
 
-    /// Fetch the slot of the most recently stored restore point.
-    pub fn get_latest_restore_point_slot(&self) -> Slot {
-        (self.get_split_slot() - 1) / self.config.slots_per_restore_point
-            * self.config.slots_per_restore_point
+    /// Fetch the slot of the most recently stored restore point (if any).
+    pub fn get_latest_restore_point_slot(&self) -> Option<Slot> {
+        let split_slot = self.get_split_slot();
+        let anchor = self.get_anchor_info();
+
+        // There are no restore points stored if the state upper limit lies in the hot database.
+        // It hasn't been reached yet, and may never be.
+        if anchor.map_or(false, |a| a.state_upper_limit >= split_slot) {
+            None
+        } else {
+            Some(
+                (split_slot - 1) / self.config.slots_per_restore_point
+                    * self.config.slots_per_restore_point,
+            )
+        }
     }
 
     /// Load the database schema version from disk.
@@ -1585,6 +1599,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         )
     }
 
+    /// Update the linear array of frozen block roots with the block root for several skipped slots.
+    ///
+    /// Write the block root at all slots from `start_slot` (inclusive) to `end_slot` (exclusive).
+    pub fn store_frozen_block_root_at_skip_slots(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+        block_root: Hash256,
+    ) -> Result<Vec<KeyValueStoreOp>, Error> {
+        let mut ops = vec![];
+        let mut block_root_writer =
+            ChunkWriter::<BlockRoots, _, _>::new(&self.cold_db, start_slot.as_usize())?;
+        for slot in start_slot.as_usize()..end_slot.as_usize() {
+            block_root_writer.set(slot, block_root, &mut ops)?;
+        }
+        block_root_writer.write(&mut ops)?;
+        Ok(ops)
+    }
+
     /// Try to prune all execution payloads, returning early if there is no need to prune.
     pub fn try_prune_execution_payloads(&self, force: bool) -> Result<(), Error> {
         let split = self.get_split_info();
@@ -1725,7 +1758,14 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         return Err(HotColdDBError::FreezeSlotUnaligned(finalized_state.slot()).into());
     }
 
-    let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
+    let mut hot_db_ops = vec![];
+    let mut cold_db_ops = vec![];
+
+    // Chunk writer for the linear block roots in the freezer DB.
+    // Start at the new upper limit because we iterate backwards.
+    let new_frozen_block_root_upper_limit = finalized_state.slot().as_usize().saturating_sub(1);
+    let mut block_root_writer =
+        ChunkWriter::<BlockRoots, _, _>::new(&store.cold_db, new_frozen_block_root_upper_limit)?;
 
     // 1. Copy all of the states between the new finalized state and the split slot, from the hot DB
     // to the cold DB. Delete the execution payloads of these now-finalized blocks.
@@ -1750,6 +1790,9 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         // Delete the old summary, and the full state if we lie on an epoch boundary.
         hot_db_ops.push(StoreOp::DeleteState(state_root, Some(slot)));
 
+        // Store the block root for this slot in the linear array of frozen block roots.
+        block_root_writer.set(slot.as_usize(), block_root, &mut cold_db_ops)?;
+
         // Do not try to store states if a restore point is yet to be stored, or will never be
         // stored (see `STATE_UPPER_LIMIT_NO_RETAIN`). Make an exception for the genesis state
         // which always needs to be copied from the hot DB to the freezer and should not be deleted.
@@ -1759,16 +1802,8 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
                 .map_or(false, |anchor| slot < anchor.state_upper_limit)
         {
             debug!(store.log, "Pruning finalized state"; "slot" => slot);
+
             continue;
-        }
-
-        let mut cold_db_ops: Vec<KeyValueStoreOp> = Vec::new();
-
-        if slot % store.config.slots_per_restore_point == 0 {
-            let state: BeaconState<E> = get_full_state(&store.hot_db, &state_root, &store.spec)?
-                .ok_or(HotColdDBError::MissingStateToFreeze(state_root))?;
-
-            store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
         }
 
         // Store a pointer from this state root to its slot, so we can later reconstruct states
@@ -1777,10 +1812,23 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         let op = cold_state_summary.as_kv_store_op(state_root);
         cold_db_ops.push(op);
 
-        // There are data dependencies between calls to `store_cold_state()` that prevent us from
-        // doing one big call to `store.cold_db.do_atomically()` at end of the loop.
-        store.cold_db.do_atomically(cold_db_ops)?;
+        if slot % store.config.slots_per_restore_point == 0 {
+            let state: BeaconState<E> = get_full_state(&store.hot_db, &state_root, &store.spec)?
+                .ok_or(HotColdDBError::MissingStateToFreeze(state_root))?;
+
+            store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
+
+            // Commit the batch of cold DB ops whenever a full state is written. Each state stored
+            // may read the linear fields of previous states stored.
+            store
+                .cold_db
+                .do_atomically(std::mem::take(&mut cold_db_ops))?;
+        }
     }
+
+    // Finish writing the block roots and commit the remaining cold DB ops.
+    block_root_writer.write(&mut cold_db_ops)?;
+    store.cold_db.do_atomically(cold_db_ops)?;
 
     // Warning: Critical section.  We have to take care not to put any of the two databases in an
     //          inconsistent state if the OS process dies at any point during the freezeing
