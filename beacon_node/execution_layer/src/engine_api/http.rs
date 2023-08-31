@@ -759,7 +759,7 @@ impl HttpJsonRpc {
             };
             
             let response = tokio_timeout(timeout, response).await
-                .map_err(|e| Error::WebsocketError("Timeout".to_string()))?     // map timeout
+                .map_err(|_| Error::WebsocketError("Timeout".to_string()))?     // map timeout
                 .map_err(|e| Error::WebsocketError(e.to_string()))?;          // map error with the oneshot channel
 
 

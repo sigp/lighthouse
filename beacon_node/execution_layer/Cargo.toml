@@ -51,4 +51,4 @@ hash256-std-hasher = "0.15.2"
 triehash = "0.8.4"
 hash-db = "0.15.2"
 pretty_reqwest_error = { path = "../../common/pretty_reqwest_error" }
-ajsonrpc = "0.1.6"
+ajsonrpc = '0.1.7'
