@@ -89,9 +89,7 @@ impl StateId {
                     } else {
                         // This block is either old and finalized, or recent and unfinalized, so
                         // it's safe to fallback to the optimistic status of the finalized block.
-                        chain
-                            .canonical_head
-                            .fork_choice_read_lock()
+                        fork_choice
                             .is_optimistic_or_invalid_block(&hot_summary.latest_block_root)
                             .map_err(BeaconChainError::ForkChoiceError)
                             .map_err(warp_utils::reject::beacon_chain_error)?
