@@ -14,7 +14,7 @@ The most effective approach to enable access for a local network computer to Lig
 Subsequently, by designating the host as `192.168.0.200`, you can seamlessly connect Siren to this specific beacon node and validator client pair from any computer situated within the same network.
 
 ## 5. How do I connect Siren to Lighthouse via a ssh tunnel?
-If you would like to access Siren beyond the local computer, we recommend using an SSH tunnel. This requires a tunnel for 3 ports: `80` (assuming the port is unchanged as per the [installation guide](./ui-installation.md#docker-recommended), `5052` (for beacon node) and `5062` (for validator client). You can use the command below to perform SSH tunneling:
+If you would like to access Siren beyond the local network (i.e across the internet), we recommend using an SSH tunnel. This requires a tunnel for 3 ports: `80` (assuming the port is unchanged as per the [installation guide](./ui-installation.md#docker-recommended), `5052` (for beacon node) and `5062` (for validator client). You can use the command below to perform SSH tunneling:
 
 ```bash
 
