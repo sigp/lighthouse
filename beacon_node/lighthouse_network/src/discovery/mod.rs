@@ -647,7 +647,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 if subnet_queries.len() == MAX_SUBNETS_IN_QUERY || self.queued_queries.is_empty() {
                     // This query is for searching for peers of a particular subnet
                     // Drain subnet_queries so we can re-use it as we continue to process the queue
-                    let grouped_queries: Vec<SubnetQuery> = subnet_queries.drain(..).collect();
+                    let grouped_queries: Vec<SubnetQuery> = std::mem::take(&mut subnet_queries);
                     self.start_subnet_query(grouped_queries);
                     processed = true;
                 }

@@ -581,6 +581,11 @@ pub struct SyncingData {
     pub sync_distance: Slot,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ExpectedWithdrawalsQuery {
+    pub proposal_slot: Option<Slot>,
+}
+
 #[derive(Clone, PartialEq, Debug, Deserialize)]
 #[serde(try_from = "String", bound = "T: FromStr")]
 pub struct QueryVec<T: FromStr> {
@@ -1311,10 +1316,31 @@ pub struct BroadcastValidationQuery {
     pub broadcast_validation: BroadcastValidation,
 }
 
+pub mod serde_status_code {
+    use crate::StatusCode;
+    use serde::{de::Error, Deserialize, Serialize};
+
+    pub fn serialize<S>(status_code: &StatusCode, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        status_code.as_u16().serialize(ser)
+    }
+
+    pub fn deserialize<'de, D>(de: D) -> Result<StatusCode, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        let status_code = u16::deserialize(de)?;
+        StatusCode::try_from(status_code).map_err(D::Error::custom)
+    }
+}
+
 pub enum ForkVersionedBeaconBlockType<T: EthSpec> {
     Full(ForkVersionedResponse<BeaconBlock<T, FullPayload<T>>>),
     Blinded(ForkVersionedResponse<BeaconBlock<T, BlindedPayload<T>>>)
 }
+
 
 #[cfg(test)]
 mod tests {
