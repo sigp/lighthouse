@@ -38,6 +38,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
+use types::payload::BlockProductionVersion;
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, FullPayload};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
@@ -117,7 +118,6 @@ impl From<ApiError> for Error {
         Error::ApiError(e)
     }
 }
-
 
 pub enum BlockProposalContentsType<E: EthSpec> {
     Full(BlockProposalContents<E, FullPayload<E>>),
@@ -652,26 +652,39 @@ impl<T: EthSpec> ExecutionLayer<T> {
         builder_params: BuilderParams,
         current_fork: ForkName,
         spec: &ChainSpec,
+        block_production_version: BlockProductionVersion,
     ) -> Result<BlockProposalContentsType<T>, Error> {
-        let payload_result_type = match self
-            .determine_and_fetch_payload(
-                parent_hash,
-                payload_attributes,
-                forkchoice_update_params,
-                builder_params,
-                current_fork,
-                spec,
-            )
-            .await
-        {
-            Ok(payload) => payload,
-            Err(e) => {
-                metrics::inc_counter_vec(
-                    &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
-                    &[metrics::FAILURE],
-                );
-                return Err(e);
-            }
+        let payload_result_type = match block_production_version {
+            BlockProductionVersion::V3 | BlockProductionVersion::BlindedV2 => match self
+                .determine_and_fetch_payload(
+                    parent_hash,
+                    payload_attributes,
+                    forkchoice_update_params,
+                    builder_params,
+                    current_fork,
+                    spec,
+                )
+                .await
+            {
+                Ok(payload) => payload,
+                Err(e) => {
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
+                        &[metrics::FAILURE],
+                    );
+                    return Err(e);
+                }
+            },
+            BlockProductionVersion::FullV2 => self
+                .get_full_payload_with_v3(
+                    parent_hash,
+                    payload_attributes,
+                    forkchoice_update_params,
+                    current_fork,
+                    noop,
+                )
+                .await
+                .map(ProvenancedPayload::Local)?,
         };
 
         let block_proposal_content_type = match payload_result_type {

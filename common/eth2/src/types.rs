@@ -1338,9 +1338,8 @@ pub mod serde_status_code {
 
 pub enum ForkVersionedBeaconBlockType<T: EthSpec> {
     Full(ForkVersionedResponse<BeaconBlock<T, FullPayload<T>>>),
-    Blinded(ForkVersionedResponse<BeaconBlock<T, BlindedPayload<T>>>)
+    Blinded(ForkVersionedResponse<BeaconBlock<T, BlindedPayload<T>>>),
 }
-
 
 #[cfg(test)]
 mod tests {

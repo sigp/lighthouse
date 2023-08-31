@@ -44,8 +44,6 @@ pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 pub const EXECUTION_PAYLOAD_BLINDED_HEADER: &str = "Eth-Execution-Payload-Blinded";
 pub const EXECUTION_PAYLOAD_VALUE_HEADER: &str = "Eth-Execution-Payload-Value";
 
-
-
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
@@ -1642,9 +1640,14 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<ForkVersionedBeaconBlockType<T>, Error> {
-        self.get_validator_blocks_v3_modular(slot, randao_reveal, graffiti, SkipRandaoVerification::No)
-            .await
-    } 
+        self.get_validator_blocks_v3_modular(
+            slot,
+            randao_reveal,
+            graffiti,
+            SkipRandaoVerification::No,
+        )
+        .await
+    }
 
     /// `GET v3/validator/blocks/{slot}`
     pub async fn get_validator_blocks_v3_modular<T: EthSpec>(
@@ -1683,12 +1686,16 @@ impl BeaconNodeHttpClient {
 
         if let Some(header_value) = response.headers().get(EXECUTION_PAYLOAD_BLINDED_HEADER) {
             if header_value.eq("true") {
-                let blinded_payload = response.json::<ForkVersionedResponse<BeaconBlock<T, BlindedPayload<T>>>>().await?;
-                return Ok(ForkVersionedBeaconBlockType::Blinded(blinded_payload))
+                let blinded_payload = response
+                    .json::<ForkVersionedResponse<BeaconBlock<T, BlindedPayload<T>>>>()
+                    .await?;
+                return Ok(ForkVersionedBeaconBlockType::Blinded(blinded_payload));
             }
         };
-        
-        let full_payload = response.json::<ForkVersionedResponse<BeaconBlock<T, FullPayload<T>>>>().await?;
+
+        let full_payload = response
+            .json::<ForkVersionedResponse<BeaconBlock<T, FullPayload<T>>>>()
+            .await?;
         Ok(ForkVersionedBeaconBlockType::Full(full_payload))
     }
 

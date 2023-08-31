@@ -109,6 +109,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
+use types::payload::BlockProductionVersion;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -3660,11 +3661,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
+        block_production_version: BlockProductionVersion,
     ) -> Result<BeaconBlockAndStateResponse<T::EthSpec>, BlockProductionError> {
         // Part 1/2 (blocking)
         //
         // Load the parent state from disk.
-        println!("part 1");
         let chain = self.clone();
         let (state, state_root_opt) = self
             .task_executor
@@ -3679,7 +3680,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Part 2/2 (async, with some blocking components)
         //
         // Produce the block upon the state
-        println!("part 2");
         self.determine_and_produce_block_on_state(
             state,
             state_root_opt,
@@ -3687,6 +3687,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             randao_reveal,
             validator_graffiti,
             verification,
+            block_production_version,
         )
         .await
     }
@@ -4298,11 +4299,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
+        block_production_version: BlockProductionVersion,
     ) -> Result<BeaconBlockAndStateResponse<T::EthSpec>, BlockProductionError> {
         // Part 1/3 (blocking)
         //
         // Perform the state advance and block-packing functions.
-        println!("yo");
         let chain = self.clone();
         let mut partial_beacon_block = self
             .task_executor
@@ -4316,6 +4317,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             produce_at_slot,
                             randao_reveal,
                             validator_graffiti,
+                            block_production_version,
                         )
                         .await
                 },
@@ -4325,14 +4327,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(BlockProductionError::TokioJoin)?
             .ok_or(BlockProductionError::ShuttingDown)??;
-        println!("does it get here");
         // Part 2/3 (async)
         //
         // Wait for the execution layer to return an execution payload (if one is required).
         let prepare_payload_handle = partial_beacon_block.prepare_payload_handle.take();
         let block_contents_type_option =
             if let Some(prepare_payload_handle) = prepare_payload_handle {
-                println!("ITS NOT NONE");
                 Some(
                     prepare_payload_handle
                         .await
@@ -4340,7 +4340,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(BlockProductionError::ShuttingDown)??,
                 )
             } else {
-                println!("ITS NONE");
                 None
             };
 
@@ -4477,6 +4476,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
+        block_production_version: BlockProductionVersion,
     ) -> Result<PartialBeaconBlockV3<T::EthSpec>, BlockProductionError> {
         let eth1_chain = self
             .eth1_chain
@@ -4528,18 +4528,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If required, start the process of loading an execution payload from the EL early. This
         // allows it to run concurrently with things like attestation packing.
-       
+
         let prepare_payload_handle = match &state {
-            BeaconState::Base(_) | BeaconState::Altair(_) => {
-                println!("the state is base or");
-                None
-            },
+            BeaconState::Base(_) | BeaconState::Altair(_) => None,
             BeaconState::Merge(_) | BeaconState::Capella(_) => {
                 let prepare_payload_handle = determine_and_get_execution_payload(
                     self.clone(),
                     &state,
                     proposer_index,
                     builder_params,
+                    block_production_version,
                 )?;
                 Some(prepare_payload_handle)
             }

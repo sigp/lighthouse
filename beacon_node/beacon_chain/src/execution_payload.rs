@@ -28,6 +28,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
+use types::payload::BlockProductionVersion;
 use types::*;
 
 pub type PreparePayloadResultV3<E> = Result<BlockProposalContentsType<E>, BlockProductionError>;
@@ -416,6 +417,7 @@ pub fn determine_and_get_execution_payload<T: BeaconChainTypes>(
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
     builder_params: BuilderParams,
+    block_production_version: BlockProductionVersion,
 ) -> Result<PreparePayloadHandleV3<T::EthSpec>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
@@ -450,6 +452,7 @@ pub fn determine_and_get_execution_payload<T: BeaconChainTypes>(
                     latest_execution_payload_header_block_hash,
                     builder_params,
                     withdrawals,
+                    block_production_version,
                 )
                 .await
             },
@@ -654,6 +657,7 @@ pub async fn determine_and_prepare_execution_payload<T>(
     latest_execution_payload_header_block_hash: ExecutionBlockHash,
     builder_params: BuilderParams,
     withdrawals: Option<Vec<Withdrawal>>,
+    block_production_version: BlockProductionVersion,
 ) -> Result<BlockProposalContentsType<T::EthSpec>, BlockProductionError>
 where
     T: BeaconChainTypes,
@@ -740,6 +744,7 @@ where
             builder_params,
             fork,
             &chain.spec,
+            block_production_version,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

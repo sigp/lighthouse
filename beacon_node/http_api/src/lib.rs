@@ -26,12 +26,12 @@ mod validator;
 mod validator_inclusion;
 mod version;
 
+use crate::validator::{produce_block_v2, produce_block_v3};
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
-use crate::validator::{produce_block_v3, produce_block_v2};
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
@@ -83,7 +83,8 @@ use types::{
 use validator::pubkey_to_validator_index;
 use version::{
     add_consensus_version_header, execution_optimistic_finalized_fork_versioned_response,
-    fork_versioned_response, inconsistent_fork_rejection, unsupported_version_rejection, V1, V2, V3,
+    fork_versioned_response, inconsistent_fork_rejection, unsupported_version_rejection, V1, V2,
+    V3,
 };
 use warp::http::StatusCode;
 use warp::sse::Event;
@@ -346,7 +347,6 @@ pub fn serve<T: BeaconChainTypes>(
 
     let eth_v1 = single_version(V1);
     let eth_v2 = single_version(V2);
-    let eth_v3 = single_version(V3);
 
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();

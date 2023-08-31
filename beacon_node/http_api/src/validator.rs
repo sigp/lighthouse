@@ -1,4 +1,4 @@
-use types::*;
+use types::{payload::BlockProductionVersion, *};
 
 use std::sync::Arc;
 
@@ -69,23 +69,34 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
 
-    let (block, _) = chain
-        .produce_block_with_verification::<FullPayload<T::EthSpec>>(
+    let block_response = chain
+        .determine_and_produce_block_with_verification(
             randao_reveal,
             slot,
             query.graffiti.map(Into::into),
             randao_verification,
+            BlockProductionVersion::FullV2,
         )
         .await
         .map_err(warp_utils::reject::block_production_error)?;
-    let fork_name = block
-        .to_ref()
-        .fork_name(&chain.spec)
-        .map_err(inconsistent_fork_rejection)?;
 
-    fork_versioned_response(endpoint_version, fork_name, block)
-        .map(|response| warp::reply::json(&response).into_response())
-        .map(|res| add_consensus_version_header(res, fork_name))
+    match block_response {
+        BeaconBlockAndStateResponse::Full((block, _)) => {
+            let fork_name = block
+                .to_ref()
+                .fork_name(&chain.spec)
+                .map_err(inconsistent_fork_rejection)?;
+
+            fork_versioned_response(endpoint_version, fork_name, block)
+                .map(|response| warp::reply::json(&response).into_response())
+                .map(|res| add_consensus_version_header(res, fork_name))
+        }
+        BeaconBlockAndStateResponse::Blinded((_, _)) => {
+            Err(warp_utils::reject::custom_server_error(
+                "Returned a blinded block. It should be impossible to return a blinded block via the Full Payload V2 block fetching flow.".to_string()
+            ))
+        }
+    }
 }
 
 pub async fn produce_block_v3<T: BeaconChainTypes>(
@@ -121,24 +132,22 @@ pub async fn determine_and_produce_block_json<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
-    println!("lets try to fetch");
-    match chain
+
+    let block_response = chain
         .determine_and_produce_block_with_verification(
             randao_reveal,
             slot,
             query.graffiti.map(Into::into),
             randao_verification,
+            BlockProductionVersion::V3,
         )
         .await
         .map_err(|e| {
-            warp_utils::reject::custom_bad_request(format!(
-                "faield to fetch a block: {:?}",
-                e
-            ))
-        })?
-    {
+            warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
+        })?;
+
+    match block_response {
         BeaconBlockAndStateResponse::Full((block, _)) => {
-            println!("full");
             let fork_name = block
                 .to_ref()
                 .fork_name(&chain.spec)
@@ -152,7 +161,6 @@ pub async fn determine_and_produce_block_json<T: BeaconChainTypes>(
             // TODO
         }
         BeaconBlockAndStateResponse::Blinded((block, _)) => {
-            println!("blinded");
             let fork_name = block
                 .to_ref()
                 .fork_name(&chain.spec)
@@ -189,15 +197,12 @@ pub async fn determine_and_produce_block_ssz<T: BeaconChainTypes>(
             slot,
             query.graffiti.map(Into::into),
             randao_verification,
+            BlockProductionVersion::V3,
         )
         .await
         .map_err(|e| {
-            warp_utils::reject::custom_bad_request(format!(
-                "faield to fetch a block: {:?}",
-                e
-            ))
-        })?
-    {
+            warp_utils::reject::custom_bad_request(format!("faield to fetch a block: {:?}", e))
+        })? {
         BeaconBlockAndStateResponse::Full((block, _)) => {
             let fork_name = block
                 .to_ref()

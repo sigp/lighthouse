@@ -21,7 +21,7 @@ use types::{
     MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
-use eth2::types::ForkVersionedBeaconBlockType::{Full, Blinded};
+use eth2::types::ForkVersionedBeaconBlockType::{Blinded, Full};
 
 type E = MainnetEthSpec;
 
@@ -624,19 +624,19 @@ pub async fn proposer_boost_re_org_test(
         .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None)
         .await
         .unwrap();
-    
+
     let block_c = match unsigned_block_type {
         Full(unsigned_block_c) => {
             println!("full");
             harness.sign_beacon_block(unsigned_block_c.data, &state_b)
-        },
+        }
         Blinded(unsigned_block_c) => {
             println!("blinded");
             harness.sign_beacon_block(unsigned_block_c.data, &state_b)
         }
     };
     // let block_c = harness.sign_beacon_block(unsigned_block_c, &state_b);
-    
+
     if should_re_org {
         // Block C should build on A.
         assert_eq!(block_c.parent_root(), block_a_root.into());
