@@ -585,10 +585,16 @@ impl CapabilitiesCacheEntry {
     }
 }
 
+pub enum WsStatus {
+    Uninitialized,
+    Initialized,
+    Disabled
+}
+
 // used to house the id of the next jsonrpc request and the status of the ws intialization and router since we need to syncronize them all
 pub struct WsPackage {
     id: u64,
-    status: u8,
+    status: WsStatus,
     wsrouter: Option<WsRouter>,
 }
 
@@ -613,7 +619,7 @@ impl HttpJsonRpc {
 
             return Ok(Self {
                 client: None,
-                wspackage: Mutex::new(WsPackage{id: 0, status: 0, wsrouter: None}),
+                wspackage: Mutex::new(WsPackage{id: 0, status: WsStatus::Uninitialized, wsrouter: None}),
                 url,
                 execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
                 engine_capabilities_cache: Mutex::new(None),
@@ -623,7 +629,7 @@ impl HttpJsonRpc {
 
         Ok(Self {
             client: Some(Client::builder().build()?),
-            wspackage: Mutex::new(WsPackage{id: 0, status: 2, wsrouter: None}),
+            wspackage: Mutex::new(WsPackage{id: 0, status: WsStatus::Disabled, wsrouter: None}),
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
@@ -640,7 +646,7 @@ impl HttpJsonRpc {
 
             return Ok(Self {
                 client: None,
-                wspackage: Mutex::new(WsPackage{id: 0, status: 0, wsrouter: None}),
+                wspackage: Mutex::new(WsPackage{id: 0, status: WsStatus::Uninitialized, wsrouter: None}),
                 url,
                 execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
                 engine_capabilities_cache: Mutex::new(None),
@@ -650,7 +656,7 @@ impl HttpJsonRpc {
 
         Ok(Self {
             client: Some(Client::builder().build()?),
-            wspackage: Mutex::new(WsPackage{id: 0, status: 2, wsrouter: None}),
+            wspackage: Mutex::new(WsPackage{id: 0, status: WsStatus::Disabled, wsrouter: None}),
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
@@ -665,7 +671,7 @@ impl HttpJsonRpc {
         timeout: Duration,
     ) -> Result<D, Error> {
 
-        if let Some(client) = &self.client {
+        if let Some(client) = &self.client {    // check if we are using http or ws
 
             let body = JsonRequestBody {
                 jsonrpc: JSONRPC_VERSION,
@@ -704,19 +710,23 @@ impl HttpJsonRpc {
         else {
 
             let mut wspackage = self.wspackage.lock().await;
-            wspackage.id += 1;
+            wspackage.id += 1;  // id for next req
 
-            if wspackage.status == 0 {
-                if let Some(auth) = &self.auth {
-                    let wsrouter = WsRouter::new_with_jwt(self.url.full.to_string(), auth.generate_token()?).await.map_err(|e| Error::WebsocketError(e.to_string()))?;
-                    wspackage.wsrouter = Some(wsrouter);
-                    wspackage.status = 1;
+            // initialize the ws connection if needed
+            match wspackage.status {
+                WsStatus::Uninitialized => {
+                    if let Some(auth) = &self.auth {
+                        let wsrouter = WsRouter::new_with_jwt(self.url.full.to_string(), auth.generate_token()?).await.map_err(|e| Error::WebsocketError(e.to_string()))?;
+                        wspackage.wsrouter = Some(wsrouter);
+                        wspackage.status = WsStatus::Initialized;
+                    }
+                    else {
+                        let wsrouter = WsRouter::new(self.url.full.to_string()).await.map_err(|e| Error::WebsocketError(e.to_string()))?;
+                        wspackage.wsrouter = Some(wsrouter);
+                        wspackage.status = WsStatus::Initialized;
+                    }
                 }
-                else {
-                    let wsrouter = WsRouter::new(self.url.full.to_string()).await.map_err(|e| Error::WebsocketError(e.to_string()))?;
-                    wspackage.wsrouter = Some(wsrouter);
-                    wspackage.status = 1;
-                }
+                _ => {} // either already initialized or disabled
             }
 
             let body = JsonRequestBody {
@@ -727,31 +737,31 @@ impl HttpJsonRpc {
             };
 
             let payload = serde_json::to_string(&body)?;
-            // map Timeout error to our own
-            // map Other to our own
+          
+
             let response = wspackage.wsrouter.as_ref().unwrap().send(payload.clone(), wspackage.id).await;
-            drop(wspackage);
+            drop(wspackage);    // drop lock as quickly as possible to free up
             let response = match response {
                 Err(e) => {
                     match e {
                         WsError::Timeout => {
-                            println!("Websocket request timed out for {}", method);
+                            println!("Websocket request timed out for {}", method);         // REMOVE THIS BEFORE MERGING!!!!
                             println!("raw req: {}", payload);
                             return Err(Error::WebsocketError("Timeout".to_string()));
                         }
                         WsError::ConnectionClosed => {
-                            self.wspackage.lock().await.status = 0;     // in the rare case that its closed we can afford to retry
+                            self.wspackage.lock().await.status = WsStatus::Uninitialized;     // in the rare case that its closed we can afford to retry on the next call
                             return Err(Error::WebsocketError("Ws connection closed, retrying on next request.".to_string()));
                         }
                         WsError::AlreadyClosed => {
-                            self.wspackage.lock().await.status = 0;
+                            self.wspackage.lock().await.status = WsStatus::Uninitialized;
                             return Err(Error::WebsocketError("Ws connection closed, retrying on next request.".to_string()));
                         }
                         WsError::IoError(e) => {
                             return Err(Error::WebsocketError(e.to_string()));
                         }
-                        WsError::Other(s) => {
-                            return Err(Error::WebsocketError(s.to_string()));
+                        WsError::Other(e) => {
+                            return Err(Error::WebsocketError(e.to_string()));
                         }
                     }
                 },
@@ -762,9 +772,6 @@ impl HttpJsonRpc {
                 .map_err(|_| Error::WebsocketError("Timeout".to_string()))?     // map timeout
                 .map_err(|e| Error::WebsocketError(e.to_string()))?;          // map error with the oneshot channel
 
-
-
-                
 
             let body = serde_json::from_str::<JsonResponseBody>(&response)?;
 
