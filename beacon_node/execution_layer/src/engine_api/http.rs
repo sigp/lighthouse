@@ -9,6 +9,7 @@ use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
 use tokio::sync::Mutex;
+use tokio::time::timeout as tokio_timeout;
 use ajsonrpc::{WsRouter, WsError};
 
 use std::time::{Duration, Instant};
@@ -728,7 +729,8 @@ impl HttpJsonRpc {
             let payload = serde_json::to_string(&body)?;
             // map Timeout error to our own
             // map Other to our own
-            let response = wspackage.wsrouter.as_ref().unwrap().make_request_timeout(payload.clone(), wspackage.id, timeout).await;
+            let response = wspackage.wsrouter.as_ref().unwrap().send(payload.clone(), wspackage.id).await;
+            drop(wspackage);
             let response = match response {
                 Err(e) => {
                     match e {
@@ -738,11 +740,11 @@ impl HttpJsonRpc {
                             return Err(Error::WebsocketError("Timeout".to_string()));
                         }
                         WsError::ConnectionClosed => {
-                            wspackage.status = 0;
+                            self.wspackage.lock().await.status = 0;     // in the rare case that its closed we can afford to retry
                             return Err(Error::WebsocketError("Ws connection closed, retrying on next request.".to_string()));
                         }
                         WsError::AlreadyClosed => {
-                            wspackage.status = 0;
+                            self.wspackage.lock().await.status = 0;
                             return Err(Error::WebsocketError("Ws connection closed, retrying on next request.".to_string()));
                         }
                         WsError::IoError(e) => {
@@ -755,8 +757,12 @@ impl HttpJsonRpc {
                 },
                 Ok(response) => response,
             };
+            
+            let response = tokio_timeout(timeout, response).await
+                .map_err(|e| Error::WebsocketError("Timeout".to_string()))?     // map timeout
+                .map_err(|e| Error::WebsocketError(e.to_string()))?;          // map error with the oneshot channel
 
-            std::mem::drop(wspackage);
+
 
                 
 
