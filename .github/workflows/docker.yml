@@ -47,7 +47,7 @@ jobs:
     build-docker-single-arch:
         name: build-docker-${{ matrix.binary }}${{ matrix.features.version_suffix }}
         # Use self-hosted runners only on the sigp repo.
-        runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-22.04'  }}
+        runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release"]') || 'ubuntu-22.04'  }}
         strategy:
             matrix:
                 binary: [aarch64,
