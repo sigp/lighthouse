@@ -118,7 +118,7 @@ mod tests {
 
         // Build beacon chain.
         let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
-            .spec(spec)
+            .spec(spec.clone())
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()
             .mock_execution_layer()
@@ -158,20 +158,6 @@ mod tests {
         });
 
         // Subscribe to the topics.
-        // Topics the service should be subscribed to during the current epoch (before the fork) are:
-        // - /eth2/(old_fork_digest)/beacon_attestation_1/ssz_snappy
-        // - /eth2/(old_fork_digest)/beacon_attestation_2/ssz_snappy
-        let old_fork_digest = beacon_chain.enr_fork_id().fork_digest;
-        let old_topic1 = GossipTopic::new(
-            GossipKind::Attestation(SubnetId::new(1)),
-            GossipEncoding::SSZSnappy,
-            old_fork_digest,
-        );
-        let old_topic2 = GossipTopic::new(
-            GossipKind::Attestation(SubnetId::new(2)),
-            GossipEncoding::SSZSnappy,
-            old_fork_digest,
-        );
         runtime.block_on(async {
             while network_globals.gossipsub_subscriptions.read().len() < 2 {
                 if let Some(msg) = network_service.attestation_service.next().await {
@@ -179,10 +165,45 @@ mod tests {
                 }
             }
         });
+
+        // Make sure the service is subscribed to the topics.
+        let (old_topic1, old_topic2) = {
+            let mut subnets = SubnetId::compute_subnets_for_epoch::<MinimalEthSpec>(
+                network_globals.local_enr().node_id().raw().into(),
+                beacon_chain.epoch().unwrap(),
+                &spec,
+            )
+            .unwrap()
+            .0
+            .collect::<Vec<_>>();
+            assert_eq!(2, subnets.len());
+
+            let old_fork_digest = beacon_chain.enr_fork_id().fork_digest;
+            let old_topic1 = GossipTopic::new(
+                GossipKind::Attestation(subnets.pop().unwrap()),
+                GossipEncoding::SSZSnappy,
+                old_fork_digest,
+            );
+            let old_topic2 = GossipTopic::new(
+                GossipKind::Attestation(subnets.pop().unwrap()),
+                GossipEncoding::SSZSnappy,
+                old_fork_digest,
+            );
+
+            (old_topic1, old_topic2)
+        };
         let subscriptions = network_globals.gossipsub_subscriptions.read().clone();
         assert_eq!(2, subscriptions.len());
         assert!(subscriptions.contains(&old_topic1));
         assert!(subscriptions.contains(&old_topic2));
+        let old_topic_params1 = network_service
+            .get_topic_params(old_topic1.clone())
+            .expect("topic score params");
+        assert!(old_topic_params1.topic_weight > 0.0);
+        let old_topic_params2 = network_service
+            .get_topic_params(old_topic2.clone())
+            .expect("topic score params");
+        assert!(old_topic_params2.topic_weight > 0.0);
 
         // Advance slot to the next fork
         for _ in 0..MinimalEthSpec::slots_per_epoch() {
