@@ -365,7 +365,7 @@ impl<T: EthSpec> OperationPool<T> {
             vec![]
         };
 
-        let prev_epoch_cliqued_atts: Vec<AttMaxCover<T>> = prev_epoch_cliqued_atts
+        let prev_epoch_cliqued_atts = prev_epoch_cliqued_atts
             .iter()
             .map(|(data, indexed)| AttestationRef {
                 checkpoint: &prev_epoch_key,
@@ -374,8 +374,7 @@ impl<T: EthSpec> OperationPool<T> {
             })
             .filter_map(|att| {
                 AttMaxCover::new(att, state, &reward_cache, total_active_balance, spec)
-            })
-            .collect();
+            });
 
         let curr_epoch_cliqued_atts = self.get_clique_aggregate_attestations_for_epoch(
             &curr_epoch_key,
@@ -386,7 +385,7 @@ impl<T: EthSpec> OperationPool<T> {
             spec,
         );
 
-        let curr_epoch_cliqued_atts: Vec<AttMaxCover<T>> = curr_epoch_cliqued_atts
+        let curr_epoch_cliqued_atts = curr_epoch_cliqued_atts
             .iter()
             .map(|(data, indexed)| AttestationRef {
                 checkpoint: &curr_epoch_key,
@@ -395,8 +394,7 @@ impl<T: EthSpec> OperationPool<T> {
             })
             .filter_map(|att| {
                 AttMaxCover::new(att, state, &reward_cache, total_active_balance, spec)
-            })
-            .collect();
+            });
 
         let prev_epoch_limit = if let BeaconState::Base(base_state) = state {
             std::cmp::min(
