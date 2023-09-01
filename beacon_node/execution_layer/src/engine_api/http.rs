@@ -723,6 +723,7 @@ impl HttpJsonRpc {
         }
         else {
 
+            let start = Instant::now();
             let mut wspackage = self.wspackage.lock().await;
             wspackage.id += 1;  // id for next req
 
@@ -752,10 +753,11 @@ impl HttpJsonRpc {
 
             let payload = serde_json::to_string(&body)?;
           
-            let start = Instant::now();
+            
             let response = wspackage.wsrouter.as_ref().unwrap().make_request_timeout(payload, wspackage.id, timeout).await;
-            let elapsed = start.elapsed();
+            
             drop(wspackage);    // drop lock as quickly as possible to free up
+            let elapsed = start.elapsed();
             
 
             // open file and write the elapsed time in ms in a  new line
