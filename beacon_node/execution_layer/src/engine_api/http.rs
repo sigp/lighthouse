@@ -702,7 +702,7 @@ impl HttpJsonRpc {
                 .create(true)
                 .open("http_times.txt")
                 .unwrap();
-            writeln!(file, "{}", elapsed.as_millis()).unwrap();
+            writeln!(file, "{}", elapsed.as_micros()).unwrap();
             drop(file);
 
             let body: JsonResponseBody = body?.error_for_status()?.json().await?;
@@ -795,7 +795,7 @@ impl HttpJsonRpc {
                 .create(true)
                 .open("ws_times.txt")
                 .unwrap();
-            writeln!(file, "{}", elapsed.as_millis()).unwrap();
+            writeln!(file, "{}", elapsed.as_micros()).unwrap();
             drop(file);
 
 
