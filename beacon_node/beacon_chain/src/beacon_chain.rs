@@ -475,7 +475,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     /// The slot at which blocks are downloaded back to.
     pub genesis_backfill_slot: Slot,
+    // Provides a KZG verification and temporary storage for blocks and blobs as
+    // they are collected and combined.
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
+    /// The KZG trusted setup used by this chain.
     pub kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
 }
 
