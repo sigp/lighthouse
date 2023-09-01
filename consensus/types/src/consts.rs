@@ -32,9 +32,9 @@ pub mod deneb {
             "52435875175126190479447740508185965837690552500527637822603658699938581184513"
         )
         .expect("should initialize BLS_MODULUS");
-        pub static ref MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS: Epoch = Epoch::from(4096_u64);
     }
     pub const VERSIONED_HASH_VERSION_KZG: u8 = 1;
     pub const BLOB_SIDECAR_SUBNET_COUNT: u64 = 6;
     pub const MAX_BLOBS_PER_BLOCK: u64 = BLOB_SIDECAR_SUBNET_COUNT;
+    pub const MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS: Epoch = Epoch::new(4096);
 }

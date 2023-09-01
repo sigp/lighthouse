@@ -639,6 +639,7 @@ pub fn generate_random_blobs<T: EthSpec>(
 ) -> Result<(BlobsBundle<T>, Transactions<T>), String> {
     let mut bundle = BlobsBundle::<T>::default();
     let mut transactions = vec![];
+    // FIXME(sproul): this is not deterministic for CI, we should use a seed like in TestHarness
     for blob_index in 0..n_blobs {
         let random_valid_sidecar = BlobSidecar::<T>::random_valid(&mut thread_rng(), kzg)?;
 

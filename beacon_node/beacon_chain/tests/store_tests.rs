@@ -1091,7 +1091,7 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         );
     }
 
-    assert_eq!(rig.get_finalized_checkpoints(), hashset! {},);
+    assert_eq!(rig.get_finalized_checkpoints(), hashset! {});
 
     assert!(rig.chain.knows_head(&stray_head));
 
@@ -1118,8 +1118,14 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     for &block_hash in stray_blocks.values() {
         assert!(
             !rig.block_exists(block_hash),
-            "abandoned block {} should have been pruned",
-            block_hash
+            "abandoned block {block_hash:?} should have been pruned",
+        );
+        assert!(
+            !rig.chain
+                .store
+                .blob_sidecar_exists(&block_hash.into())
+                .unwrap(),
+            "blobs for abandoned block {block_hash:?} should have been pruned"
         );
     }
 
@@ -1807,6 +1813,14 @@ fn check_no_blocks_exist<'a>(
             block.is_none(),
             "did not expect block {:?} to be in the DB",
             block_hash
+        );
+        assert!(
+            !harness
+                .chain
+                .store
+                .blob_sidecar_exists(&block_hash.into())
+                .unwrap(),
+            "blobs for abandoned block {block_hash:?} should have been pruned"
         );
     }
 }
@@ -2812,15 +2826,6 @@ async fn schema_downgrade_to_min_version() {
     .expect("schema upgrade from minimum version should work");
 
     // Recreate the harness.
-    /*
-    let slot_clock = TestingSlotClock::new(
-        Slot::new(0),
-        Duration::from_secs(harness.chain.genesis_time),
-        Duration::from_secs(spec.seconds_per_slot),
-    );
-    slot_clock.set_slot(harness.get_current_slot().as_u64());
-    */
-
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
@@ -2846,6 +2851,81 @@ async fn schema_downgrade_to_min_version() {
         spec,
     )
     .expect_err("should not downgrade below minimum version");
+}
+
+/// Check that blob pruning prunes blobs older than the data availability boundary.
+#[tokio::test]
+async fn deneb_prune_blobs_happy_case() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+
+    if store.get_chain_spec().deneb_fork_epoch.is_none() {
+        // No-op prior to Deneb.
+        return;
+    }
+
+    let num_blocks_produced = E::slots_per_epoch() * 8;
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Prior to manual pruning with an artifically low data availability boundary all blobs should
+    // be stored.
+    assert_eq!(store.get_blob_info().oldest_blob_slot, None);
+    check_blob_existence(&harness, Slot::new(1), harness.head_slot(), true);
+
+    // Trigger blob pruning of blobs older than epoch 2.
+    let data_availability_boundary = Epoch::new(2);
+    store
+        .try_prune_blobs(true, data_availability_boundary)
+        .unwrap();
+
+    // Check oldest blob slot is updated accordingly and prior blobs have been deleted.
+    let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+    assert_eq!(
+        oldest_blob_slot,
+        data_availability_boundary.start_slot(E::slots_per_epoch())
+    );
+    check_blob_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
+    check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
+}
+
+/// Check that there are blob sidecars (or not) at every slot in the range.
+fn check_blob_existence(
+    harness: &TestHarness,
+    start_slot: Slot,
+    end_slot: Slot,
+    should_exist: bool,
+) {
+    let mut blobs_seen = 0;
+    for (block_root, slot) in harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap()
+        .map(Result::unwrap)
+    {
+        if let Some(blobs) = harness.chain.store.get_blobs(&block_root).unwrap() {
+            assert!(should_exist, "blobs at slot {slot} exist but should not");
+            blobs_seen += blobs.len();
+        } else {
+            // FIXME(sproul): seems weird that we don't store empty blob lists
+            /*
+            assert!(
+                !should_exist,
+                "blobs at slot {slot} should exist but do not"
+            );
+            */
+        }
+    }
+    if should_exist {
+        assert_ne!(blobs_seen, 0, "expected non-zero number of blobs");
+    }
 }
 
 /// Checks that two chains are the same, for the purpose of these tests.

@@ -293,7 +293,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 .map(|current_epoch| {
                     std::cmp::max(
                         fork_epoch,
-                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+                        current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
                     )
                 })
         })
@@ -466,7 +466,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 let cutoff_epoch = std::cmp::max(
                     finalized_epoch + 1,
                     std::cmp::max(
-                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+                        current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
                         deneb_fork_epoch,
                     ),
                 );

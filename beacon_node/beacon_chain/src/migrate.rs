@@ -671,8 +671,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
                 ];
-                if store.blobs_sidecar_exists(&block_root).unwrap_or(false) {
-                    // Keep track of non-empty orphaned blobs sidecars.
+                if store.blob_sidecar_exists(&block_root).unwrap_or(false) {
+                    // Keep track of non-empty orphaned blob sidecars.
                     store_ops.extend([
                         StoreOp::DeleteBlobs(block_root),
                         StoreOp::PutOrphanedBlobsKey(block_root),
