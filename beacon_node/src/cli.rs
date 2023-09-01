@@ -316,22 +316,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-address")
                 .long("http-address")
+                .requires("http")
                 .value_name("ADDRESS")
                 .help("Set the listen address for the RESTful HTTP API server.")
-                .default_value("127.0.0.1")
+                .default_value_if("http", None, "127.0.0.1")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("http-port")
                 .long("http-port")
+                .requires("http")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
-                .default_value("5052")
+                .default_value_if("http", None, "5052")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("http-allow-origin")
                 .long("http-allow-origin")
+                .requires("http")
                 .value_name("ORIGIN")
                 .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
@@ -342,11 +345,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-disable-legacy-spec")
                 .long("http-disable-legacy-spec")
+                .requires("http")
                 .hidden(true)
         )
         .arg(
             Arg::with_name("http-spec-fork")
                 .long("http-spec-fork")
+                .requires("http")
                 .value_name("FORK")
                 .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
                        not be necessary to set this flag.")
@@ -364,6 +369,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-tls-cert")
                 .long("http-tls-cert")
+                .requires("http")
                 .help("The path of the certificate to be used when serving the HTTP API server \
                     over TLS.")
                 .takes_value(true)
@@ -371,6 +377,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-tls-key")
                 .long("http-tls-key")
+                .requires("http")
                 .help("The path of the private key to be used when serving the HTTP API server \
                     over TLS. Must not be password-protected.")
                 .takes_value(true)
@@ -378,6 +385,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-allow-sync-stalled")
                 .long("http-allow-sync-stalled")
+                .requires("http")
                 .help("Forces the HTTP to indicate that the node is synced when sync is actually \
                     stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
                     MAINNET.")
@@ -385,8 +393,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-sse-capacity-multiplier")
                 .long("http-sse-capacity-multiplier")
+                .requires("http")
                 .takes_value(true)
-                .default_value("1")
+                .default_value_if("http", None, "1")
                 .value_name("N")
                 .help("Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. \
                        Increasing this value can prevent messages from being dropped.")
@@ -394,8 +403,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-duplicate-block-status")
                 .long("http-duplicate-block-status")
+                .requires("http")
                 .takes_value(true)
-                .default_value("202")
+                .default_value_if("http", None, "202")
                 .value_name("STATUS_CODE")
                 .help("Status code to send when a block that is already known is POSTed to the \
                        HTTP API.")
@@ -403,13 +413,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-enable-beacon-processor")
                 .long("http-enable-beacon-processor")
+                .requires("http")
                 .value_name("BOOLEAN")
                 .help("The beacon processor is a scheduler which provides quality-of-service and \
                     DoS protection. When set to \"true\", HTTP API requests will be queued and scheduled \
                     alongside other tasks. When set to \"false\", HTTP API responses will be executed \
                     immediately.")
                 .takes_value(true)
-                .default_value("true")
+                .default_value_if("http", None, "true")
         )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
@@ -422,22 +433,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("metrics-address")
                 .long("metrics-address")
                 .value_name("ADDRESS")
+                .requires("metrics")
                 .help("Set the listen address for the Prometheus metrics HTTP server.")
-                .default_value("127.0.0.1")
+                .default_value_if("metrics", None, "127.0.0.1")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("metrics-port")
                 .long("metrics-port")
+                .requires("metrics")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the Prometheus metrics HTTP server.")
-                .default_value("5054")
+                .default_value_if("metrics", None, "5054")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("metrics-allow-origin")
                 .long("metrics-allow-origin")
                 .value_name("ORIGIN")
+                .requires("metrics")
                 .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
                     If no value is supplied, the CORS allowed origin is set to the listen \

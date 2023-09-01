@@ -1403,6 +1403,7 @@ fn http_flag() {
 fn http_address_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("127.0.0.99"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
@@ -1411,6 +1412,7 @@ fn http_address_flag() {
 fn http_address_ipv6_flag() {
     let addr = "::1".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("::1"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
@@ -1420,6 +1422,7 @@ fn http_port_flag() {
     let port1 = unused_tcp4_port().expect("Unable to find unused port.");
     let port2 = unused_tcp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
         .run()
@@ -2383,6 +2386,7 @@ fn http_sse_capacity_multiplier_default() {
 #[test]
 fn http_sse_capacity_multiplier_override() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-sse-capacity-multiplier", Some("10"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.sse_capacity_multiplier, 10));
@@ -2400,6 +2404,7 @@ fn http_duplicate_block_status_default() {
 #[test]
 fn http_duplicate_block_status_override() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-duplicate-block-status", Some("301"))
         .run_with_zero_port()
         .with_config(|config| {

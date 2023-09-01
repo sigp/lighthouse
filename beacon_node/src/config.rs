@@ -96,67 +96,67 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("http") {
         client_config.http_api.enabled = true;
+
+        if let Some(address) = cli_args.value_of("http-address") {
+            client_config.http_api.listen_addr = address
+                .parse::<IpAddr>()
+                .map_err(|_| "http-address is not a valid IP address.")?;
+        }
+
+        if let Some(port) = cli_args.value_of("http-port") {
+            client_config.http_api.listen_port = port
+                .parse::<u16>()
+                .map_err(|_| "http-port is not a valid u16.")?;
+        }
+
+        if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
+            // Pre-validate the config value to give feedback to the user on node startup, instead of
+            // as late as when the first API response is produced.
+            hyper::header::HeaderValue::from_str(allow_origin)
+                .map_err(|_| "Invalid allow-origin value")?;
+
+            client_config.http_api.allow_origin = Some(allow_origin.to_string());
+        }
+
+        if cli_args.is_present("http-disable-legacy-spec") {
+            warn!(
+                log,
+                "The flag --http-disable-legacy-spec is deprecated and will be removed"
+            );
+        }
+
+        if let Some(fork_name) = clap_utils::parse_optional(cli_args, "http-spec-fork")? {
+            client_config.http_api.spec_fork_name = Some(fork_name);
+        }
+
+        if cli_args.is_present("http-enable-tls") {
+            client_config.http_api.tls_config = Some(TlsConfig {
+                cert: cli_args
+                    .value_of("http-tls-cert")
+                    .ok_or("--http-tls-cert was not provided.")?
+                    .parse::<PathBuf>()
+                    .map_err(|_| "http-tls-cert is not a valid path name.")?,
+                key: cli_args
+                    .value_of("http-tls-key")
+                    .ok_or("--http-tls-key was not provided.")?
+                    .parse::<PathBuf>()
+                    .map_err(|_| "http-tls-key is not a valid path name.")?,
+            });
+        }
+
+        if cli_args.is_present("http-allow-sync-stalled") {
+            client_config.http_api.allow_sync_stalled = true;
+        }
+
+        client_config.http_api.sse_capacity_multiplier =
+            parse_required(cli_args, "http-sse-capacity-multiplier")?;
+
+        client_config.http_api.enable_beacon_processor =
+            parse_required(cli_args, "http-enable-beacon-processor")?;
+
+        client_config.http_api.duplicate_block_status_code =
+            parse_required(cli_args, "http-duplicate-block-status")?;
     }
-
-    if let Some(address) = cli_args.value_of("http-address") {
-        client_config.http_api.listen_addr = address
-            .parse::<IpAddr>()
-            .map_err(|_| "http-address is not a valid IP address.")?;
-    }
-
-    if let Some(port) = cli_args.value_of("http-port") {
-        client_config.http_api.listen_port = port
-            .parse::<u16>()
-            .map_err(|_| "http-port is not a valid u16.")?;
-    }
-
-    if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
-        // Pre-validate the config value to give feedback to the user on node startup, instead of
-        // as late as when the first API response is produced.
-        hyper::header::HeaderValue::from_str(allow_origin)
-            .map_err(|_| "Invalid allow-origin value")?;
-
-        client_config.http_api.allow_origin = Some(allow_origin.to_string());
-    }
-
-    if cli_args.is_present("http-disable-legacy-spec") {
-        warn!(
-            log,
-            "The flag --http-disable-legacy-spec is deprecated and will be removed"
-        );
-    }
-
-    if let Some(fork_name) = clap_utils::parse_optional(cli_args, "http-spec-fork")? {
-        client_config.http_api.spec_fork_name = Some(fork_name);
-    }
-
-    if cli_args.is_present("http-enable-tls") {
-        client_config.http_api.tls_config = Some(TlsConfig {
-            cert: cli_args
-                .value_of("http-tls-cert")
-                .ok_or("--http-tls-cert was not provided.")?
-                .parse::<PathBuf>()
-                .map_err(|_| "http-tls-cert is not a valid path name.")?,
-            key: cli_args
-                .value_of("http-tls-key")
-                .ok_or("--http-tls-key was not provided.")?
-                .parse::<PathBuf>()
-                .map_err(|_| "http-tls-key is not a valid path name.")?,
-        });
-    }
-
-    if cli_args.is_present("http-allow-sync-stalled") {
-        client_config.http_api.allow_sync_stalled = true;
-    }
-
-    client_config.http_api.sse_capacity_multiplier =
-        parse_required(cli_args, "http-sse-capacity-multiplier")?;
-
-    client_config.http_api.enable_beacon_processor =
-        parse_required(cli_args, "http-enable-beacon-processor")?;
-
-    client_config.http_api.duplicate_block_status_code =
-        parse_required(cli_args, "http-duplicate-block-status")?;
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
