@@ -754,20 +754,10 @@ impl HttpJsonRpc {
             let payload = serde_json::to_string(&body)?;
           
             
-            let response = wspackage.wsrouter.as_ref().unwrap().make_request_timeout(payload, wspackage.id, timeout).await;
+            let response = wspackage.wsrouter.as_ref().unwrap().send(payload.clone(), wspackage.id).await;
             
             drop(wspackage);    // drop lock as quickly as possible to free up
-            let elapsed = start.elapsed();
             
-
-            // open file and write the elapsed time in ms in a  new line
-            let mut file = OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open("ws_times.txt")
-                .unwrap();
-            writeln!(file, "{}", elapsed.as_micros()).unwrap();
-            drop(file);
 
 
             let response = match response {
@@ -795,7 +785,21 @@ impl HttpJsonRpc {
                 Ok(response) => response,
             };
             
+            let response = tokio_timeout(timeout, response).await
+                .map_err(|_| Error::WebsocketError("Timeout".to_string()))?     // map timeout
+                .map_err(|e| Error::WebsocketError(e.to_string()))?;          // map error with the oneshot channel
 
+            let elapsed = start.elapsed();
+        
+
+            // open file and write the elapsed time in ms in a  new line
+            let mut file = OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open("ws_times.txt")
+                .unwrap();
+            writeln!(file, "{}", elapsed.as_micros()).unwrap();
+            drop(file);
             
 
 
