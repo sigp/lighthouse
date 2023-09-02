@@ -82,7 +82,7 @@ pub enum OpPoolError {
 
 #[derive(Default)]
 pub struct AttestationStats {
-    /// Total number of attestations for all committeees/indices/votes.
+    /// Total number of attestations for all committees/indices/votes.
     pub num_attestations: usize,
     /// Number of unique `AttestationData` attested to.
     pub num_attestation_data: usize,
@@ -232,6 +232,7 @@ impl<T: EthSpec> OperationPool<T> {
         spec: &'a ChainSpec,
     ) -> Vec<(&CompactAttestationData, CompactIndexedAttestation<T>)> {
         let mut cliqued_atts: Vec<(&CompactAttestationData, CompactIndexedAttestation<T>)> = vec![];
+
         if let Some(AttestationDataMap {
             aggregate_attestations,
             unaggregate_attestations,
@@ -817,8 +818,8 @@ fn is_compatible<T: EthSpec>(
     x: &&CompactIndexedAttestation<T>,
     y: &&CompactIndexedAttestation<T>,
 ) -> bool {
-    let x_attester_set: HashSet<_> = x.attesting_indices.iter().collect();
-    let y_attester_set: HashSet<_> = y.attesting_indices.iter().collect();
+    let x_attester_set: HashSet<u64> = x.attesting_indices.iter().cloned().collect();
+    let y_attester_set: HashSet<u64> = y.attesting_indices.iter().cloned().collect();
     x_attester_set.is_disjoint(&y_attester_set)
 }
 
