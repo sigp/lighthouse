@@ -27,10 +27,10 @@ use libp2p::bandwidth::BandwidthSinks;
 use libp2p::gossipsub::{
     self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
 };
-use libp2p::identify;
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
-use libp2p::swarm::{Swarm, SwarmBuilder, SwarmEvent};
+use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::PeerId;
+use libp2p::{identify, Transport};
 use slog::{crit, debug, info, o, trace, warn};
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -42,7 +42,7 @@ use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
-use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
+use utils::{strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
 pub mod api_types;
 mod behaviour;
@@ -353,34 +353,71 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             }
         };
 
-        let (swarm, bandwidth) = {
-            // Set up the transport - tcp/ws with noise and mplex
-            let (transport, bandwidth) = build_transport(local_keypair.clone())
-                .map_err(|e| format!("Failed to build transport: {:?}", e))?;
-
-            // use the executor for libp2p
-            struct Executor(task_executor::TaskExecutor);
-            impl libp2p::swarm::Executor for Executor {
-                fn exec(&self, f: Pin<Box<dyn futures::Future<Output = ()> + Send>>) {
-                    self.0.spawn(f, "libp2p");
-                }
+        struct Executor(task_executor::TaskExecutor);
+        impl libp2p::swarm::Executor for Executor {
+            fn exec(&self, f: Pin<Box<dyn futures::Future<Output = ()> + Send>>) {
+                self.0.spawn(f, "libp2p");
             }
+        }
 
-            // sets up the libp2p connection limits
+        let (swarm_builder, bandwidth) =
+            libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
+                .with_tokio()
+                // Using `with_other_transport` in order to support mplex. In case mplex would not be needed, the below would be as simple as:
+                // ```
+                // .with_tcp()
+                // .with_noise()?
+                // ```
+                .with_other_transport(|_| {
+                    let tcp = libp2p::tcp::tokio::Transport::new(
+                        libp2p::tcp::Config::default().nodelay(true),
+                    );
+                    let transport = libp2p::dns::TokioDnsConfig::system(tcp)?;
 
-            (
-                SwarmBuilder::with_executor(
-                    transport,
-                    behaviour,
-                    local_peer_id,
-                    Executor(executor),
-                )
-                .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
-                .per_connection_event_buffer_size(4)
-                .build(),
-                bandwidth,
-            )
-        };
+                    // TODO If you want to support websocket, you can chain a `.with_websocket` before the `.with_bandwidth_logging`.
+                    //
+                    // #[cfg(feature = "libp2p-websocket")]
+                    // let transport = {
+                    //     let trans_clone = transport.clone();
+                    //     transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
+                    // };
+
+                    // mplex config
+                    let mut mplex_config = libp2p_mplex::MplexConfig::new();
+                    mplex_config.set_max_buffer_size(256);
+                    mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
+
+                    // yamux config
+                    let mut yamux_config = libp2p::yamux::Config::default();
+                    yamux_config.set_window_update_mode(libp2p::yamux::WindowUpdateMode::on_read());
+
+                    Ok(transport
+                        .upgrade(libp2p::core::upgrade::Version::V1)
+                        .authenticate(
+                            libp2p::noise::Config::new(&local_keypair)
+                                .expect("signing can fail only once during starting a node"),
+                        )
+                        .multiplex(libp2p::core::upgrade::SelectUpgrade::new(
+                            yamux_config,
+                            mplex_config,
+                        ))
+                        // TODO: Enough to just streammuxerbox
+                        .boxed())
+                })
+                // TODO: Handle
+                .unwrap()
+                .with_bandwidth_logging();
+
+        let swarm = swarm_builder
+            .with_behaviour(|_| behaviour)
+            // TODO: Handle
+            .unwrap()
+            .with_swarm_config({
+                libp2p::swarm::SwarmConfig::with_executor(Executor(executor))
+                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
+                    .per_connection_event_buffer_size(4)
+            })
+            .build();
 
         let mut network = Network {
             swarm,

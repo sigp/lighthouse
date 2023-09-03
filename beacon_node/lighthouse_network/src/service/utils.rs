@@ -4,11 +4,9 @@ use crate::types::{
     error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind,
 };
 use crate::{GossipTopic, NetworkConfig};
-use libp2p::bandwidth::BandwidthSinks;
-use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
+use libp2p::core::multiaddr::Multiaddr;
 use libp2p::gossipsub;
 use libp2p::identity::{secp256k1, Keypair};
-use libp2p::{core, noise, yamux, PeerId, Transport, TransportExt};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
 use ssz::Decode;
@@ -18,7 +16,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, SubnetId, SyncSubnetId};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
@@ -33,44 +30,6 @@ pub struct Context<'a> {
     pub fork_context: Arc<ForkContext>,
     pub chain_spec: &'a ChainSpec,
     pub gossipsub_registry: Option<&'a mut Registry>,
-}
-
-type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
-
-/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
-/// mplex as the multiplexing layer.
-pub fn build_transport(
-    local_private_key: Keypair,
-) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
-    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true));
-    let transport = libp2p::dns::TokioDnsConfig::system(tcp)?;
-    #[cfg(feature = "libp2p-websocket")]
-    let transport = {
-        let trans_clone = transport.clone();
-        transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
-    };
-
-    // mplex config
-    let mut mplex_config = libp2p_mplex::MplexConfig::new();
-    mplex_config.set_max_buffer_size(256);
-    mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
-
-    // yamux config
-    let mut yamux_config = yamux::Config::default();
-    yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());
-    let (transport, bandwidth) = transport
-        .upgrade(core::upgrade::Version::V1)
-        .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(core::upgrade::SelectUpgrade::new(
-            yamux_config,
-            mplex_config,
-        ))
-        .timeout(Duration::from_secs(10))
-        .boxed()
-        .with_bandwidth_logging();
-
-    // Authentication
-    Ok((transport, bandwidth))
 }
 
 // Useful helper functions for debugging. Currently not used in the client.
@@ -138,11 +97,6 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
         }
     }
     local_private_key.into()
-}
-
-/// Generate authenticated XX Noise config from identity keys
-fn generate_noise_config(identity_keypair: &Keypair) -> noise::Config {
-    noise::Config::new(identity_keypair).expect("signing can fail only once during starting a node")
 }
 
 /// For a multiaddr that ends with a peer id, this strips this suffix. Rust-libp2p

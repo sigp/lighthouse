@@ -1775,7 +1775,7 @@ dependencies = [
  "hex",
  "hkdf",
  "lazy_static",
- "libp2p-core",
+ "libp2p-core 0.40.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-identity",
  "lru 0.7.8",
  "more-asserts",
@@ -3154,15 +3154,6 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43a3c133739dddd0d2990f9a4bdf8eb4b21ef50e4851ca85ab661199821d510e"
-dependencies = [
- "ahash 0.8.3",
-]
-
-[[package]]
-name = "hashbrown"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c6201b9ff9fd90a5a3bac2e56a830d0caa509576f0e503818ee82c181b3437a"
@@ -3999,8 +3990,7 @@ dependencies = [
 [[package]]
 name = "libp2p"
 version = "0.52.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32d07d1502a027366d55afe187621c2d7895dc111a3df13b35fed698049681d7"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "bytes",
  "futures",
@@ -4009,7 +3999,7 @@ dependencies = [
  "instant",
  "libp2p-allow-block-list",
  "libp2p-connection-limits",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-dns",
  "libp2p-gossipsub",
  "libp2p-identify",
@@ -4025,15 +4015,15 @@ dependencies = [
  "libp2p-yamux",
  "multiaddr 0.18.0",
  "pin-project",
+ "thiserror",
 ]
 
 [[package]]
 name = "libp2p-allow-block-list"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55b46558c5c0bf99d3e2a1a38fd54ff5476ca66dd1737b12466a1824dd219311"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "libp2p-swarm",
  "void",
@@ -4042,10 +4032,9 @@ dependencies = [
 [[package]]
 name = "libp2p-connection-limits"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f5107ad45cb20b2f6c3628c7b6014b996fcb13a88053f4569c872c6e30abf58"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "libp2p-swarm",
  "void",
@@ -4066,13 +4055,40 @@ dependencies = [
  "log",
  "multiaddr 0.18.0",
  "multihash 0.19.0",
- "multistream-select",
+ "multistream-select 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "once_cell",
  "parking_lot 0.12.1",
  "pin-project",
  "quick-protobuf",
  "rand 0.8.5",
- "rw-stream-sink",
+ "rw-stream-sink 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "smallvec 1.11.0",
+ "thiserror",
+ "unsigned-varint 0.7.1",
+ "void",
+]
+
+[[package]]
+name = "libp2p-core"
+version = "0.40.0"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
+dependencies = [
+ "either",
+ "fnv",
+ "futures",
+ "futures-timer",
+ "instant",
+ "libp2p-identity",
+ "log",
+ "multiaddr 0.18.0",
+ "multihash 0.19.0",
+ "multistream-select 0.13.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
+ "once_cell",
+ "parking_lot 0.12.1",
+ "pin-project",
+ "quick-protobuf",
+ "rand 0.8.5",
+ "rw-stream-sink 0.4.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "smallvec 1.11.0",
  "thiserror",
  "unsigned-varint 0.7.1",
@@ -4082,11 +4098,10 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd4394c81c0c06d7b4a60f3face7e8e8a9b246840f98d2c80508d0721b032147"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "futures",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "log",
  "parking_lot 0.12.1",
@@ -4097,8 +4112,7 @@ dependencies = [
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.45.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d157562dba6017193e5285acf6b1054759e83540bfd79f75b69d6ce774c88da"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "asynchronous-codec",
  "base64 0.21.2",
@@ -4111,7 +4125,7 @@ dependencies = [
  "getrandom 0.2.10",
  "hex_fmt",
  "instant",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "libp2p-swarm",
  "log",
@@ -4129,18 +4143,17 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.43.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a29675a32dbcc87790db6cf599709e64308f1ae9d5ecea2d259155889982db8"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "asynchronous-codec",
  "either",
  "futures",
  "futures-timer",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "libp2p-swarm",
  "log",
- "lru 0.10.1",
+ "lru 0.11.0",
  "quick-protobuf",
  "quick-protobuf-codec",
  "smallvec 1.11.0",
@@ -4173,13 +4186,12 @@ dependencies = [
 [[package]]
 name = "libp2p-mdns"
 version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42a2567c305232f5ef54185e9604579a894fd0674819402bb0ac0246da82f52a"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "data-encoding",
  "futures",
  "if-watch",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "libp2p-swarm",
  "log",
@@ -4194,11 +4206,10 @@ dependencies = [
 [[package]]
 name = "libp2p-metrics"
 version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "239ba7d28f8d0b5d77760dc6619c05c7e88e74ec8fbbe97f856f20a56745e620"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "instant",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-gossipsub",
  "libp2p-identify",
  "libp2p-identity",
@@ -4210,13 +4221,12 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93959ed08b6caf9810e067655e25f1362098797fef7c44d3103e63dcb6f0fabe"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "asynchronous-codec",
  "bytes",
  "futures",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "log",
  "nohash-hasher",
@@ -4229,13 +4239,12 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.43.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71ce70757f2c0d82e9a3ef738fb10ea0723d16cec37f078f719e2c247704c1bb"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "bytes",
  "curve25519-dalek 4.0.0",
  "futures",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "log",
  "multiaddr 0.18.0",
@@ -4254,13 +4263,12 @@ dependencies = [
 [[package]]
 name = "libp2p-plaintext"
 version = "0.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37266c683a757df713f7dcda0cdcb5ad4681355ffa1b37b77c113c176a531195"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "asynchronous-codec",
  "bytes",
  "futures",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "log",
  "quick-protobuf",
@@ -4270,14 +4278,13 @@ dependencies = [
 [[package]]
 name = "libp2p-quic"
 version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cb763e88f9a043546bfebd3575f340e7dd3d6c1b2cf2629600ec8965360c63a"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "bytes",
  "futures",
  "futures-timer",
  "if-watch",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "libp2p-tls",
  "log",
@@ -4293,19 +4300,18 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.43.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28016944851bd73526d3c146aabf0fa9bbe27c558f080f9e5447da3a1772c01a"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "either",
  "fnv",
  "futures",
  "futures-timer",
  "instant",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "libp2p-swarm-derive",
  "log",
- "multistream-select",
+ "multistream-select 0.13.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "once_cell",
  "rand 0.8.5",
  "smallvec 1.11.0",
@@ -4316,8 +4322,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm-derive"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4d5ec2a3df00c7836d7696c136274c9c59705bac69133253696a6c932cd1d74"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "heck",
  "proc-macro-warning",
@@ -4329,14 +4334,13 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09bfdfb6f945c5c014b87872a0bdb6e0aef90e92f380ef57cd9013f118f9289d"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "futures",
  "futures-timer",
  "if-watch",
  "libc",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "log",
  "socket2 0.5.3",
@@ -4346,12 +4350,11 @@ dependencies = [
 [[package]]
 name = "libp2p-tls"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8218d1d5482b122ccae396bbf38abdcb283ecc96fa54760e1dfd251f0546ac61"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "futures",
  "futures-rustls",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "rcgen",
  "ring",
@@ -4365,18 +4368,17 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.42.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3facf0691bab65f571bc97c6c65ffa836248ca631d631b7691ac91deb7fceb5f"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "either",
  "futures",
  "futures-rustls",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "libp2p-identity",
  "log",
  "parking_lot 0.12.1",
  "quicksink",
- "rw-stream-sink",
+ "rw-stream-sink 0.4.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "soketto",
  "url",
  "webpki-roots 0.25.2",
@@ -4385,11 +4387,10 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.44.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eedcb62824c4300efb9cfd4e2a6edaf3ca097b9e68b36dabe45a44469fd6a85"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "futures",
- "libp2p-core",
+ "libp2p-core 0.40.0 (git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder)",
  "log",
  "thiserror",
  "yamux",
@@ -4676,11 +4677,11 @@ dependencies = [
 
 [[package]]
 name = "lru"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "718e8fae447df0c7e1ba7f5189829e63fd536945c8988d61444c19039f16b670"
+checksum = "eedb2bdbad7e0634f83989bf596f497b070130daaa398ab22d84c39e266deec5"
 dependencies = [
- "hashbrown 0.13.2",
+ "hashbrown 0.14.0",
 ]
 
 [[package]]
@@ -5074,6 +5075,19 @@ name = "multistream-select"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea0df8e5eec2298a62b326ee4f0d7fe1a6b90a09dfcf9df37b38f947a8c42f19"
+dependencies = [
+ "bytes",
+ "futures",
+ "log",
+ "pin-project",
+ "smallvec 1.11.0",
+ "unsigned-varint 0.7.1",
+]
+
+[[package]]
+name = "multistream-select"
+version = "0.13.0"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "bytes",
  "futures",
@@ -6162,8 +6176,7 @@ dependencies = [
 [[package]]
 name = "quick-protobuf-codec"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8ededb1cd78531627244d51dd0c7139fbe736c7d57af0092a76f0ffb2f56e98"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -6770,6 +6783,16 @@ name = "rw-stream-sink"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8c9026ff5d2f23da5e45bbc283f156383001bfb09c4e44256d02c1a685fe9a1"
+dependencies = [
+ "futures",
+ "pin-project",
+ "static_assertions",
+]
+
+[[package]]
+name = "rw-stream-sink"
+version = "0.4.0"
+source = "git+https://github.com/mxinden/rust-libp2p.git?branch=transport-builder#01ea8ebb8fa4c4231ac53f04840f8a00d83d0d82"
 dependencies = [
  "futures",
  "pin-project",
