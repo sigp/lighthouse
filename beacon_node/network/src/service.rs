@@ -972,6 +972,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     fn get_topic_params(
         &self,
         topic: GossipTopic,
