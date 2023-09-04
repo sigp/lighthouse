@@ -918,7 +918,7 @@ impl BeaconNodeHttpClient {
         Ok(Some(response.json().await?))
     }
 
-    /// `GET v1/beacon/blobs/{block_id}`
+    /// `GET v1/beacon/blob_sidecars/{block_id}`
     ///
     /// Returns `Ok(None)` on a 404 error.
     pub async fn get_blobs<T: EthSpec>(
@@ -931,8 +931,7 @@ impl BeaconNodeHttpClient {
             None => return Ok(None),
         };
 
-        let GenericResponse { data } = response.json().await?;
-        Ok(Some(GenericResponse { data }))
+        Ok(Some(response.json().await?))
     }
 
     /// `GET v1/beacon/blinded_blocks/{block_id}`
