@@ -195,13 +195,7 @@ impl TestRig {
         });
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
-        let network_globals = Arc::new(NetworkGlobals::new(
-            enr,
-            meta_data,
-            vec![],
-            false,
-            &log,
-        ));
+        let network_globals = Arc::new(NetworkGlobals::new(enr, meta_data, vec![], false, &log));
 
         let executor = harness.runtime.task_executor.clone();
 
