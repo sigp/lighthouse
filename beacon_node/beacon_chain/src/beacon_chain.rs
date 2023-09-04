@@ -4353,7 +4353,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             move || {
                                 chain.complete_partial_beacon_block_v3(
                                     partial_beacon_block,
-                                    block_contents,
+                                    Some(block_contents),
                                     verification,
                                 )
                             },
@@ -4373,7 +4373,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             move || {
                                 chain.complete_partial_beacon_block_v3(
                                     partial_beacon_block,
-                                    block_contents,
+                                    Some(block_contents),
                                     verification,
                                 )
                             },
@@ -4387,7 +4387,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         } else {
-            Err(BlockProductionError::FailedToFetchBlock)
+            let chain = self.clone();
+            let beacon_block_and_state = self
+                .task_executor
+                .spawn_blocking_handle(
+                    move || {
+                        chain.complete_partial_beacon_block_v3(
+                            partial_beacon_block,
+                            None,
+                            verification,
+                        )
+                    },
+                    "complete_partial_beacon_block",
+                )
+                .ok_or(BlockProductionError::ShuttingDown)?
+                .await
+                .map_err(BlockProductionError::TokioJoin)??;
+
+            Ok(BeaconBlockAndStateResponse::Full(beacon_block_and_state))
         }
     }
 
@@ -4547,6 +4564,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
+
         let deposits = eth1_chain.deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?;
 
         let bls_to_execution_changes = self
@@ -4957,7 +4975,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn complete_partial_beacon_block_v3<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         partial_beacon_block: PartialBeaconBlockV3<T::EthSpec>,
-        block_contents: BlockProposalContents<T::EthSpec, Payload>,
+        block_contents: Option<BlockProposalContents<T::EthSpec, Payload>>,
         verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         let PartialBeaconBlockV3 {
@@ -5035,6 +5053,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
                     execution_payload: block_contents
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?
                         .to_payload()
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
@@ -5057,6 +5076,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
                     execution_payload: block_contents
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?
                         .to_payload()
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,

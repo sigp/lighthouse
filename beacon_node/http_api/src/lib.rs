@@ -3516,6 +3516,8 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              log: Logger,
              register_val_data: Vec<SignedValidatorRegistrationData>| async {
+
+                println!("post_validator_register_validator");
                 let (tx, rx) = oneshot::channel();
 
                 let initial_result = task_spawner
@@ -3532,11 +3534,15 @@ pub fn serve<T: BeaconChainTypes>(
                             .map_err(warp_utils::reject::beacon_chain_error)?;
                         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
+                        println!("post_validator_register_validator 1");
+
                         debug!(
                             log,
                             "Received register validator request";
                             "count" => register_val_data.len(),
                         );
+
+                        println!("post_validator_register_validator 2");
 
                         let head_snapshot = chain.head_snapshot();
                         let spec = &chain.spec;
@@ -3609,6 +3615,8 @@ pub fn serve<T: BeaconChainTypes>(
                             "count" => filtered_registration_data.len(),
                         );
 
+                        println!("yo 1");
+
                         // It's a waste of a `BeaconProcessor` worker to just
                         // wait on a response from the builder (especially since
                         // they have frequent timeouts). Spawn a new task and
@@ -3624,7 +3632,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 .as_ref()
                                 .ok_or(BeaconChainError::BuilderMissing)
                                 .map_err(warp_utils::reject::beacon_chain_error)?;
-
+                        println!("yo 2");
                             builder
                                 .post_builder_validators(&filtered_registration_data)
                                 .await
@@ -3639,6 +3647,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     // Forward the HTTP status code if we are able to, otherwise fall back
                                     // to a server error.
                                     if let eth2::Error::ServerMessage(message) = e {
+                                        println!("SERVER MESSAGE 1");
                                         if message.code == StatusCode::BAD_REQUEST.as_u16() {
                                             return warp_utils::reject::custom_bad_request(
                                                 message.message,
@@ -3651,6 +3660,7 @@ pub fn serve<T: BeaconChainTypes>(
                                             );
                                         }
                                     }
+                                    println!("SERVER MESSAGE 2");
                                     warp_utils::reject::custom_server_error(format!("{e:?}"))
                                 })
                         };
@@ -3662,6 +3672,8 @@ pub fn serve<T: BeaconChainTypes>(
                         Ok(warp::reply::reply().into_response())
                     })
                     .await;
+
+                println!("{:?}", initial_result);
 
                 if initial_result.is_err() {
                     return task_spawner::convert_rejection(initial_result).await;

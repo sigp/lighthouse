@@ -738,6 +738,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     ) -> Result<BlockProposalContents<T, Payload>, Error> {
         let payload_result = match Payload::block_type() {
             BlockType::Blinded => {
+                println!("BLOCK TYPE IS BLINDED");
                 let _timer = metrics::start_timer_vec(
                     &metrics::EXECUTION_LAYER_REQUEST_TIMES,
                     &[metrics::GET_BLINDED_PAYLOAD],
@@ -753,6 +754,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 .await
             }
             BlockType::Full => {
+                println!("BLOCK TYPE IS FULL");
                 let _timer = metrics::start_timer_vec(
                     &metrics::EXECUTION_LAYER_REQUEST_TIMES,
                     &[metrics::GET_PAYLOAD],
@@ -1092,6 +1094,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         current_fork: ForkName,
         spec: &ChainSpec,
     ) -> Result<ProvenancedPayload<BlockProposalContents<T, Payload>>, Error> {
+        println!("BLINDED");
         if let Some(builder) = self.builder() {
             let slot = builder_params.slot;
             let pubkey = builder_params.pubkey;

@@ -125,6 +125,8 @@ impl BuilderHttpClient {
     ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
+        println!("post_builder_validators");
+
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("eth")

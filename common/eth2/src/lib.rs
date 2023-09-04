@@ -1678,11 +1678,7 @@ impl BeaconNodeHttpClient {
                 .append_pair("skip_randao_verification", "");
         }
 
-        println!("before");
-
         let response = self.get_response(path, |b| b).await?;
-
-        println!("after");
 
         if let Some(header_value) = response.headers().get(EXECUTION_PAYLOAD_BLINDED_HEADER) {
             if header_value.eq("true") {
@@ -1706,6 +1702,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+        println!("GET VALIDATOR BLINDED BLOCKS");
         self.get_validator_blinded_blocks_modular(
             slot,
             randao_reveal,

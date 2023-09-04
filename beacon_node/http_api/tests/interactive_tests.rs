@@ -624,7 +624,7 @@ pub async fn proposer_boost_re_org_test(
         .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None)
         .await
         .unwrap();
-
+    /*
     let block_c = match unsigned_block_type {
         Full(unsigned_block_c) => {
             println!("full");
@@ -723,7 +723,7 @@ pub async fn proposer_boost_re_org_test(
             payload_attribs.timestamp(),
             payload_attribs.prev_randao(),
         );
-    }
+    }*/
 }
 
 // Test that running fork choice before proposing results in selection of the correct head.
