@@ -83,7 +83,6 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
 
     match block_response {
         BeaconBlockAndStateResponse::Full((_, _)) => {
-            println!("We shouldnt ever make it in here");
             Err(warp_utils::reject::custom_server_error(
             "Returned a blinded block. It should be impossible to return a blinded block via the Full Payload V2 block fetching flow.".to_string()
         ))
@@ -139,7 +138,6 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
                 .map(|res| add_consensus_version_header(res, fork_name))
         }
         BeaconBlockAndStateResponse::Blinded((_, _)) => {
-            println!("We shouldnt ever make it in here");
             Err(warp_utils::reject::custom_server_error(
                 "Returned a blinded block. It should be impossible to return a blinded block via the Full Payload V2 block fetching flow.".to_string()
             ))

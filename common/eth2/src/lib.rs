@@ -1702,7 +1702,6 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
-        println!("GET VALIDATOR BLINDED BLOCKS");
         self.get_validator_blinded_blocks_modular(
             slot,
             randao_reveal,

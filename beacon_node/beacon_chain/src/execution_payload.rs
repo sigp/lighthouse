@@ -618,7 +618,6 @@ where
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     //
     // This future is not executed here, it's up to the caller to await it.
-    println!("ATTEMPT TO FETCH PAYLOAD");
     let block_contents = execution_layer
         .get_payload::<Payload>(
             parent_hash,

@@ -3038,8 +3038,6 @@ impl ApiTester {
             .await
             .unwrap();
 
-        println!("MADE IT FAR");
-
         for (val_index, (_, fee_recipient)) in self
             .chain
             .head_snapshot()
@@ -3415,16 +3413,12 @@ impl ApiTester {
                 .parse::<Hash256>()
                 .unwrap();
 
-        println!("test1");
-
         // Mutate prev randao.
         self.mock_builder
             .as_ref()
             .unwrap()
             .builder
             .add_operation(Operation::PrevRandao(invalid_prev_randao));
-
-        println!("test2");
 
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
@@ -3434,11 +3428,7 @@ impl ApiTester {
             .cached_head()
             .head_random()
             .unwrap();
-        println!("test3");
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
-
-
-        println!("test4");
 
         let payload: BlindedPayload<E> = self
             .client
@@ -3450,8 +3440,6 @@ impl ApiTester {
             .execution_payload()
             .unwrap()
             .into();
-
-        println!("{:?}", payload);
 
         assert_eq!(payload.prev_randao(), expected_prev_randao);
 
@@ -4453,7 +4441,6 @@ impl ApiTester {
                 assert_eq!(withdrawal_response.data, expected_withdrawals.to_vec());
             }
             Err(e) => {
-                println!("{:?}", e);
                 panic!("query failed incorrectly");
             }
         }
