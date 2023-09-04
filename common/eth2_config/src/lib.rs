@@ -33,6 +33,13 @@ const HOLESKY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url
     genesis_validators_root: "0x9143aa7c615a7f7115e2b6aac319c03529df8242ae705fba9df39b79c59fa8b1",
 };
 
+const CHIADO_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
+    // No default checkpoint sources are provided.
+    urls: &[],
+    checksum: "0xd4a039454c7429f1dfaa7e11e397ef3d0f50d2d5e4c0e4dc04919d153aa13af1",
+    genesis_validators_root: "0x9d642dac73058fbf39c0ae41ab1e34e4d889043cb199851ded7095bc99eb4c1e",
+};
+
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone)]
 pub struct Eth2Config {
@@ -305,6 +312,16 @@ define_hardcoded_nets!(
         "gnosis",
         // Describes how the genesis state can be obtained.
         GenesisStateSource::IncludedBytes
+    ),
+    (
+        // Network name (must be unique among all networks).
+        chiado,
+        // The name of the directory in the `eth2_network_config/built_in_network_configs`
+        // directory where the configuration files are located for this network.
+        "chiado",
+        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
+        // directory.
+        CHIADO_GENESIS_STATE_SOURCE
     ),
     (
         // Network name (must be unique among all networks).
