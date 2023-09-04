@@ -373,8 +373,8 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             .try_into_full_block_and_blobs(Some(full_payload_contents))
             .map(ProvenancedBlock::builder),
     }
-    .ok_or_else(|| {
-        warp_utils::reject::custom_server_error("Unable to add payload to block".to_string())
+    .map_err(|e| {
+        warp_utils::reject::custom_server_error(format!("Unable to add payload to block: {e:?}"))
     })
 }
 

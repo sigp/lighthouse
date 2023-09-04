@@ -1548,50 +1548,47 @@ impl<T: EthSpec> SignedBlockContents<T, BlindedPayload<T>> {
     pub fn try_into_full_block_and_blobs(
         self,
         maybe_full_payload_contents: Option<FullPayloadContents<T>>,
-    ) -> Option<SignedBlockContents<T, FullPayload<T>>> {
+    ) -> Result<SignedBlockContents<T, FullPayload<T>>, String> {
         match self {
             SignedBlockContents::BlindedBlockAndBlobSidecars(blinded_block_and_blob_sidecars) => {
-                maybe_full_payload_contents.and_then(|full_payload_contents| {
-                    match full_payload_contents.deconstruct() {
-                        (full_payload, Some(blobs_bundle)) => {
-                            let maybe_full_block = blinded_block_and_blob_sidecars
-                                .signed_blinded_block
-                                .try_into_full_block(Some(full_payload));
-                            let full_blob_sidecars: Vec<_> = blinded_block_and_blob_sidecars
+                match maybe_full_payload_contents {
+                    None | Some(FullPayloadContents::Payload(_)) => {
+                        Err("Can't build full block contents without payload and blobs".to_string())
+                    }
+                    Some(FullPayloadContents::PayloadAndBlobs(payload_and_blobs)) => {
+                        let signed_block = blinded_block_and_blob_sidecars
+                            .signed_blinded_block
+                            .try_into_full_block(Some(payload_and_blobs.execution_payload))
+                            .ok_or("Failed to build full block with payload".to_string())?;
+                        let signed_blob_sidecars: SignedBlobSidecarList<T> =
+                            blinded_block_and_blob_sidecars
                                 .signed_blinded_blob_sidecars
                                 .into_iter()
-                                .zip(blobs_bundle.blobs)
+                                .zip(payload_and_blobs.blobs_bundle.blobs)
                                 .map(|(blinded_blob_sidecar, blob)| {
                                     blinded_blob_sidecar.into_full_blob_sidecars(blob)
                                 })
-                                .collect();
+                                .collect::<Vec<_>>()
+                                .into();
 
-                            maybe_full_block.map(|signed_block| {
-                                SignedBlockContents::BlockAndBlobSidecars(
-                                    SignedBeaconBlockAndBlobSidecars {
-                                        signed_block,
-                                        signed_blob_sidecars: VariableList::from(
-                                            full_blob_sidecars,
-                                        ),
-                                    },
-                                )
-                            })
-                        }
-                        //FIXME: maybe this should return err
-                        // Can't build full block contents without full blobs
-                        _ => None,
+                        Ok(SignedBlockContents::new(
+                            signed_block,
+                            Some(signed_blob_sidecars),
+                        ))
                     }
-                })
+                }
             }
             SignedBlockContents::Block(blinded_block) => {
                 let full_payload_opt = maybe_full_payload_contents.map(|o| o.deconstruct().0);
                 blinded_block
                     .try_into_full_block(full_payload_opt)
                     .map(SignedBlockContents::Block)
+                    .ok_or("Can't build full block without payload".to_string())
             }
-            // Unexpected scenario for blinded block proposal
-            //FIXME: maybe this should return err
-            SignedBlockContents::BlockAndBlobSidecars(_) => None,
+            SignedBlockContents::BlockAndBlobSidecars(_) => Err(
+                "BlockAndBlobSidecars variant not expected when constructing full block"
+                    .to_string(),
+            ),
         }
     }
 }
