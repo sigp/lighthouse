@@ -197,8 +197,6 @@ impl TestRig {
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
         let network_globals = Arc::new(NetworkGlobals::new(
             enr,
-            Some(TCP_PORT),
-            None,
             meta_data,
             vec![],
             false,

@@ -21,7 +21,6 @@ pub use libp2p::identity::{Keypair, PublicKey};
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
-use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 use libp2p::swarm::THandlerInEvent;
 pub use libp2p::{
@@ -1001,25 +1000,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             // update  network globals
                             *self.network_globals.local_enr.write() = enr;
                             // A new UDP socket has been detected.
-                            // Build a multiaddr to report to libp2p
-                            let addr = match socket_addr.ip() {
-                                IpAddr::V4(v4_addr) => {
-                                    self.network_globals.listen_port_tcp4().map(|tcp4_port| {
-                                        Multiaddr::from(v4_addr).with(Protocol::Tcp(tcp4_port))
-                                    })
-                                }
-                                IpAddr::V6(v6_addr) => {
-                                    self.network_globals.listen_port_tcp6().map(|tcp6_port| {
-                                        Multiaddr::from(v6_addr).with(Protocol::Tcp(tcp6_port))
-                                    })
-                                }
-                            };
-
-                            if let Some(address) = addr {
-                                // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
-                                // should handle this.
-                                return Poll::Ready(ToSwarm::NewExternalAddrCandidate(address));
-                            }
+                            // NOTE: We assume libp2p itself can keep track of IP changes and we do
+                            // not inform it about IP changes found via discovery.
                         }
                         Discv5Event::EnrAdded { .. }
                         | Discv5Event::TalkRequest(_)
@@ -1106,8 +1088,6 @@ mod tests {
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,
-            Some(9000),
-            None,
             MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
