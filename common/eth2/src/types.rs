@@ -978,8 +978,11 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
             ForkName::Merge => serde_json::from_value(value)
                 .map(Self::V1)
                 .map_err(serde::de::Error::custom),
-            ForkName::Capella | ForkName::Deneb => serde_json::from_value(value)
+            ForkName::Capella => serde_json::from_value(value)
                 .map(Self::V2)
+                .map_err(serde::de::Error::custom),
+            ForkName::Deneb => serde_json::from_value(value)
+                .map(Self::V3)
                 .map_err(serde::de::Error::custom),
             ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
                 "SsePayloadAttributes deserialization for {fork_name} not implemented"
@@ -1519,8 +1522,10 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
                 Some(block_and_sidecars.signed_blob_sidecars.clone())
             }
+            SignedBlockContents::BlindedBlockAndBlobSidecars(block_and_sidecars) => {
+                Some(block_and_sidecars.signed_blinded_blob_sidecars.clone())
+            }
             SignedBlockContents::Block(_block) => None,
-            SignedBlockContents::BlindedBlockAndBlobSidecars(_) => None,
         }
     }
 
@@ -1572,6 +1577,7 @@ impl<T: EthSpec> SignedBlockContents<T, BlindedPayload<T>> {
                                 )
                             })
                         }
+                        //FIXME: maybe this should return err
                         // Can't build full block contents without full blobs
                         _ => None,
                     }
@@ -1584,6 +1590,7 @@ impl<T: EthSpec> SignedBlockContents<T, BlindedPayload<T>> {
                     .map(SignedBlockContents::Block)
             }
             // Unexpected scenario for blinded block proposal
+            //FIXME: maybe this should return err
             SignedBlockContents::BlockAndBlobSidecars(_) => None,
         }
     }
