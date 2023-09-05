@@ -32,7 +32,7 @@ use types::payload::BlockProductionVersion;
 use types::*;
 
 pub type PreparePayloadResultV3<E> = Result<BlockProposalContentsType<E>, BlockProductionError>;
-pub type PreparePayloadHandleV3<E> = JoinHandle<Option<PreparePayloadResultV3<E>>>;
+pub type PreparePayloadHandle<E> = JoinHandle<Option<PreparePayloadResultV3<E>>>;
 
 pub enum PreparePayloadHandleType<E: EthSpec> {
     Full(JoinHandle<Option<PreparePayloadResult<E, FullPayload<E>>>>),
@@ -41,7 +41,6 @@ pub enum PreparePayloadHandleType<E: EthSpec> {
 
 pub type PreparePayloadResult<E, Payload> =
     Result<BlockProposalContents<E, Payload>, BlockProductionError>;
-pub type PreparePayloadHandle<E, Payload> = JoinHandle<Option<PreparePayloadResult<E, Payload>>>;
 
 #[derive(PartialEq)]
 pub enum AllowOptimisticImport {
@@ -412,13 +411,13 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 /// Equivalent to the `get_execution_payload` function in the Validator Guide:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
-pub fn determine_and_get_execution_payload<T: BeaconChainTypes>(
+pub fn get_execution_payload<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
     builder_params: BuilderParams,
     block_production_version: BlockProductionVersion,
-) -> Result<PreparePayloadHandleV3<T::EthSpec>, BlockProductionError> {
+) -> Result<PreparePayloadHandle<T::EthSpec>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
     let spec = &chain.spec;
@@ -453,70 +452,6 @@ pub fn determine_and_get_execution_payload<T: BeaconChainTypes>(
                     builder_params,
                     withdrawals,
                     block_production_version,
-                )
-                .await
-            },
-            "get_execution_payload",
-        )
-        .ok_or(BlockProductionError::ShuttingDown)?;
-
-    Ok(join_handle)
-}
-
-/// Gets an execution payload for inclusion in a block.
-///
-/// ## Errors
-///
-/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
-///
-/// ## Specification
-///
-/// Equivalent to the `get_execution_payload` function in the Validator Guide:
-///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
-pub fn get_execution_payload<
-    T: BeaconChainTypes,
-    Payload: AbstractExecPayload<T::EthSpec> + 'static,
->(
-    chain: Arc<BeaconChain<T>>,
-    state: &BeaconState<T::EthSpec>,
-    proposer_index: u64,
-    builder_params: BuilderParams,
-) -> Result<PreparePayloadHandle<T::EthSpec, Payload>, BlockProductionError> {
-    // Compute all required values from the `state` now to avoid needing to pass it into a spawned
-    // task.
-    let spec = &chain.spec;
-    let current_epoch = state.current_epoch();
-    let is_merge_transition_complete = is_merge_transition_complete(state);
-    let timestamp =
-        compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
-    let random = *state.get_randao_mix(current_epoch)?;
-    let latest_execution_payload_header_block_hash =
-        state.latest_execution_payload_header()?.block_hash();
-    let withdrawals = match state {
-        &BeaconState::Capella(_) => Some(get_expected_withdrawals(state, spec)?.into()),
-        &BeaconState::Merge(_) => None,
-        // These shouldn't happen but they're here to make the pattern irrefutable
-        &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
-    };
-
-    // Spawn a task to obtain the execution payload from the EL via a series of async calls. The
-    // `join_handle` can be used to await the result of the function.
-    let join_handle = chain
-        .task_executor
-        .clone()
-        .spawn_handle(
-            async move {
-                prepare_execution_payload::<T, Payload>(
-                    &chain,
-                    is_merge_transition_complete,
-                    timestamp,
-                    random,
-                    proposer_index,
-                    latest_execution_payload_header_block_hash,
-                    builder_params,
-                    withdrawals,
                 )
                 .await
             },
