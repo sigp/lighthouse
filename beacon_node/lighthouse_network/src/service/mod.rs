@@ -1501,7 +1501,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                             format!("Dialing local peer id {endpoint:?}")
                         }
                         libp2p::swarm::ListenError::Denied { cause } => {
-                            format!("Connection was denied with cause {cause}")
+                            format!("Connection was denied with cause: {cause:?}")
                         }
                         libp2p::swarm::ListenError::Transport(t) => match t {
                             libp2p::TransportError::MultiaddrNotSupported(m) => {
