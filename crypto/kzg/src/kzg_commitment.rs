@@ -9,7 +9,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 use tree_hash::{Hash256, PackedEncoding, TreeHash};
 
-pub const BLOB_COMMITMENT_VERSION_KZG: u8 = 0x01;
+pub const VERSIONED_HASH_VERSION_KZG: u8 = 0x01;
 
 #[derive(Derivative, Clone, Copy, Encode, Decode)]
 #[derivative(PartialEq, Eq, Hash)]
@@ -19,8 +19,12 @@ pub struct KzgCommitment(pub [u8; c_kzg::BYTES_PER_COMMITMENT]);
 impl KzgCommitment {
     pub fn calculate_versioned_hash(&self) -> Hash256 {
         let mut versioned_hash = hash_fixed(&self.0);
-        versioned_hash[0] = BLOB_COMMITMENT_VERSION_KZG;
+        versioned_hash[0] = VERSIONED_HASH_VERSION_KZG;
         Hash256::from_slice(versioned_hash.as_slice())
+    }
+
+    pub fn empty_for_testing() -> Self {
+        KzgCommitment([0; c_kzg::BYTES_PER_COMMITMENT])
     }
 }
 
@@ -39,12 +43,6 @@ impl From<KzgCommitment> for c_kzg_min::Bytes48 {
 impl Display for KzgCommitment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", serde_utils::hex::encode(self.0))
-    }
-}
-
-impl Default for KzgCommitment {
-    fn default() -> Self {
-        KzgCommitment([0; BYTES_PER_COMMITMENT])
     }
 }
 
@@ -80,25 +78,8 @@ impl<'de> Deserialize<'de> for KzgCommitment {
     where
         D: Deserializer<'de>,
     {
-        pub struct StringVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for StringVisitor {
-            type Value = String;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a hex string with 0x prefix")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(value.to_string())
-            }
-        }
-
-        let string = deserializer.deserialize_str(StringVisitor)?;
-        <Self as std::str::FromStr>::from_str(&string).map_err(serde::de::Error::custom)
+        let string = String::deserialize(deserializer)?;
+        Self::from_str(&string).map_err(serde::de::Error::custom)
     }
 }
 
@@ -131,7 +112,6 @@ impl Debug for KzgCommitment {
     }
 }
 
-#[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary<'_> for KzgCommitment {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let mut bytes = [0u8; BYTES_PER_COMMITMENT];

@@ -37,12 +37,6 @@ impl fmt::Display for KzgProof {
     }
 }
 
-impl Default for KzgProof {
-    fn default() -> Self {
-        KzgProof([0; BYTES_PER_PROOF])
-    }
-}
-
 impl From<[u8; BYTES_PER_PROOF]> for KzgProof {
     fn from(bytes: [u8; BYTES_PER_PROOF]) -> Self {
         Self(bytes)
@@ -87,25 +81,8 @@ impl<'de> Deserialize<'de> for KzgProof {
     where
         D: Deserializer<'de>,
     {
-        pub struct StringVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for StringVisitor {
-            type Value = String;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a hex string with 0x prefix")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(value.to_string())
-            }
-        }
-
-        let string = deserializer.deserialize_str(StringVisitor)?;
-        <Self as std::str::FromStr>::from_str(&string).map_err(serde::de::Error::custom)
+        let string = String::deserialize(deserializer)?;
+        Self::from_str(&string).map_err(serde::de::Error::custom)
     }
 }
 
@@ -138,7 +115,6 @@ impl Debug for KzgProof {
     }
 }
 
-#[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary<'_> for KzgProof {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let mut bytes = [0u8; BYTES_PER_PROOF];

@@ -18,7 +18,7 @@ hex = "0.4.2"
 ethereum_hashing = "1.0.0-beta.2"
 c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", rev = "fa3c62989527073fdce8b2138bb27a52bb2407c5" , features = ["mainnet-spec"]}
 c_kzg_min = { package = "c-kzg", git = "https://github.com/ethereum//c-kzg-4844", rev = "fa3c62989527073fdce8b2138bb27a52bb2407c5", features = ["minimal-spec"], optional = true }
-arbitrary = { version = "1.0", features = ["derive"], optional = true }
+arbitrary = { version = "1.0", features = ["derive"] }
 
 [features]
 # TODO(deneb): enabled by default for convenience, would need more cfg magic to disable
