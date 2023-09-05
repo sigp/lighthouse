@@ -1,5 +1,17 @@
 #! /bin/bash
 
+write_to_file() {
+    local cmd="$1"
+    local file="$2"
+    local program="$3"
+
+    # Remove first line of cmd to get rid of commit specific numbers.
+    cmd=${cmd#*$'\n'}
+
+    # We need to add the header and the backticks to create the code block.
+ printf "#%s\n\n\`\`\`\n%s\n\`\`\`" "$program" "$cmd" > "$file"
+}
+
 # Check if a lighthouse binary exists in the current branch.
 # -f means check if the file exists, to see all options, type "bash test" in a terminal
 maxperf=./target/maxperf/lighthouse
@@ -18,66 +30,69 @@ else
     CMD="$debug"
 fi
 
-# Remove the existing help text file if it exists.
-rm -f -- cli.txt
-
 # Store all help strings in variables.
-general=$($CMD --help)
+general_cli=$($CMD --help)
+bn_cli=$($CMD bn --help)
+vc_cli=$($CMD vc --help)
+am_cli=$($CMD am --help)
 
-# accoun manager
-a=$($CMD a --help)
+general=./general_help.md
+bn=./bn_help.md
+vc=./vc_help.md
+am=./am_help.md
 
-a_validator=$($CMD a validator --help)
-a_validator_m=$($CMD a validator modify --help)
-a_validator_s=$($CMD a validator slashing-protection --help)
+# create .md files
+write_to_file "$general_cli" "$general" "Lighthouse General Commands"
+write_to_file "$bn_cli" "$bn" "Beacon Node"
+write_to_file "$vc_cli" "$vc" "Validator Client"
+write_to_file "$am_cli" "$am" "Account Manager"
 
-a_wallet=$($CMD a wallet --help)
-
-# beacon node
-
-bn=$($CMD bn --help)
-
-# boot-node
-boot=$($CMD boot_node --help)
-
-# data manager
-dm=$($CMD db --help)
-
-# validator client
-vc=$($CMD vc --help)
-
-# Print all help strings to the cli.txt file.
-printf "%s\n\n" "$general" "$a" "$a_validator" "$a_validator_m" "$a_validator_s" "$a_wallet" "$bn" "$boot" "$dm" "$vc" "$wallet" >> cli.txt
-
-# Run the bash script to generate cli_manual.txt
-#./cli_manual.sh
-
-if [[ -f ./scripts/cli_manual.txt ]];
-then
-changes=$(diff -u ./scripts/cli_manual.txt cli.txt | tee update )
+# create empty array to store variables for exit condition later
+exist=()
+update=()
+for i in general_help bn_help vc_help am_help
+do
+if [[ -f ./book/src/cli/$i.md ]]; then  # first check if .md exists
+echo  "$i.md exists, continue to check for any changes"
+difference=$(diff ./book/src/cli/$i.md $i.md)
+case1=false
+exist+=($case1)
+   if [[ -z $difference ]]; then # then check if any changes required
+    case2=false
+    update+=($case2)
+echo "$i.md is up to date"
 else
-echo "cli_manual.txt is not found"
-exit 1
+cp $i.md ./book/src/cli/$i.md
+echo "$i has been updated"
+    case2=true
+    update+=($case2)
+fi
+else
+echo "$i.md is not found, it will be created now"
+cp $i.md ./book/src/cli/$i.md
+case1=true
+exist+=($case1)
+# echo $case1
+#exit 1
 fi
 
-# compare two files to see if there are any differences: https://www.geeksforgeeks.org/cmp-command-in-linux-with-examples/
-# compare=$(cmp cli_manual.txt cli.txt)
+# use during testing to show exit conditions
+#echo "${exist[@]}"
+#echo "${update[@]}"
 
-# to display the changes, commented for now
-# echo $changes
-
-# -z checks if a file is null: https://www.cyberciti.biz/faq/bash-shell-find-out-if-a-variable-has-null-value-or-not/
-if [[ -z $changes ]];
-then
-    no_change=true
-echo "cli_manual.txt is up to date"
-# if the difference is empty, use true to execute nothing: https://stackoverflow.com/questions/17583578/what-command-means-do-nothing-in-a-conditional-in-bash
-else
+# exit condition, exit when .md does not exist or changes requried
+if [[ ${exist[@]} == *"true"* && ${update[@]} == *"true"* ]]; then
+echo "exit 1 due to one or more .md file does not exist and changes updated"
 exit 1
-#patch ./scripts/cli_manual.txt update
-#echo "cli_manual.txt has been updated"
+elif [[  ${exist[@]} == *"true"* ]]; then
+echo "exit 1 due to one or more .md file does not exist"
+exit 1
+elif [[ ${update[@]} == *"true"* ]]; then
+echo "exit 1 due to changes updated"
+exit 1
+else
+echo "Task completed, no changes in CLI parameters"
 fi
 
-# update cli_manual.sh
-#patch cli_manual.txt patchfile.patch
-
+# remove .md files in current directory
+rm -f general_help.md bn_help.md vc_help.md am_help.md
