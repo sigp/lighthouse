@@ -758,7 +758,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     /// Instantiates `Self`, a wrapper that indicates the given `block` is safe to be re-gossiped
     /// on the p2p network.
     ///
-    /// Returns an error if the block is invalid, or i8f the block was unable to be verified.
+    /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn new(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,

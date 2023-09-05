@@ -24,7 +24,7 @@ use types::{
 /// 1. `BlockAndBlobs`: A fully available post deneb block with all the blobs available. This variant
 ///    is only constructed after making consistency checks between blocks and blobs.
 ///    Hence, it is fully self contained w.r.t verification. i.e. this block has all the required
-///    data to get verfied and imported into fork choice.
+///    data to get verified and imported into fork choice.
 ///
 /// 2. `Block`: This can be a fully available pre-deneb block **or** a post-deneb block that may or may
 ///    not require blobs to be considered fully available.
@@ -118,7 +118,7 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for RpcBlock<E> {
 }
 
 /// A block that has gone through all pre-deneb block processing checks including block processing
-/// and execution by an EL client. This block hasn't completed data availability checks.
+/// and execution by an EL client. This block hasn't necessarily completed data availability checks.
 ///
 ///
 /// It contains 2 variants:
