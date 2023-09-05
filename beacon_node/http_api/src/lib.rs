@@ -26,7 +26,7 @@ mod validator;
 mod validator_inclusion;
 mod version;
 
-use crate::validator::{produce_block_v2, produce_block_v3};
+use crate::validator::{produce_block_v2, produce_blinded_block_v2, produce_block_v3};
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
@@ -3060,44 +3060,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "randao reveal is not a valid BLS signature: {:?}",
-                            e
-                        ))
-                    })?;
-
-                    let randao_verification =
-                        if query.skip_randao_verification == SkipRandaoVerification::Yes {
-                            if !randao_reveal.is_infinity() {
-                                return Err(warp_utils::reject::custom_bad_request(
-                                "randao_reveal must be point-at-infinity if verification is skipped"
-                                    .into()
-                            ));
-                            }
-                            ProduceBlockVerification::NoVerification
-                        } else {
-                            ProduceBlockVerification::VerifyRandao
-                        };
-
-                    let (block, _) = chain
-                        .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
-                            randao_reveal,
-                            slot,
-                            query.graffiti.map(Into::into),
-                            randao_verification,
-                        )
-                        .await
-                        .map_err(warp_utils::reject::block_production_error)?;
-                    let fork_name = block
-                        .to_ref()
-                        .fork_name(&chain.spec)
-                        .map_err(inconsistent_fork_rejection)?;
-
-                    // Pose as a V2 endpoint so we return the fork `version`.
-                    fork_versioned_response(V2, fork_name, block)
-                        .map(|response| warp::reply::json(&response).into_response())
-                        .map(|res| add_consensus_version_header(res, fork_name))
+                    produce_blinded_block_v2(EndpointVersion(2), chain, slot, query).await
                 })
             },
         );

@@ -76,16 +76,21 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
             slot,
             query.graffiti.map(Into::into),
             randao_verification,
-            BlockProductionVersion::FullV2,
+            BlockProductionVersion::BlindedV2,
         )
         .await
         .map_err(warp_utils::reject::block_production_error)?;
 
     match block_response {
-        BeaconBlockAndStateResponse::Full((_, _)) => {
-            Err(warp_utils::reject::custom_server_error(
-            "Returned a blinded block. It should be impossible to return a blinded block via the Full Payload V2 block fetching flow.".to_string()
-        ))
+        BeaconBlockAndStateResponse::Full((block, _)) => {
+            let fork_name = block
+                .to_ref()
+                .fork_name(&chain.spec)
+                .map_err(inconsistent_fork_rejection)?;
+
+            fork_versioned_response(endpoint_version, fork_name, block)
+                .map(|response| warp::reply::json(&response).into_response())
+                .map(|res| add_consensus_version_header(res, fork_name))
         }
         BeaconBlockAndStateResponse::Blinded((block, _)) => {
             let fork_name = block
