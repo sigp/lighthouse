@@ -37,7 +37,6 @@ const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const SMALL_CHAIN: u64 = 2;
 const LONG_CHAIN: u64 = SLOTS_PER_EPOCH * 2;
 
-const TCP_PORT: u16 = 42;
 const SEQ_NUMBER: u64 = 0;
 
 /// The default time to wait for `BeaconProcessor` events.
