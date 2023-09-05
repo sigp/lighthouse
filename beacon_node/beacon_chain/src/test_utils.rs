@@ -774,7 +774,7 @@ where
 
         if let BeaconBlockAndStateResponse::Full((block, state)) = self
             .chain
-            .determine_and_produce_block_on_state(
+            .produce_block_on_state(
                 state,
                 None,
                 slot,
@@ -827,7 +827,7 @@ where
 
         if let BeaconBlockAndStateResponse::Full((block, state)) = self
             .chain
-            .determine_and_produce_block_on_state(
+            .produce_block_on_state(
                 state,
                 None,
                 slot,

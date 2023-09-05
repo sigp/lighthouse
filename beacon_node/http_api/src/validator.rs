@@ -71,7 +71,7 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
     let block_response = chain
-        .determine_and_produce_block_with_verification(
+        .produce_block_with_verification(
             randao_reveal,
             slot,
             query.graffiti.map(Into::into),
@@ -121,7 +121,7 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
 
     let block_response = chain
-        .determine_and_produce_block_with_verification(
+        .produce_block_with_verification(
             randao_reveal,
             slot,
             query.graffiti.map(Into::into),
@@ -185,7 +185,7 @@ pub async fn determine_and_produce_block_json<T: BeaconChainTypes>(
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
 
     let block_response = chain
-        .determine_and_produce_block_with_verification(
+        .produce_block_with_verification(
             randao_reveal,
             slot,
             query.graffiti.map(Into::into),
@@ -223,7 +223,7 @@ pub async fn determine_and_produce_block_ssz<T: BeaconChainTypes>(
 
     // TODO: block value
     let (block_ssz, fork_name, block_value, blinded) = match chain
-        .determine_and_produce_block_with_verification(
+        .produce_block_with_verification(
             randao_reveal,
             slot,
             query.graffiti.map(Into::into),
