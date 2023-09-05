@@ -6,9 +6,7 @@ use beacon_chain::{
     BeaconBlockAndStateResponse, BeaconChain, BeaconChainError, BeaconChainTypes,
     ProduceBlockVerification,
 };
-use eth2::types::{
-    self as api_types, EndpointVersion, SkipRandaoVerification,
-};
+use eth2::types::{self as api_types, EndpointVersion, SkipRandaoVerification};
 use ssz::Encode;
 use warp::{
     hyper::{Body, Response},

@@ -8,8 +8,7 @@ use crate::{
 use sensitive_url::SensitiveUrl;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
-use tree_hash::TreeHash;
-use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, MainnetEthSpec};
+use types::{Address, ChainSpec, Epoch, EthSpec, Hash256, MainnetEthSpec};
 
 pub struct MockExecutionLayer<T: EthSpec> {
     pub server: MockServer<T>,
@@ -134,9 +133,10 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
         let payload_attributes =
             PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
-        let payload: ExecutionPayload<T> = self
+
+        let block_proposal_content_type = self
             .el
-            .get_payload::<FullPayload<T>>(
+            .get_payload(
                 parent_hash,
                 &payload_attributes,
                 forkchoice_update_params,
@@ -144,11 +144,15 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 // FIXME: do we need to consider other forks somehow? What about withdrawals?
                 ForkName::Merge,
                 &self.spec,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap()
-            .to_payload()
-            .into();
+            .unwrap();
+
+        let payload: ExecutionPayload<T> = match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => block.to_payload().into(),
+            BlockProposalContentsType::Blinded(_) => panic!("Should always be a full payload"),
+        };
 
         let block_hash = payload.block_hash();
         assert_eq!(payload.parent_hash(), parent_hash);
@@ -169,9 +173,10 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
         let payload_attributes =
             PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
-        let payload_header = self
+
+        let block_proposal_content_type = self
             .el
-            .get_payload::<BlindedPayload<T>>(
+            .get_payload(
                 parent_hash,
                 &payload_attributes,
                 forkchoice_update_params,
@@ -179,10 +184,15 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 // FIXME: do we need to consider other forks somehow? What about withdrawals?
                 ForkName::Merge,
                 &self.spec,
+                BlockProductionVersion::BlindedV2,
             )
             .await
-            .unwrap()
-            .to_payload();
+            .unwrap();
+
+        let payload_header = match block_proposal_content_type {
+            BlockProposalContentsType::Full(_) => panic!("Should always be a blinded payload"),
+            BlockProposalContentsType::Blinded(block) => block.to_payload(),
+        };
 
         assert_eq!(payload_header.block_hash(), block_hash);
         assert_eq!(payload_header.parent_hash(), parent_hash);

@@ -26,7 +26,7 @@ mod validator;
 mod validator_inclusion;
 mod version;
 
-use crate::validator::{produce_block_v2, produce_blinded_block_v2, produce_block_v3};
+use crate::validator::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
@@ -74,17 +74,16 @@ use tokio_stream::{
 };
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, ProposerPreparationData,
+    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
     add_consensus_version_header, execution_optimistic_finalized_fork_versioned_response,
-    inconsistent_fork_rejection, unsupported_version_rejection, V1, V2,
-    V3,
+    inconsistent_fork_rejection, unsupported_version_rejection, V1, V2, V3,
 };
 use warp::http::StatusCode;
 use warp::sse::Event;

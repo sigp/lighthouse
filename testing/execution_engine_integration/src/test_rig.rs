@@ -4,19 +4,20 @@ use crate::execution_engine::{
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
 use execution_layer::{
-    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadStatus,
+    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadStatus, BlockProposalContentsType,
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
 use sensitive_url::SensitiveUrl;
 use serde_json::{json, Value};
+use types::payload::BlockProductionVersion;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ForkName, FullPayload, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
+    ForkName, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -310,10 +311,10 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await;
         let payload_attributes =
             PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
-        let valid_payload = self
+        let block_proposal_content_type = self
             .ee_a
             .execution_layer
-            .get_payload::<FullPayload<MainnetEthSpec>>(
+            .get_payload(
                 parent_hash,
                 &payload_attributes,
                 forkchoice_update_params,
@@ -321,11 +322,17 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 // FIXME: think about how to test other forks
                 ForkName::Merge,
                 &self.spec,
+                BlockProductionVersion::FullV2
             )
             .await
-            .unwrap()
-            .to_payload()
-            .execution_payload();
+            .unwrap();
+
+        let valid_payload = match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => block.to_payload().execution_payload(),
+            BlockProposalContentsType::Blinded(_) => panic!("Should always be a blinded payload"),
+        };
+       
+            
         assert_eq!(valid_payload.transactions().len(), pending_txs.len());
 
         /*
@@ -450,10 +457,10 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await;
         let payload_attributes =
             PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
-        let second_payload = self
+        let block_proposal_content_type = self
             .ee_a
             .execution_layer
-            .get_payload::<FullPayload<MainnetEthSpec>>(
+            .get_payload(
                 parent_hash,
                 &payload_attributes,
                 forkchoice_update_params,
@@ -461,11 +468,15 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 // FIXME: think about how to test other forks
                 ForkName::Merge,
                 &self.spec,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap()
-            .to_payload()
-            .execution_payload();
+            .unwrap();
+
+        let second_payload = match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => block.to_payload().execution_payload(),
+            BlockProposalContentsType::Blinded(_) => panic!("Should always be a blinded payload"),
+        };
 
         /*
          * Execution Engine A:
