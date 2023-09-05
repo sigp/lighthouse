@@ -13,13 +13,14 @@ pub fn parse_point(point: &str) -> Result<Hash256, Error> {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KZGComputeKZGProofInput {
     pub blob: String,
     pub z: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct KZGComputeKZGProof<E: EthSpec> {
     pub input: KZGComputeKZGProofInput,
     pub output: Option<(String, Hash256)>,

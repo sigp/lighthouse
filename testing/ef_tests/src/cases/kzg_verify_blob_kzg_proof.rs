@@ -16,7 +16,7 @@ pub fn get_kzg<P: KzgPreset>() -> Result<Kzg<P>, Error> {
 }
 
 pub fn parse_proof(proof: &str) -> Result<KzgProof, Error> {
-    hex::decode(&proof[2..])
+    hex::decode(strip_0x(proof)?)
         .map_err(|e| Error::FailedToParseTest(format!("Failed to parse proof: {:?}", e)))
         .and_then(|bytes| {
             bytes
@@ -27,7 +27,7 @@ pub fn parse_proof(proof: &str) -> Result<KzgProof, Error> {
 }
 
 pub fn parse_commitment(commitment: &str) -> Result<KzgCommitment, Error> {
-    hex::decode(&commitment[2..])
+    hex::decode(strip_0x(commitment)?)
         .map_err(|e| Error::FailedToParseTest(format!("Failed to parse commitment: {:?}", e)))
         .and_then(|bytes| {
             bytes.try_into().map_err(|e| {
@@ -38,7 +38,7 @@ pub fn parse_commitment(commitment: &str) -> Result<KzgCommitment, Error> {
 }
 
 pub fn parse_blob<E: EthSpec>(blob: &str) -> Result<Blob<E>, Error> {
-    hex::decode(&blob[2..])
+    hex::decode(strip_0x(blob)?)
         .map_err(|e| Error::FailedToParseTest(format!("Failed to parse blob: {:?}", e)))
         .and_then(|bytes| {
             Blob::<E>::new(bytes)
@@ -46,7 +46,15 @@ pub fn parse_blob<E: EthSpec>(blob: &str) -> Result<Blob<E>, Error> {
         })
 }
 
+fn strip_0x(s: &str) -> Result<&str, Error> {
+    s.strip_prefix("0x").ok_or(Error::FailedToParseTest(format!(
+        "Hex is missing 0x prefix: {}",
+        s
+    )))
+}
+
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KZGVerifyBlobKZGProofInput {
     pub blob: String,
     pub commitment: String,
@@ -54,7 +62,7 @@ pub struct KZGVerifyBlobKZGProofInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct KZGVerifyBlobKZGProof<E: EthSpec> {
     pub input: KZGVerifyBlobKZGProofInput,
     pub output: Option<bool>,

@@ -6,12 +6,13 @@ use serde_derive::Deserialize;
 use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KZGBlobToKZGCommitmentInput {
     pub blob: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct KZGBlobToKZGCommitment<E: EthSpec> {
     pub input: KZGBlobToKZGCommitmentInput,
     pub output: Option<String>,

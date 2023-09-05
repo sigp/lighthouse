@@ -5,6 +5,7 @@ use serde_derive::Deserialize;
 use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KZGVerifyBlobKZGProofBatchInput {
     pub blobs: Vec<String>,
     pub commitments: Vec<String>,
@@ -12,7 +13,7 @@ pub struct KZGVerifyBlobKZGProofBatchInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct KZGVerifyBlobKZGProofBatch<E: EthSpec> {
     pub input: KZGVerifyBlobKZGProofBatchInput,
     pub output: Option<bool>,
