@@ -629,7 +629,7 @@ pub async fn proposer_boost_re_org_test(
         Full(unsigned_block_c) => {
             harness.sign_beacon_block(unsigned_block_c.data, &state_b)
         }
-        Blinded(unsigned_block_c) => {
+        Blinded(_) => {
             panic!("Should not be a blinded block");
         }
     };

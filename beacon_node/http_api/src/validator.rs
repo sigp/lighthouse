@@ -7,7 +7,7 @@ use beacon_chain::{
     ProduceBlockVerification,
 };
 use eth2::types::{
-    self as api_types, EndpointVersion, SkipRandaoVerification, ValidatorBlocksQuery,
+    self as api_types, EndpointVersion, SkipRandaoVerification,
 };
 use ssz::Encode;
 use warp::{

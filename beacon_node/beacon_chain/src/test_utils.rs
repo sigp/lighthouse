@@ -1,5 +1,6 @@
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::BeaconBlockAndStateResponse;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
@@ -50,6 +51,7 @@ use std::time::Duration;
 use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
+use types::payload::BlockProductionVersion;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::{typenum::U4294967296, *};
@@ -770,27 +772,31 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-        let (block, state) = self
+        if let BeaconBlockAndStateResponse::Full((block, state)) = self
             .chain
-            .produce_block_on_state(
+            .determine_and_produce_block_on_state(
                 state,
                 None,
                 slot,
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap();
+            .unwrap()
+        {
+            let signed_block = block.sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &state.fork(),
+                state.genesis_validators_root(),
+                &self.spec,
+            );
 
-        let signed_block = block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
-            &self.spec,
-        );
-
-        (signed_block, state)
+            (signed_block, state)
+        } else {
+            panic!("Should always be a full payload response")
+        }
     }
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
@@ -819,27 +825,31 @@ where
 
         let pre_state = state.clone();
 
-        let (block, state) = self
+        if let BeaconBlockAndStateResponse::Full((block, state)) = self
             .chain
-            .produce_block_on_state(
+            .determine_and_produce_block_on_state(
                 state,
                 None,
                 slot,
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap();
+            .unwrap()
+        {
+            let signed_block = block.sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &state.fork(),
+                state.genesis_validators_root(),
+                &self.spec,
+            );
 
-        let signed_block = block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
-            &self.spec,
-        );
-
-        (signed_block, pre_state)
+            (signed_block, pre_state)
+        } else {
+            panic!("Should always be a full payload response");
+        }
     }
 
     /// Create a randao reveal for a block at `slot`.

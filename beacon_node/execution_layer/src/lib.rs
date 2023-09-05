@@ -644,6 +644,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
+    #[allow(clippy::too_many_arguments)]
     pub async fn determine_and_get_payload(
         &self,
         parent_hash: ExecutionBlockHash,

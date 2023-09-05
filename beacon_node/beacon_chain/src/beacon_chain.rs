@@ -4291,6 +4291,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The provided `state_root_opt` should only ever be set to `Some` if the contained value is
     /// equal to the root of `state`. Providing this value will serve as an optimization to avoid
     /// performing a tree hash in some scenarios.
+    #[allow(clippy::too_many_arguments)]
     pub async fn determine_and_produce_block_on_state(
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
