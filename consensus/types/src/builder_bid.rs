@@ -1,4 +1,4 @@
-use crate::beacon_block_body::BuilderKzgCommitments;
+use crate::beacon_block_body::KzgCommitments;
 use crate::{
     BlobRootsList, ChainSpec, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
     ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ForkName, ForkVersionDeserialize,
@@ -15,7 +15,7 @@ use tree_hash_derive::TreeHash;
 #[derive(PartialEq, Debug, Default, Serialize, Deserialize, TreeHash, Clone, Encode)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlindedBlobsBundle<E: EthSpec> {
-    pub commitments: BuilderKzgCommitments<E>,
+    pub commitments: KzgCommitments<E>,
     pub proofs: KzgProofs<E>,
     pub blob_roots: BlobRootsList<E>,
 }

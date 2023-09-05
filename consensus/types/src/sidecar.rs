@@ -1,4 +1,4 @@
-use crate::beacon_block_body::BuilderKzgCommitments;
+use crate::beacon_block_body::KzgCommitments;
 use crate::test_utils::TestRandom;
 use crate::{
     AbstractExecPayload, BeaconBlock, BlindedBlobSidecar, BlindedBlobSidecarList, BlobRootsList,
@@ -33,7 +33,7 @@ pub trait Sidecar<E: EthSpec>:
     fn build_sidecar<Payload: AbstractExecPayload<E>>(
         blob_items: Self::BlobItems,
         block: &BeaconBlock<E, Payload>,
-        expected_kzg_commitments: &BuilderKzgCommitments<E>,
+        expected_kzg_commitments: &KzgCommitments<E>,
         kzg_proofs: Vec<KzgProof>,
     ) -> Result<SidecarList<E, Self>, String>;
 }
@@ -106,7 +106,7 @@ impl<E: EthSpec> Sidecar<E> for BlobSidecar<E> {
     fn build_sidecar<Payload: AbstractExecPayload<E>>(
         blobs: BlobsList<E>,
         block: &BeaconBlock<E, Payload>,
-        expected_kzg_commitments: &BuilderKzgCommitments<E>,
+        expected_kzg_commitments: &KzgCommitments<E>,
         kzg_proofs: Vec<KzgProof>,
     ) -> Result<SidecarList<E, Self>, String> {
         let beacon_block_root = block.canonical_root();
@@ -152,7 +152,7 @@ impl<E: EthSpec> Sidecar<E> for BlindedBlobSidecar {
     fn build_sidecar<Payload: AbstractExecPayload<E>>(
         blob_roots: BlobRootsList<E>,
         block: &BeaconBlock<E, Payload>,
-        expected_kzg_commitments: &BuilderKzgCommitments<E>,
+        expected_kzg_commitments: &KzgCommitments<E>,
         kzg_proofs: Vec<KzgProof>,
     ) -> Result<SidecarList<E, BlindedBlobSidecar>, String> {
         let beacon_block_root = block.canonical_root();

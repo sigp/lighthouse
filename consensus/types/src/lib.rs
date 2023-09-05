@@ -210,7 +210,7 @@ pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
 pub type Blob<T> = FixedVector<u8, <T as EthSpec>::BytesPerBlob>;
-pub type KzgProofs<T> = VariableList<KzgProof, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type KzgProofs<T> = VariableList<KzgProof, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
 pub type VersionedHash = Hash256;
 pub type Hash64 = ethereum_types::H64;
 

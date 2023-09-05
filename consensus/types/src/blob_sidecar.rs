@@ -233,5 +233,5 @@ pub type BlindedBlobSidecarList<T> = SidecarList<T, BlindedBlobSidecar>;
 pub type FixedBlobSidecarList<T> =
     FixedVector<Option<Arc<BlobSidecar<T>>>, <T as EthSpec>::MaxBlobsPerBlock>;
 
-pub type BlobsList<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
-pub type BlobRootsList<T> = VariableList<Hash256, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type BlobsList<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type BlobRootsList<T> = VariableList<Hash256, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
