@@ -46,10 +46,7 @@ const TRUSTED_SETUP_MINIMAL: &[u8] =
     include_bytes!("../built_in_network_configs/minimal_testing_trusted_setups.json");
 
 pub fn get_trusted_setup<P: KzgPreset>() -> &'static [u8] {
-    match P::spec_name() {
-        KzgPresetId::Mainnet => TRUSTED_SETUP,
-        KzgPresetId::Minimal => TRUSTED_SETUP_MINIMAL,
-    }
+    get_trusted_setup_from_id(P::spec_name())
 }
 
 pub fn get_trusted_setup_from_id(id: KzgPresetId) -> &'static [u8] {
@@ -57,6 +54,20 @@ pub fn get_trusted_setup_from_id(id: KzgPresetId) -> &'static [u8] {
         KzgPresetId::Mainnet => TRUSTED_SETUP,
         KzgPresetId::Minimal => TRUSTED_SETUP_MINIMAL,
     }
+}
+
+fn get_trusted_setup_from_config(config: &Config) -> Result<Option<TrustedSetup>, String> {
+    config
+        .deneb_fork_epoch
+        .filter(|epoch| epoch.value != Epoch::max_value())
+        .map(|_| {
+            let id = KzgPresetId::from_str(&config.preset_base)
+                .map_err(|e| format!("Unable to parse preset_base as KZG preset: {:?}", e))?;
+            let trusted_setup_bytes = get_trusted_setup_from_id(id);
+            serde_json::from_reader(trusted_setup_bytes)
+                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+        })
+        .transpose()
 }
 
 /// Specifies an Eth2 network.
@@ -88,20 +99,7 @@ impl Eth2NetworkConfig {
     fn from_hardcoded_net(net: &HardcodedNet) -> Result<Self, String> {
         let config: Config = serde_yaml::from_reader(net.config)
             .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?;
-        let kzg_trusted_setup = if let Some(epoch) = config.deneb_fork_epoch {
-            // Only load the trusted setup if the deneb fork epoch is set
-            if epoch.value != Epoch::max_value() {
-                let trusted_setup_bytes =
-                    get_trusted_setup_from_id(KzgPresetId::from_str(&config.preset_base)?);
-                let trusted_setup: TrustedSetup = serde_json::from_reader(trusted_setup_bytes)
-                    .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
-                Some(trusted_setup)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let kzg_trusted_setup = get_trusted_setup_from_config(&config)?;
         Ok(Self {
             deposit_contract_deploy_block: serde_yaml::from_reader(net.deploy_block)
                 .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
@@ -238,7 +236,7 @@ impl Eth2NetworkConfig {
 
         let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE);
         let boot_enr = optional_load_from_file!(BOOT_ENR_FILE);
-        let config: Config = load_from_file!(BASE_CONFIG_FILE);
+        let config = load_from_file!(BASE_CONFIG_FILE);
 
         // The genesis state is a special case because it uses SSZ, not YAML.
         let genesis_file_path = base_dir.join(GENESIS_STATE_FILE);
@@ -256,20 +254,7 @@ impl Eth2NetworkConfig {
             None
         };
 
-        let kzg_trusted_setup = if let Some(epoch) = config.deneb_fork_epoch {
-            // Only load the trusted setup if the deneb fork epoch is set
-            if epoch.value != Epoch::max_value() {
-                let trusted_setup: TrustedSetup = serde_json::from_reader(
-                    get_trusted_setup_from_id(KzgPresetId::from_str(&config.preset_base)?),
-                )
-                .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
-                Some(trusted_setup)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let kzg_trusted_setup = get_trusted_setup_from_config(&config)?;
 
         Ok(Self {
             deposit_contract_deploy_block,

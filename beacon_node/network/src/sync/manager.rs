@@ -835,9 +835,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             let delay_threshold_unmet = self
                 .chain
                 .slot_clock
-                .seconds_from_current_slot_start()
-                .map_or(false, |secs_into_slot| {
-                    secs_into_slot < self.chain.slot_clock.single_lookup_delay()
+                .millis_from_current_slot_start()
+                .map_or(false, |millis_into_slot| {
+                    millis_into_slot < self.chain.slot_clock.single_lookup_delay()
                 });
             msg_for_current_slot && delay_threshold_unmet
         } else {
