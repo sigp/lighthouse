@@ -42,8 +42,8 @@ lazy_static = "1.4.0"
 ethers-core = "1.0.2"
 builder_client = { path = "../builder_client" }
 fork_choice = { path = "../../consensus/fork_choice" }
-mev-rs = { git = "https://github.com/ralexstokes/mev-rs", rev = "e01daed" }
-ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "2bcb975" }
+mev-rs = { git = "https://github.com/jimmygchen/mev-rs", rev = "dedc77a" }
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "12508c1f9b0c8f4bf4c5e9b6d441e840c1b37fd9" }
 ssz_rs = "0.9.0"
 tokio-stream = { version = "0.1.9", features = [ "sync" ] }
 strum = "0.24.0"
