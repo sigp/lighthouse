@@ -152,8 +152,6 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
     let network_globals = Arc::new(NetworkGlobals::new(
         enr.clone(),
-        Some(TCP_PORT),
-        None,
         meta_data,
         vec![],
         false,

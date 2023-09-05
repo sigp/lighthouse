@@ -156,8 +156,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let meta_data = utils::load_or_build_metadata(&config.network_dir, &log);
             let globals = NetworkGlobals::new(
                 enr,
-                config.listen_addrs().v4().map(|v4_addr| v4_addr.tcp_port),
-                config.listen_addrs().v6().map(|v6_addr| v6_addr.tcp_port),
                 meta_data,
                 config
                     .trusted_peers
