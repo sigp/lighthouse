@@ -37,10 +37,10 @@ bn_cli=$($CMD bn --help)
 vc_cli=$($CMD vc --help)
 am_cli=$($CMD am --help)
 
-general=./general_help.md
-bn=./bn_help.md
-vc=./vc_help.md
-am=./am_help.md
+general=./help_general.md
+bn=./help_bn.md
+vc=./help_vc.md
+am=./help_am.md
 
 # create .md files
 write_to_file "$general_cli" "$general" "Lighthouse General Commands"
@@ -51,12 +51,12 @@ write_to_file "$am_cli" "$am" "Account Manager"
 # create empty array to store variables for exit condition later
 exist=()
 update=()
-for i in general_help bn_help vc_help am_help
+for i in help_general help_bn help_vc help_am
 do
-    if [[ -f ./book/src/cli/$i.md ]];  # first check if .md exists
+    if [[ -f ./book/src/$i.md ]];  # first check if .md exists
     then 
         echo  "$i.md exists, continue to check for any changes"
-        difference=$(diff ./book/src/cli/$i.md $i.md)
+        difference=$(diff ./book/src/$i.md $i.md)
         case1=false
         exist+=($case1)
         if [[ -z $difference ]]; # then check if any changes required
@@ -65,27 +65,27 @@ do
             update+=($case2)
             echo "$i.md is up to date"
         else
-            cp $i.md ./book/src/cli/$i.md
+            cp $i.md ./book/src/$i.md
             echo "$i has been updated"
             case2=true
             update+=($case2)
         fi
     else
         echo "$i.md is not found, it will be created now"
-        cp $i.md ./book/src/cli/$i.md
+        cp $i.md ./book/src/$i.md
         case1=true
         exist+=($case1)
     fi
 done 
 
 # use during testing to show exit conditions
-#echo "${exist[@]}"
-#echo "${update[@]}"
+echo "${exist[@]}"
+echo "${update[@]}"
 
 # exit condition, exit when .md does not exist or changes requried
 if [[ ${exist[@]} == *"true"* && ${update[@]} == *"true"* ]]; 
 then
-    echo "exit 1 due to one or more .md file does not exist and changes updated"
+    echo "exit 1 due to one or more .md file does not exist and changes updated."
     exit 1
 elif [[  ${exist[@]} == *"true"* ]]; 
 then
@@ -100,4 +100,4 @@ else
 fi
 
 # remove .md files in current directory
-rm -f general_help.md bn_help.md vc_help.md am_help.md
+rm -f help_general.md help_bn.md help_vc.md help_am.md
