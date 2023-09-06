@@ -4,17 +4,18 @@ use crate::execution_engine::{
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
 use execution_layer::{
-    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadStatus, BlockProposalContentsType,
+    BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
+    PayloadStatus,
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
 use sensitive_url::SensitiveUrl;
 use serde_json::{json, Value};
-use types::payload::BlockProductionVersion;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
+use types::payload::BlockProductionVersion;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
     ForkName, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
@@ -322,7 +323,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 // FIXME: think about how to test other forks
                 ForkName::Merge,
                 &self.spec,
-                BlockProductionVersion::FullV2
+                BlockProductionVersion::FullV2,
             )
             .await
             .unwrap();
@@ -331,8 +332,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             BlockProposalContentsType::Full(block) => block.to_payload().execution_payload(),
             BlockProposalContentsType::Blinded(_) => panic!("Should always be a full payload"),
         };
-       
-            
+
         assert_eq!(valid_payload.transactions().len(), pending_txs.len());
 
         /*

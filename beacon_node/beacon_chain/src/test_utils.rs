@@ -772,7 +772,7 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-        if let BeaconBlockAndStateResponse::Full((block, state)) = self
+        if let BeaconBlockAndStateResponse::Full((block, state, _)) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -825,7 +825,7 @@ where
 
         let pre_state = state.clone();
 
-        if let BeaconBlockAndStateResponse::Full((block, state)) = self
+        if let BeaconBlockAndStateResponse::Full((block, state, _)) = self
             .chain
             .produce_block_on_state(
                 state,
