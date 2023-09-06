@@ -1,12 +1,12 @@
 use derivative::Derivative;
 use slot_clock::SlotClock;
-use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
 
 use crate::beacon_chain::{
     BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT,
     VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
+use crate::block_verification::cheap_state_advance_to_obtain_committees;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::BeaconChainError;
@@ -14,11 +14,10 @@ use kzg::Kzg;
 use slog::{debug, warn};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
-use std::borrow::Cow;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec, CloneConfig, EthSpec,
-    Hash256, RelativeEpoch, SignedBlobSidecar, Slot,
+    BeaconStateError, BlobSidecar, BlobSidecarList, CloneConfig, EthSpec, Hash256,
+    SignedBlobSidecar, Slot,
 };
 
 /// An error occurred while validating a gossip blob.
@@ -308,12 +307,13 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
                     "block_root" => %block_root,
                     "index" => %blob_index,
                 );
-                let state = cheap_state_advance_to_obtain_committees(
-                    &mut snapshot.beacon_state,
-                    Some(snapshot.beacon_block_root),
-                    blob_slot,
-                    &chain.spec,
-                )?;
+                let state =
+                    cheap_state_advance_to_obtain_committees::<_, GossipBlobError<T::EthSpec>>(
+                        &mut snapshot.beacon_state,
+                        Some(snapshot.beacon_block_root),
+                        blob_slot,
+                        &chain.spec,
+                    )?;
                 (
                     state.get_beacon_proposer_index(blob_slot, &chain.spec)?,
                     state.fork(),
@@ -344,7 +344,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
                         parent_block.state_root()
                     ))
                 })?;
-            let state = cheap_state_advance_to_obtain_committees(
+            let state = cheap_state_advance_to_obtain_committees::<_, GossipBlobError<T::EthSpec>>(
                 &mut parent_state,
                 Some(parent_block.state_root()),
                 blob_slot,
@@ -426,56 +426,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     Ok(GossipVerifiedBlob {
         blob: signed_blob_sidecar,
     })
-}
-
-/// Performs a cheap (time-efficient) state advancement so the committees and proposer shuffling for
-/// `slot` can be obtained from `state`.
-///
-/// The state advancement is "cheap" since it does not generate state roots. As a result, the
-/// returned state might be holistically invalid but the committees/proposers will be correct (since
-/// they do not rely upon state roots).
-///
-/// If the given `state` can already serve the `slot`, the committees will be built on the `state`
-/// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
-/// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
-/// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
-///
-/// Note: This is a copy of the `block_verification::cheap_state_advance_to_obtain_committees` to return
-/// a BlobError error type instead.
-fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
-    state: &'a mut BeaconState<E>,
-    state_root_opt: Option<Hash256>,
-    blob_slot: Slot,
-    spec: &ChainSpec,
-) -> Result<Cow<'a, BeaconState<E>>, GossipBlobError<E>> {
-    let block_epoch = blob_slot.epoch(E::slots_per_epoch());
-
-    if state.current_epoch() == block_epoch {
-        // Build both the current and previous epoch caches, as the previous epoch caches are
-        // useful for verifying attestations in blocks from the current epoch.
-        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-        state.build_committee_cache(RelativeEpoch::Current, spec)?;
-
-        Ok(Cow::Borrowed(state))
-    } else if state.slot() > blob_slot {
-        Err(GossipBlobError::BlobIsNotLaterThanParent {
-            blob_slot,
-            parent_slot: state.slot(),
-        })
-    } else {
-        let mut state = state.clone_with(CloneConfig::committee_caches_only());
-        let target_slot = block_epoch.start_slot(E::slots_per_epoch());
-
-        // Advance the state into the same epoch as the block. Use the "partial" method since state
-        // roots are not important for proposer/attester shuffling.
-        partial_state_advance(&mut state, state_root_opt, target_slot, spec)
-            .map_err(|e| GossipBlobError::BeaconChainError(BeaconChainError::from(e)))?;
-
-        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-        state.build_committee_cache(RelativeEpoch::Current, spec)?;
-
-        Ok(Cow::Owned(state))
-    }
 }
 
 /// Wrapper over a `BlobSidecar` for which we have completed kzg verification.
