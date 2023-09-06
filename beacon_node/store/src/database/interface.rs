@@ -58,42 +58,42 @@ impl RwTransaction {
     ) {
         match self {
             #[cfg(feature = "leveldb")]
-            RwTransaction::LevelDb() => leveldb_impl::LevelDB::put_with_options(col, key, val, opts),
+            RwTransaction::LevelDb() => leveldb_impl::Environment::put_with_options(col, key, val, opts),
         }
     }
 
     pub fn get_bytes(&self, col: &str, key: &[u8]) {
         match self {
             #[cfg(feature = "leveldb")]
-            RwTransaction::LevelDb() => leveldb_impl::LevelDB::get_bytes(col, key),
+            RwTransaction::LevelDb() => leveldb_impl::RwTransaction::get_bytes(col, key),
         }
     }
 
     pub fn key_delete(&self, col: &str, key: &[u8]) { 
         match self {
             #[cfg(feature = "leveldb")]
-            RwTransaction::LevelDb() => leveldb_impl::LevelDB::key_delete(col, key),
+            RwTransaction::LevelDb() => leveldb_impl::RwTransaction::key_delete(col, key),
         }
     }
 
     pub fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) {
         match self {
             #[cfg(feature = "leveldb")]
-            RwTransaction::LevelDb() =>leveldb_impl::LevelDB::do_atomically(ops_batch),
+            RwTransaction::LevelDb() =>leveldb_impl::RwTransaction::do_atomically(ops_batch),
         }
     }
 
     pub fn compact(&self) {
         match self {
             #[cfg(feature = "leveldb")]
-            RwTransaction::LevelDb() => leveldb_impl::LevelDB::compact(),
+            RwTransaction::LevelDb() => leveldb_impl::RwTransaction::compact(),
         }
     }
 
     pub fn iter_column(&self, column: DBColumn) {
         match self {
             #[cfg(feature = "leveldb")]
-            RwTransaction::LevelDb() => leveldb_impl::LevelDB::iter_column(column),
+            RwTransaction::LevelDb() => leveldb_impl::RwTransaction::iter_column(column),
         }
     }
 }
