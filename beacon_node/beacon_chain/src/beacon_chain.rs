@@ -435,7 +435,8 @@ pub enum BeaconBlockAndStateResponse<T: EthSpec> {
     Blinded(BeaconBlockAndStateAndValue<T, BlindedPayload<T>>),
 }
 
-pub type BeaconBlockAndStateAndValue<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>, u32);
+pub type BeaconBlockAndStateAndValue<T, Payload> =
+    (BeaconBlock<T, Payload>, BeaconState<T>, Uint256);
 
 impl FinalizationAndCanonicity {
     pub fn is_finalized(self) -> bool {
@@ -4623,7 +4624,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         _phantom: PhantomData,
                     },
                 }),
-                0,
+                Uint256::zero(),
             ),
             BeaconState::Altair(_) => (
                 BeaconBlock::Altair(BeaconBlockAltair {
@@ -4645,12 +4646,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         _phantom: PhantomData,
                     },
                 }),
-                0,
+                Uint256::zero(),
             ),
             BeaconState::Merge(_) => {
                 let block_proposal_contents =
                     block_contents.ok_or(BlockProductionError::MissingExecutionPayload)?;
-                let block_value = block_proposal_contents.block_value().as_u32();
+                let block_value = block_proposal_contents.block_value().to_owned();
 
                 (
                     BeaconBlock::Merge(BeaconBlockMerge {
@@ -4681,7 +4682,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Capella(_) => {
                 let block_proposal_contents =
                     block_contents.ok_or(BlockProductionError::MissingExecutionPayload)?;
-                let block_value = block_proposal_contents.block_value().as_u32();
+                let block_value = block_proposal_contents.block_value().to_owned();
 
                 (
                     BeaconBlock::Capella(BeaconBlockCapella {

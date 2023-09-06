@@ -4,7 +4,7 @@ use eth2::{
     CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
 };
 use serde::Serialize;
-use types::{ForkName, ForkVersionedResponse, InconsistentFork};
+use types::{ForkName, ForkVersionedResponse, InconsistentFork, Uint256};
 use warp::reply::{self, Reply, Response};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
@@ -72,7 +72,7 @@ pub fn add_execution_payload_blinded_header<T: Reply>(
 /// Add the `Eth-Execution-Payload-Value` header to a response.
 pub fn add_execution_payload_value_header<T: Reply>(
     reply: T,
-    execution_payload_value: u32,
+    execution_payload_value: Uint256,
 ) -> Response {
     reply::with_header(
         reply,

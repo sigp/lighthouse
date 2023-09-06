@@ -269,7 +269,7 @@ pub fn generate_json_response_v3<
     chain: Arc<BeaconChain<T>>,
     block: BeaconBlock<E, Payload>,
     endpoint_version: EndpointVersion,
-    block_value: u32,
+    block_value: Uint256,
     blinded_payload_flag: bool,
 ) -> Result<Response<Body>, warp::Rejection> {
     let fork_name = block
