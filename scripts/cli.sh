@@ -1,5 +1,6 @@
 #! /bin/bash
 
+# A function to generate formatted .md files
 write_to_file() {
     local cmd="$1"
     local file="$2"
@@ -52,46 +53,50 @@ exist=()
 update=()
 for i in general_help bn_help vc_help am_help
 do
-if [[ -f ./book/src/cli/$i.md ]]; then  # first check if .md exists
-echo  "$i.md exists, continue to check for any changes"
-difference=$(diff ./book/src/cli/$i.md $i.md)
-case1=false
-exist+=($case1)
-   if [[ -z $difference ]]; then # then check if any changes required
-    case2=false
-    update+=($case2)
-echo "$i.md is up to date"
-else
-cp $i.md ./book/src/cli/$i.md
-echo "$i has been updated"
-    case2=true
-    update+=($case2)
-fi
-else
-echo "$i.md is not found, it will be created now"
-cp $i.md ./book/src/cli/$i.md
-case1=true
-exist+=($case1)
-# echo $case1
-#exit 1
-fi
+    if [[ -f ./book/src/cli/$i.md ]];  # first check if .md exists
+    then 
+        echo  "$i.md exists, continue to check for any changes"
+        difference=$(diff ./book/src/cli/$i.md $i.md)
+        case1=false
+        exist+=($case1)
+        if [[ -z $difference ]]; # then check if any changes required
+        then 
+            case2=false
+            update+=($case2)
+            echo "$i.md is up to date"
+        else
+            cp $i.md ./book/src/cli/$i.md
+            echo "$i has been updated"
+            case2=true
+            update+=($case2)
+        fi
+    else
+        echo "$i.md is not found, it will be created now"
+        cp $i.md ./book/src/cli/$i.md
+        case1=true
+        exist+=($case1)
+    fi
+done 
 
 # use during testing to show exit conditions
 #echo "${exist[@]}"
 #echo "${update[@]}"
 
 # exit condition, exit when .md does not exist or changes requried
-if [[ ${exist[@]} == *"true"* && ${update[@]} == *"true"* ]]; then
-echo "exit 1 due to one or more .md file does not exist and changes updated"
-exit 1
-elif [[  ${exist[@]} == *"true"* ]]; then
-echo "exit 1 due to one or more .md file does not exist"
-exit 1
-elif [[ ${update[@]} == *"true"* ]]; then
-echo "exit 1 due to changes updated"
-exit 1
+if [[ ${exist[@]} == *"true"* && ${update[@]} == *"true"* ]]; 
+then
+    echo "exit 1 due to one or more .md file does not exist and changes updated"
+    exit 1
+elif [[  ${exist[@]} == *"true"* ]]; 
+then
+    echo "exit 1 due to one or more .md file does not exist"
+    exit 1
+elif [[ ${update[@]} == *"true"* ]]; 
+then
+    echo "exit 1 due to changes updated"
+    exit 1
 else
-echo "Task completed, no changes in CLI parameters"
+    echo "Task completed, no changes in CLI parameters"
 fi
 
 # remove .md files in current directory

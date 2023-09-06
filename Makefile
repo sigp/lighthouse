@@ -166,7 +166,7 @@ test: test-release
 
 # Run bash script to output cli.txt
 cli:
-	./cli.sh
+	./scripts/cli.sh
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
