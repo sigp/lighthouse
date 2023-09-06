@@ -210,7 +210,6 @@ impl EnrExt for Enr {
     }
 
     /// Returns a list of multiaddrs if the ENR has an `ip` and a `quic` key **or** an `ip6` and a `quic6`.
-    /// The vector remains empty if these fields are not defined.
     fn multiaddr_quic(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
         if let Some(quic_port) = self.quic4() {
@@ -234,7 +233,6 @@ impl EnrExt for Enr {
     }
 
     /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
-    /// The vector remains empty if these fields are not defined.
     fn multiaddr_tcp(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
         if let Some(ip) = self.ip4() {

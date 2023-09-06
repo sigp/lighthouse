@@ -412,7 +412,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         info!(self.log, "Libp2p Starting"; "peer_id" => %enr.peer_id(), "bandwidth_config" => format!("{}-{}", config.network_load, NetworkLoad::from(config.network_load).name));
         debug!(self.log, "Attempting to open listening ports"; config.listen_addrs(), "discovery_enabled" => !config.disable_discovery, "quic_enabled" => !config.disable_quic_support);
 
-        for listen_multiaddr in config.listen_addrs().listen_addresses() {
+        for listen_multiaddr in config.listen_addrs().libp2p_addresses() {
             // If QUIC is disabled, ignore listening on QUIC ports
             if config.disable_quic_support
                 && listen_multiaddr.iter().any(|v| v == MProtocol::QuicV1)
