@@ -27,7 +27,7 @@ mod partial_beacon_state;
 pub mod reconstruct;
 
 pub mod iter;
-
+pub mod database;
 pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
