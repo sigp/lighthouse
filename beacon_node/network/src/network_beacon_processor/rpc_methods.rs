@@ -619,7 +619,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request blocks
-        if req.count * T::EthSpec::max_blobs_per_block() as u64 > MAX_REQUEST_BLOB_SIDECARS {
+        if req.max_blobs_requested::<T::EthSpec>() > MAX_REQUEST_BLOB_SIDECARS {
             return self.send_error_response(
                 peer_id,
                 RPCResponseErrorCode::InvalidRequest,
