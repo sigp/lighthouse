@@ -329,7 +329,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let valid_payload = match block_proposal_content_type {
             BlockProposalContentsType::Full(block) => block.to_payload().execution_payload(),
-            BlockProposalContentsType::Blinded(_) => panic!("Should always be a blinded payload"),
+            BlockProposalContentsType::Blinded(_) => panic!("Should always be a full payload"),
         };
        
             
@@ -475,7 +475,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let second_payload = match block_proposal_content_type {
             BlockProposalContentsType::Full(block) => block.to_payload().execution_payload(),
-            BlockProposalContentsType::Blinded(_) => panic!("Should always be a blinded payload"),
+            BlockProposalContentsType::Blinded(_) => panic!("Should always be a full payload"),
         };
 
         /*
