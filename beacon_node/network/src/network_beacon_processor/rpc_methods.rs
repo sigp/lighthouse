@@ -708,13 +708,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
             };
 
-        // Pick out the required blocks, ignoring skip-slots.
+        // Use `WhenSlotSkipped::Prev` to get the most recent block root prior to
+        // `request_start_slot` in order to check whether the `request_start_slot` is a skip.
         let mut last_block_root = req.start_slot.checked_sub(1).and_then(|prev_slot| {
             self.chain
                 .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
                 .ok()
                 .flatten()
         });
+
+        // Pick out the required blocks, ignoring skip-slots.
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
             iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
                 // map skip slots to None
