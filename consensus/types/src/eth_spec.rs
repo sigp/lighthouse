@@ -260,6 +260,16 @@ pub trait EthSpec:
         Self::MaxBlobsPerBlock::to_usize()
     }
 
+    /// Returns the `MAX_BLOB_COMMITMENTS_PER_BLOCK` constant for this specification.
+    fn max_blob_commitments_per_block() -> usize {
+        Self::MaxBlobCommitmentsPerBlock::to_usize()
+    }
+
+    /// Returns the `FIELD_ELEMENTS_PER_BLOB` constant for this specification.
+    fn field_elements_per_blob() -> usize {
+        Self::FieldElementsPerBlob::to_usize()
+    }
+
     fn blob_from_bytes(bytes: &[u8]) -> Result<<Self::Kzg as KzgPreset>::Blob, kzg::Error> {
         <Self::Kzg as KzgPreset>::Blob::from_bytes(bytes)
     }
