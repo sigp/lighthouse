@@ -742,7 +742,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         // remove all skip slots
-        let block_roots = block_roots.into_iter().flatten().collect::<Vec<_>>();
+        let block_roots = block_roots.into_iter().flatten();
 
         let mut blobs_sent = 0;
         let mut send_response = true;
