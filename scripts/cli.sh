@@ -79,8 +79,8 @@ do
 done 
 
 # use during testing to show exit conditions
-echo "${exist[@]}"
-echo "${update[@]}"
+#echo "${exist[@]}"
+#echo "${update[@]}"
 
 # exit condition, exit when .md does not exist or changes requried
 if [[ ${exist[@]} == *"true"* && ${update[@]} == *"true"* ]]; 
