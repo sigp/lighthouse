@@ -1729,7 +1729,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     /*
-     * beacon/blobs
+     * beacon/blob_sidecars
      */
 
     // GET beacon/blob_sidecars/{block_id}
