@@ -220,7 +220,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Handle a `BlobsByRoot` request from the peer.
     pub fn handle_blobs_by_root_request(
         self: Arc<Self>,
-        send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: BlobsByRootRequest,
@@ -286,7 +285,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         if send_response {
             self.send_response(peer_id, Response::BlobsByRoot(None), request_id);
         }
-        drop(send_on_drop);
     }
 
     /// Handle a `BlocksByRoot` request from the peer.
@@ -607,7 +605,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Handle a `BlobsByRange` request from the peer.
     pub fn handle_blobs_by_range_request(
         self: Arc<Self>,
-        send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
         req: BlobsByRangeRequest,
@@ -806,7 +803,5 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 id: request_id,
             });
         }
-
-        drop(send_on_drop);
     }
 }
