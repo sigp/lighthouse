@@ -4440,7 +4440,7 @@ impl ApiTester {
                 assert_eq!(withdrawal_response.finalized, Some(false));
                 assert_eq!(withdrawal_response.data, expected_withdrawals.to_vec());
             }
-            Err(e) => {
+            Err(_) => {
                 panic!("query failed incorrectly");
             }
         }
