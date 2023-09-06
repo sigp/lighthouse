@@ -24,9 +24,10 @@ impl From<KzgProof> for c_kzg_min::Bytes48 {
 }
 
 impl KzgProof {
+    /// Creates a valid proof using `G1_POINT_AT_INFINITY`.
     pub fn empty() -> Self {
         let mut bytes = [0; BYTES_PER_PROOF];
-        bytes[0] = 192;
+        bytes[0] = 0xc0;
         Self(bytes)
     }
 }
