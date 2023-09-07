@@ -890,32 +890,10 @@ where
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) => {
-                if let Some(blobs) = maybe_blob_sidecars {
-                    let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
-                        .into_iter()
-                        .map(|blob| {
-                            blob.sign(
-                                &self.validator_keypairs[proposer_index].sk,
-                                &state.fork(),
-                                state.genesis_validators_root(),
-                                &self.spec,
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .into();
-                    let mut guard = self.blob_signature_cache.write();
-                    for blob in &signed_blobs {
-                        guard.insert(
-                            BlobSignatureKey::new(blob.message.block_root, blob.message.index),
-                            blob.signature.clone(),
-                        );
-                    }
-                    (signed_block, Some(signed_blobs))
-                } else {
-                    (signed_block, None)
-                }
-            }
+            SignedBeaconBlock::Deneb(_) => (
+                signed_block,
+                maybe_blob_sidecars.map(|blobs| self.sign_blobs(blobs, &state, proposer_index)),
+            ),
         };
 
         (block_contents, state)
@@ -1035,6 +1013,35 @@ where
             state.genesis_validators_root(),
             &self.spec,
         )
+    }
+
+    /// Sign blobs, and cache their signatures.
+    pub fn sign_blobs(
+        &self,
+        blobs: BlobSidecarList<E>,
+        state: &BeaconState<E>,
+        proposer_index: usize,
+    ) -> SignedSidecarList<E, BlobSidecar<E>> {
+        let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
+            .into_iter()
+            .map(|blob| {
+                blob.sign(
+                    &self.validator_keypairs[proposer_index].sk,
+                    &state.fork(),
+                    state.genesis_validators_root(),
+                    &self.spec,
+                )
+            })
+            .collect::<Vec<_>>()
+            .into();
+        let mut guard = self.blob_signature_cache.write();
+        for blob in &signed_blobs {
+            guard.insert(
+                BlobSignatureKey::new(blob.message.block_root, blob.message.index),
+                blob.signature.clone(),
+            );
+        }
+        signed_blobs
     }
 
     /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
@@ -1940,7 +1947,7 @@ where
             )
             .await?
             .try_into()
-            .unwrap();
+            .expect("block blobs are available");
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }

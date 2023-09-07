@@ -4592,8 +4592,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
             BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Deneb(_) => {
-                let prepare_payload_handle =
-                    get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
+                let prepare_payload_handle = get_execution_payload(
+                    self.clone(),
+                    &state,
+                    parent_root,
+                    proposer_index,
+                    builder_params,
+                )?;
                 Some(prepare_payload_handle)
             }
         };
