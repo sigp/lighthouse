@@ -96,7 +96,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     echo "Starting the last validator client"
 
-    ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:101100 &
+    ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:9100 &
     DOPPELGANGER_FAILURE=0
 
     # Sleep three epochs, then make sure all validators were active in epoch 2. Use
