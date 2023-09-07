@@ -391,8 +391,8 @@ pub async fn proposer_boost_re_org_test(
 ) {
     assert!(head_slot > 0);
 
-    // Test using Capella so that we simulate conditions as similar to mainnet as possible.
-    let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
+    // Test using the latest fork so that we simulate conditions as similar to mainnet as possible.
+    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = 1.into();
 
     // Ensure there are enough validators to have `attesters_per_slot`.
@@ -623,7 +623,7 @@ pub async fn proposer_boost_re_org_test(
         .await
         .unwrap()
         .data;
-    let unsigned_block_c = unsigned_block_contents_c.deconstruct().0;
+    let (unsigned_block_c, block_c_blobs) = unsigned_block_contents_c.deconstruct();
     let block_c = harness.sign_beacon_block(unsigned_block_c, &state_b);
 
     if should_re_org {
@@ -634,9 +634,13 @@ pub async fn proposer_boost_re_org_test(
         assert_eq!(block_c.parent_root(), block_b_root);
     }
 
+    // Sign blobs.
+    let block_c_signed_blobs =
+        block_c_blobs.map(|blobs| harness.sign_blobs(blobs, &state_b, proposer_index));
+
     // Applying block C should cause it to become head regardless (re-org or continuation).
     let block_root_c = harness
-        .process_block_result((block_c.clone(), None))
+        .process_block_result((block_c.clone(), block_c_signed_blobs))
         .await
         .unwrap()
         .into();
@@ -697,6 +701,11 @@ pub async fn proposer_boost_re_org_test(
             && slot_c.epoch(E::slots_per_epoch()) != slot_b.epoch(E::slots_per_epoch())
     {
         assert_ne!(expected_withdrawals, pre_advance_withdrawals);
+    }
+
+    // Check that the `parent_beacon_block_root` of the payload attributes are correct.
+    if let Ok(parent_beacon_block_root) = payload_attribs.parent_beacon_block_root() {
+        assert_eq!(parent_beacon_block_root, block_c.parent_root());
     }
 
     let lookahead = slot_clock

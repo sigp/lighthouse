@@ -404,6 +404,7 @@ pub fn get_execution_payload<
 >(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
+    parent_block_root: Hash256,
     proposer_index: u64,
     builder_params: BuilderParams,
 ) -> Result<PreparePayloadHandle<T::EthSpec, Payload>, BlockProductionError> {
@@ -426,10 +427,10 @@ pub fn get_execution_payload<
         &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
     };
     let parent_beacon_block_root = match state {
-        &BeaconState::Deneb(_) => Some(state.latest_block_header().canonical_root()),
-        &BeaconState::Merge(_) | &BeaconState::Capella(_) => None,
+        BeaconState::Deneb(_) => Some(parent_block_root),
+        BeaconState::Merge(_) | BeaconState::Capella(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
-        &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
+        BeaconState::Base(_) | BeaconState::Altair(_) => None,
     };
 
     // Spawn a task to obtain the execution payload from the EL via a series of async calls. The

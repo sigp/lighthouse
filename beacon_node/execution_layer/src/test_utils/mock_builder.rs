@@ -402,22 +402,35 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
         let prev_randao = head_state
             .get_randao_mix(head_state.current_epoch())
             .map_err(convert_err)?;
-        let parent_root = head_state.latest_block_header().parent_root;
+        let expected_withdrawals = match fork {
+            ForkName::Base | ForkName::Altair | ForkName::Merge => None,
+            ForkName::Capella | ForkName::Deneb => Some(
+                self.beacon_client
+                    .get_expected_withdrawals(&StateId::Head)
+                    .await
+                    .unwrap()
+                    .data,
+            ),
+        };
 
         let payload_attributes = match fork {
-            ForkName::Merge => {
-                PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None, None)
-            }
-            // the withdrawals root is filled in by operations
-            ForkName::Capella => {
-                PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]), None)
-            }
+            // the withdrawals root is filled in by operations, but we supply the valid withdrawals
+            // first to avoid polluting the execution block generator with invalid payload attributes
+            // NOTE: this was part of an effort to add payload attribute uniqueness checks,
+            // which was abandoned because it broke too many tests in subtle ways.
+            ForkName::Merge | ForkName::Capella => PayloadAttributes::new(
+                timestamp,
+                *prev_randao,
+                fee_recipient,
+                expected_withdrawals,
+                None,
+            ),
             ForkName::Deneb => PayloadAttributes::new(
                 timestamp,
                 *prev_randao,
                 fee_recipient,
-                Some(vec![]),
-                Some(parent_root),
+                expected_withdrawals,
+                Some(head_block_root),
             ),
             ForkName::Base | ForkName::Altair => {
                 return Err(MevError::InvalidFork);
@@ -451,7 +464,7 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
             .map_err(convert_err)?
             .into();
 
-        let header: ExecutionPayloadHeader<E> = match payload {
+        let header = match payload {
             ExecutionPayload::Merge(payload) => ExecutionPayloadHeader::Merge((&payload).into()),
             ExecutionPayload::Capella(payload) => {
                 ExecutionPayloadHeader::Capella((&payload).into())
