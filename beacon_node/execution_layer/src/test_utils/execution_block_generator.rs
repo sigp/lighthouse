@@ -17,9 +17,9 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    Address, BlobSidecar, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge,
-    ForkName, Hash256, Transactions, Uint256,
+    BlobSidecar, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge, ForkName, Hash256,
+    Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -121,10 +121,6 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
     pub pending_payloads: HashMap<ExecutionBlockHash, ExecutionPayload<T>>,
     pub next_payload_id: u64,
     pub payload_ids: HashMap<PayloadId, ExecutionPayload<T>>,
-    /// Payload attributes should be uniquely determined by the head block hash, fee recipient and
-    /// timestamp (slot).
-    pub payload_attributes:
-        HashMap<(ExecutionBlockHash, Address, u64), (PayloadId, PayloadAttributes)>,
     /*
      * Post-merge fork triggers
      */
@@ -157,7 +153,6 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             pending_payloads: <_>::default(),
             next_payload_id: 0,
             payload_ids: <_>::default(),
-            payload_attributes: <_>::default(),
             shanghai_time,
             cancun_time,
             blobs_bundles: <_>::default(),
@@ -501,38 +496,15 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                     .get(&head_block_hash)
                     .cloned()
                     .ok_or_else(|| format!("unknown parent block {head_block_hash:?}"))?;
-                let fee_recipient = attributes.suggested_fee_recipient();
 
-                if let Some((existing_id, existing_payload_attributes)) = self
-                    .payload_attributes
-                    .get(&(head_block_hash, fee_recipient, attributes.timestamp()))
-                {
-                    // Check uniqueness of payload attributes.
-                    assert_eq!(
-                        *existing_payload_attributes, attributes,
-                        "inconsistent payload attributes"
-                    );
+                let id = payload_id_from_u64(self.next_payload_id);
+                self.next_payload_id += 1;
 
-                    // Return existing payload ID.
-                    Some(*existing_id)
-                } else {
-                    let id = payload_id_from_u64(self.next_payload_id);
-                    self.next_payload_id += 1;
+                let execution_payload =
+                    self.build_new_execution_payload(head_block_hash, &parent, id, &attributes)?;
+                self.payload_ids.insert(id, execution_payload);
 
-                    let execution_payload = self.build_new_execution_payload(
-                        head_block_hash,
-                        &parent,
-                        id,
-                        &attributes,
-                    )?;
-                    self.payload_ids.insert(id, execution_payload);
-                    self.payload_attributes.insert(
-                        (head_block_hash, fee_recipient, attributes.timestamp()),
-                        (id, attributes),
-                    );
-
-                    Some(id)
-                }
+                Some(id)
             }
         };
 

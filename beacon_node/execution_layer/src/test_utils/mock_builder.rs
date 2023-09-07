@@ -415,8 +415,9 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
 
         let payload_attributes = match fork {
             // the withdrawals root is filled in by operations, but we supply the valid withdrawals
-            // first in order to avoid tripping the execution block generator's payload attributes
-            // check.
+            // first to avoid polluting the execution block generator with invalid payload attributes
+            // NOTE: this was part of an effort to add payload attribute uniqueness checks,
+            // which was abandoned because it broke too many tests in subtle ways.
             ForkName::Merge | ForkName::Capella => PayloadAttributes::new(
                 timestamp,
                 *prev_randao,
