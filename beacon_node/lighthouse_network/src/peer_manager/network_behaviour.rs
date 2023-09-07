@@ -335,7 +335,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
                 )
             }) {
-                Some(multiaddr::Protocol::Quic) => {
+                Some(multiaddr::Protocol::QuicV1) => {
                     metrics::dec_gauge(&metrics::QUIC_PEERS_CONNECTED);
                 }
                 Some(multiaddr::Protocol::Tcp(_)) => {
