@@ -12,7 +12,7 @@ use leveldb::options::{Options, ReadOptions, WriteOptions};
 use parking_lot::{Mutex, MutexGuard};
 use std::marker::PhantomData;
 use std::path::Path;
-
+/*
 /// A wrapped leveldb database.
 pub struct LevelDB<E: EthSpec> {
     db: Database<BytesKey>,
@@ -219,7 +219,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
                 }),
         )
     }
-}
+}*/
 
 impl<E: EthSpec> ItemStore<E> for LevelDB<E> {}
 
