@@ -877,14 +877,9 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     })
 }
 
-// Tests a Goodbye RPC message
-#[test]
-#[allow(clippy::single_match)]
-fn tcp_test_goodbye_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Debug;
-    let enable_logging = true;
-
+/// Established a pair of nodes and disconnects the pair based on the selected protocol via an RPC
+/// Goodbye message.
+fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
     let log = common::build_log(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
@@ -893,14 +888,9 @@ fn tcp_test_goodbye_rpc() {
 
     // get sender/receiver
     rt.block_on(async {
-        let (mut sender, mut receiver) = common::build_node_pair(
-            Arc::downgrade(&rt),
-            &log,
-            ForkName::Base,
-            &spec,
-            Protocol::Tcp,
-        )
-        .await;
+        let (mut sender, mut receiver) =
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec, protocol)
+                .await;
 
         // build the sender future
         let sender_future = async {
@@ -926,12 +916,9 @@ fn tcp_test_goodbye_rpc() {
         // build the receiver future
         let receiver_future = async {
             loop {
-                match receiver.next_event().await {
-                    NetworkEvent::PeerDisconnected(_) => {
-                        // Should receive sent RPC request
-                        return;
-                    }
-                    _ => {} // Ignore other events
+                if let NetworkEvent::PeerDisconnected(_) = receiver.next_event().await {
+                    // Should receive sent RPC request
+                    return;
                 }
             }
         };
@@ -950,69 +937,19 @@ fn tcp_test_goodbye_rpc() {
 // Tests a Goodbye RPC message
 #[test]
 #[allow(clippy::single_match)]
+fn tcp_test_goodbye_rpc() {
+    // set up the logging. The level and enabled logging or not
+    let log_level = Level::Debug;
+    let enable_logging = true;
+    goodbye_test(log_level, enable_logging, Protocol::Tcp);
+}
+
+// Tests a Goodbye RPC message
+#[test]
+#[allow(clippy::single_match)]
 fn quic_test_goodbye_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
     let enable_logging = true;
-
-    let log = common::build_log(log_level, enable_logging);
-
-    let rt = Arc::new(Runtime::new().unwrap());
-
-    let spec = E::default_spec();
-
-    // get sender/receiver
-    rt.block_on(async {
-        let (mut sender, mut receiver) = common::build_node_pair(
-            Arc::downgrade(&rt),
-            &log,
-            ForkName::Base,
-            &spec,
-            Protocol::Quic,
-        )
-        .await;
-
-        // build the sender future
-        let sender_future = async {
-            loop {
-                match sender.next_event().await {
-                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        // Send a goodbye and disconnect
-                        debug!(log, "Sending RPC");
-                        sender.goodbye_peer(
-                            &peer_id,
-                            GoodbyeReason::IrrelevantNetwork,
-                            ReportSource::SyncService,
-                        );
-                    }
-                    NetworkEvent::PeerDisconnected(_) => {
-                        return;
-                    }
-                    _ => {} // Ignore other RPC messages
-                }
-            }
-        };
-
-        // build the receiver future
-        let receiver_future = async {
-            loop {
-                match receiver.next_event().await {
-                    NetworkEvent::PeerDisconnected(_) => {
-                        // Should receive sent RPC request
-                        return;
-                    }
-                    _ => {} // Ignore other events
-                }
-            }
-        };
-
-        let total_future = futures::future::join(sender_future, receiver_future);
-
-        tokio::select! {
-            _ = total_future => {}
-            _ = sleep(Duration::from_secs(30)) => {
-                panic!("Future timed out");
-            }
-        }
-    })
+    goodbye_test(log_level, enable_logging, Protocol::Quic);
 }

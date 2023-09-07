@@ -402,6 +402,23 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         Ok(())
     }
 
+    // TODO: Group these functions here once the ENR is shared across discv5 and lighthouse and
+    // Lighthouse can modify the ENR directly.
+    // This currently doesn't support ipv6. All of these functions should be removed and
+    // addressed properly in the following issue.
+    // https://github.com/sigp/lighthouse/issues/4706
+    pub fn update_enr_quic_port(&mut self, port: u16) -> Result<(), String> {
+        self.discv5
+            .enr_insert("quic", &port)
+            .map_err(|e| format!("{:?}", e))?;
+
+        // replace the global version
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        // persist modified enr to disk
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+        Ok(())
+    }
+
     /// Updates the local ENR UDP socket.
     ///
     /// This is with caution. Discovery should automatically maintain this. This should only be

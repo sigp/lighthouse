@@ -24,6 +24,29 @@ pub struct UPnPConfig {
     disable_quic_support: bool,
 }
 
+/// Contains mappings that managed to be established.
+#[derive(Default, Debug)]
+pub struct EstablishedUPnPMappings {
+    /// A TCP port mapping for libp2p.
+    pub tcp_port: Option<u16>,
+    /// A UDP port for the QUIC libp2p transport.
+    pub udp_quic_port: Option<u16>,
+    /// A UDP port for discv5.
+    pub udp_disc_port: Option<u16>,
+}
+
+impl EstablishedUPnPMappings {
+    /// Returns true if at least one value is set.
+    pub fn is_some(&self) -> bool {
+        self.tcp_port.is_some() || self.udp_quic_port.is_some() || self.udp_disc_port.is_some()
+    }
+
+    // Iterator over the UDP ports
+    pub fn udp_ports(&self) -> impl Iterator<Item = &u16> {
+        self.udp_quic_port.iter().chain(self.udp_disc_port.iter())
+    }
+}
+
 impl UPnPConfig {
     pub fn from_config(config: &NetworkConfig) -> Option<Self> {
         config.listen_addrs().v4().map(|v4_addr| UPnPConfig {
@@ -74,6 +97,8 @@ pub fn construct_upnp_mappings<T: EthSpec>(
 
             debug!(log, "UPnP Local IP Discovered"; "ip" => ?local_ip);
 
+            let mut mappings = EstablishedUPnPMappings::default();
+
             match local_ip {
                 IpAddr::V4(address) => {
                     let libp2p_socket = SocketAddrV4::new(address, config.tcp_port);
@@ -82,16 +107,16 @@ pub fn construct_upnp_mappings<T: EthSpec>(
                     // one.
                     // I've found this to be more reliable. If multiple users are behind a single
                     // router, they should ideally try to set different port numbers.
-                    let tcp_socket = add_port_mapping(
+                    mappings.tcp_port = add_port_mapping(
                         &gateway,
                         igd::PortMappingProtocol::TCP,
                         libp2p_socket,
                         "tcp",
                         &log,
-                    ).and_then(|_| {
+                    ).map(|_| {
                         let external_socket = external_ip.as_ref().map(|ip| SocketAddr::new((*ip).into(), config.tcp_port)).map_err(|_| ());
                         info!(log, "UPnP TCP route established"; "external_socket" => format!("{}:{}", external_socket.as_ref().map(|ip| ip.to_string()).unwrap_or_else(|_| "".into()), config.tcp_port));
-                        external_socket
+                        config.tcp_port
                     }).ok();
 
                     let set_udp_mapping = |udp_port| {
@@ -107,21 +132,21 @@ pub fn construct_upnp_mappings<T: EthSpec>(
                         })
                     };
 
-                    let mut udp_sockets = Vec::new();
-
                     // Set the discovery UDP port mapping
                     if !config.disable_discovery && set_udp_mapping(config.disc_port).is_ok() {
-                        udp_sockets.push(config.disc_port);
+                        mappings.udp_disc_port = Some(config.disc_port);
                     }
 
                     // Set the quic UDP port mapping
                     if !config.disable_quic_support && set_udp_mapping(config.quic_port).is_ok() {
-                        udp_sockets.push(config.quic_port)
+                        mappings.udp_quic_port = Some(config.quic_port);
                     }
 
                     // report any updates to the network service.
-                    network_send.send(NetworkMessage::UPnPMappingEstablished{ tcp_socket, udp_sockets })
-            .unwrap_or_else(|e| debug!(log, "Could not send message to the network service"; "error" => %e));
+                    if mappings.is_some() {
+                        network_send.send(NetworkMessage::UPnPMappingEstablished{ mappings })
+                .unwrap_or_else(|e| debug!(log, "Could not send message to the network service"; "error" => %e));
+                    }
                 }
                 _ => debug!(log, "UPnP no routes constructed. IPv6 not supported"),
             }
@@ -174,12 +199,12 @@ fn add_port_mapping(
 }
 
 /// Removes the specified TCP and UDP port mappings.
-pub fn remove_mappings(tcp_port: Option<u16>, udp_ports: &[u16], log: &slog::Logger) {
-    if tcp_port.is_some() || !udp_ports.is_empty() {
+pub fn remove_mappings(mappings: &EstablishedUPnPMappings, log: &slog::Logger) {
+    if mappings.is_some() {
         debug!(log, "Removing UPnP port mappings");
         match igd::search_gateway(Default::default()) {
             Ok(gateway) => {
-                if let Some(tcp_port) = tcp_port {
+                if let Some(tcp_port) = mappings.tcp_port {
                     match gateway.remove_port(igd::PortMappingProtocol::TCP, tcp_port) {
                         Ok(()) => debug!(log, "UPnP Removed TCP port mapping"; "port" => tcp_port),
                         Err(e) => {
@@ -187,7 +212,7 @@ pub fn remove_mappings(tcp_port: Option<u16>, udp_ports: &[u16], log: &slog::Log
                         }
                     }
                 }
-                for udp_port in udp_ports {
+                for udp_port in mappings.udp_ports() {
                     match gateway.remove_port(igd::PortMappingProtocol::UDP, *udp_port) {
                         Ok(()) => debug!(log, "UPnP Removed UDP port mapping"; "port" => udp_port),
                         Err(e) => {

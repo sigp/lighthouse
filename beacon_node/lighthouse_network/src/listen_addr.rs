@@ -56,7 +56,7 @@ impl ListenAddress {
     }
 
     /// Returns the addresses the Swarm will listen on, given the setup.
-    pub fn listen_addresses(&self) -> impl Iterator<Item = Multiaddr> {
+    pub fn libp2p_addresses(&self) -> impl Iterator<Item = Multiaddr> {
         let v4_tcp_multiaddr = self
             .v4()
             .map(|v4_addr| Multiaddr::from(v4_addr.addr).with(Protocol::Tcp(v4_addr.tcp_port)));
