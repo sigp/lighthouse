@@ -319,7 +319,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("enable_http")
                 .value_name("ADDRESS")
                 .help("Set the listen address for the RESTful HTTP API server.")
-                .default_value_if("http", None, "127.0.0.1")
+                .default_value_if("enable_http", None, "127.0.0.1")
                 .takes_value(true),
         )
         .arg(
@@ -328,7 +328,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("enable_http")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
-                .default_value_if("http", None, "5052")
+                .default_value_if("enable_http", None, "5052")
                 .takes_value(true),
         )
         .arg(
@@ -395,7 +395,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("http-sse-capacity-multiplier")
                 .requires("enable_http")
                 .takes_value(true)
-                .default_value_if("http", None, "1")
+                .default_value_if("enable_http", None, "1")
                 .value_name("N")
                 .help("Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. \
                        Increasing this value can prevent messages from being dropped.")
@@ -405,7 +405,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("http-duplicate-block-status")
                 .requires("enable_http")
                 .takes_value(true)
-                .default_value_if("http", None, "202")
+                .default_value_if("enable_http", None, "202")
                 .value_name("STATUS_CODE")
                 .help("Status code to send when a block that is already known is POSTed to the \
                        HTTP API.")
@@ -420,7 +420,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     alongside other tasks. When set to \"false\", HTTP API responses will be executed \
                     immediately.")
                 .takes_value(true)
-                .default_value_if("http", None, "true")
+                .default_value_if("enable_http", None, "true")
         )
         /* Prometheus metrics HTTP server related arguments */
         .arg(

@@ -94,7 +94,7 @@ pub fn get_config<E: EthSpec>(
      * Http API server
      */
 
-    if cli_args.is_present("http") {
+    if cli_args.is_present("enable_http") {
         client_config.http_api.enabled = true;
 
         if let Some(address) = cli_args.value_of("http-address") {
