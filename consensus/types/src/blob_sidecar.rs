@@ -151,11 +151,11 @@ impl<T: EthSpec> BlobSidecar<T> {
         let kzg_blob = T::blob_from_bytes(&blob).unwrap();
 
         let commitment = kzg
-            .blob_to_kzg_commitment(kzg_blob.clone())
+            .blob_to_kzg_commitment(&kzg_blob)
             .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
 
         let proof = kzg
-            .compute_blob_kzg_proof(kzg_blob, commitment)
+            .compute_blob_kzg_proof(&kzg_blob, commitment)
             .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
 
         Ok(Self {
