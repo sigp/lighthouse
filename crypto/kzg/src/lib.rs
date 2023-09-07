@@ -8,7 +8,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof, trusted_setup::TrustedSetup};
-pub use c_kzg::{Bytes32, Bytes48, BYTES_PER_COMMITMENT, BYTES_PER_PROOF};
+pub use c_kzg::{Bytes32, Bytes48, BYTES_PER_COMMITMENT, BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF};
 
 #[derive(Debug)]
 pub enum Error {
@@ -71,7 +71,6 @@ pub trait KzgPreset:
     type Error: Into<CryptoError>;
 
     const BYTES_PER_BLOB: usize;
-    const BYTES_PER_FIELD_ELEMENT: usize;
     const FIELD_ELEMENTS_PER_BLOB: usize;
 
     fn spec_name() -> KzgPresetId;
@@ -138,7 +137,6 @@ macro_rules! implement_kzg_preset {
             type Error = $module_name::Error;
 
             const BYTES_PER_BLOB: usize = $module_name::BYTES_PER_BLOB;
-            const BYTES_PER_FIELD_ELEMENT: usize = $module_name::BYTES_PER_FIELD_ELEMENT;
             const FIELD_ELEMENTS_PER_BLOB: usize = $module_name::FIELD_ELEMENTS_PER_BLOB;
 
             fn spec_name() -> KzgPresetId {
