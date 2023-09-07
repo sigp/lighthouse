@@ -24,6 +24,8 @@ pub enum Error {
 pub enum CryptoError {
     CKzg(c_kzg::Error),
     CKzgMin(c_kzg_min::Error),
+    /// Trusted setup is for the incorrect kzg preset.
+    InconsistentTrustedSetup,
 }
 
 impl From<c_kzg::Error> for CryptoError {
@@ -146,6 +148,9 @@ macro_rules! implement_kzg_preset {
             fn load_trusted_setup(
                 trusted_setup: TrustedSetup,
             ) -> Result<Self::KzgSettings, CryptoError> {
+                if trusted_setup.g1_len() != Self::FIELD_ELEMENTS_PER_BLOB {
+                    return Err(CryptoError::InconsistentTrustedSetup);
+                }
                 $module_name::KzgSettings::load_trusted_setup(
                     &trusted_setup.g1_points(),
                     &trusted_setup.g2_points(),
