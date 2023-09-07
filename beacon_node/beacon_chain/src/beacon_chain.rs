@@ -5018,7 +5018,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
                     kzg_utils::validate_blobs::<T::EthSpec>(
                         kzg,
-                        &expected_kzg_commitments,
+                        expected_kzg_commitments,
                         blobs,
                         &kzg_proofs,
                     )
@@ -5029,7 +5029,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Sidecar::build_sidecar(
                         blobs_or_blobs_roots,
                         &block,
-                        &expected_kzg_commitments,
+                        expected_kzg_commitments,
                         kzg_proofs,
                     )
                     .map_err(BlockProductionError::FailedToBuildBlobSidecars)?,
