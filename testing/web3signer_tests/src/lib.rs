@@ -679,16 +679,22 @@ mod tests {
 
         TestingRig::new(network, spec.clone(), listen_port)
             .await
-            .assert_signatures_match("beacon_block_capella", |pubkey, validator_store| async move {
-                let mut capella_block = BeaconBlockCapella::empty(&spec);
-                capella_block.slot = capella_fork_slot;
-                validator_store
-                    .sign_block(pubkey, BeaconBlock::Capella(capella_block), capella_fork_slot)
-                    .await
-                    .unwrap()
-            })
+            .assert_signatures_match(
+                "beacon_block_capella",
+                |pubkey, validator_store| async move {
+                    let mut capella_block = BeaconBlockCapella::empty(&spec);
+                    capella_block.slot = capella_fork_slot;
+                    validator_store
+                        .sign_block(
+                            pubkey,
+                            BeaconBlock::Capella(capella_block),
+                            capella_fork_slot,
+                        )
+                        .await
+                        .unwrap()
+                },
+            )
             .await;
-
     }
 
     async fn test_deneb_types(network: &str, listen_port: u16) {
@@ -710,16 +716,16 @@ mod tests {
                     .unwrap()
             })
             .await
-            .assert_signatures_match(
-                "blob_sidecar",
-                |pubkey, validator_store| async move {
-                    let sidecar: BlindedBlobSidecar = BlobSidecar::<E>::empty().into();
-                    validator_store
-                        .sign_blobs::<BlindedPayload<E>>(pubkey, VariableList::new(vec![Arc::new(sidecar)]).unwrap())
-                        .await
-                        .unwrap()
-                },
-            )
+            .assert_signatures_match("blob_sidecar", |pubkey, validator_store| async move {
+                let sidecar: BlindedBlobSidecar = BlobSidecar::<E>::empty().into();
+                validator_store
+                    .sign_blobs::<BlindedPayload<E>>(
+                        pubkey,
+                        VariableList::new(vec![Arc::new(sidecar)]).unwrap(),
+                    )
+                    .await
+                    .unwrap()
+            })
             .await;
     }
 

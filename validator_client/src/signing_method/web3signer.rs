@@ -52,9 +52,9 @@ pub enum Web3SignerObject<'a, T: EthSpec, Payload: AbstractExecPayload<T>> {
         #[serde(skip_serializing_if = "Option::is_none")]
         block_header: Option<BeaconBlockHeader>,
     },
-    BlobSidecar{
+    BlobSidecar {
         version: ForkName,
-        blob_sidecar: &'a Payload::Sidecar
+        blob_sidecar: &'a Payload::Sidecar,
     },
     #[allow(dead_code)]
     Deposit {

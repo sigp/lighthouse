@@ -184,9 +184,9 @@ impl SigningMethod {
                         Web3SignerObject::RandaoReveal { epoch }
                     }
                     SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block)?,
-                    SignableMessage::BlobSidecar(blob_sidecar) => Web3SignerObject::BlobSidecar{
+                    SignableMessage::BlobSidecar(blob_sidecar) => Web3SignerObject::BlobSidecar {
                         version: web3signer::ForkName::Deneb,
-                        blob_sidecar
+                        blob_sidecar,
                     },
                     SignableMessage::AttestationData(a) => Web3SignerObject::Attestation(a),
                     SignableMessage::SignedAggregateAndProof(a) => {
