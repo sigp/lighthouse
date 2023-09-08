@@ -184,10 +184,10 @@ impl SigningMethod {
                         Web3SignerObject::RandaoReveal { epoch }
                     }
                     SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block)?,
-                    SignableMessage::BlobSidecar(_) => {
-                        // https://github.com/ConsenSys/web3signer/issues/726
-                        unimplemented!("Web3Signer blob signing not implemented.")
-                    }
+                    SignableMessage::BlobSidecar(blob_sidecar) => Web3SignerObject::BlobSidecar{
+                        version: web3signer::ForkName::Deneb,
+                        blob_sidecar
+                    },
                     SignableMessage::AttestationData(a) => Web3SignerObject::Attestation(a),
                     SignableMessage::SignedAggregateAndProof(a) => {
                         Web3SignerObject::AggregateAndProof(a)

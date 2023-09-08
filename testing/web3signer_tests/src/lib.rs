@@ -75,6 +75,7 @@ mod tests {
     impl SignedObject for Signature {}
     impl SignedObject for Attestation<E> {}
     impl SignedObject for SignedBeaconBlock<E> {}
+    impl SignedObject for VariableList<SignedBlindedBlobSidecar<E>, <E as EthSpec>::MaxBlobsPerBlock> {}
     impl SignedObject for SignedAggregateAndProof<E> {}
     impl SignedObject for SelectionProof {}
     impl SignedObject for SyncSelectionProof {}
@@ -668,6 +669,60 @@ mod tests {
             .await;
     }
 
+    async fn test_capella_types(network: &str, listen_port: u16) {
+        let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
+        let spec = network_config.chain_spec::<E>().unwrap();
+        let capella_fork_slot = spec
+            .capella_fork_epoch
+            .unwrap()
+            .start_slot(E::slots_per_epoch());
+
+        TestingRig::new(network, spec.clone(), listen_port)
+            .await
+            .assert_signatures_match("beacon_block_capella", |pubkey, validator_store| async move {
+                let mut capella_block = BeaconBlockCapella::empty(&spec);
+                capella_block.slot = capella_fork_slot;
+                validator_store
+                    .sign_block(pubkey, BeaconBlock::Capella(capella_block), capella_fork_slot)
+                    .await
+                    .unwrap()
+            })
+            .await;
+
+    }
+
+    async fn test_deneb_types(network: &str, listen_port: u16) {
+        let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
+        let spec = network_config.chain_spec::<E>().unwrap();
+        let deneb_fork_slot = spec
+            .deneb_fork_epoch
+            .unwrap()
+            .start_slot(E::slots_per_epoch());
+
+        TestingRig::new(network, spec.clone(), listen_port)
+            .await
+            .assert_signatures_match("beacon_block_deneb", |pubkey, validator_store| async move {
+                let mut deneb_block = BeaconBlockDeneb::empty(&spec);
+                deneb_block.slot = deneb_fork_slot;
+                validator_store
+                    .sign_block(pubkey, BeaconBlock::Deneb(deneb_block), deneb_fork_slot)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .assert_signatures_match(
+                "blob_sidecar",
+                |pubkey, validator_store| async move {
+                    let sidecar: BlindedBlobSidecar = BlobSidecar::<E>::empty().into();
+                    validator_store
+                        .sign_blobs::<BlindedPayload<E>>(pubkey, VariableList::new(vec![Arc::new(sidecar)]).unwrap())
+                        .await
+                        .unwrap()
+                },
+            )
+            .await;
+    }
+
     #[tokio::test]
     async fn mainnet_base_types() {
         test_base_types("mainnet", 4242).await
@@ -677,7 +732,18 @@ mod tests {
     async fn mainnet_altair_types() {
         test_altair_types("mainnet", 4243).await
     }
-
+    #[tokio::test]
+    async fn mainnet_bellatrix_types() {
+        test_merge_types("mainnet", 4243).await
+    }
+    #[tokio::test]
+    async fn mainnet_capella_types() {
+        test_capella_types("mainnet", 4243).await
+    }
+    #[tokio::test]
+    async fn mainnet_deneb_types() {
+        test_deneb_types("mainnet", 4243).await
+    }
     #[tokio::test]
     async fn prater_base_types() {
         test_base_types("prater", 4246).await

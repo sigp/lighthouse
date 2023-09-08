@@ -15,6 +15,7 @@ use tree_hash::TreeHash;
 
 pub trait Sidecar<E: EthSpec>:
     serde::Serialize
+    + PartialEq
     + Clone
     + DeserializeOwned
     + Encode
