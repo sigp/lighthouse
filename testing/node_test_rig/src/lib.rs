@@ -220,14 +220,13 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         config.validator_dir = files.validator_dir.path().into();
         config.secrets_dir = files.secrets_dir.path().into();
 
-        ProductionValidatorClient::new(context, config)
+        let mut client = ProductionValidatorClient::new(context, config).await?;
+
+        client
+            .start_service()
             .await
-            .map(move |mut client| {
-                client
-                    .start_service()
-                    .expect("should start validator services");
-                Self { client, files }
-            })
+            .expect("should start validator services");
+        Ok(Self { client, files })
     }
 }
 

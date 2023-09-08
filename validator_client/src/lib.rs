@@ -98,6 +98,8 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
+    beacon_nodes: Arc<BeaconNodeFallback<SystemTimeSlotClock, T>>,
+    genesis_time: u64,
 }
 
 impl<T: EthSpec> ProductionValidatorClient<T> {
@@ -501,12 +503,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.service_context("sync_committee".into()),
         );
 
-        // Wait until genesis has occurred.
-        //
-        // It seems most sensible to move this into the `start_service` function, but I'm caution
-        // of making too many changes this close to genesis (<1 week).
-        wait_for_genesis(&beacon_nodes, genesis_time, &context).await?;
-
         Ok(Self {
             context,
             duties_service,
@@ -519,10 +515,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             config,
             slot_clock,
             http_api_listen_addr: None,
+            genesis_time,
+            beacon_nodes,
         })
     }
 
-    pub fn start_service(&mut self) -> Result<(), String> {
+    pub async fn start_service(&mut self) -> Result<(), String> {
         // We use `SLOTS_PER_EPOCH` as the capacity of the block notification channel, because
         // we don't expect notifications to be delayed by more than a single slot, let alone a
         // whole epoch!
@@ -610,6 +608,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 self.duties_service.beacon_nodes.clone(),
             );
         }
+
+        // Wait until genesis has occurred.
+        wait_for_genesis(&self.beacon_nodes, self.genesis_time, &self.context).await?;
 
         Ok(())
     }
