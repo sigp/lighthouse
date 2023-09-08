@@ -10,7 +10,8 @@ use crate::{
 };
 use eth2::types::BlobsBundle;
 use kzg::Kzg;
-use rand::thread_rng;
+use parking_lot::Mutex;
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -131,6 +132,13 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      */
     pub blobs_bundles: HashMap<PayloadId, BlobsBundle<T>>,
     pub kzg: Option<Arc<Kzg<T::Kzg>>>,
+    rng: Arc<Mutex<StdRng>>,
+}
+
+fn make_rng() -> Arc<Mutex<StdRng>> {
+    // Nondeterminism in tests is a highly undesirable thing.  Seed the RNG to some arbitrary
+    // but fixed value for reproducibility.
+    Arc::new(Mutex::new(StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64)))
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
@@ -157,6 +165,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             cancun_time,
             blobs_bundles: <_>::default(),
             kzg: kzg.map(Arc::new),
+            rng: make_rng(),
         };
 
         gen.insert_pow_block(0).unwrap();
@@ -614,9 +623,10 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {}
             ForkName::Deneb => {
                 // get random number between 0 and Max Blobs
-                let num_blobs = rand::random::<usize>() % (T::max_blobs_per_block() + 1);
+                let mut rng = self.rng.lock();
+                let num_blobs = rng.gen::<usize>() % (T::max_blobs_per_block() + 1);
                 let kzg = self.kzg.as_ref().ok_or("kzg not initialized")?;
-                let (bundle, transactions) = generate_random_blobs(num_blobs, kzg)?;
+                let (bundle, transactions) = generate_random_blobs(num_blobs, kzg, &mut *rng)?;
                 for tx in Vec::from(transactions) {
                     execution_payload
                         .transactions_mut()
@@ -633,15 +643,15 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 }
 
-pub fn generate_random_blobs<T: EthSpec>(
+pub fn generate_random_blobs<T: EthSpec, R: Rng>(
     n_blobs: usize,
     kzg: &Kzg<T::Kzg>,
+    rng: &mut R,
 ) -> Result<(BlobsBundle<T>, Transactions<T>), String> {
     let mut bundle = BlobsBundle::<T>::default();
     let mut transactions = vec![];
-    // FIXME(sproul): this is not deterministic for CI, we should use a seed like in TestHarness
     for blob_index in 0..n_blobs {
-        let random_valid_sidecar = BlobSidecar::<T>::random_valid(&mut thread_rng(), kzg)?;
+        let random_valid_sidecar = BlobSidecar::<T>::random_valid(rng, kzg)?;
 
         let BlobSidecar {
             blob,
