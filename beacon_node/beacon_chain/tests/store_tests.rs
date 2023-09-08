@@ -2896,6 +2896,62 @@ async fn deneb_prune_blobs_happy_case() {
     check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
 }
 
+/// Check that blob pruning does not prune without finalization.
+#[tokio::test]
+async fn deneb_prune_blobs_no_finalization() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+
+    if store.get_chain_spec().deneb_fork_epoch.is_none() {
+        // No-op prior to Deneb.
+        return;
+    }
+
+    let initial_num_blocks = E::slots_per_epoch() * 5;
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Finalize to epoch 3.
+    harness
+        .extend_chain(
+            initial_num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Extend the chain for another few epochs without attestations.
+    let unfinalized_num_blocks = E::slots_per_epoch() * 3;
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            unfinalized_num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    // Finalization should be at epoch 3.
+    let finalized_slot = Slot::new(E::slots_per_epoch() * 3);
+    assert_eq!(harness.get_current_state().finalized_checkpoint().epoch, 3);
+    assert_eq!(store.get_split_slot(), finalized_slot);
+
+    // All blobs should still be available.
+    assert_eq!(store.get_blob_info().oldest_blob_slot, None);
+    check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
+
+    // Attempt blob pruning of blobs older than epoch 4, which is newer than finalization.
+    let data_availability_boundary = Epoch::new(4);
+    store
+        .try_prune_blobs(true, data_availability_boundary)
+        .unwrap();
+
+    // Check oldest blob slot is only updated to finalization, and NOT to the DAB.
+    let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+    assert_eq!(oldest_blob_slot, finalized_slot);
+    check_blob_existence(&harness, Slot::new(0), finalized_slot - 1, false);
+    check_blob_existence(&harness, finalized_slot, harness.head_slot(), true);
+}
+
 /// Check that there are blob sidecars (or not) at every slot in the range.
 fn check_blob_existence(
     harness: &TestHarness,
