@@ -170,7 +170,6 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
-    PutOrphanedBlobsKey(Hash256),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
@@ -191,9 +190,6 @@ pub enum DBColumn {
     BeaconBlock,
     #[strum(serialize = "blb")]
     BeaconBlob,
-    /// Block roots of orphaned beacon blobs.
-    #[strum(serialize = "blo")]
-    BeaconBlobOrphan,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     #[strum(serialize = "ste")]
     BeaconState,
