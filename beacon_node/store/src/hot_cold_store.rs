@@ -152,6 +152,7 @@ pub enum HotColdDBError {
         slots_per_epoch: u64,
     },
     ZeroEpochsPerBlobPrune,
+    BlobPruneLogicError,
     RestorePointBlockHashError(BeaconStateError),
     IterationError {
         unexpected_key: BytesKey,
@@ -2066,16 +2067,28 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(());
         }
 
+        if data_availability_boundary <= deneb_fork {
+            debug!(
+                self.log,
+                "Blob pruning unnecessary";
+                "data_availability_boundary" => data_availability_boundary,
+                "deneb_fork_epoch" => deneb_fork,
+            );
+            return Ok(());
+        }
+
         let blob_info = self.get_blob_info();
         let oldest_blob_slot = blob_info
             .oldest_blob_slot
             .unwrap_or_else(|| deneb_fork.start_slot(E::slots_per_epoch()));
 
-        // Start pruning from the epoch of the oldest blob stored (inclusive).
-        let start_epoch = oldest_blob_slot.epoch(E::slots_per_epoch());
+        // Start pruning from the epoch of the oldest blob stored, or the Deneb fork epoch.
+        // The start epoch is inclusive (blobs in this epoch will be pruned).
+        let start_epoch = std::cmp::max(oldest_blob_slot.epoch(E::slots_per_epoch()), deneb_fork);
 
-        // Prune blobs up until the `data_availability_boundary - margin` (inclusive) or the split
+        // Prune blobs up until the `data_availability_boundary - margin` or the split
         // slot's epoch, whichever is older. We can't prune blobs newer than the split.
+        // The end epoch is also inclusive (blobs in this epoch will be pruned).
         let split = self.get_split_info();
         let end_epoch = std::cmp::min(
             data_availability_boundary - margin_epochs - 1,
@@ -2083,7 +2096,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         );
         let end_slot = end_epoch.end_slot(E::slots_per_epoch());
 
-        if !force && start_epoch + epochs_per_blob_prune >= end_epoch {
+        if !force && start_epoch + epochs_per_blob_prune <= end_epoch + 1 {
             debug!(
                 self.log,
                 "Blobs are pruned";
@@ -2091,6 +2104,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "data_availability_boundary" => data_availability_boundary,
             );
             return Ok(());
+        }
+
+        // Sanity check.
+        if start_epoch > end_epoch {
+            return Err(HotColdDBError::BlobPruneLogicError.into());
         }
 
         // Iterate block roots forwards from the oldest blob slot.

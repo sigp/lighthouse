@@ -93,7 +93,7 @@ fn get_harness_generic(
     chain_config: ChainConfig,
 ) -> TestHarness {
     let harness = TestHarness::builder(MinimalEthSpec)
-        .default_spec()
+        .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .logger(store.logger().clone())
         .fresh_disk_store(store)
@@ -2950,6 +2950,64 @@ async fn deneb_prune_blobs_no_finalization() {
     assert_eq!(oldest_blob_slot, finalized_slot);
     check_blob_existence(&harness, Slot::new(0), finalized_slot - 1, false);
     check_blob_existence(&harness, finalized_slot, harness.head_slot(), true);
+}
+
+/// Check that blob pruning does not fail trying to prune across the fork boundary.
+#[tokio::test]
+async fn deneb_prune_blobs_fork_boundary() {
+    let deneb_fork_epoch = Epoch::new(4);
+    let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
+    spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_with_spec(&db_path, spec);
+
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let num_blocks = E::slots_per_epoch() * 7;
+
+    // Finalize to epoch 5.
+    harness
+        .extend_chain(
+            num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Finalization should be at epoch 5.
+    let finalized_epoch = Epoch::new(5);
+    let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
+    assert_eq!(
+        harness.get_current_state().finalized_checkpoint().epoch,
+        finalized_epoch
+    );
+    assert_eq!(store.get_split_slot(), finalized_slot);
+
+    // All blobs should still be available.
+    assert_eq!(store.get_blob_info().oldest_blob_slot, None);
+    check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
+
+    // Attempt pruning with data availability epochs that precede the fork epoch.
+    // No pruning should occur.
+    assert!(deneb_fork_epoch < finalized_epoch);
+    for data_availability_boundary in [Epoch::new(0), Epoch::new(3), deneb_fork_epoch] {
+        store
+            .try_prune_blobs(true, data_availability_boundary)
+            .unwrap();
+
+        // Check oldest blob slot is not updated.
+        assert_eq!(store.get_blob_info().oldest_blob_slot, None);
+    }
+    // All blobs should still be available.
+    check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
+
+    // Prune one epoch past the fork.
+    let pruned_slot = (deneb_fork_epoch + 1).start_slot(E::slots_per_epoch());
+    store.try_prune_blobs(true, deneb_fork_epoch + 1).unwrap();
+    assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
+    check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
+    check_blob_existence(&harness, pruned_slot, harness.head_slot(), true);
 }
 
 /// Check that there are blob sidecars (or not) at every slot in the range.
