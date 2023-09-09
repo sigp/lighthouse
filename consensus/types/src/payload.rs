@@ -398,8 +398,13 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
             ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
         }
     }
-    fn default_blobs_at_fork(_fork_name: ForkName) -> Result<BlobsList<T>, Error> {
-        Ok(VariableList::default())
+    fn default_blobs_at_fork(fork_name: ForkName) -> Result<BlobsList<T>, Error> {
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                Err(Error::IncorrectStateVariant)
+            }
+            ForkName::Deneb => Ok(VariableList::default()),
+        }
     }
 }
 
@@ -916,8 +921,13 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
             ForkName::Deneb => Ok(BlindedPayloadDeneb::default().into()),
         }
     }
-    fn default_blobs_at_fork(_fork_name: ForkName) -> Result<BlobRootsList<T>, Error> {
-        Ok(VariableList::default())
+    fn default_blobs_at_fork(fork_name: ForkName) -> Result<BlobRootsList<T>, Error> {
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                Err(Error::IncorrectStateVariant)
+            }
+            ForkName::Deneb => Ok(VariableList::default()),
+        }
     }
 }
 

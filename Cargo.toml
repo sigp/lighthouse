@@ -94,10 +94,6 @@ resolver = "2"
 [patch.crates-io]
 warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
 
-# PR: https://github.com/ralexstokes/ethereum-consensus/pull/213
-[patch."https://github.com/ralexstokes/ethereum-consensus"]
-ethereum-consensus = { git = "https://github.com/jimmygchen/ethereum-consensus", rev = "2354493" }
-
 [profile.maxperf]
 inherits = "release"
 lto = "fat"

@@ -39,7 +39,7 @@ use tree_hash::TreeHash;
 use types::builder_bid::BlindedBlobsBundle;
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeader, ForkName, Hash256, Slot, Uint256,
+    ExecutionPayloadHeader, ForkName, ForkVersionedResponse, Hash256, Slot, Uint256,
 };
 
 #[derive(Clone)]
@@ -533,7 +533,13 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
             .get_payload_by_root(&from_ssz_rs(&node)?)
             .ok_or_else(|| convert_err("missing payload for tx root"))?;
 
-        let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
+        let fork = payload.payload_ref().fork_name();
+        let resp = ForkVersionedResponse {
+            version: Some(fork),
+            data: payload,
+        };
+
+        let json_payload = serde_json::to_string(&resp).map_err(convert_err)?;
         serde_json::from_str(json_payload.as_str()).map_err(convert_err)
     }
 }

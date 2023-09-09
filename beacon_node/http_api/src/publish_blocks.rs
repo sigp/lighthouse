@@ -20,7 +20,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
-    FullPayload, Hash256, SignedBeaconBlock, SignedBlobSidecarList,
+    ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock, SignedBlobSidecarList,
 };
 use warp::Rejection;
 
@@ -308,18 +308,17 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
 
         // If the execution block hash is zero, use an empty payload.
         let full_payload_contents = if payload_header.block_hash() == ExecutionBlockHash::zero() {
-            let payload = FullPayload::default_at_fork(
-                chain
-                    .spec
-                    .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
-            )
-            .map_err(|e| {
-                warp_utils::reject::custom_server_error(format!(
-                    "Default payload construction error: {e:?}"
-                ))
-            })?
-            .into();
-            ProvenancedPayload::Local(FullPayloadContents::Payload(payload))
+            let fork_name = chain
+                .spec
+                .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
+            if fork_name == ForkName::Merge {
+                let payload: FullPayload<T::EthSpec> = FullPayloadMerge::default().into();
+                ProvenancedPayload::Local(FullPayloadContents::Payload(payload.into()))
+            } else {
+                Err(warp_utils::reject::custom_server_error(
+                    "Failed to construct full payload - block hash must be non-zero after Bellatrix.".to_string()
+                ))?
+            }
         // If we already have an execution payload with this transactions root cached, use it.
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())

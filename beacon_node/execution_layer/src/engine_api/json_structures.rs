@@ -2,7 +2,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use superstruct::superstruct;
-use types::beacon_block_body::BuilderKzgCommitments;
+use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
 use types::{
     EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -438,7 +438,7 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec", rename_all = "camelCase")]
 pub struct JsonBlobsBundleV1<E: EthSpec> {
-    pub commitments: BuilderKzgCommitments<E>,
+    pub commitments: KzgCommitments<E>,
     pub proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,
