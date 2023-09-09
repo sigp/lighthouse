@@ -19,15 +19,14 @@ mod forwards_iter;
 mod garbage_collection;
 pub mod hot_cold_store;
 mod impls;
-mod leveldb_store;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
 mod partial_beacon_state;
 pub mod reconstruct;
 
-pub mod iter;
 pub mod database;
+pub mod iter;
 pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};

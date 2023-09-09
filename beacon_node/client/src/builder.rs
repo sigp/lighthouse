@@ -29,11 +29,11 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
-use store::database::interface::BeaconNodeBackend;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tokio::sync::oneshot;
 use types::{
@@ -888,7 +888,15 @@ where
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, BeaconNodeBackend<TEthSpec>, BeaconNodeBackend<TEthSpec>>>
+    ClientBuilder<
+        Witness<
+            TSlotClock,
+            TEth1Backend,
+            TEthSpec,
+            BeaconNodeBackend<TEthSpec>,
+            BeaconNodeBackend<TEthSpec>,
+        >,
+    >
 where
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,

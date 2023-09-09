@@ -9,7 +9,6 @@ use crate::database::interface::BeaconNodeBackend;
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{BlockRootsIterator, ParentRootBlockIterator, RootsIterator};
-use crate::leveldb_store::BytesKey;
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
     AnchorInfo, CompactionTimestamp, PruningCheckpoint, SchemaVersion, ANCHOR_INFO_KEY,
@@ -39,6 +38,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::*;
+
+use db_key::Key;
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -663,7 +664,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             start_slot,
             None,
             || (end_state, end_block_root),
-            spec
+            spec,
         )
     }
 
@@ -2026,5 +2027,42 @@ impl StoreItem for TemporaryFlag {
 
     fn from_store_bytes(_: &[u8]) -> Result<Self, Error> {
         Ok(TemporaryFlag)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct BytesKey {
+    key: Vec<u8>,
+}
+
+impl Key for BytesKey {
+    fn from_u8(key: &[u8]) -> Self {
+        Self { key: key.to_vec() }
+    }
+
+    fn as_slice<T, F: Fn(&[u8]) -> T>(&self, f: F) -> T {
+        f(self.key.as_slice())
+    }
+}
+
+impl BytesKey {
+    /// Return `true` iff this `BytesKey` was created with the given `column`.
+    pub fn matches_column(&self, column: DBColumn) -> bool {
+        self.key.starts_with(column.as_bytes())
+    }
+
+    /// Remove the column from a key, returning its `Hash256` portion.
+    pub fn remove_column(&self, column: DBColumn) -> Option<Hash256> {
+        if self.matches_column(column) {
+            let subkey = &self.key[column.as_bytes().len()..];
+            if subkey.len() == 32 {
+                return Some(Hash256::from_slice(subkey));
+            }
+        }
+        None
+    }
+
+    pub fn from_vec(key: Vec<u8>) -> Self {
+        Self { key }
     }
 }

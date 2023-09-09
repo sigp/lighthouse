@@ -17,14 +17,21 @@ use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use slasher::{DatabaseBackendOverride, Slasher};
 use slog::{info, warn};
-use store::database::interface::BeaconNodeBackend;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
+use store::database::interface::BeaconNodeBackend;
 use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
-pub type ProductionClient<E> =
-    Client<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
+pub type ProductionClient<E> = Client<
+    Witness<
+        SystemTimeSlotClock,
+        CachingEth1Backend<E>,
+        E,
+        BeaconNodeBackend<E>,
+        BeaconNodeBackend<E>,
+    >,
+>;
 
 /// The beacon node `Client` that will be used in production.
 ///

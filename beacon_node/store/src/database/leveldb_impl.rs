@@ -1,24 +1,24 @@
-use crate::hot_cold_store::HotColdDBError;
-use crate::leveldb_store::BytesKey;
-use crate::{metrics, get_key_for_col, KeyValueStoreOp, DBColumn, ColumnIter, ColumnKeyIter, Error};
+use crate::hot_cold_store::{BytesKey, HotColdDBError};
+use crate::{
+    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp,
+};
+use leveldb::compaction::Compaction;
 use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
 use leveldb::database::Database;
-use leveldb::compaction::Compaction;
-use leveldb::iterator::{Iterable, LevelDBIterator, KeyIterator};
+use leveldb::iterator::{Iterable, KeyIterator, LevelDBIterator};
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use parking_lot::{Mutex, MutexGuard};
-use types::{EthSpec, Hash256};
 use std::marker::PhantomData;
 use std::path::Path;
+use types::{EthSpec, Hash256};
 
 pub struct BeaconNodeBackend<E: EthSpec> {
     db: Database<BytesKey>,
     /// A mutex to synchronise sensitive read-write transactions.
     transaction_mutex: Mutex<()>,
-    _phantom: PhantomData<E>
+    _phantom: PhantomData<E>,
 }
-
 
 impl<E: EthSpec> BeaconNodeBackend<E> {
     pub fn open(path: &Path) -> Result<Self, Error> {
@@ -43,7 +43,6 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
     pub fn write_options(&self) -> WriteOptions {
         WriteOptions::new()
     }
-
 
     pub fn write_options_sync(&self) -> WriteOptions {
         let mut opts = WriteOptions::new();

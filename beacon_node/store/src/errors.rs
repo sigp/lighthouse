@@ -1,10 +1,10 @@
 use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
 use crate::hot_cold_store::HotColdDBError;
+use leveldb::error::Error as LevelDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
 use types::{BeaconStateError, Hash256, InconsistentFork, Slot};
-use leveldb::error::Error as LevelDBError;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]

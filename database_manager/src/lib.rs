@@ -10,9 +10,10 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use store::{
+    database::interface::BeaconNodeBackend,
     errors::Error,
     metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION},
-    DBColumn, HotColdDB, database::interface::BeaconNodeBackend,
+    DBColumn, HotColdDB,
 };
 use strum::{EnumString, EnumVariantNames, VariantNames};
 use types::EthSpec;

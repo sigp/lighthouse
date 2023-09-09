@@ -2,8 +2,8 @@ use crate::{DBColumn, Error, StoreItem};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use types::{EthSpec, MinimalEthSpec};
 use strum::{Display, EnumString, EnumVariantNames};
+use types::{EthSpec, MinimalEthSpec};
 
 pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
@@ -53,7 +53,7 @@ impl Default for StoreConfig {
             compact_on_init: false,
             compact_on_prune: true,
             prune_payloads: true,
-            backend: DatabaseBackend::LevelDb
+            backend: DatabaseBackend::LevelDb,
         }
     }
 }
@@ -93,11 +93,10 @@ impl StoreItem for OnDiskStoreConfig {
     }
 }
 
-
 #[derive(
     Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Display, EnumString, EnumVariantNames,
 )]
 #[strum(serialize_all = "lowercase")]
 pub enum DatabaseBackend {
-    LevelDb
+    LevelDb,
 }
