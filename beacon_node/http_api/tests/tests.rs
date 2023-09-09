@@ -1741,9 +1741,9 @@ impl ApiTester {
     pub async fn test_get_config_spec(self) -> Self {
         let result = self
             .client
-            .get_config_spec::<ConfigAndPresetCapella>()
+            .get_config_spec::<ConfigAndPresetDeneb>()
             .await
-            .map(|res| ConfigAndPreset::Capella(res.data))
+            .map(|res| ConfigAndPreset::Deneb(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
 
