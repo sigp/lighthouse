@@ -1,17 +1,5 @@
 use super::*;
-use crate::hot_cold_store::HotColdDBError;
-use crate::metrics;
 use db_key::Key;
-use leveldb::compaction::Compaction;
-use leveldb::database::batch::{Batch, Writebatch};
-use leveldb::database::kv::KV;
-use leveldb::database::Database;
-use leveldb::error::Error as LevelDBError;
-use leveldb::iterator::{Iterable, KeyIterator, LevelDBIterator};
-use leveldb::options::{Options, ReadOptions, WriteOptions};
-use parking_lot::{Mutex, MutexGuard};
-use std::marker::PhantomData;
-use std::path::Path;
 /*
 /// A wrapped leveldb database.
 pub struct LevelDB<E: EthSpec> {

@@ -1,6 +1,6 @@
 use crate::hot_cold_store::HotColdDBError;
 use crate::leveldb_store::BytesKey;
-use crate::{metrics, get_key_for_col, KeyValueStoreOp, DBColumn, ColumnIter, ColumnKeyIter, ItemStore, KeyValueStore, Error};
+use crate::{metrics, get_key_for_col, KeyValueStoreOp, DBColumn, ColumnIter, ColumnKeyIter, Error};
 use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
 use leveldb::database::Database;
@@ -36,16 +36,16 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         })
     }
 
-    fn read_options(&self) -> ReadOptions<BytesKey> {
+    pub fn read_options(&self) -> ReadOptions<BytesKey> {
         ReadOptions::new()
     }
 
-    fn write_options(&self) -> WriteOptions {
+    pub fn write_options(&self) -> WriteOptions {
         WriteOptions::new()
     }
 
 
-    fn write_options_sync(&self) -> WriteOptions {
+    pub fn write_options_sync(&self) -> WriteOptions {
         let mut opts = WriteOptions::new();
         opts.sync = true;
         opts
@@ -105,7 +105,7 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
     }
 
     /// Return `true` if `key` exists in `column`.
-    fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
+    pub fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
         let column_key = get_key_for_col(col, key);
 
         metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
@@ -144,7 +144,7 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         Ok(())
     }
 
-    fn begin_rw_transaction(&self) -> MutexGuard<()> {
+    pub fn begin_rw_transaction(&self) -> MutexGuard<()> {
         self.transaction_mutex.lock()
     }
 
@@ -192,7 +192,7 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
     }
 
     /// Iterate through all keys and values in a particular column.
-    fn iter_column_keys(&self, column: DBColumn) -> ColumnKeyIter {
+    pub fn iter_column_keys(&self, column: DBColumn) -> ColumnKeyIter {
         let start_key =
             BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
 

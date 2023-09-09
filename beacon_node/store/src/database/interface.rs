@@ -2,10 +2,10 @@ use std::path::Path;
 
 use leveldb::iterator::KeyIterator;
 use leveldb::options::WriteOptions;
-use types::{EthSpec};
+use types::EthSpec;
 
 use crate::leveldb_store::BytesKey;
-use crate::{DBColumn, ColumnIter, ItemStore, KeyValueStore, Error};
+use crate::{DBColumn, ColumnIter, ItemStore, KeyValueStore, Error, ColumnKeyIter};
 use crate::{StoreConfig, config::DatabaseBackend, KeyValueStoreOp};
 use crate::database::leveldb_impl;
 
@@ -27,46 +27,65 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
     }
 
     fn put_bytes_sync(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error> {
-        todo!()
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::BeaconNodeBackend::put_bytes_with_options(txn, column, key, value, WriteOptions::new()),
+        }
     }
 
     fn sync(&self) -> Result<(), Error> {
-        todo!()
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::BeaconNodeBackend::put_bytes_with_options(txn, "sync", b"sync", b"sync", WriteOptions::new()),
+        }
     }
 
     fn key_exists(&self, column: &str, key: &[u8]) -> Result<bool, Error> {
-        todo!()
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::BeaconNodeBackend::key_exists(txn, column, key),
+        }
     }
 
     fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error> {
-        todo!()
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::BeaconNodeBackend::key_delete(txn, column, key),
+        }
     }
 
     fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
-        todo!()
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::BeaconNodeBackend::do_atomically(txn, batch),
+        }
     }
 
     fn begin_rw_transaction(&self) -> parking_lot::MutexGuard<()> {
-        todo!()
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::BeaconNodeBackend::begin_rw_transaction(txn),
+        }
     }
 
     fn compact(&self) -> Result<(), Error> {
-        todo!()
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::BeaconNodeBackend::compact(txn),
+        }
+    }
+
+    fn iter_column_keys(&self, _column: DBColumn) -> ColumnKeyIter {
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::BeaconNodeBackend::iter_column_keys(txn, _column),
+        }
     }
 }
 
 pub enum BeaconNodeBackend<E: EthSpec> {
     #[cfg(feature = "leveldb")]
     LevelDb(leveldb_impl::BeaconNodeBackend<E>),
-}
-
-pub enum Database {
-   
-
-}
-
-pub enum Options {
-
 }
 
 impl<E: EthSpec> BeaconNodeBackend<E> {
