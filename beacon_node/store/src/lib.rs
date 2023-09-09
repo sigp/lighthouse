@@ -31,7 +31,6 @@ pub mod database;
 pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
-pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
@@ -253,6 +252,8 @@ pub trait StoreItem: Sized {
 
 #[cfg(test)]
 mod tests {
+    use crate::database::interface::BeaconNodeBackend;
+
     use super::*;
     use ssz::{Decode, Encode};
     use ssz_derive::{Decode, Encode};
@@ -302,7 +303,7 @@ mod tests {
     fn simplediskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = LevelDB::open(path).unwrap();
+        let store = BeaconNodeBackend::open(&StoreConfig::default(), path).unwrap();
 
         test_impl(store);
     }

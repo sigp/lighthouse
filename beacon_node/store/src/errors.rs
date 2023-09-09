@@ -4,7 +4,7 @@ use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
 use types::{BeaconStateError, Hash256, InconsistentFork, Slot};
-
+use leveldb::error::Error as LevelDBError;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
@@ -45,6 +45,7 @@ pub enum Error {
     SlotClockUnavailableForMigration,
     UnableToDowngrade,
     InconsistentFork(InconsistentFork),
+    LevelDbError(LevelDBError),
 }
 
 pub trait HandleUnavailable<T> {
@@ -106,6 +107,12 @@ impl From<BlockReplayError> for Error {
 impl From<InconsistentFork> for Error {
     fn from(e: InconsistentFork) -> Error {
         Error::InconsistentFork(e)
+    }
+}
+
+impl From<LevelDBError> for Error {
+    fn from(e: LevelDBError) -> Error {
+        Error::LevelDbError(e)
     }
 }
 

@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use store::{
     errors::Error,
     metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION},
-    DBColumn, HotColdDB, KeyValueStore, LevelDB,
+    DBColumn, HotColdDB, database::interface::BeaconNodeBackend,
 };
 use strum::{EnumString, EnumVariantNames, VariantNames};
 use types::EthSpec;
@@ -133,7 +133,7 @@ pub fn display_db_version<E: EthSpec>(
     let cold_path = client_config.get_freezer_db_path();
 
     let mut version = CURRENT_SCHEMA_VERSION;
-    HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+    HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
         &hot_path,
         &cold_path,
         |_, from, _| {
@@ -197,7 +197,7 @@ pub fn inspect_db<E: EthSpec>(
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
 
-    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
         &hot_path,
         &cold_path,
         |_, _, _| Ok(()),
@@ -281,7 +281,7 @@ pub fn migrate_db<E: EthSpec>(
 
     let mut from = CURRENT_SCHEMA_VERSION;
     let to = migrate_config.to;
-    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
         &hot_path,
         &cold_path,
         |_, db_initial_version, _| {
@@ -319,7 +319,7 @@ pub fn prune_payloads<E: EthSpec>(
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
 
-    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
         &hot_path,
         &cold_path,
         |_, _, _| Ok(()),

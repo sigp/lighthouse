@@ -1,32 +1,26 @@
-use super::*;
 use crate::hot_cold_store::HotColdDBError;
 use crate::leveldb_store::BytesKey;
-use crate::{metrics, get_key_for_col, KeyValueStoreOp, DBColumn, ColumnIter, ColumnKeyIter};
+use crate::{metrics, get_key_for_col, KeyValueStoreOp, DBColumn, ColumnIter, ColumnKeyIter, ItemStore, KeyValueStore, Error};
 use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
 use leveldb::database::Database;
 use leveldb::compaction::Compaction;
-use leveldb::error::Error as LevelDBError;
-use leveldb::iterator::{Iterable, LevelDBIterator};
+use leveldb::iterator::{Iterable, LevelDBIterator, KeyIterator};
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use parking_lot::{Mutex, MutexGuard};
 use types::{EthSpec, Hash256};
 use std::marker::PhantomData;
 use std::path::Path;
 
-pub struct Environment {
+pub struct BeaconNodeBackend<E: EthSpec> {
     db: Database<BytesKey>,
     /// A mutex to synchronise sensitive read-write transactions.
     transaction_mutex: Mutex<()>,
+    _phantom: PhantomData<E>
 }
 
 
-pub struct RwTransaction {
-    env: Environment
-}
-
-
-impl Environment {
+impl<E: EthSpec> BeaconNodeBackend<E> {
     pub fn open(path: &Path) -> Result<Self, Error> {
         let mut options = Options::new();
 
@@ -38,6 +32,7 @@ impl Environment {
         Ok(Self {
             db,
             transaction_mutex,
+            _phantom: PhantomData,
         })
     }
 
@@ -55,9 +50,7 @@ impl Environment {
         opts.sync = true;
         opts
     }
-}
 
-impl RwTransaction {
     pub fn put_bytes_with_options(
         &self,
         col: &str,
@@ -71,7 +64,7 @@ impl RwTransaction {
         metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as u64);
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
 
-        self.env.db
+        self.db
             .put(opts, BytesKey::from_vec(column_key), val)
             .map_err(Into::into)
             .map(|()| {
@@ -81,11 +74,11 @@ impl RwTransaction {
 
     /// Store some `value` in `column`, indexed with `key`.
     pub fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
-        self.put_bytes_with_options(col, key, val, self.env.write_options())
+        self.put_bytes_with_options(col, key, val, self.write_options())
     }
 
     pub fn put_bytes_sync(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
-        self.put_bytes_with_options(col, key, val, self.env.write_options_sync())
+        self.put_bytes_with_options(col, key, val, self.write_options_sync())
     }
 
     pub fn sync(&self) -> Result<(), Error> {
@@ -99,8 +92,8 @@ impl RwTransaction {
         metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
         let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
 
-        self.env.db
-            .get(self.env.read_options(), BytesKey::from_vec(column_key))
+        self.db
+            .get(self.read_options(), BytesKey::from_vec(column_key))
             .map_err(Into::into)
             .map(|opt| {
                 opt.map(|bytes| {
@@ -117,8 +110,8 @@ impl RwTransaction {
 
         metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
 
-        self.env.db
-            .get(self.env.read_options(), BytesKey::from_vec(column_key))
+        self.db
+            .get(self.read_options(), BytesKey::from_vec(column_key))
             .map_err(Into::into)
             .map(|val| val.is_some())
     }
@@ -129,8 +122,8 @@ impl RwTransaction {
 
         metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
 
-        self.env.db
-            .delete(self.env.write_options(), BytesKey::from_vec(column_key))
+        self.db
+            .delete(self.write_options(), BytesKey::from_vec(column_key))
             .map_err(Into::into)
     }
 
@@ -147,12 +140,12 @@ impl RwTransaction {
                 }
             }
         }
-        self.env.db.write(self.env.write_options(), &leveldb_batch)?;
+        self.db.write(self.write_options(), &leveldb_batch)?;
         Ok(())
     }
 
     fn begin_rw_transaction(&self) -> MutexGuard<()> {
-        self.env.transaction_mutex.lock()
+        self.transaction_mutex.lock()
     }
 
     /// Compact all values in the states and states flag columns.
@@ -171,7 +164,7 @@ impl RwTransaction {
             endpoints(DBColumn::BeaconStateTemporary),
             endpoints(DBColumn::BeaconState),
         ] {
-            self.env.db.compact(&start_key, &end_key);
+            self.db.compact(&start_key, &end_key);
         }
         Ok(())
     }
@@ -181,7 +174,7 @@ impl RwTransaction {
         let start_key =
             BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
 
-        let iter = self.env.db.iter(self.env.read_options());
+        let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
 
         Box::new(
@@ -203,7 +196,7 @@ impl RwTransaction {
         let start_key =
             BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
 
-        let iter = self.env.db.keys_iter(self.env.read_options());
+        let iter = self.db.keys_iter(self.read_options());
         iter.seek(&start_key);
 
         Box::new(
@@ -219,20 +212,8 @@ impl RwTransaction {
                 }),
         )
     }
-}
 
-/// A leveldb error, just containing the error string
-/// provided by leveldb.
-#[derive(Debug)]
-pub struct Error {
-    message: String,
-}
-
-
-impl From<LevelDBError> for Error {
-    fn from(e: LevelDBError) -> Error {
-        Error {
-            message: format!("{:?}", e),
-        }
+    pub fn keys_iter(&self) -> KeyIterator<BytesKey> {
+        self.db.keys_iter(self.read_options())
     }
 }

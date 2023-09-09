@@ -219,10 +219,10 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
                 }),
         )
     }
-}*/
+}
 
 impl<E: EthSpec> ItemStore<E> for LevelDB<E> {}
-
+*/
 /// Used for keying leveldb.
 #[derive(Debug, PartialEq)]
 pub struct BytesKey {
@@ -258,13 +258,5 @@ impl BytesKey {
 
     pub fn from_vec(key: Vec<u8>) -> Self {
         Self { key }
-    }
-}
-
-impl From<LevelDBError> for Error {
-    fn from(e: LevelDBError) -> Error {
-        Error::DBError {
-            message: format!("{:?}", e),
-        }
     }
 }

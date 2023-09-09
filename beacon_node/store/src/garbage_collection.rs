@@ -1,10 +1,11 @@
 //! Garbage collection process that runs at start-up to clean up the database.
+use crate::database::interface::BeaconNodeBackend;
 use crate::hot_cold_store::HotColdDB;
-use crate::{Error, LevelDB, StoreOp};
+use crate::{Error, StoreOp};
 use slog::debug;
 use types::EthSpec;
 
-impl<E> HotColdDB<E, LevelDB<E>, LevelDB<E>>
+impl<E> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>
 where
     E: EthSpec,
 {
