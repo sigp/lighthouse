@@ -135,7 +135,7 @@ Update the genesis time to now using:
     - [`mock-relay`](https://github.com/realbigsean/mock-relay)
     - [`dummy-builder`](https://github.com/michaelsproul/dummy_builder)
 2. (Optional) Add `--always-prefer-builder-payload` to `BN_ARGS`.
-3. The above mock builders do not support non mainnet presets as of now, and will require setting `SECONDS_PER_SLOT` and `SECONDS_PER_ETH1_BLOCK` to `12` in `./vars.env`. 
+3. The above mock builders do not support non-mainnet presets as of now, and will require setting `SECONDS_PER_SLOT` and `SECONDS_PER_ETH1_BLOCK` to `12` in `./vars.env`. 
 4. Start the testnet with the following command (the `-p` flag enables the validator client `--builder-proposals` flag:
     ```bash
     ./start_local_testnet.sh -p genesis.json
