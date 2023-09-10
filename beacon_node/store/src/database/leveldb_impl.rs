@@ -6,7 +6,7 @@ use leveldb::compaction::Compaction;
 use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
 use leveldb::database::Database;
-use leveldb::iterator::{Iterable, KeyIterator, LevelDBIterator};
+use leveldb::iterator::{Iterable, LevelDBIterator};
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use parking_lot::{Mutex, MutexGuard};
 use std::marker::PhantomData;
@@ -212,7 +212,26 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         )
     }
 
-    pub fn keys_iter(&self) -> KeyIterator<BytesKey> {
-        self.db.keys_iter(self.read_options())
+    /// Return an iterator over the state roots of all temporary states.
+    pub fn iter_temporary_state_roots(
+        &self,
+        column: DBColumn,
+    ) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
+        let start_key =
+            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
+
+        let keys_iter = self.db.keys_iter(self.read_options());
+        keys_iter.seek(&start_key);
+
+        keys_iter
+            .take_while(move |key| key.matches_column(column))
+            .map(move |bytes_key| {
+                bytes_key.remove_column(column).ok_or_else(|| {
+                    HotColdDBError::IterationError {
+                        unexpected_key: bytes_key,
+                    }
+                    .into()
+                })
+            })
     }
 }

@@ -1,13 +1,9 @@
-use std::path::Path;
-
-use leveldb::iterator::KeyIterator;
-use leveldb::options::WriteOptions;
-use types::EthSpec;
-
 use crate::database::leveldb_impl;
-use crate::hot_cold_store::BytesKey;
 use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
 use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, KeyValueStore};
+use leveldb::options::WriteOptions;
+use std::path::Path;
+use types::{EthSpec, Hash256};
 
 impl<E: EthSpec> ItemStore<E> for BeaconNodeBackend<E> {}
 
@@ -192,10 +188,15 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         }
     }
 
-    pub fn keys_iter(&self) -> KeyIterator<BytesKey> {
+    pub fn iter_temporary_state_roots(
+        &self,
+        column: DBColumn,
+    ) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::BeaconNodeBackend::keys_iter(txn),
+            BeaconNodeBackend::LevelDb(txn) => {
+                leveldb_impl::BeaconNodeBackend::iter_temporary_state_roots(txn, column)
+            }
         }
     }
 }

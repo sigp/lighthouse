@@ -21,7 +21,6 @@ use crate::{
     PartialBeaconState, StoreItem, StoreOp,
 };
 use itertools::process_results;
-use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use serde_derive::{Deserialize, Serialize};
@@ -38,7 +37,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::*;
-
 use db_key::Key;
 
 /// On-disk database that stores finalized states efficiently.
@@ -244,23 +242,8 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
 
     /// Return an iterator over the state roots of all temporary states.
     pub fn iter_temporary_state_roots(&self) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
-        let column = DBColumn::BeaconStateTemporary;
-        let start_key =
-            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
-
-        let keys_iter = self.hot_db.keys_iter();
-        keys_iter.seek(&start_key);
-
-        keys_iter
-            .take_while(move |key| key.matches_column(column))
-            .map(move |bytes_key| {
-                bytes_key.remove_column(column).ok_or_else(|| {
-                    HotColdDBError::IterationError {
-                        unexpected_key: bytes_key,
-                    }
-                    .into()
-                })
-            })
+        self.hot_db
+            .iter_temporary_state_roots(DBColumn::BeaconStateTemporary)
     }
 }
 
