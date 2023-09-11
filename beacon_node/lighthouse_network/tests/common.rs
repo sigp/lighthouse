@@ -90,7 +90,11 @@ pub fn build_config(mut boot_nodes: Vec<Enr>) -> NetworkConfig {
         disc_port,
         quic_port,
     );
-    config.enr_udp4_port = Some(disc_port);
+    config.enr_udp4_port = if disc_port == 0 {
+        None
+    } else {
+        Some(disc_port)
+    };
     config.enr_quic4_port = Some(quic_port);
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
@@ -168,28 +172,23 @@ pub async fn build_node_pair(
     // let the two nodes set up listeners
     let sender_fut = async {
         loop {
-            if let NetworkEvent::NewListenAddr(_) = sender.next_event().await {
-                return;
+            if let NetworkEvent::NewListenAddr(addr) = sender.next_event().await {
+                return addr;
             }
         }
     };
     let receiver_fut = async {
         loop {
-            if let NetworkEvent::NewListenAddr(_) = receiver.next_event().await {
-                return;
+            if let NetworkEvent::NewListenAddr(addr) = receiver.next_event().await {
+                return addr;
             }
         }
     };
 
     let joined = futures::future::join(sender_fut, receiver_fut);
 
-    // wait for either both nodes to listen or a timeout
-    tokio::select! {
-        _  = tokio::time::sleep(Duration::from_millis(500)) => {}
-        _ = joined => {}
-    }
+    let receiver_multiaddr = joined.await.1;
 
-    // sender.dial_peer(peer_id);
     match sender.testing_dial(receiver_multiaddr.clone()) {
         Ok(()) => {
             debug!(log, "Sender dialed receiver"; "address" => format!("{:?}", receiver_multiaddr))
