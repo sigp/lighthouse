@@ -940,6 +940,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         self.report_batch_buffer_state();
 
+        if self.batch_buffer_full() {
+            return Ok(KeepChain);
+        }
+
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let request = batch.to_blocks_by_range_request();
             match network.blocks_by_range_request(peer, request, self.id, batch_id) {
