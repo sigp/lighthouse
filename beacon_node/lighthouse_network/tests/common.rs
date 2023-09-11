@@ -164,23 +164,49 @@ pub async fn build_node_pair(
     let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log, fork_name, spec).await;
     let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name, spec).await;
 
-    let receiver_multiaddr = match protocol {
-        Protocol::Tcp => receiver.local_enr().multiaddr_tcp().pop().unwrap(),
-        Protocol::Quic => receiver.local_enr().multiaddr_quic().pop().unwrap(),
-    };
-
     // let the two nodes set up listeners
     let sender_fut = async {
         loop {
             if let NetworkEvent::NewListenAddr(addr) = sender.next_event().await {
-                return addr;
+                // Only end once we've listened on the protocol we care about
+                match protocol {
+                    Protocol::Tcp => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::Tcp(_))
+                        }) {
+                            return addr;
+                        }
+                    }
+                    Protocol::Quic => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::QuicV1)
+                        }) {
+                            return addr;
+                        }
+                    }
+                }
             }
         }
     };
     let receiver_fut = async {
         loop {
             if let NetworkEvent::NewListenAddr(addr) = receiver.next_event().await {
-                return addr;
+                match protocol {
+                    Protocol::Tcp => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::Tcp(_))
+                        }) {
+                            return addr;
+                        }
+                    }
+                    Protocol::Quic => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::QuicV1)
+                        }) {
+                            return addr;
+                        }
+                    }
+                }
             }
         }
     };
