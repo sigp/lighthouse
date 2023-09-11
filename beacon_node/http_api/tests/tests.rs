@@ -8,7 +8,7 @@ use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
     types::{BlockId as CoreBlockId, ForkChoiceNode, StateId as CoreStateId, *},
-    BeaconNodeHttpClient, Error, Timeouts,
+    BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
 use execution_layer::test_utils::TestingBuilder;
 use execution_layer::test_utils::DEFAULT_BUILDER_THRESHOLD_WEI;
@@ -1326,6 +1326,71 @@ impl ApiTester {
             self.network_rx.network_recv.recv().await.is_some(),
             "gossip valid blocks should be sent to network"
         );
+
+        self
+    }
+
+    pub async fn test_post_beacon_blocks_duplicate(self) -> Self {
+        let block_contents = self
+            .harness
+            .make_block(
+                self.harness.get_current_state(),
+                self.harness.get_current_slot(),
+            )
+            .await
+            .0
+            .into();
+
+        assert!(self
+            .client
+            .post_beacon_blocks(&block_contents)
+            .await
+            .is_ok());
+
+        let blinded_block_contents = block_contents.clone_as_blinded();
+
+        // Test all the POST methods in sequence, they should all behave the same.
+        let responses = vec![
+            self.client
+                .post_beacon_blocks(&block_contents)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blocks_v2(&block_contents, None)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blocks_ssz(&block_contents)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blocks_v2_ssz(&block_contents, None)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blinded_blocks(&blinded_block_contents)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blinded_blocks_v2(&blinded_block_contents, None)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blinded_blocks_ssz(&blinded_block_contents)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blinded_blocks_v2_ssz(&blinded_block_contents, None)
+                .await
+                .unwrap_err(),
+        ];
+        for (i, response) in responses.into_iter().enumerate() {
+            assert_eq!(
+                response.status().unwrap(),
+                StatusCode::ACCEPTED,
+                "response {i}"
+            );
+        }
 
         self
     }
@@ -4722,6 +4787,14 @@ async fn post_beacon_blocks_invalid() {
     ApiTester::new()
         .await
         .test_post_beacon_blocks_invalid()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_beacon_blocks_duplicate() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_blocks_duplicate()
         .await;
 }
 

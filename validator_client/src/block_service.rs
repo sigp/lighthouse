@@ -12,7 +12,7 @@ use crate::{
 use bls::SignatureBytes;
 use environment::RuntimeContext;
 use eth2::types::{BlockContents, SignedBlockContents};
-use eth2::BeaconNodeHttpClient;
+use eth2::{BeaconNodeHttpClient, StatusCode};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt::Debug;
@@ -573,7 +573,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async {
-                    Self::publish_signed_block_contents::<Payload>(
+                    self.publish_signed_block_contents::<Payload>(
                         &signed_block_contents,
                         beacon_node,
                     )
@@ -596,9 +596,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     }
 
     async fn publish_signed_block_contents<Payload: AbstractExecPayload<E>>(
+        &self,
         signed_block_contents: &SignedBlockContents<E, Payload>,
         beacon_node: &BeaconNodeHttpClient,
     ) -> Result<(), BlockError> {
+        let log = self.context.log();
+        let slot = signed_block_contents.signed_block().slot();
         match Payload::block_type() {
             BlockType::Full => {
                 let _post_timer = metrics::start_timer_vec(
@@ -608,12 +611,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 beacon_node
                     .post_beacon_blocks(signed_block_contents)
                     .await
-                    .map_err(|e| {
-                        BlockError::Irrecoverable(format!(
-                            "Error from beacon node when publishing block: {:?}",
-                            e
-                        ))
-                    })?
+                    .or_else(|e| handle_block_post_error(e, slot, log))?
             }
             BlockType::Blinded => {
                 let _post_timer = metrics::start_timer_vec(
@@ -623,12 +621,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 beacon_node
                     .post_beacon_blinded_blocks(signed_block_contents)
                     .await
-                    .map_err(|e| {
-                        BlockError::Irrecoverable(format!(
-                            "Error from beacon node when publishing block: {:?}",
-                            e
-                        ))
-                    })?
+                    .or_else(|e| handle_block_post_error(e, slot, log))?
             }
         }
         Ok::<_, BlockError>(())
@@ -694,4 +687,30 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         Ok::<_, BlockError>(block_contents)
     }
+}
+
+fn handle_block_post_error(err: eth2::Error, slot: Slot, log: &Logger) -> Result<(), BlockError> {
+    // Handle non-200 success codes.
+    if let Some(status) = err.status() {
+        if status == StatusCode::ACCEPTED {
+            info!(
+                log,
+                "Block is already known to BN or might be invalid";
+                "slot" => slot,
+                "status_code" => status.as_u16(),
+            );
+            return Ok(());
+        } else if status.is_success() {
+            debug!(
+                log,
+                "Block published with non-standard success code";
+                "slot" => slot,
+                "status_code" => status.as_u16(),
+            );
+            return Ok(());
+        }
+    }
+    Err(BlockError::Irrecoverable(format!(
+        "Error from beacon node when publishing block: {err:?}",
+    )))
 }

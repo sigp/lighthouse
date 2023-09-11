@@ -111,3 +111,4 @@ pub type SignedBlindedBlobSidecar<T> = SignedSidecar<T, BlindedBlobSidecar>;
 pub type SignedSidecarList<T, Sidecar> =
     VariableList<SignedSidecar<T, Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
 pub type SignedBlobSidecarList<T> = SignedSidecarList<T, BlobSidecar<T>>;
+pub type SignedBlindedBlobSidecarList<T> = SignedSidecarList<T, BlindedBlobSidecar>;

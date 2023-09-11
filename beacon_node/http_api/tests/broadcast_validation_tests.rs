@@ -214,19 +214,19 @@ pub async fn gossip_full_pass_ssz() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, _), _): ((SignedBeaconBlock<E>, _), _) =
-        tester.harness.make_block(state_a, slot_b).await;
+    let (block_contents_tuple, _) = tester.harness.make_block(state_a, slot_b).await;
+    let block_contents = block_contents_tuple.into();
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&block, validation_level)
+        .post_beacon_blocks_v2_ssz(&block_contents, validation_level)
         .await;
 
     assert!(response.is_ok());
     assert!(tester
         .harness
         .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+        .block_is_known_to_fork_choice(&block_contents.signed_block().canonical_root()));
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus`.
@@ -378,13 +378,14 @@ pub async fn consensus_partial_pass_only_consensus() {
     /* submit `block_b` which should induce equivocation */
     let channel = tokio::sync::mpsc::unbounded_channel();
 
-    let publication_result: Result<(), Rejection> = publish_block(
+    let publication_result = publish_block(
         None,
         ProvenancedBlock::local(gossip_block_contents_b.unwrap()),
         tester.harness.chain.clone(),
         &channel.0,
         test_logger,
         validation_level.unwrap(),
+        StatusCode::ACCEPTED,
     )
     .await;
 
@@ -669,13 +670,14 @@ pub async fn equivocation_consensus_late_equivocation() {
 
     let channel = tokio::sync::mpsc::unbounded_channel();
 
-    let publication_result: Result<(), Rejection> = publish_block(
+    let publication_result = publish_block(
         None,
         ProvenancedBlock::local(gossip_block_contents_b.unwrap()),
         tester.harness.chain,
         &channel.0,
         test_logger,
         validation_level.unwrap(),
+        StatusCode::ACCEPTED,
     )
     .await;
 
@@ -1335,12 +1337,13 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
 
     let channel = tokio::sync::mpsc::unbounded_channel();
 
-    let publication_result: Result<(), Rejection> = publish_blinded_block(
+    let publication_result = publish_blinded_block(
         SignedBlockContents::new(block_b, blobs_b),
         tester.harness.chain,
         &channel.0,
         test_logger,
         validation_level.unwrap(),
+        StatusCode::ACCEPTED,
     )
     .await;
 

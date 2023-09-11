@@ -707,7 +707,7 @@ impl BeaconNodeHttpClient {
     /// Returns `Ok(None)` on a 404 error.
     pub async fn post_beacon_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
-        block: &SignedBlockContents<T, Payload>,
+        block_contents: &SignedBlockContents<T, Payload>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -716,8 +716,12 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blocks");
 
-        self.post_generic_with_ssz_body(path, block.as_ssz_bytes(), Some(self.timeouts.proposal))
-            .await?;
+        self.post_generic_with_ssz_body(
+            path,
+            block_contents.as_ssz_bytes(),
+            Some(self.timeouts.proposal),
+        )
+        .await?;
 
         Ok(())
     }
@@ -747,7 +751,7 @@ impl BeaconNodeHttpClient {
     /// Returns `Ok(None)` on a 404 error.
     pub async fn post_beacon_blinded_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
-        block: &SignedBeaconBlock<T, Payload>,
+        block: &SignedBlindedBlockContents<T>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -818,14 +822,14 @@ impl BeaconNodeHttpClient {
     /// `POST v2/beacon/blocks`
     pub async fn post_beacon_blocks_v2_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
-        block: &SignedBeaconBlock<T, Payload>,
+        block_contents: &SignedBlockContents<T, Payload>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
         self.post_generic_with_consensus_version_and_ssz_body(
             self.post_beacon_blocks_v2_path(validation_level)?,
-            block.as_ssz_bytes(),
+            block_contents.as_ssz_bytes(),
             Some(self.timeouts.proposal),
-            block.message().body().fork_name(),
+            block_contents.signed_block().message().body().fork_name(),
         )
         .await?;
 
@@ -852,14 +856,14 @@ impl BeaconNodeHttpClient {
     /// `POST v2/beacon/blinded_blocks`
     pub async fn post_beacon_blinded_blocks_v2_ssz<T: EthSpec>(
         &self,
-        block: &SignedBlindedBeaconBlock<T>,
+        block_contents: &SignedBlindedBlockContents<T>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
         self.post_generic_with_consensus_version_and_ssz_body(
             self.post_beacon_blinded_blocks_v2_path(validation_level)?,
-            block.as_ssz_bytes(),
+            block_contents.as_ssz_bytes(),
             Some(self.timeouts.proposal),
-            block.message().body().fork_name(),
+            block_contents.signed_block().message().body().fork_name(),
         )
         .await?;
 
