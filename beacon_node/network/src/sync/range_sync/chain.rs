@@ -151,6 +151,32 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
+    pub fn buffered_batches(&self) -> Vec<&BatchInfo<<T as BeaconChainTypes>::EthSpec>> {
+        let in_buffer = |batch: &BatchInfo<T::EthSpec>| {
+            matches!(
+                batch.state(),
+                BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
+            )
+        };
+
+        self.batches
+            .values()
+            .filter(|&batch| in_buffer(batch))
+            .collect()
+    }
+
+    pub fn num_buffered_batches(&self) -> usize {
+        self.buffered_batches().len()
+    }
+
+    pub fn batch_buffer_full(&self) -> bool {
+        self.num_buffered_batches() == BATCH_BUFFER_SIZE as usize
+    }
+
+    pub fn batch_buffer_overfull(&self) -> bool {
+        self.num_buffered_batches() > BATCH_BUFFER_SIZE as usize
+    }
+
     /// Check if the chain has peers from which to process batches.
     pub fn available_peers(&self) -> usize {
         self.peers.len()
