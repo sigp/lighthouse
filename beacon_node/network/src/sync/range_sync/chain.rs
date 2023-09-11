@@ -152,6 +152,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     pub fn buffered_batches(&self) -> Vec<&BatchInfo<<T as BeaconChainTypes>::EthSpec>> {
+        // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
+        // if the current processing window is contained in a long range of skip slots.
         let in_buffer = |batch: &BatchInfo<T::EthSpec>| {
             matches!(
                 batch.state(),
@@ -1049,22 +1051,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         {
             return None;
         }
+
         // only request batches up to the buffer size limit
-        // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
-        // if the current processing window is contained in a long range of skip slots.
-        let in_buffer = |batch: &BatchInfo<T::EthSpec>| {
-            matches!(
-                batch.state(),
-                BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
-            )
-        };
-        if self
-            .batches
-            .iter()
-            .filter(|&(_epoch, batch)| in_buffer(batch))
-            .count()
-            > BATCH_BUFFER_SIZE as usize
-        {
+        if self.batch_buffer_full() || self.batch_buffer_overfull() {
             return None;
         }
 
