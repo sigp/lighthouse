@@ -235,7 +235,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                     "Invalid block provided to HTTP API";
                     "reason" => &msg
                 );
-                Err(warp_utils::reject::broadcast_without_import(msg))
+                Err(warp_utils::reject::custom_bad_request(msg))
             }
         }
         Err(BlockError::BeaconChainError(BeaconChainError::UnableToPublish)) => {
