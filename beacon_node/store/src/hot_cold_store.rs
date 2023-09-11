@@ -2012,7 +2012,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Try to prune blobs, approximating the current epoch from the split slot.
     pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
-        let deneb_fork = match self.spec.deneb_fork_epoch {
+        let deneb_fork_epoch = match self.spec.deneb_fork_epoch {
             Some(epoch) => epoch,
             None => {
                 debug!(self.log, "Deneb fork is disabled");
@@ -2024,7 +2024,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // choose to also delay the pruning of blobs (we never prune without finalization anyway).
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
         let min_data_availability_boundary = std::cmp::max(
-            deneb_fork,
+            deneb_fork_epoch,
             min_current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
         );
 
@@ -2046,45 +2046,45 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         force: bool,
         data_availability_boundary: Epoch,
     ) -> Result<(), Error> {
-        let deneb_fork = match self.spec.deneb_fork_epoch {
+        let deneb_fork_epoch = match self.spec.deneb_fork_epoch {
             Some(epoch) => epoch,
             None => {
                 debug!(self.log, "Deneb fork is disabled");
                 return Ok(());
             }
         };
+        let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
 
-        let should_prune_blobs = self.get_config().prune_blobs;
+        let pruning_enabled = self.get_config().prune_blobs;
         let margin_epochs = self.get_config().blob_prune_margin_epochs;
         let epochs_per_blob_prune = self.get_config().epochs_per_blob_prune;
 
-        if !should_prune_blobs && !force {
+        if !force && !pruning_enabled {
             debug!(
                 self.log,
                 "Blob pruning is disabled";
-                "prune_blobs" => should_prune_blobs
+                "prune_blobs" => pruning_enabled
             );
             return Ok(());
         }
 
-        if data_availability_boundary <= deneb_fork {
+        if data_availability_boundary <= deneb_fork_epoch {
             debug!(
                 self.log,
                 "Blob pruning unnecessary";
                 "data_availability_boundary" => data_availability_boundary,
-                "deneb_fork_epoch" => deneb_fork,
+                "deneb_fork_epoch_epoch" => deneb_fork_epoch,
             );
             return Ok(());
         }
 
+        let anchor = self.get_anchor_info();
         let blob_info = self.get_blob_info();
-        let oldest_blob_slot = blob_info
-            .oldest_blob_slot
-            .unwrap_or_else(|| deneb_fork.start_slot(E::slots_per_epoch()));
+        let oldest_blob_slot = blob_info.get_oldest_blob_slot(deneb_fork_slot, anchor.as_ref());
 
-        // Start pruning from the epoch of the oldest blob stored, or the Deneb fork epoch.
+        // Start pruning from the epoch of the oldest blob stored.
         // The start epoch is inclusive (blobs in this epoch will be pruned).
-        let start_epoch = std::cmp::max(oldest_blob_slot.epoch(E::slots_per_epoch()), deneb_fork);
+        let start_epoch = oldest_blob_slot.epoch(E::slots_per_epoch());
 
         // Prune blobs up until the `data_availability_boundary - margin` or the split
         // slot's epoch, whichever is older. We can't prune blobs newer than the split.
@@ -2096,7 +2096,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         );
         let end_slot = end_epoch.end_slot(E::slots_per_epoch());
 
-        if !force && start_epoch + epochs_per_blob_prune <= end_epoch + 1 {
+        let should_prune = start_epoch + epochs_per_blob_prune <= end_epoch + 1;
+
+        if !force && !should_prune {
             debug!(
                 self.log,
                 "Blobs are pruned";

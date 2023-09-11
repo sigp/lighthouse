@@ -133,6 +133,17 @@ pub struct BlobInfo {
     pub blobs_db: bool,
 }
 
+impl BlobInfo {
+    pub fn get_oldest_blob_slot(&self, deneb_fork_slot: Slot, anchor: Option<&AnchorInfo>) -> Slot {
+        self.oldest_blob_slot.unwrap_or_else(|| {
+            std::cmp::max(
+                deneb_fork_slot,
+                anchor.map_or(Slot::new(0), |anchor| anchor.oldest_block_slot),
+            )
+        })
+    }
+}
+
 impl StoreItem for BlobInfo {
     fn db_column() -> DBColumn {
         DBColumn::BeaconMeta
