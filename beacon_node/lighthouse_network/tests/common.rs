@@ -77,11 +77,19 @@ pub fn build_config(mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     let quic_port = unused_udp4_port().unwrap();
 
     let path = TempBuilder::new()
-        .prefix(&format!("libp2p_test{}_{}_{}", tcp_port, disc_port, quic_port))
+        .prefix(&format!(
+            "libp2p_test{}_{}_{}",
+            tcp_port, disc_port, quic_port
+        ))
         .tempdir()
         .unwrap();
 
-    config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, tcp_port, disc_port, quic_port);
+    config.set_ipv4_listening_address(
+        std::net::Ipv4Addr::UNSPECIFIED,
+        tcp_port,
+        disc_port,
+        quic_port,
+    );
     config.enr_udp4_port = Some(disc_port);
     config.enr_quic4_port = Some(quic_port);
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
