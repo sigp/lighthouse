@@ -45,16 +45,25 @@ pub struct StoreConfig {
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-// FIXME(sproul): schema migration, add hdiff
+// FIXME(sproul): schema migration
 pub struct OnDiskStoreConfig {
     pub linear_blocks: bool,
-    pub linear_restore_points: bool,
+    pub hierarchy_config: HierarchyConfig,
 }
 
 #[derive(Debug, Clone)]
 pub enum StoreConfigError {
-    MismatchedSlotsPerRestorePoint { config: u64, on_disk: u64 },
-    InvalidCompressionLevel { level: i32 },
+    MismatchedSlotsPerRestorePoint {
+        config: u64,
+        on_disk: u64,
+    },
+    InvalidCompressionLevel {
+        level: i32,
+    },
+    IncompatibleStoreConfig {
+        config: OnDiskStoreConfig,
+        on_disk: OnDiskStoreConfig,
+    },
 }
 
 impl Default for StoreConfig {
@@ -80,15 +89,21 @@ impl StoreConfig {
     pub fn as_disk_config(&self) -> OnDiskStoreConfig {
         OnDiskStoreConfig {
             linear_blocks: self.linear_blocks,
-            linear_restore_points: self.linear_restore_points,
+            hierarchy_config: self.hierarchy_config.clone(),
         }
     }
 
     pub fn check_compatibility(
         &self,
-        _on_disk_config: &OnDiskStoreConfig,
+        on_disk_config: &OnDiskStoreConfig,
     ) -> Result<(), StoreConfigError> {
-        // FIXME(sproul): TODO
+        let db_config = self.as_disk_config();
+        if db_config.ne(on_disk_config) {
+            return Err(StoreConfigError::IncompatibleStoreConfig {
+                config: db_config,
+                on_disk: on_disk_config.clone(),
+            });
+        }
         Ok(())
     }
 
@@ -144,5 +159,51 @@ impl StoreItem for OnDiskStoreConfig {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn check_compatibility_ok() {
+        let store_config = StoreConfig {
+            linear_blocks: true,
+            ..Default::default()
+        };
+        let on_disk_config = OnDiskStoreConfig {
+            linear_blocks: true,
+            hierarchy_config: store_config.hierarchy_config.clone(),
+        };
+        assert!(store_config.check_compatibility(&on_disk_config).is_ok());
+    }
+
+    #[test]
+    fn check_compatibility_linear_blocks_mismatch() {
+        let store_config = StoreConfig {
+            linear_blocks: true,
+            ..Default::default()
+        };
+        let on_disk_config = OnDiskStoreConfig {
+            linear_blocks: false,
+            hierarchy_config: store_config.hierarchy_config.clone(),
+        };
+        assert!(store_config.check_compatibility(&on_disk_config).is_err());
+    }
+
+    #[test]
+    fn check_compatibility_hierarchy_config_incompatible() {
+        let store_config = StoreConfig {
+            linear_blocks: true,
+            ..Default::default()
+        };
+        let on_disk_config = OnDiskStoreConfig {
+            linear_blocks: true,
+            hierarchy_config: HierarchyConfig {
+                exponents: vec![5, 8, 11, 13, 16, 18, 21],
+            },
+        };
+        assert!(store_config.check_compatibility(&on_disk_config).is_err());
     }
 }

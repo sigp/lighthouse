@@ -21,9 +21,11 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
+use store::hdiff::HierarchyConfig;
 use store::{
+    config::StoreConfigError,
     iter::{BlockRootsIterator, StateRootsIterator},
-    HotColdDB, LevelDB, StoreConfig,
+    Error as StoreError, HotColdDB, LevelDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
 use types::test_utils::{SeedableRng, XorShiftRng};
@@ -49,13 +51,25 @@ fn get_store_with_spec(
     db_path: &TempDir,
     spec: ChainSpec,
 ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
+    let config = StoreConfig {
+        // More frequent snapshots and hdiffs in tests for testing
+        hierarchy_config: HierarchyConfig {
+            exponents: vec![1, 3, 5],
+        },
+        ..Default::default()
+    };
+    try_get_store_with_spec_and_config(db_path, spec, config).expect("disk store should initialize")
+}
+
+fn try_get_store_with_spec_and_config(
+    db_path: &TempDir,
+    spec: ChainSpec,
+    config: StoreConfig,
+) -> Result<Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>, StoreError> {
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
-    let config = StoreConfig::default();
     let log = test_logger();
-
     HotColdDB::open(&hot_path, &cold_path, |_, _, _| Ok(()), config, spec, log)
-        .expect("disk store should initialize")
 }
 
 fn get_harness(
@@ -2479,6 +2493,43 @@ async fn revert_minority_fork_on_resume() {
     let heads = resumed_harness.chain.heads();
     assert_eq!(heads, harness2.chain.heads());
     assert_eq!(heads.len(), 1);
+}
+
+#[tokio::test]
+#[ignore]
+// FIXME(jimmy): Ignoring this now as the test is flaky :/ It intermittently fails with an IO error
+// "..cold_db/LOCK file held by another process".
+// There seems to be some race condition between dropping the lock file and and re-opening the db.
+// There's a higher chance this test would fail when the entire test suite is run. Maybe it isn't
+// fast enough at dropping the cold_db LOCK file before the test attempts to open it again.
+async fn should_not_initialize_incompatible_store_config() {
+    let validator_count = 16;
+    let spec = MinimalEthSpec::default_spec();
+    let db_path = tempdir().unwrap();
+    let store_config = StoreConfig::default();
+    let store = try_get_store_with_spec_and_config(&db_path, spec.clone(), store_config.clone())
+        .expect("disk store should initialize");
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .spec(spec.clone())
+        .deterministic_keypairs(validator_count)
+        .fresh_disk_store(store)
+        .build();
+
+    // Resume from disk with a different store config.
+    drop(harness);
+    let different_store_config = StoreConfig {
+        linear_blocks: !store_config.linear_blocks,
+        ..store_config
+    };
+    let maybe_err =
+        try_get_store_with_spec_and_config(&db_path, spec, different_store_config).err();
+
+    assert!(matches!(
+        maybe_err,
+        Some(StoreError::ConfigError(
+            StoreConfigError::IncompatibleStoreConfig { .. }
+        ))
+    ));
 }
 
 // This test checks whether the schema downgrade from the latest version to some minimum supported

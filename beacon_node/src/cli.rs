@@ -534,6 +534,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("hierarchy-exponents")
+                .long("hierarchy-exponents")
+                .value_name("EXPONENTS")
+                .help("Specifies the frequency for storing full state snapshots and hierarchical \
+                        diffs in the freezer DB. Accepts a comma-separated list of ascending \
+                        exponents. Each exponent defines an interval for storing diffs to the layer \
+                        above. The last exponent defines the interval for full snapshots. \
+                        For example, a config of '4,8,12' would store a full snapshot every \
+                        4096 (2^12) slots, first-level diffs every 256 (2^8) slots, and second-level \
+                        diffs every 16 (2^4) slots. \
+                        Cannot be changed after initialization. \
+                        [default: 5,9,11,13,16,18,21]")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("epochs-per-migration")
                 .long("epochs-per-migration")
                 .value_name("N")

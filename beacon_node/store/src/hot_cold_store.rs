@@ -79,7 +79,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     #[allow(dead_code)]
     historic_state_cache: Mutex<LruCache<Slot, BeaconState<E>>>,
     /// Cache of hierarchical diff buffers.
-    diff_buffer_cache: Mutex<LruCache<Epoch, HDiffBuffer>>,
+    diff_buffer_cache: Mutex<LruCache<Slot, HDiffBuffer>>,
     // Cache of hierarchical diffs.
     // FIXME(sproul): see if this is necessary
     /// Chain spec.
@@ -113,7 +113,7 @@ pub enum HotColdDBError {
     MissingPrevState(Hash256),
     MissingSplitState(Hash256, Slot),
     MissingStateDiff(Hash256),
-    MissingHDiff(Epoch),
+    MissingHDiff(Slot),
     MissingExecutionPayload(Hash256),
     MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
@@ -1403,17 +1403,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         self.store_cold_state_summary(state_root, state.slot(), ops)?;
 
-        if state.slot() % E::slots_per_epoch() != 0 {
-            return Ok(());
-        }
-
-        let epoch = state.current_epoch();
-        match self.hierarchy.storage_strategy(epoch)? {
-            StorageStrategy::Nothing => {
+        let slot = state.slot();
+        match self.hierarchy.storage_strategy(slot)? {
+            StorageStrategy::ReplayFrom(from) => {
                 debug!(
                     self.log,
                     "Storing cold state";
                     "strategy" => "replay",
+                    "from_slot" => from,
                     "slot" => state.slot(),
                 );
             }
@@ -1431,6 +1428,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     self.log,
                     "Storing cold state";
                     "strategy" => "diff",
+                    "from_slot" => from,
                     "slot" => state.slot(),
                 );
                 self.store_cold_state_as_diff(state, from, ops)?;
@@ -1453,22 +1451,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         encoder.write_all(&bytes).map_err(Error::Compression)?;
         encoder.finish().map_err(Error::Compression)?;
 
-        let epoch = state.current_epoch();
         let key = get_key_for_col(
             DBColumn::BeaconStateSnapshot.into(),
-            &epoch.as_u64().to_be_bytes(),
+            &state.slot().as_u64().to_be_bytes(),
         );
         ops.push(KeyValueStoreOp::PutKeyValue(key, compressed_value));
         Ok(())
     }
 
-    pub fn load_cold_state_bytes_as_snapshot(
-        &self,
-        epoch: Epoch,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    pub fn load_cold_state_bytes_as_snapshot(&self, slot: Slot) -> Result<Option<Vec<u8>>, Error> {
         match self.cold_db.get_bytes(
             DBColumn::BeaconStateSnapshot.into(),
-            &epoch.as_u64().to_be_bytes(),
+            &slot.as_u64().to_be_bytes(),
         )? {
             Some(bytes) => {
                 let mut ssz_bytes =
@@ -1483,12 +1477,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    pub fn load_cold_state_as_snapshot(
-        &self,
-        epoch: Epoch,
-    ) -> Result<Option<BeaconState<E>>, Error> {
+    pub fn load_cold_state_as_snapshot(&self, slot: Slot) -> Result<Option<BeaconState<E>>, Error> {
         Ok(self
-            .load_cold_state_bytes_as_snapshot(epoch)?
+            .load_cold_state_bytes_as_snapshot(slot)?
             .map(|bytes| BeaconState::from_ssz_bytes(&bytes, &self.spec))
             .transpose()?)
     }
@@ -1496,18 +1487,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn store_cold_state_as_diff(
         &self,
         state: &BeaconState<E>,
-        from_epoch: Epoch,
+        from_slot: Slot,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         // Load diff base state bytes.
-        let base_buffer = self.load_hdiff_buffer_for_epoch(from_epoch)?;
+        let (_, base_buffer) = self.load_hdiff_buffer_for_slot(from_slot)?;
         let target_buffer = HDiffBuffer::from_state(state.clone());
         let diff = HDiff::compute(&base_buffer, &target_buffer)?;
         let diff_bytes = diff.as_ssz_bytes();
 
         let key = get_key_for_col(
             DBColumn::BeaconStateDiff.into(),
-            &state.current_epoch().as_u64().to_be_bytes(),
+            &state.slot().as_u64().to_be_bytes(),
         );
         ops.push(KeyValueStoreOp::PutKeyValue(key, diff_bytes));
         Ok(())
@@ -1527,10 +1518,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Will reconstruct the state if it lies between restore points.
     pub fn load_cold_state_by_slot(&self, slot: Slot) -> Result<Option<BeaconState<E>>, Error> {
-        let epoch = slot.epoch(E::slots_per_epoch());
-
-        let hdiff_buffer = self.load_hdiff_buffer_for_epoch(epoch)?;
+        let (base_slot, hdiff_buffer) = self.load_hdiff_buffer_for_slot(slot)?;
         let base_state = hdiff_buffer.into_state(&self.spec)?;
+        debug_assert_eq!(base_slot, base_state.slot());
 
         if base_state.slot() == slot {
             return Ok(Some(base_state));
@@ -1548,56 +1538,68 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(Some)
     }
 
-    fn load_hdiff_for_epoch(&self, epoch: Epoch) -> Result<HDiff, Error> {
+    fn load_hdiff_for_slot(&self, slot: Slot) -> Result<HDiff, Error> {
         self.cold_db
             .get_bytes(
                 DBColumn::BeaconStateDiff.into(),
-                &epoch.as_u64().to_be_bytes(),
+                &slot.as_u64().to_be_bytes(),
             )?
             .map(|bytes| HDiff::from_ssz_bytes(&bytes))
-            .ok_or(HotColdDBError::MissingHDiff(epoch))?
+            .ok_or(HotColdDBError::MissingHDiff(slot))?
             .map_err(Into::into)
     }
 
-    fn load_hdiff_buffer_for_epoch(&self, epoch: Epoch) -> Result<HDiffBuffer, Error> {
-        if let Some(buffer) = self.diff_buffer_cache.lock().get(&epoch) {
+    /// Returns `HDiffBuffer` for the specified slot, or `HDiffBuffer` for the `ReplayFrom` slot if
+    /// the diff for the specified slot is not stored.
+    fn load_hdiff_buffer_for_slot(&self, slot: Slot) -> Result<(Slot, HDiffBuffer), Error> {
+        if let Some(buffer) = self.diff_buffer_cache.lock().get(&slot) {
             debug!(
                 self.log,
                 "Hit diff buffer cache";
-                "epoch" => epoch
+                "slot" => slot
             );
-            return Ok(buffer.clone());
+            return Ok((slot, buffer.clone()));
         }
 
         // Load buffer for the previous state.
         // This amount of recursion (<10 levels) should be OK.
         let t = std::time::Instant::now();
-        let mut buffer = match self.hierarchy.storage_strategy(epoch)? {
+        let (_buffer_slot, mut buffer) = match self.hierarchy.storage_strategy(slot)? {
             // Base case.
             StorageStrategy::Snapshot => {
                 let state = self
-                    .load_cold_state_as_snapshot(epoch)?
-                    .ok_or(Error::MissingSnapshot(epoch))?;
-                return Ok(HDiffBuffer::from_state(state));
+                    .load_cold_state_as_snapshot(slot)?
+                    .ok_or(Error::MissingSnapshot(slot))?;
+                let buffer = HDiffBuffer::from_state(state);
+
+                self.diff_buffer_cache.lock().put(slot, buffer.clone());
+                debug!(
+                    self.log,
+                    "Added diff buffer to cache";
+                    "load_time_ms" => t.elapsed().as_millis(),
+                    "slot" => slot
+                );
+
+                return Ok((slot, buffer));
             }
             // Recursive case.
-            StorageStrategy::DiffFrom(from) => self.load_hdiff_buffer_for_epoch(from)?,
-            StorageStrategy::Nothing => unreachable!("FIXME(sproul)"),
+            StorageStrategy::DiffFrom(from) => self.load_hdiff_buffer_for_slot(from)?,
+            StorageStrategy::ReplayFrom(from) => return self.load_hdiff_buffer_for_slot(from),
         };
 
         // Load diff and apply it to buffer.
-        let diff = self.load_hdiff_for_epoch(epoch)?;
+        let diff = self.load_hdiff_for_slot(slot)?;
         diff.apply(&mut buffer)?;
 
-        self.diff_buffer_cache.lock().put(epoch, buffer.clone());
+        self.diff_buffer_cache.lock().put(slot, buffer.clone());
         debug!(
             self.log,
             "Added diff buffer to cache";
             "load_time_ms" => t.elapsed().as_millis(),
-            "epoch" => epoch
+            "slot" => slot
         );
 
-        Ok(buffer)
+        Ok((slot, buffer))
     }
 
     /// Load cold blocks between `start_slot` and `end_slot` inclusive.
@@ -1741,14 +1743,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Initialise the anchor info for checkpoint sync starting from `block`.
     pub fn init_anchor_info(&self, block: BeaconBlockRef<'_, E>) -> Result<KeyValueStoreOp, Error> {
         let anchor_slot = block.slot();
-        let anchor_epoch = anchor_slot.epoch(E::slots_per_epoch());
 
         // Set the `state_upper_limit` to the slot of the *next* checkpoint.
         // See `get_state_upper_limit` for rationale.
-        let next_snapshot_slot = self
-            .hierarchy
-            .next_snapshot_epoch(anchor_epoch)?
-            .start_slot(E::slots_per_epoch());
+        let next_snapshot_slot = self.hierarchy.next_snapshot_slot(anchor_slot)?;
         let anchor_info = AnchorInfo {
             anchor_slot,
             oldest_block_slot: anchor_slot,
@@ -2219,15 +2217,19 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
         let mut cold_db_ops: Vec<KeyValueStoreOp> = Vec::new();
 
-        if slot % E::slots_per_epoch() == 0 {
+        // Only store the cold state if it's on a diff boundary
+        if matches!(
+            store.hierarchy.storage_strategy(slot)?,
+            StorageStrategy::ReplayFrom(..)
+        ) {
+            // Store slot -> state_root and state_root -> slot mappings.
+            store.store_cold_state_summary(&state_root, slot, &mut cold_db_ops)?;
+        } else {
             let state: BeaconState<E> = store
                 .get_hot_state(&state_root)?
                 .ok_or(HotColdDBError::MissingStateToFreeze(state_root))?;
 
             store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
-        } else {
-            // Store slot -> state_root and state_root -> slot mappings.
-            store.store_cold_state_summary(&state_root, slot, &mut cold_db_ops)?;
         }
 
         // There are data dependencies between calls to `store_cold_state()` that prevent us from

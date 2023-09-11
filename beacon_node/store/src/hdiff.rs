@@ -5,21 +5,21 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::io::{Read, Write};
-use types::{BeaconState, ChainSpec, Epoch, EthSpec, VList};
+use types::{BeaconState, ChainSpec, EthSpec, Slot, VList};
 use zstd::{Decoder, Encoder};
 
 #[derive(Debug)]
 pub enum Error {
     InvalidHierarchy,
-    XorDeletionsNotSupported,
+    U64DiffDeletionsNotSupported,
     UnableToComputeDiff,
     UnableToApplyDiff,
     Compression(std::io::Error),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct HierarchyConfig {
-    exponents: Vec<u8>,
+    pub exponents: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -29,8 +29,8 @@ pub struct HierarchyModuli {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum StorageStrategy {
-    Nothing,
-    DiffFrom(Epoch),
+    ReplayFrom(Slot),
+    DiffFrom(Slot),
     Snapshot,
 }
 
@@ -45,7 +45,7 @@ pub struct HDiffBuffer {
 #[derive(Debug, Encode, Decode)]
 pub struct HDiff {
     state_diff: BytesDiff,
-    balances_diff: XorDiff,
+    balances_diff: CompressedU64Diff,
 }
 
 #[derive(Debug, Encode, Decode)]
@@ -54,7 +54,7 @@ pub struct BytesDiff {
 }
 
 #[derive(Debug, Encode, Decode)]
-pub struct XorDiff {
+pub struct CompressedU64Diff {
     bytes: Vec<u8>,
 }
 
@@ -78,7 +78,7 @@ impl HDiffBuffer {
 impl HDiff {
     pub fn compute(source: &HDiffBuffer, target: &HDiffBuffer) -> Result<Self, Error> {
         let state_diff = BytesDiff::compute(&source.state, &target.state)?;
-        let balances_diff = XorDiff::compute(&source.balances, &target.balances)?;
+        let balances_diff = CompressedU64Diff::compute(&source.balances, &target.balances)?;
 
         Ok(Self {
             state_diff,
@@ -138,10 +138,10 @@ impl BytesDiff {
     }
 }
 
-impl XorDiff {
+impl CompressedU64Diff {
     pub fn compute(xs: &[u64], ys: &[u64]) -> Result<Self, Error> {
         if xs.len() > ys.len() {
-            return Err(Error::XorDeletionsNotSupported);
+            return Err(Error::U64DiffDeletionsNotSupported);
         }
 
         let uncompressed_bytes: Vec<u8> = ys
@@ -164,7 +164,7 @@ impl XorDiff {
             .map_err(Error::Compression)?;
         encoder.finish().map_err(Error::Compression)?;
 
-        Ok(XorDiff {
+        Ok(CompressedU64Diff {
             bytes: compressed_bytes,
         })
     }
@@ -198,7 +198,7 @@ impl XorDiff {
 impl Default for HierarchyConfig {
     fn default() -> Self {
         HierarchyConfig {
-            exponents: vec![0, 4, 6, 8, 11, 13, 16],
+            exponents: vec![5, 9, 11, 13, 16, 18, 21],
         }
     }
 }
@@ -226,30 +226,45 @@ impl HierarchyConfig {
 }
 
 impl HierarchyModuli {
-    pub fn storage_strategy(&self, epoch: Epoch) -> Result<StorageStrategy, Error> {
+    pub fn storage_strategy(&self, slot: Slot) -> Result<StorageStrategy, Error> {
         let last = self.moduli.last().copied().ok_or(Error::InvalidHierarchy)?;
+        let first = self
+            .moduli
+            .first()
+            .copied()
+            .ok_or(Error::InvalidHierarchy)?;
+        let replay_from = slot / first * first;
 
-        if epoch % last == 0 {
+        if slot % last == 0 {
             return Ok(StorageStrategy::Snapshot);
         }
 
-        let diff_from = self.moduli.iter().rev().find_map(|&n| {
-            (epoch % n == 0).then(|| {
-                // Diff from the previous state.
-                (epoch - 1) / n * n
-            })
-        });
-        Ok(diff_from.map_or(StorageStrategy::Nothing, StorageStrategy::DiffFrom))
+        let diff_from = self
+            .moduli
+            .iter()
+            .rev()
+            .tuple_windows()
+            .find_map(|(&n_big, &n_small)| {
+                (slot % n_small == 0).then(|| {
+                    // Diff from the previous layer.
+                    slot / n_big * n_big
+                })
+            });
+
+        Ok(diff_from.map_or(
+            StorageStrategy::ReplayFrom(replay_from),
+            StorageStrategy::DiffFrom,
+        ))
     }
 
-    /// Return the smallest epoch greater than or equal to `epoch` at which a full snapshot should
+    /// Return the smallest slot greater than or equal to `slot` at which a full snapshot should
     /// be stored.
-    pub fn next_snapshot_epoch(&self, epoch: Epoch) -> Result<Epoch, Error> {
+    pub fn next_snapshot_slot(&self, slot: Slot) -> Result<Slot, Error> {
         let last = self.moduli.last().copied().ok_or(Error::InvalidHierarchy)?;
-        if epoch % last == 0 {
-            Ok(epoch)
+        if slot % last == 0 {
+            Ok(slot)
         } else {
-            Ok((epoch / last + 1) * last)
+            Ok((slot / last + 1) * last)
         }
     }
 }
@@ -265,10 +280,10 @@ mod tests {
 
         let moduli = config.to_moduli().unwrap();
 
-        // Full snapshots at multiples of 2^16.
-        let snapshot_freq = Epoch::new(1 << 16);
+        // Full snapshots at multiples of 2^21.
+        let snapshot_freq = Slot::new(1 << 21);
         assert_eq!(
-            moduli.storage_strategy(Epoch::new(0)).unwrap(),
+            moduli.storage_strategy(Slot::new(0)).unwrap(),
             StorageStrategy::Snapshot
         );
         assert_eq!(
@@ -280,46 +295,52 @@ mod tests {
             StorageStrategy::Snapshot
         );
 
-        // For the first layer of diffs
-        let first_layer = Epoch::new(1 << 13);
+        // Diffs should be from the previous layer (the snapshot in this case), and not the previous diff in the same layer.
+        let first_layer = Slot::new(1 << 18);
         assert_eq!(
             moduli.storage_strategy(first_layer * 2).unwrap(),
-            StorageStrategy::DiffFrom(first_layer)
+            StorageStrategy::DiffFrom(Slot::new(0))
+        );
+
+        let replay_strategy_slot = first_layer + 1;
+        assert_eq!(
+            moduli.storage_strategy(replay_strategy_slot).unwrap(),
+            StorageStrategy::ReplayFrom(first_layer)
         );
     }
 
     #[test]
-    fn next_snapshot_epoch() {
+    fn next_snapshot_slot() {
         let config = HierarchyConfig::default();
         config.validate().unwrap();
 
         let moduli = config.to_moduli().unwrap();
-        let snapshot_freq = Epoch::new(1 << 16);
+        let snapshot_freq = Slot::new(1 << 21);
 
         assert_eq!(
-            moduli.next_snapshot_epoch(snapshot_freq).unwrap(),
+            moduli.next_snapshot_slot(snapshot_freq).unwrap(),
             snapshot_freq
         );
         assert_eq!(
-            moduli.next_snapshot_epoch(snapshot_freq + 1).unwrap(),
+            moduli.next_snapshot_slot(snapshot_freq + 1).unwrap(),
             snapshot_freq * 2
         );
         assert_eq!(
-            moduli.next_snapshot_epoch(snapshot_freq * 2 - 1).unwrap(),
+            moduli.next_snapshot_slot(snapshot_freq * 2 - 1).unwrap(),
             snapshot_freq * 2
         );
         assert_eq!(
-            moduli.next_snapshot_epoch(snapshot_freq * 2).unwrap(),
+            moduli.next_snapshot_slot(snapshot_freq * 2).unwrap(),
             snapshot_freq * 2
         );
         assert_eq!(
-            moduli.next_snapshot_epoch(snapshot_freq * 100).unwrap(),
+            moduli.next_snapshot_slot(snapshot_freq * 100).unwrap(),
             snapshot_freq * 100
         );
     }
 
     #[test]
-    fn xor_vs_bytes_diff() {
+    fn compressed_u64_vs_bytes_diff() {
         let x_values = vec![99u64, 55, 123, 6834857, 0, 12];
         let y_values = vec![98u64, 55, 312, 1, 1, 2, 4, 5];
 
@@ -329,12 +350,12 @@ mod tests {
         let x_bytes = to_bytes(&x_values);
         let y_bytes = to_bytes(&y_values);
 
-        let xor_diff = XorDiff::compute(&x_values, &y_values).unwrap();
+        let u64_diff = CompressedU64Diff::compute(&x_values, &y_values).unwrap();
 
-        let mut y_from_xor = x_values;
-        xor_diff.apply(&mut y_from_xor).unwrap();
+        let mut y_from_u64_diff = x_values;
+        u64_diff.apply(&mut y_from_u64_diff).unwrap();
 
-        assert_eq!(y_values, y_from_xor);
+        assert_eq!(y_values, y_from_u64_diff);
 
         let bytes_diff = BytesDiff::compute(&x_bytes, &y_bytes).unwrap();
 
@@ -343,7 +364,7 @@ mod tests {
 
         assert_eq!(y_bytes, y_from_bytes);
 
-        // XOR diff wins by more than a factor of 3
-        assert!(xor_diff.bytes.len() < 3 * bytes_diff.bytes.len());
+        // U64 diff wins by more than a factor of 3
+        assert!(u64_diff.bytes.len() < 3 * bytes_diff.bytes.len());
     }
 }

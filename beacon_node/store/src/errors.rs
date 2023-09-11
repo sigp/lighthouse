@@ -41,7 +41,7 @@ pub enum Error {
     },
     MissingStateRoot(Slot),
     MissingState(Hash256),
-    MissingSnapshot(Epoch),
+    MissingSnapshot(Slot),
     MissingDiff(Epoch),
     NoBaseStateFound(Hash256),
     BlockReplayError(BlockReplayError),
