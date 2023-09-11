@@ -7,7 +7,7 @@ use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use rand::seq::SliceRandom;
-use slog::{crit, debug, o, warn};
+use slog::{crit, debug, o, trace, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -206,6 +206,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         peer_id: &PeerId,
         network: &mut SyncNetworkContext<T>,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         if let Some(batch_ids) = self.peers.remove(peer_id) {
             // fail the batches
             for id in batch_ids {
@@ -251,6 +253,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         request_id: Id,
         beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
             None => {
@@ -317,6 +321,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         // Only process batches if this chain is Syncing, and only one at a time
         if self.state != ChainSyncingState::Syncing || self.current_processing_batch.is_some() {
             return Ok(KeepChain);
@@ -363,6 +369,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         // Only process batches if this chain is Syncing and only process one batch at a time
         if self.state != ChainSyncingState::Syncing || self.current_processing_batch.is_some() {
             return Ok(KeepChain);
@@ -466,6 +474,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         result: &BatchProcessResult,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         // the first two cases are possible if the chain advances while waiting for a processing
         // result
         let batch = match &self.current_processing_batch {
@@ -599,6 +609,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         redownload: bool,
         reason: &str,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         if let Some(epoch) = self.optimistic_start.take() {
             self.attempted_optimistic_starts.insert(epoch);
             // if this batch is inside the current processing range, keep it, otherwise drop
@@ -627,6 +639,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// If a previous batch has been validated and it had been re-processed, penalize the original
     /// peer.
     fn advance_chain(&mut self, network: &mut SyncNetworkContext<T>, validating_epoch: Epoch) {
+        self.report_batch_buffer_state();
+
         // make sure this epoch produces an advancement
         if validating_epoch <= self.start_epoch {
             return;
@@ -733,6 +747,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         // The current batch could not be processed, indicating either the current or previous
         // batches are invalid.
 
@@ -780,6 +796,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     pub fn stop_syncing(&mut self) {
+        self.report_batch_buffer_state();
         self.state = ChainSyncingState::Stopped;
     }
 
@@ -793,6 +810,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         local_finalized_epoch: Epoch,
         optimistic_start_epoch: Epoch,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         // to avoid dropping local progress, we advance the chain wrt its batch boundaries. This
         let align = |epoch| {
             // start_epoch + (number of batches in between)*length_of_batch
@@ -830,6 +849,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         peer_id: PeerId,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         // add the peer without overwriting its active requests
         if self.peers.entry(peer_id).or_default().is_empty() {
             // Either new or not, this peer is idle, try to request more batches
@@ -849,6 +870,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         peer_id: &PeerId,
         request_id: Id,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
@@ -879,6 +902,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         let batch = match self.batches.get_mut(&batch_id) {
             Some(batch) => batch,
             None => return Ok(KeepChain),
@@ -913,6 +938,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         peer: PeerId,
     ) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let request = batch.to_blocks_by_range_request();
             match network.blocks_by_range_request(peer, request, self.id, batch_id) {
@@ -984,6 +1011,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
     ) -> Result<KeepChain, RemoveChain> {
+        self.report_batch_buffer_state();
+
         // Request more batches if needed.
         self.request_batches(network)?;
         // If there is any batch ready for processing, send it.
@@ -993,6 +1022,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
     /// pool and left over batches until the batch buffer is reached or all peers are exhausted.
     fn request_batches(&mut self, network: &mut SyncNetworkContext<T>) -> ProcessingResult {
+        self.report_batch_buffer_state();
+
         if !matches!(self.state, ChainSyncingState::Syncing) {
             return Ok(KeepChain);
         }
@@ -1043,6 +1074,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Creates the next required batch from the chain. If there are no more batches required,
     /// `false` is returned.
     fn include_next_batch(&mut self) -> Option<BatchId> {
+        self.report_batch_buffer_state();
+
         // don't request batches beyond the target head slot
         if self
             .to_be_downloaded
@@ -1070,6 +1103,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 self.to_be_downloaded += EPOCHS_PER_BATCH;
                 Some(batch_id)
             }
+        }
+    }
+
+    fn report_batch_buffer_state(&self) {
+        trace!(self.log, "Report batch buffer state"; "length" => self.num_buffered_batches(), "limit" => BATCH_BUFFER_SIZE);
+
+        if self.batch_buffer_overfull() {
+            debug!(self.log, "Batch buffer overfull"; "length" => self.num_buffered_batches(), "limit" => BATCH_BUFFER_SIZE);
         }
     }
 }
