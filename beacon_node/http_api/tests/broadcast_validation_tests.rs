@@ -912,19 +912,19 @@ pub async fn blinded_gossip_full_pass_ssz() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, _), _): ((SignedBlindedBeaconBlock<E>, _), _) =
-        tester.harness.make_blinded_block(state_a, slot_b).await;
+    let (block_contents_tuple, _) = tester.harness.make_blinded_block(state_a, slot_b).await;
+    let block_contents = block_contents_tuple.into();
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blinded_blocks_v2_ssz(&block, validation_level)
+        .post_beacon_blinded_blocks_v2_ssz(&block_contents, validation_level)
         .await;
 
     assert!(response.is_ok());
     assert!(tester
         .harness
         .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+        .block_is_known_to_fork_choice(&block_contents.signed_block().canonical_root()));
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus`.

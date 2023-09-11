@@ -1431,6 +1431,26 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
             BlockContents::Block(block) => (block, None),
         }
     }
+
+    /// Signs `self`, producing a `SignedBlockContents`.
+    pub fn sign(
+        self,
+        secret_key: &SecretKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> SignedBlockContents<T, Payload> {
+        let (block, maybe_blobs) = self.deconstruct();
+        let signed_block = block.sign(secret_key, fork, genesis_validators_root, spec);
+        let signed_blobs = maybe_blobs.map(|blobs| {
+            blobs
+                .into_iter()
+                .map(|blob| blob.sign(secret_key, fork, genesis_validators_root, spec))
+                .collect::<Vec<_>>()
+                .into()
+        });
+        SignedBlockContents::new(signed_block, signed_blobs)
+    }
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize

@@ -2656,13 +2656,10 @@ impl ApiTester {
                 .get_validator_blinded_blocks::<E, Payload>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
-                .data
-                .deconstruct()
-                .0;
+                .data;
 
-            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_contents =
-                SignedBlockContents::<E, Payload>::Block(signed_block.clone());
+                block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
             self.client
                 .post_beacon_blinded_blocks(&signed_block_contents)
@@ -2670,6 +2667,7 @@ impl ApiTester {
                 .unwrap();
 
             // This converts the generic `Payload` to a concrete type for comparison.
+            let signed_block = signed_block_contents.deconstruct().0;
             let head_block = SignedBeaconBlock::from(signed_block.clone());
             assert_eq!(head_block, signed_block);
 
@@ -2715,23 +2713,23 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            let block = self
+            let block_contents = self
                 .client
                 .get_validator_blinded_blocks::<E, Payload>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
-                .data
-                .deconstruct()
-                .0;
+                .data;
 
-            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_contents =
+                block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
             self.client
-                .post_beacon_blinded_blocks_ssz(&signed_block)
+                .post_beacon_blinded_blocks_ssz(&signed_block_contents)
                 .await
                 .unwrap();
 
             // This converts the generic `Payload` to a concrete type for comparison.
+            let signed_block = signed_block_contents.deconstruct().0;
             let head_block = SignedBeaconBlock::from(signed_block.clone());
             assert_eq!(head_block, signed_block);
 

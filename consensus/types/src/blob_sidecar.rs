@@ -1,6 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, SignedRoot, Slot};
-use bls::SecretKey;
+use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
 use derivative::Derivative;
 use kzg::{Kzg, KzgCommitment, KzgPreset, KzgProof};
 use rand::Rng;
@@ -10,7 +9,6 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -170,31 +168,6 @@ impl<T: EthSpec> BlobSidecar<T> {
     pub fn max_size() -> usize {
         // Fixed part
         Self::empty().as_ssz_bytes().len()
-    }
-
-    // this is mostly not used except for in testing
-    pub fn sign(
-        self: Arc<Self>,
-        secret_key: &SecretKey,
-        fork: &Fork,
-        genesis_validators_root: Hash256,
-        spec: &ChainSpec,
-    ) -> SignedBlobSidecar<T> {
-        let signing_epoch = self.slot.epoch(T::slots_per_epoch());
-        let domain = spec.get_domain(
-            signing_epoch,
-            Domain::BlobSidecar,
-            fork,
-            genesis_validators_root,
-        );
-        let message = self.signing_root(domain);
-        let signature = secret_key.sign(message);
-
-        SignedBlobSidecar {
-            message: self,
-            signature,
-            _phantom: PhantomData,
-        }
     }
 }
 
