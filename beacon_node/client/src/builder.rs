@@ -157,6 +157,7 @@ where
         let runtime_context =
             runtime_context.ok_or("beacon_chain_start_method requires a runtime context")?;
         let context = runtime_context.service_context("beacon".into());
+        let log = context.log();
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
             Some(ServerSentEventHandler::new(
@@ -167,7 +168,7 @@ where
             None
         };
 
-        let execution_layer = if let Some(config) = config.execution_layer {
+        let execution_layer = if let Some(config) = config.execution_layer.clone() {
             let context = runtime_context.service_context("exec".into());
             let execution_layer = ExecutionLayer::from_config(
                 config,
@@ -204,12 +205,6 @@ where
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
-        } else {
-            builder
-        };
-
-        let builder = if let Some(trusted_setup) = config.trusted_setup {
-            builder.trusted_setup(trusted_setup)
         } else {
             builder
         };
@@ -258,23 +253,19 @@ where
                 )?;
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
-            ClientGenesis::SszBytes {
-                genesis_state_bytes,
-            } => {
+            ClientGenesis::GenesisState => {
                 info!(
                     context.log(),
                     "Starting from known genesis state";
                 );
 
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
-                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+                let genesis_state = genesis_state(&runtime_context, &config, log)?;
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
             ClientGenesis::WeakSubjSszBytes {
                 anchor_state_bytes,
                 anchor_block_bytes,
-                genesis_state_bytes,
             } => {
                 info!(context.log(), "Starting checkpoint sync");
                 if config.chain.genesis_backfill {
@@ -288,17 +279,13 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
-                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+                let genesis_state = genesis_state(&runtime_context, &config, log)?;
 
                 builder
                     .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
                     .map(|v| (v, None))?
             }
-            ClientGenesis::CheckpointSyncUrl {
-                genesis_state_bytes,
-                url,
-            } => {
+            ClientGenesis::CheckpointSyncUrl { url } => {
                 info!(
                     context.log(),
                     "Starting checkpoint sync";
@@ -393,8 +380,7 @@ where
 
                 debug!(context.log(), "Downloaded finalized block");
 
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
-                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+                let genesis_state = genesis_state(&runtime_context, &config, log)?;
 
                 info!(
                     context.log(),
@@ -523,6 +509,12 @@ where
                     .map(|v| (v, Some(genesis_service.into_core_service())))?
             }
             ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
+        };
+
+        let beacon_chain_builder = if let Some(trusted_setup) = config.trusted_setup {
+            beacon_chain_builder.trusted_setup(trusted_setup)
+        } else {
+            beacon_chain_builder
         };
 
         if config.sync_eth1_chain {
@@ -1104,4 +1096,23 @@ where
         self.slot_clock = Some(slot_clock);
         Ok(self)
     }
+}
+
+/// Obtain the genesis state from the `eth2_network_config` in `context`.
+fn genesis_state<T: EthSpec>(
+    context: &RuntimeContext<T>,
+    config: &ClientConfig,
+    log: &Logger,
+) -> Result<BeaconState<T>, String> {
+    let eth2_network_config = context
+        .eth2_network_config
+        .as_ref()
+        .ok_or("An eth2_network_config is required to obtain the genesis state")?;
+    eth2_network_config
+        .genesis_state::<T>(
+            config.genesis_state_url.as_deref(),
+            config.genesis_state_url_timeout,
+            log,
+        )?
+        .ok_or_else(|| "Genesis state is unknown".to_string())
 }

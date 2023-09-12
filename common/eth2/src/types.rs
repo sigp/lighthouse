@@ -1333,6 +1333,26 @@ pub struct BroadcastValidationQuery {
     pub broadcast_validation: BroadcastValidation,
 }
 
+pub mod serde_status_code {
+    use crate::StatusCode;
+    use serde::{de::Error, Deserialize, Serialize};
+
+    pub fn serialize<S>(status_code: &StatusCode, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        status_code.as_u16().serialize(ser)
+    }
+
+    pub fn deserialize<'de, D>(de: D) -> Result<StatusCode, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        let status_code = u16::deserialize(de)?;
+        StatusCode::try_from(status_code).map_err(D::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1411,6 +1431,26 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
             BlockContents::Block(block) => (block, None),
         }
     }
+
+    /// Signs `self`, producing a `SignedBlockContents`.
+    pub fn sign(
+        self,
+        secret_key: &SecretKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> SignedBlockContents<T, Payload> {
+        let (block, maybe_blobs) = self.deconstruct();
+        let signed_block = block.sign(secret_key, fork, genesis_validators_root, spec);
+        let signed_blobs = maybe_blobs.map(|blobs| {
+            blobs
+                .into_iter()
+                .map(|blob| blob.sign(secret_key, fork, genesis_validators_root, spec))
+                .collect::<Vec<_>>()
+                .into()
+        });
+        SignedBlockContents::new(signed_block, signed_blobs)
+    }
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
@@ -1464,6 +1504,8 @@ pub type SignedBlockContentsTuple<T, Payload> = (
     SignedBeaconBlock<T, Payload>,
     Option<SignedSidecarList<T, <Payload as AbstractExecPayload<T>>::Sidecar>>,
 );
+
+pub type SignedBlindedBlockContents<E> = SignedBlockContents<E, BlindedPayload<E>>;
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobSidecars`].
 #[derive(Clone, Debug, Encode, Serialize, Deserialize)]
@@ -1590,6 +1632,19 @@ impl<T: EthSpec> SignedBlockContents<T, BlindedPayload<T>> {
                     .to_string(),
             ),
         }
+    }
+}
+
+impl<T: EthSpec> SignedBlockContents<T> {
+    pub fn clone_as_blinded(&self) -> SignedBlindedBlockContents<T> {
+        let blinded_blobs = self.blobs_cloned().map(|blob_sidecars| {
+            blob_sidecars
+                .into_iter()
+                .map(|blob| blob.into())
+                .collect::<Vec<_>>()
+                .into()
+        });
+        SignedBlockContents::new(self.signed_block().clone_as_blinded(), blinded_blobs)
     }
 }
 
