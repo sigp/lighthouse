@@ -602,7 +602,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
-    /// Remove topic weight from all topics that doesn't have the given fork_digest.
+    /// Remove topic weight from all topics that don't have the given fork digest.
     pub fn remove_topic_weight_except(&mut self, except: [u8; 4]) {
         let new_param = TopicScoreParams {
             topic_weight: 0.0,
