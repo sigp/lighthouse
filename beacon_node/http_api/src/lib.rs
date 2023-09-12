@@ -4705,6 +4705,14 @@ fn publish_pubsub_message<T: EthSpec>(
     )
 }
 
+/// Publish a message to the libp2p pubsub network.
+fn publish_pubsub_messages<T: EthSpec>(
+    network_tx: &UnboundedSender<NetworkMessage<T>>,
+    messages: Vec<PubsubMessage<T>>,
+) -> Result<(), warp::Rejection> {
+    publish_network_message(network_tx, NetworkMessage::Publish { messages })
+}
+
 /// Publish a message to the libp2p network.
 fn publish_network_message<T: EthSpec>(
     network_tx: &UnboundedSender<NetworkMessage<T>>,
