@@ -25,7 +25,7 @@ impl<Ip: Into<IpAddr> + Clone> ListenAddr<Ip> {
         (self.addr.clone().into(), self.quic_port).into()
     }
 
-    pub fn libp2p_socket_addr(&self) -> SocketAddr {
+    pub fn tcp_socket_addr(&self) -> SocketAddr {
         (self.addr.clone().into(), self.tcp_port).into()
     }
 }

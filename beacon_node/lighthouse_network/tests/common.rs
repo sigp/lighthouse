@@ -13,7 +13,6 @@ use tokio::runtime::Runtime;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Slot,
 };
-use unused_port::{unused_tcp4_port, unused_udp4_port};
 
 type E = MinimalEthSpec;
 type ReqId = usize;
@@ -71,31 +70,16 @@ pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
 pub fn build_config(mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     let mut config = NetworkConfig::default();
 
-    // Find unused ports
-    let tcp_port = unused_tcp4_port().unwrap();
-    let disc_port = unused_udp4_port().unwrap();
-    let quic_port = unused_udp4_port().unwrap();
+    // Find unused ports by using the 0 port.
+    let port = 0;
 
+    let random_path: u16 = rand::random();
     let path = TempBuilder::new()
-        .prefix(&format!(
-            "libp2p_test{}_{}_{}",
-            tcp_port, disc_port, quic_port
-        ))
+        .prefix(&format!("libp2p_test_{}", random_path))
         .tempdir()
         .unwrap();
 
-    config.set_ipv4_listening_address(
-        std::net::Ipv4Addr::UNSPECIFIED,
-        tcp_port,
-        disc_port,
-        quic_port,
-    );
-    config.enr_udp4_port = if disc_port == 0 {
-        None
-    } else {
-        Some(disc_port)
-    };
-    config.enr_quic4_port = Some(quic_port);
+    config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, port, port, port);
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();

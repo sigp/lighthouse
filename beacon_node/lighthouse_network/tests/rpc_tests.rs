@@ -877,7 +877,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     })
 }
 
-/// Established a pair of nodes and disconnects the pair based on the selected protocol via an RPC
+/// Establishes a pair of nodes and disconnects the pair based on the selected protocol via an RPC
 /// Goodbye message.
 fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
     let log = common::build_log(log_level, enable_logging);
