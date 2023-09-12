@@ -4,6 +4,7 @@ mod tests {
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
+    use beacon_chain::BeaconChainTypes;
     use beacon_processor::{BeaconProcessorChannels, BeaconProcessorConfig};
     use futures::StreamExt;
     use lighthouse_network::types::{GossipEncoding, GossipKind};
@@ -14,6 +15,15 @@ mod tests {
     use std::sync::Arc;
     use tokio::runtime::Runtime;
     use types::{Epoch, EthSpec, ForkName, MinimalEthSpec, SubnetId};
+
+    impl<T: BeaconChainTypes> NetworkService<T> {
+        fn get_topic_params(
+            &self,
+            topic: GossipTopic,
+        ) -> Option<&lighthouse_network::libp2p::gossipsub::TopicScoreParams> {
+            self.libp2p.get_topic_params(topic)
+        }
+    }
 
     fn get_logger(actual_log: bool) -> Logger {
         if actual_log {
