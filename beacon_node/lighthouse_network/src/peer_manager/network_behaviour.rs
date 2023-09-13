@@ -213,6 +213,34 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             metrics::check_nat();
         }
 
+        // increment prometheus metrics
+        if self.metrics_enabled {
+            let remote_addr = match endpoint {
+                ConnectedPoint::Dialer { address, .. } => address,
+                ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
+            };
+            match remote_addr.iter().find(|proto| {
+                matches!(
+                    proto,
+                    multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
+                )
+            }) {
+                Some(multiaddr::Protocol::QuicV1) => {
+                    metrics::inc_gauge(&metrics::QUIC_PEERS_CONNECTED);
+                }
+                Some(multiaddr::Protocol::Tcp(_)) => {
+                    metrics::inc_gauge(&metrics::TCP_PEERS_CONNECTED);
+                }
+                Some(_) => unreachable!(),
+                None => {
+                    error!(self.log, "Connection established via unknown transport"; "addr" => %remote_addr)
+                }
+            };
+
+            self.update_connected_peer_metrics();
+            metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+        }
+
         // Check to make sure the peer is not supposed to be banned
         match self.ban_status(&peer_id) {
             // TODO: directly emit the ban event?
@@ -253,42 +281,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // NOTE: We don't register peers that we are disconnecting immediately. The network service
         // does not need to know about these peers.
-        let remote_addr = match endpoint {
+        match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
                 self.inject_connect_ingoing(&peer_id, send_back_addr.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedIncoming(peer_id));
-                send_back_addr
             }
             ConnectedPoint::Dialer { address, .. } => {
                 self.inject_connect_outgoing(&peer_id, address.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedOutgoing(peer_id));
-                address
             }
         };
-
-        // increment prometheus metrics
-        if self.metrics_enabled {
-            match remote_addr.iter().find(|proto| {
-                matches!(
-                    proto,
-                    multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
-                )
-            }) {
-                Some(multiaddr::Protocol::QuicV1) => {
-                    metrics::inc_gauge(&metrics::QUIC_PEERS_CONNECTED);
-                }
-                Some(multiaddr::Protocol::Tcp(_)) => {
-                    metrics::inc_gauge(&metrics::TCP_PEERS_CONNECTED);
-                }
-                Some(_) => unreachable!(),
-                None => error!(self.log, "Connected via unknown transport"; "addr" => %remote_addr),
-            };
-
-            self.update_connected_peer_metrics();
-            metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        }
     }
 
     fn on_connection_closed(
