@@ -51,9 +51,8 @@ jobs:
         runs-on: ubuntu-22.04
         strategy:
             matrix:
-                binary: [aarch64,
-                         aarch64-portable,
-                         x86_64,
+                # FIXME(sproul) re-enable ARM builds
+                binary: [x86_64,
                          x86_64-portable]
                 features: [
                     {version_suffix: "", env: "gnosis,slasher-lmdb,slasher-mdbx,jemalloc"},
@@ -127,9 +126,10 @@ jobs:
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
             - name: Create and push multiarch manifest
+              # FIXME(sproul): Fix ARM builds and put this back
+              # --amend ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX}${{ matrix.modernity }} \
               run: |
                   docker manifest create ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}${{ matrix.modernity }} \
-                      --amend ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX}${{ matrix.modernity }} \
                       --amend ${IMAGE_NAME}:${VERSION}-amd64${VERSION_SUFFIX}${{ matrix.modernity }};
                   docker manifest push ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}${{ matrix.modernity }}
     build-docker-lcli:
