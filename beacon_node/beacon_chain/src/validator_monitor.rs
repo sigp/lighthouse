@@ -451,6 +451,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             }
         }
 
+        // Prune missed blocks that are prior to last finalized epoch
+        let finalized_epoch = state.finalized_checkpoint().epoch;
+        self.missed_blocks.retain(|(epoch, _, _)| *epoch >= finalized_epoch);
+
         // Update metrics for individual validators.
         for monitored_validator in self.validators.values() {
             if let Some(i) = monitored_validator.index {
