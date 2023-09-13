@@ -6,7 +6,7 @@ use ssz_derive::{Decode, Encode};
 use std::io::Write;
 use zstd::Encoder;
 
-pub const DEFAULT_EPOCHS_PER_STATE_DIFF: u64 = 4;
+pub const DEFAULT_EPOCHS_PER_STATE_DIFF: u64 = 16;
 pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 64;
 pub const DEFAULT_STATE_CACHE_SIZE: usize = 128;
 pub const DEFAULT_COMPRESSION_LEVEL: i32 = 1;
