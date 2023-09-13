@@ -144,9 +144,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Attempts to connect to the EL and confirm that it is ready for the merge.
-    pub async fn check_merge_readiness(&self) -> MergeReadiness {
+    pub async fn check_merge_readiness(&self, current_slot: Slot) -> MergeReadiness {
         if let Some(el) = self.execution_layer.as_ref() {
-            if !el.is_synced_for_notifier().await {
+            if !el.is_synced_for_notifier(current_slot).await {
                 // The EL is not synced.
                 return MergeReadiness::NotSynced;
             }

@@ -62,6 +62,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "wait_time" => estimated_time_pretty(Some(next_slot.as_secs() as f64)),
                     );
                     eth1_logging(&beacon_chain, &log);
+                    merge_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
+                    capella_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
                     sleep(slot_duration).await;
                 }
                 _ => break,
@@ -365,7 +367,7 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
         return;
     }
 
-    match beacon_chain.check_merge_readiness().await {
+    match beacon_chain.check_merge_readiness(current_slot).await {
         MergeReadiness::Ready {
             config,
             current_difficulty,

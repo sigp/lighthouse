@@ -509,9 +509,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
     ///
     /// This function is a wrapper over `Self::is_synced` that makes an additional
     /// check for the execution layer sync status. Checks if the latest block has
-    /// a `block_number != 0`.
+    /// a `block_number != 0` *if* the `current_slot` is also `> 0`.
     /// Returns the `Self::is_synced` response if unable to get latest block.
-    pub async fn is_synced_for_notifier(&self) -> bool {
+    pub async fn is_synced_for_notifier(&self, current_slot: Slot) -> bool {
         let synced = self.is_synced().await;
         if synced {
             if let Ok(Some(block)) = self
@@ -520,7 +520,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
                 .await
             {
-                if block.block_number == 0 {
+                if block.block_number == 0 && current_slot > 0 {
                     return false;
                 }
             }
