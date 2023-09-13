@@ -3896,7 +3896,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             cached_head
                 .snapshot
                 .beacon_state
-                .proposer_shuffling_decision_root(proposer_head)?
+                .proposer_shuffling_decision_root(head_epoch, proposer_head)?
         } else {
             proposer_head
         };

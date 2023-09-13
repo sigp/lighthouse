@@ -827,9 +827,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // These fields are used for server-sent events.
         let state_root = new_snapshot.beacon_state_root();
         let head_slot = new_snapshot.beacon_state.slot();
+        let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
         let dependent_root = new_snapshot
             .beacon_state
-            .proposer_shuffling_decision_root(self.genesis_block_root);
+            .proposer_shuffling_decision_root(head_epoch, self.genesis_block_root);
         let prev_dependent_root = new_snapshot
             .beacon_state
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
