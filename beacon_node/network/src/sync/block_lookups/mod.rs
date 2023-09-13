@@ -230,38 +230,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         );
     }
 
-    /// Trigger any lookups that are waiting for the given `block_root`.
-    pub fn trigger_lookup_by_root(&mut self, block_root: Hash256, cx: &SyncNetworkContext<T>) {
-        self.single_block_lookups.retain(|_id, lookup| {
-            if lookup.block_root() == block_root {
-                if lookup.da_checker.is_deneb() {
-                    let blob_indices = lookup.blob_request_state.requested_ids.indices();
-                    debug!(
-                        self.log,
-                        "Triggering delayed single lookup";
-                        "block" => ?block_root,
-                        "blob_indices" => ?blob_indices
-                    );
-                } else {
-                    debug!(
-                        self.log,
-                        "Triggering delayed single lookup";
-                        "block" => ?block_root,
-                    );
-                }
-
-                if let Err(e) = lookup.request_block_and_blobs(cx) {
-                    debug!(self.log, "Delayed single block lookup failed";
-                        "error" => ?e,
-                        "block_root" => ?block_root,
-                    );
-                    return false;
-                }
-            }
-            true
-        });
-    }
-
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
     /// constructed.
     pub fn new_current_lookup(

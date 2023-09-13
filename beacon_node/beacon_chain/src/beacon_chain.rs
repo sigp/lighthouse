@@ -2791,13 +2791,52 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
     }
 
-    pub async fn process_blob(
+    pub async fn process_gossip_blob(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        self.check_gossip_blob_availability_and_import(blob).await
+        todo!()
+        // self.data_availability_checker.notify_blob();
+        // self.check_gossip_blob_availability_and_import(blob)
+        //     .await
+        //     .map_err(|e| {
+        //         self.data_availability_checker.remove_notified_blob();
+        //         e
+        //     })
     }
 
+    pub async fn process_rpc_blobs(
+        self: &Arc<Self>,
+        slot: Slot,
+        block_root: Hash256,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        todo!();
+        // self.data_availability_checker.notify_blob();
+        // self.check_rpc_blob_availability_and_import(slot, block_root, blobs)
+        //     .await
+        //     .map_err(|e| {
+        //         self.data_availability_checker.remove_notified_blob(block_root);
+        //         e
+        //     })
+    }
+
+    pub async fn process_block_with_early_caching<B: IntoExecutionPendingBlock<T>>(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        unverified_block: B,
+        notify_execution_layer: NotifyExecutionLayer,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        todo!();
+
+        // self.data_availability_checker.notify_block();
+        // self.process_block(block_root, unverified_block, notify_execution_layer)
+        //     .await
+        //     .map_err(|e| {
+        //         self.data_availability_checker.remove_notified_block();
+        //         e
+        //     })
+    }
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
     /// imported into the chain.
     ///
@@ -2961,7 +3000,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Checks if the block is available, and imports immediately if so, otherwise caches the block
     /// in the data availability checker.
-    pub async fn check_block_availability_and_import(
+    async fn check_block_availability_and_import(
         self: &Arc<Self>,
         block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
@@ -2974,7 +3013,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Checks if the provided blob can make any cached blocks available, and imports immediately
     /// if so, otherwise caches the blob in the data availability checker.
-    pub async fn check_gossip_blob_availability_and_import(
+    async fn check_gossip_blob_availability_and_import(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
@@ -2986,7 +3025,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Checks if the provided blobs can make any cached blocks available, and imports immediately
     /// if so, otherwise caches the blob in the data availability checker.
-    pub async fn check_rpc_blob_availability_and_import(
+    async fn check_rpc_blob_availability_and_import(
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,

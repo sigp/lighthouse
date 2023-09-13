@@ -1,18 +1,12 @@
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use slog::crit;
+use slog::{crit, error, trace};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::interval_at;
 use tokio::time::Instant;
 use types::Hash256;
-
-#[derive(Debug)]
-pub enum DelayedLookupMessage {
-    /// A lookup for all components of a block or blob seen over gossip.
-    MissingComponents(Hash256),
-}
 
 /// This service is responsible for collecting lookup messages and sending them back to sync
 /// for processing after a short delay.
@@ -34,7 +28,6 @@ pub enum DelayedLookupMessage {
 pub fn spawn_delayed_lookup_service<T: BeaconChainTypes>(
     executor: &task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    mut delayed_lookups_recv: mpsc::Receiver<DelayedLookupMessage>,
     beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     log: slog::Logger,
 ) {
@@ -66,15 +59,13 @@ pub fn spawn_delayed_lookup_service<T: BeaconChainTypes>(
             let mut interval = interval_at(interval_start, slot_duration);
             loop {
                 interval.tick().await;
-                while let Ok(msg) = delayed_lookups_recv.try_recv() {
-                    match msg {
-                        DelayedLookupMessage::MissingComponents(block_root) => {
-                            beacon_processor
-                                .send_delayed_lookup(block_root)
-                        }
-                    }
+                let Some(slot) =   beacon_chain.slot_clock.now_or_genesis() else {
+                    error!(log, "Skipping delayed lookup poll, unable to read slot clock");
+                    continue
+                };
+                trace!(log, "Polling delayed lookups for slot: {slot}");
+                    beacon_processor.poll_delayed_lookups(slot)
                 }
-            }
         },
         "delayed_lookups",
     );

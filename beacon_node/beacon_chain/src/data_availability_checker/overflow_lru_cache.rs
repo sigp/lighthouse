@@ -32,6 +32,7 @@ use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::{
     AsBlock, AvailabilityPendingExecutedBlock, AvailableExecutedBlock,
 };
+use crate::data_availability_checker::processing_cache::ProcessingCache;
 use crate::data_availability_checker::{make_available, Availability, AvailabilityCheckError};
 use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
@@ -40,11 +41,12 @@ use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
+use std::collections::HashMap;
 use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
-use types::{BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
-type MissingBlobInfo<T> = (Option<Arc<SignedBeaconBlock<T>>>, HashSet<usize>);
+pub(crate) type MissingBlobInfo<T> = (Option<Arc<SignedBeaconBlock<T>>>, HashSet<usize>);
 
 /// This represents the components of a partially available block
 ///
@@ -291,6 +293,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
 /// This data stores the *critical* data that we need to keep in memory
 /// protected by the RWLock
 struct Critical<T: BeaconChainTypes> {
+    pub processing_cache: ProcessingCache<T::EthSpec>,
     /// This is the LRU cache of pending components
     pub in_memory: LruCache<Hash256, PendingComponents<T::EthSpec>>,
     /// This holds all the roots of the blocks for which we have
@@ -301,6 +304,7 @@ struct Critical<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> Critical<T> {
     pub fn new(capacity: usize) -> Self {
         Self {
+            processing_cache: <_>::default(),
             in_memory: LruCache::new(capacity),
             store_keys: HashSet::new(),
         }
@@ -347,6 +351,7 @@ impl<T: BeaconChainTypes> Critical<T> {
                 self.store_keys.insert(lru_key);
             }
         }
+        self.processing_cache.remove_processing(block_root);
         self.in_memory.put(block_root, pending_components);
         Ok(())
     }
@@ -407,7 +412,9 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     /// Returns whether or not a block is in the cache (in memory or on disk)
     pub fn has_block(&self, block_root: &Hash256) -> bool {
         let read_lock = self.critical.read();
-        if read_lock
+        if read_lock.processing_cache.has_block(block_root) {
+            true
+        } else if read_lock
             .in_memory
             .peek(block_root)
             .map_or(false, |cache| cache.executed_block.is_some())
@@ -427,17 +434,29 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     /// Fetch the missing blob info for a block without affecting the LRU ordering
     pub fn get_missing_blob_info(&self, block_root: Hash256) -> MissingBlobInfo<T::EthSpec> {
         let read_lock = self.critical.read();
-        if let Some(cache) = read_lock.in_memory.peek(&block_root) {
-            cache.get_missing_blob_info()
-        } else if read_lock.store_keys.contains(&block_root) {
-            drop(read_lock);
-            // return default if there's an error reading from the store
-            match self.overflow_store.load_pending_components(block_root) {
-                Ok(Some(pending_components)) => pending_components.get_missing_blob_info(),
-                _ => Default::default(),
+
+        match (
+            read_lock.in_memory.peek(&block_root),
+            read_lock.processing_cache.peek(&block_root),
+        ) {
+            (Some(in_memory), Some(processing)) => {
+                //TODO: merge the two views
+                todo!()
             }
-        } else {
-            Default::default()
+            (Some(in_memory), None) => in_memory.get_missing_blob_info(),
+            (None, Some(processing)) => processing.get_missing_blob_info(),
+            (None, None) => {
+                if read_lock.store_keys.contains(&block_root) {
+                    drop(read_lock);
+                    // return default if there's an error reading from the store
+                    match self.overflow_store.load_pending_components(block_root) {
+                        Ok(Some(pending_components)) => pending_components.get_missing_blob_info(),
+                        _ => Default::default(),
+                    }
+                } else {
+                    Default::default()
+                }
+            }
         }
     }
 
@@ -481,6 +500,9 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 if let Some(maybe_verified_blob) =
                     pending_components.verified_blobs.get_mut(blob_index)
                 {
+                    //TODO: it's possible we get multiple blobs for the same block root + index
+                    // if we don't yet have the block we don't know which is valid so we need to
+                    // cache both
                     *maybe_verified_blob = Some(kzg_verified_blob.clone())
                 } else {
                     return Err(AvailabilityCheckError::BlobIndexInvalid(blob_index as u64));
@@ -575,6 +597,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         mut pending_components: PendingComponents<T::EthSpec>,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let block_root = executed_block.import_data.block_root;
         if pending_components.has_all_blobs(&executed_block) {
             let num_blobs_expected = executed_block.num_blobs_expected();
             let AvailabilityPendingExecutedBlock {
@@ -592,6 +615,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             };
 
             let available_block = make_available(block, verified_blobs)?;
+            write_lock.processing_cache.put_processed(block_root);
             Ok(Availability::Available(Box::new(
                 AvailableExecutedBlock::new(
                     available_block,
@@ -600,7 +624,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 ),
             )))
         } else {
-            let block_root = executed_block.import_data.block_root;
             let _ = pending_components.executed_block.insert(executed_block);
             write_lock.put_pending_components(
                 block_root,
@@ -638,6 +661,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         self.maintain_threshold(threshold, cutoff_epoch)?;
         // clean up any keys on the disk that shouldn't be there
         self.prune_disk(cutoff_epoch)?;
+        //TODO: fix
+        self.critical.write().processing_cache.prune(Slot::new(0));
         Ok(())
     }
 

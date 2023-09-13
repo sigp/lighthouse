@@ -43,7 +43,6 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::common::{Current, Parent};
 use crate::sync::block_lookups::delayed_lookup;
-use crate::sync::block_lookups::delayed_lookup::DelayedLookupMessage;
 use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, CachedChildComponents};
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::block_verification_types::AsBlock;
@@ -76,9 +75,6 @@ use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// gossip if no peers are further than this range ahead of us that we have not already downloaded
 /// blocks for.
 pub const SLOT_IMPORT_TOLERANCE: usize = 32;
-/// The maximum number of messages the delay queue can handle in a single slot before messages are
-/// dropped.
-pub const DELAY_QUEUE_CHANNEL_SIZE: usize = 128;
 
 pub type Id = u32;
 
@@ -148,10 +144,7 @@ pub enum SyncMessage<T: EthSpec> {
     ///
     /// We will either attempt to find the block matching the unknown hash immediately or queue a lookup,
     /// which will then trigger the request when we receive `MissingGossipBlockComponentsDelayed`.
-    MissingGossipBlockComponents(Slot, PeerId, Hash256),
-
-    /// This message triggers a request for missing block components after a delay.
-    MissingGossipBlockComponentsDelayed(Hash256),
+    MissingGossipBlockComponents(PeerId, Hash256),
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -228,8 +221,6 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     block_lookups: BlockLookups<T>,
 
-    delayed_lookups: mpsc::Sender<DelayedLookupMessage>,
-
     /// The logger for the import manager.
     log: Logger,
 }
@@ -249,8 +240,6 @@ pub fn spawn<T: BeaconChainTypes>(
         MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
-    let (delayed_lookups_send, delayed_lookups_recv) =
-        mpsc::channel::<DelayedLookupMessage>(DELAY_QUEUE_CHANNEL_SIZE);
 
     // create an instance of the SyncManager
     let network_globals = beacon_processor.network_globals.clone();
@@ -269,18 +258,11 @@ pub fn spawn<T: BeaconChainTypes>(
             beacon_chain.data_availability_checker.clone(),
             log.clone(),
         ),
-        delayed_lookups: delayed_lookups_send,
         log: log.clone(),
     };
 
     let log_clone = log.clone();
-    delayed_lookup::spawn_delayed_lookup_service(
-        &executor,
-        beacon_chain,
-        delayed_lookups_recv,
-        beacon_processor,
-        log,
-    );
+    delayed_lookup::spawn_delayed_lookup_service(&executor, beacon_chain, beacon_processor, log);
 
     // spawn the sync manager thread
     debug!(log_clone, "Sync Manager started");
@@ -686,34 +668,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     );
                 }
             }
-            SyncMessage::MissingGossipBlockComponents(slot, peer_id, block_root) => {
+            SyncMessage::MissingGossipBlockComponents(peer_id, block_root) => {
                 // If we are not synced, ignore this block.
                 if self.synced_and_connected(&peer_id) {
-                    if self.should_delay_lookup(slot) {
-                        self.block_lookups.search_block_delayed(
-                            block_root,
-                            PeerShouldHave::Neither(peer_id),
-                            &mut self.network,
-                        );
-                        if let Err(e) = self
-                            .delayed_lookups
-                            .try_send(DelayedLookupMessage::MissingComponents(block_root))
-                        {
-                            warn!(self.log, "Delayed lookup dropped for block referenced by a blob";
-                                "block_root" => ?block_root, "error" => ?e);
-                        }
-                    } else {
-                        self.block_lookups.search_block(
-                            block_root,
-                            PeerShouldHave::Neither(peer_id),
-                            &mut self.network,
-                        )
-                    }
+                    self.block_lookups.search_block(
+                        block_root,
+                        PeerShouldHave::Neither(peer_id),
+                        &mut self.network,
+                    )
                 }
             }
-            SyncMessage::MissingGossipBlockComponentsDelayed(block_root) => self
-                .block_lookups
-                .trigger_lookup_by_root(block_root, &self.network),
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);
             }
@@ -792,56 +756,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 peer_id,
                 &mut self.network,
             );
-            if self.should_delay_lookup(slot) {
-                self.block_lookups.search_child_delayed(
-                    block_root,
-                    child_components,
-                    PeerShouldHave::Neither(peer_id),
-                    &mut self.network,
-                );
-                if let Err(e) = self
-                    .delayed_lookups
-                    .try_send(DelayedLookupMessage::MissingComponents(block_root))
-                {
-                    warn!(self.log, "Delayed lookups dropped for block"; "block_root" => ?block_root, "error" => ?e);
-                }
-            } else {
-                self.block_lookups.search_child_block(
-                    block_root,
-                    child_components,
-                    PeerShouldHave::Neither(peer_id),
-                    &mut self.network,
-                );
-            }
-        }
-    }
-
-    fn should_delay_lookup(&mut self, slot: Slot) -> bool {
-        if !self.block_lookups.da_checker.is_deneb() {
-            return false;
-        }
-
-        let maximum_gossip_clock_disparity = self.chain.spec.maximum_gossip_clock_disparity();
-        let earliest_slot = self
-            .chain
-            .slot_clock
-            .now_with_past_tolerance(maximum_gossip_clock_disparity);
-        let latest_slot = self
-            .chain
-            .slot_clock
-            .now_with_future_tolerance(maximum_gossip_clock_disparity);
-        if let (Some(earliest_slot), Some(latest_slot)) = (earliest_slot, latest_slot) {
-            let msg_for_current_slot = slot >= earliest_slot && slot <= latest_slot;
-            let delay_threshold_unmet = self
-                .chain
-                .slot_clock
-                .millis_from_current_slot_start()
-                .map_or(false, |millis_into_slot| {
-                    millis_into_slot < self.chain.slot_clock.single_lookup_delay()
-                });
-            msg_for_current_slot && delay_threshold_unmet
-        } else {
-            false
+            self.block_lookups.search_child_block(
+                block_root,
+                child_components,
+                PeerShouldHave::Neither(peer_id),
+                &mut self.network,
+            );
         }
     }
 

@@ -5,7 +5,7 @@ use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
 use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
-use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
+use crate::{BeaconChain, BeaconChainTypes, BeaconStore, GossipVerifiedBlock};
 use kzg::Error as KzgError;
 use kzg::Kzg;
 use slog::{debug, error};
@@ -22,6 +22,7 @@ use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 mod overflow_lru_cache;
+mod processing_cache;
 
 /// The LRU Cache stores `PendingComponents` which can store up to
 /// `MAX_BLOBS_PER_BLOCK = 6` blobs each. A `BlobSidecar` is 0.131256 MB. So
@@ -281,6 +282,52 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .blob_kzg_commitments()
             .map_or(false, |commitments| !commitments.is_empty());
         block_within_da_period && block_has_kzg_commitments
+    }
+
+    pub fn notify_block(&self, block: &GossipVerifiedBlock<T>) -> bool {
+        todo!()
+    }
+
+    pub fn notify_blob(&self, block_root: Hash256, blob: &BlobSidecar<T::EthSpec>) -> bool {
+        todo!()
+    }
+
+    pub fn remove_notified_block(&self, block_root: Hash256) -> bool {
+        todo!()
+    }
+
+    pub fn remove_notified_blob(&self, block_root: Hash256, blob_index: usize) -> bool {
+        todo!()
+    }
+
+    pub fn get_delayed_lookups(&self, slot: Slot) -> Vec<Hash256> {
+        todo!()
+    }
+
+    pub fn should_delay_lookup(&self, slot: Slot) -> bool {
+        if !self.is_deneb() {
+            return false;
+        }
+
+        let maximum_gossip_clock_disparity = self.spec.maximum_gossip_clock_disparity();
+        let earliest_slot = self
+            .slot_clock
+            .now_with_past_tolerance(maximum_gossip_clock_disparity);
+        let latest_slot = self
+            .slot_clock
+            .now_with_future_tolerance(maximum_gossip_clock_disparity);
+        if let (Some(earliest_slot), Some(latest_slot)) = (earliest_slot, latest_slot) {
+            let msg_for_current_slot = slot >= earliest_slot && slot <= latest_slot;
+            let delay_threshold_unmet = self
+                .slot_clock
+                .millis_from_current_slot_start()
+                .map_or(false, |millis_into_slot| {
+                    millis_into_slot < self.slot_clock.single_lookup_delay()
+                });
+            msg_for_current_slot && delay_threshold_unmet
+        } else {
+            false
+        }
     }
 
     /// The epoch at which we require a data availability check in block processing.

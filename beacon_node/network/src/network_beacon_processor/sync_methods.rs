@@ -25,7 +25,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{Epoch, Hash256};
+use types::{Epoch, Hash256, Slot};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -214,7 +214,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .process_block(block_root, block, NotifyExecutionLayer::Yes, || Ok(()))
+            .process_block_with_early_caching(block_root, block, NotifyExecutionLayer::Yes)
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
@@ -286,10 +286,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         };
 
-        let result = self
-            .chain
-            .check_rpc_blob_availability_and_import(slot, block_root, blobs)
-            .await;
+        let result = self.chain.process_rpc_blobs(slot, block_root, blobs).await;
 
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
@@ -298,8 +295,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    pub fn send_delayed_lookup(&self, block_root: Hash256) {
-        self.send_sync_message(SyncMessage::MissingGossipBlockComponentsDelayed(block_root))
+    pub fn poll_delayed_lookups(&self, slot: Slot) {
+        let lookups = self
+            .chain
+            .data_availability_checker
+            .get_delayed_lookups(slot);
+        for block_root in lookups {
+            if let Some(peer_ids) = self.delayed_lookup_peers.lock().pop(&block_root) {
+                for peer_id in peer_ids {
+                    self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
+                        peer_id, block_root,
+                    ));
+                }
+            }
+        }
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync

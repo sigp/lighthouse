@@ -18,8 +18,11 @@ use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
+use lru::LruCache;
+use parking_lot::Mutex;
 use slog::{debug, Logger};
 use slot_clock::ManualSlotClock;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -40,6 +43,7 @@ mod sync_methods;
 mod tests;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
+pub const DELAYED_PEER_CACHE_SIZE: usize = 16;
 
 /// Defines if and where we will store the SSZ files of invalid blocks.
 #[derive(Clone)]
@@ -60,6 +64,7 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub invalid_block_storage: InvalidBlockStorage,
+    pub delayed_lookup_peers: Mutex<LruCache<Hash256, Vec<PeerId>>>,
     pub executor: TaskExecutor,
     pub log: Logger,
 }
@@ -668,6 +673,7 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             reprocess_tx: work_reprocessing_tx,
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
+            delayed_lookup_peers: Mutex::new(LruCache::new(DELAYED_PEER_CACHE_SIZE)),
             executor: runtime.task_executor.clone(),
             log,
         };

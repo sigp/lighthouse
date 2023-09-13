@@ -9,12 +9,13 @@ use crate::beacon_chain::{
 };
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::kzg_utils::{validate_blob, validate_blobs};
-use crate::BeaconChainError;
+use crate::{metrics, BeaconChainError};
 use kzg::Kzg;
 use slog::{debug, warn};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use std::borrow::Cow;
+use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec, CloneConfig, EthSpec,
@@ -147,6 +148,7 @@ pub type GossipVerifiedBlobList<T> = VariableList<
 /// the p2p network.
 #[derive(Debug)]
 pub struct GossipVerifiedBlob<T: BeaconChainTypes> {
+    blob_root: Hash256,
     blob: SignedBlobSidecar<T::EthSpec>,
 }
 
@@ -197,6 +199,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             received: subnet,
         });
     }
+
+    let blob_root = get_blob_root(&signed_blob_sidecar);
 
     // Verify that the sidecar is not from a future slot.
     let latest_permissible_slot = chain
@@ -387,7 +391,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             .ok_or_else(|| GossipBlobError::UnknownValidator(proposer_index as u64))?;
 
         signed_blob_sidecar.verify_signature(
-            None,
+            Some(blob_root),
             pubkey,
             &fork,
             chain.genesis_validators_root,
@@ -424,6 +428,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     }
 
     Ok(GossipVerifiedBlob {
+        blob_root,
         blob: signed_blob_sidecar,
     })
 }
@@ -561,4 +566,17 @@ pub fn verify_kzg_for_blob_list<T: EthSpec>(
     } else {
         Err(AvailabilityCheckError::KzgVerificationFailed)
     }
+}
+
+/// Returns the canonical root of the given `blob`.
+///
+/// Use this function to ensure that we report the blob hashing time Prometheus metric.
+pub fn get_blob_root<E: EthSpec>(blob: &SignedBlobSidecar<E>) -> Hash256 {
+    let blob_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOB_ROOT);
+
+    let blob_root = blob.message.tree_hash_root();
+
+    metrics::stop_timer(blob_root_timer);
+
+    blob_root
 }

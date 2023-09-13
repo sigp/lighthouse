@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
+use crate::network_beacon_processor::DELAYED_PEER_CACHE_SIZE;
 use crate::{
     network_beacon_processor::{
         ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
@@ -22,7 +23,10 @@ use lighthouse_network::{
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
     Client, MessageId, NetworkGlobals, PeerId, Response,
 };
+use lru::LruCache;
+use parking_lot::Mutex;
 use slot_clock::SlotClock;
+use std::collections::HashMap;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
@@ -226,6 +230,7 @@ impl TestRig {
             reprocess_tx: work_reprocessing_tx.clone(),
             network_globals: network_globals.clone(),
             invalid_block_storage: InvalidBlockStorage::Disabled,
+            delayed_lookup_peers: Mutex::new(LruCache::new(DELAYED_PEER_CACHE_SIZE)),
             executor: executor.clone(),
             log: log.clone(),
         };
