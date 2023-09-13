@@ -343,6 +343,8 @@ pub struct ValidatorMonitor<T> {
     /// large validator counts causing infeasibly high cardinailty for
     /// Prometheus and high log volumes.
     individual_tracking_threshold: usize,
+    /// A Map representing the missed blocks by epoch, validator_index(state.validators) and slot
+    missed_blocks: HashSet<(Epoch, u64, Slot)>,
     log: Logger,
     _phantom: PhantomData<T>,
 }
