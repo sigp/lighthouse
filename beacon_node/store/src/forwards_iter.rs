@@ -62,6 +62,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         )?;
         Ok(SimpleForwardsIterator { values })
     }
+
+    fn freezer_upper_limit(&self, column: DBColumn) -> Option<Slot> {
+        let split_slot = self.get_split_slot();
+        if column == DBColumn::BeaconBlockRoots {
+            // Block roots are available up to the split slot.
+            Some(split_slot)
+        } else if column == DBColumn::BeaconStateRoots {
+            let anchor_info = self.get_anchor_info();
+            // There are no historic states stored if the state upper limit lies in the hot
+            // database.  It hasn't been reached yet, and may never be.
+            if anchor_info.map_or(false, |a| a.state_upper_limit >= split_slot) {
+                None
+            } else {
+                // Otherwise if the state upper limit lies in the freezer or all states are
+                // reconstructed then state roots are available up to the split slot.
+                Some(split_slot)
+            }
+        } else {
+            None
+        }
+    }
 }
 
 /// Forwards root iterator that makes use of a flat field table in the freezer DB.
@@ -168,8 +189,8 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     ///
     /// The `get_state` closure should return a beacon state and final block/state root to backtrack
     /// from in the case where the iterated range does not lie entirely within the frozen portion of
-    /// the database. If an `end_slot` is provided and it is before the database's latest restore
-    /// point slot then the `get_state` closure will not be called at all.
+    /// the database. If an `end_slot` is provided and it is before the database's freezer upper
+    /// limit for the field then the `get_state` closure will not be called at all.
     ///
     /// It is OK for `get_state` to hold a lock while this function is evaluated, as the returned
     /// iterator is as lazy as possible and won't do any work apart from calling `get_state`.
@@ -185,21 +206,27 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     ) -> Result<Self> {
         use HybridForwardsIterator::*;
 
-        let split_slot = store.get_split_slot();
+        // First slot at which this field is *not* available in the freezer. i.e. all slots less
+        // than this slot have their data available in the freezer.
+        let freezer_upper_limit = store.freezer_upper_limit(column).unwrap_or(Slot::new(0));
 
-        let result = if start_slot < split_slot {
+        let result = if start_slot < freezer_upper_limit {
             let iter = Box::new(FrozenForwardsIterator::new(
-                store, column, start_slot, split_slot,
+                store,
+                column,
+                start_slot,
+                freezer_upper_limit,
             ));
 
             // No continuation data is needed if the forwards iterator plans to halt before
             // `end_slot`. If it tries to continue further a `NoContinuationData` error will be
             // returned.
-            let continuation_data = if end_slot.map_or(false, |end_slot| end_slot < split_slot) {
-                None
-            } else {
-                Some(Box::new(get_state()))
-            };
+            let continuation_data =
+                if end_slot.map_or(false, |end_slot| end_slot < freezer_upper_limit) {
+                    None
+                } else {
+                    Some(Box::new(get_state()))
+                };
             PreFinalization {
                 iter,
                 store,

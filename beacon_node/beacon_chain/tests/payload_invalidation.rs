@@ -7,7 +7,7 @@ use beacon_chain::otb_verification_service::{
 use beacon_chain::{
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainError, BlockError, ExecutionPayloadError, NotifyExecutionLayer,
+    BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError, NotifyExecutionLayer,
     OverrideForkchoiceUpdate, StateSkipConfig, WhenSlotSkipped,
     INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
@@ -59,6 +59,10 @@ impl InvalidPayloadRig {
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec)
+            .chain_config(ChainConfig {
+                reconstruct_historic_states: true,
+                ..ChainConfig::default()
+            })
             .logger(test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .mock_execution_layer()

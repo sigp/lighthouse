@@ -57,10 +57,7 @@ use crate::observed_block_producers::SeenBlock;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    beacon_chain::{
-        BeaconForkChoice, ForkChoiceError, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-        VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
-    },
+    beacon_chain::{BeaconForkChoice, ForkChoiceError},
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
@@ -729,7 +726,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not gossip or process blocks from future slots.
         let present_slot_with_tolerance = chain
             .slot_clock
-            .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+            .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
             .ok_or(BeaconChainError::UnableToReadSlot)?;
         if block.slot() > present_slot_with_tolerance {
             return Err(BlockError::FutureSlot {
@@ -1262,7 +1259,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         // Perform a sanity check on the pre-state.
         let parent_slot = parent.beacon_block.slot();
-        if state.slot() < parent_slot {
+        if state.slot() < parent_slot || state.slot() > block.slot() {
             return Err(BeaconChainError::BadPreState {
                 parent_root: parent.beacon_block_root,
                 parent_slot,
@@ -1702,14 +1699,18 @@ fn load_parent<T: BeaconChainTypes>(
                 BlockError::from(BeaconChainError::MissingBeaconBlock(block.parent_root()))
             })?;
 
-        // Load the parent blocks state from the database, returning an error if it is not found.
+        // Load the parent block's state from the database, returning an error if it is not found.
         // It is an error because if we know the parent block we should also know the parent state.
-        let parent_state_root = parent_block.state_root();
-        let (advanced_state_root, state) = chain
+        // Retrieve any state that is advanced through to at most `block.slot()`: this is
+        // particularly important if `block` descends from the finalized/split block, but at a slot
+        // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
+        let (parent_state_root, state) = chain
             .store
-            .get_advanced_state(block.parent_root(), block.slot(), parent_state_root)?
+            .get_advanced_hot_state(root, block.slot(), parent_block.state_root())?
             .ok_or_else(|| {
-                BeaconChainError::DBInconsistent(format!("Missing state {:?}", parent_state_root))
+                BeaconChainError::DBInconsistent(
+                    format!("Missing state for parent block {root:?}",),
+                )
             })?;
 
         if !state.all_caches_built() {
@@ -1730,8 +1731,18 @@ fn load_parent<T: BeaconChainTypes>(
             );
         }
 
-        let beacon_state_root = if parent_state_root == advanced_state_root {
-            Some(parent_state_root)
+        let beacon_state_root = if state.slot() == parent_block.slot() {
+            // Sanity check.
+            if parent_state_root != parent_block.state_root() {
+                return Err(BeaconChainError::DBInconsistent(format!(
+                    "Parent state at slot {} has the wrong state root: {:?} != {:?}",
+                    state.slot(),
+                    parent_state_root,
+                    parent_block.state_root()
+                ))
+                .into());
+            }
+            Some(parent_block.state_root())
         } else {
             None
         };
@@ -1803,11 +1814,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
 pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BlockError<T::EthSpec>> {
-    chain
-        .validator_pubkey_cache
-        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)
-        .map_err(BlockError::BeaconChainError)
+    Ok(chain.validator_pubkey_cache.read())
 }
 
 /// Produces an _empty_ `BlockSignatureVerifier`.

@@ -5,9 +5,13 @@ use crate::{
     graffiti_file::GraffitiFile,
     OfflineOnFailure,
 };
-use crate::{http_metrics::metrics, validator_store::ValidatorStore};
+use crate::{
+    http_metrics::metrics,
+    validator_store::{Error as ValidatorStoreError, ValidatorStore},
+};
 use environment::RuntimeContext;
-use eth2::BeaconNodeHttpClient;
+use eth2::{BeaconNodeHttpClient, StatusCode};
+use slog::Logger;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::fmt::Debug;
@@ -417,17 +421,31 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             BlockError::Recoverable("Unable to determine current slot from clock".to_string())
         })?;
 
-        let randao_reveal = self
+        let randao_reveal = match self
             .validator_store
             .randao_reveal(validator_pubkey, slot.epoch(E::slots_per_epoch()))
             .await
-            .map_err(|e| {
-                BlockError::Recoverable(format!(
+        {
+            Ok(signature) => signature.into(),
+            Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                // A pubkey can be missing when a validator was recently removed
+                // via the API.
+                warn!(
+                    log,
+                    "Missing pubkey for block randao";
+                    "info" => "a validator may have recently been removed from this VC",
+                    "pubkey" => ?pubkey,
+                    "slot" => ?slot
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                return Err(BlockError::Recoverable(format!(
                     "Unable to produce randao reveal signature: {:?}",
                     e
-                ))
-            })?
-            .into();
+                )))
+            }
+        };
 
         let graffiti = determine_graffiti(
             &validator_pubkey,
@@ -522,11 +540,31 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .await?;
 
         let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
-        let signed_block = self_ref
+        let signed_block = match self_ref
             .validator_store
             .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
             .await
-            .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
+        {
+            Ok(block) => block,
+            Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                // A pubkey can be missing when a validator was recently removed
+                // via the API.
+                warn!(
+                    log,
+                    "Missing pubkey for block";
+                    "info" => "a validator may have recently been removed from this VC",
+                    "pubkey" => ?pubkey,
+                    "slot" => ?slot
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                return Err(BlockError::Recoverable(format!(
+                    "Unable to sign block: {:?}",
+                    e
+                )))
+            }
+        };
         let signing_time_ms =
             Duration::from_secs_f64(signing_timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
 
@@ -556,12 +594,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             beacon_node
                                 .post_beacon_blocks(&signed_block)
                                 .await
-                                .map_err(|e| {
-                                    BlockError::Irrecoverable(format!(
-                                        "Error from beacon node when publishing block: {:?}",
-                                        e
-                                    ))
-                                })?
+                                .or_else(|e| handle_block_post_error(e, slot, log))?
                         }
                         BlockType::Blinded => {
                             let _post_timer = metrics::start_timer_vec(
@@ -571,12 +604,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             beacon_node
                                 .post_beacon_blinded_blocks(&signed_block)
                                 .await
-                                .map_err(|e| {
-                                    BlockError::Irrecoverable(format!(
-                                        "Error from beacon node when publishing block: {:?}",
-                                        e
-                                    ))
-                                })?
+                                .or_else(|e| handle_block_post_error(e, slot, log))?
                         }
                     }
                     Ok::<_, BlockError>(())
@@ -596,4 +624,30 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         Ok(())
     }
+}
+
+fn handle_block_post_error(err: eth2::Error, slot: Slot, log: &Logger) -> Result<(), BlockError> {
+    // Handle non-200 success codes.
+    if let Some(status) = err.status() {
+        if status == StatusCode::ACCEPTED {
+            info!(
+                log,
+                "Block is already known to BN or might be invalid";
+                "slot" => slot,
+                "status_code" => status.as_u16(),
+            );
+            return Ok(());
+        } else if status.is_success() {
+            debug!(
+                log,
+                "Block published with non-standard success code";
+                "slot" => slot,
+                "status_code" => status.as_u16(),
+            );
+            return Ok(());
+        }
+    }
+    Err(BlockError::Irrecoverable(format!(
+        "Error from beacon node when publishing block: {err:?}",
+    )))
 }

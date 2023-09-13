@@ -9,7 +9,7 @@ use beacon_chain::{
     test_utils::{
         test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
     },
-    BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped,
+    BeaconChain, BeaconChainError, BeaconChainTypes, ChainConfig, WhenSlotSkipped,
 };
 use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
@@ -47,6 +47,10 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec)
+        .chain_config(ChainConfig {
+            reconstruct_historic_states: true,
+            ..ChainConfig::default()
+        })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -79,6 +83,10 @@ fn get_harness_capella_spec(
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec.clone())
+        .chain_config(ChainConfig {
+            reconstruct_historic_states: true,
+            ..ChainConfig::default()
+        })
         .keypairs(validator_keypairs)
         .withdrawal_keypairs(
             KEYPAIRS[0..validator_count]

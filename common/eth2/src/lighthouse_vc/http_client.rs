@@ -490,6 +490,21 @@ impl ValidatorClientHttpClient {
         .await
     }
 
+    /// `DELETE eth/v1/keystores`
+    pub async fn delete_lighthouse_keystores(
+        &self,
+        req: &DeleteKeystoresRequest,
+    ) -> Result<ExportKeystoresResponse, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("keystores");
+
+        self.delete_with_unsigned_response(path, req).await
+    }
+
     fn make_keystores_url(&self) -> Result<Url, Error> {
         let mut url = self.server.full.clone();
         url.path_segments_mut()

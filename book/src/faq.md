@@ -10,6 +10,8 @@
 - [My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?](#bn-missing-beacon)
 - [After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?](#bn-download-slow)
 - [My beacon node logs `WARN Error processing HTTP API request`, what should I do?](#bn-http)
+- [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice)
+- [My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?](#bn-queue-full)
 
 ## [Validator](#validator-1)
 - [Why does it take so long for a validator to be activated?](#vc-activation)
@@ -30,7 +32,7 @@
 - [My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?](#net-bn-vc)
 - [Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?](#net-ip)
 - [How to change the TCP/UDP port 9000 that Lighthouse listens on?](#net-port)
-
+- [Lighthouse `v4.3.0` introduces a change where a node will subscribe to only 2 subnets in total. I am worried that this will impact my validators return.](#net-subnet)
 
 ## [Miscellaneous](#miscellaneous-1)
 - [What should I do if I lose my slashing protection database?](#misc-slashing)
@@ -38,6 +40,7 @@
 - [How do I check the version of Lighthouse that is running?](#misc-version)
 - [Does Lighthouse have pruning function like the execution client to save disk space?](#misc-prune)
 - [Can I use a HDD for the freezer database and only have the hot db on SSD?](#misc-freezer)
+- [Can Lighthouse log in local timestamp instead of UTC?](#misc-timestamp)
 
 ## Beacon Node
 
@@ -74,7 +77,7 @@ The `WARN Execution engine called failed` log is shown when the beacon node cann
 
 `error: Reqwest(reqwest::Error { kind: Request, url: Url { scheme: "http", cannot_be_a_base: false, username: "", password: None, host: Some(Ipv4(127.0.0.1)), port: Some(8551), path: "/", query: None, fragment: None }, source: TimedOut }), service: exec`
 
-which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. One option is to add the flag `--execution-timeout-multiplier 3` to the beacon node. However, if the error persists, it is worth digging further to find out the cause. There are a few reasons why this can occur:
+which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. One option is to add the flags `--execution-timeout-multiplier 3` and `--disable-lock-timeouts` to the beacon node. However, if the error persists, it is worth digging further to find out the cause. There are a few reasons why this can occur:
 1. The execution engine is not synced. Check the log of the execution engine to make sure that it is synced. If it is syncing, wait until it is synced and the error will disappear. You will see the beacon node logs `INFO Execution engine online` when it is synced. 
 1. The computer is overloaded. Check the CPU and RAM usage to see if it has overloaded. You can use `htop` to check for CPU and RAM usage.
 1. Your SSD is slow. Check if your SSD is in "The Bad" list [here](https://gist.github.com/yorickdowne/f3a3e79a573bf35767cd002cc977b038). If your SSD is in "The Bad" list, it means it cannot keep in sync to the network and you may want to consider upgrading to a better SSD.
@@ -169,6 +172,27 @@ ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Som
 ```
 
 This means that the validator client is sending requests to the beacon node. However, as the beacon node is still syncing, it is therefore unable to fulfil the request. The error will disappear once the beacon node is synced. 
+
+### <a name="bn-fork-choice"></a> My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?
+
+An example of the full log is shown below:
+
+```
+WARN Error signalling fork choice waiter slot: 6763073, error: ForkChoiceSignalOutOfOrder { current: Slot(6763074), latest: Slot(6763073) }, service: state_advance
+```
+
+This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing. The error will disappear when the resources used return to normal or when the node is synced.
+
+
+### <a name="bn-queue-full"></a> My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?
+
+An example of the full log is shown below:
+```
+ERRO Aggregate attestation queue full, queue_len: 4096, msg: the system has insufficient resources for load, module: network::beacon_processor:1542
+```
+
+This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing. The error will disappear when the resources used return to normal or when the node is synced.
+
 
 ## Validator
 
@@ -279,11 +303,25 @@ The first thing is to ensure both consensus and execution clients are synced wit
 - the internet is working well
 - you have sufficient peers
 
-You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations). Once the above points are good, missing attestation should be a rare occurrence. 
+You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations). 
+
+Another cause for missing attestations is delays during block processing. When this happens, the debug logs will show (debug logs can be found under `$datadir/beacon/logs`):
+
+```
+DEBG Delayed head block                      set_as_head_delay: Some(93.579425ms), imported_delay: Some(1.460405278s), observed_delay: Some(2.540811921s), block_delay: 4.094796624s, slot: 6837344, proposer_index: 211108, block_root: 0x2c52231c0a5a117401f5231585de8aa5dd963bc7cbc00c544e681342eedd1700, service: beacon
+```
+
+The fields to look for are `imported_delay > 1s` and `observed_delay < 3s`. The `imported_delay` is how long the node took to process the block. The `imported_delay` of larger than 1 second suggests that there is slowness in processing the block. It could be due to high CPU usage, high I/O disk usage or the clients are doing some background maintenance processes. The `observed_delay` is determined mostly by the proposer and partly by your networking setup (e.g., how long it took for the node to receive the block). The `observed_delay` of less than 3 seconds means that the block is not arriving late from the block proposer. Combining the above, this implies that the validator should have been able to attest to the block, but failed due to slowness in the node processing the block. 
+
 
 ### <a name="vc-head-vote"></a> Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
 
 In general, it is unavoidable to have some penalties occasionally. This is particularly the case when you are assigned to attest on the first slot of an epoch and if the proposer of that slot releases the block late, then you will get penalised for missing the target and head votes. Your attestation performance does not only depend on your own setup, but also on everyone elses performance.
+
+You could also check for the sync aggregate participation percentage on block explorers such as [beaconcha.in](https://beaconcha.in/). A low sync aggregate participation percentage (e.g., 60-70%) indicates that the block that you are assigned to attest to may be published late. As a result, your validator fails to correctly attest to the block. 
+
+Another possible reason for missing the head vote is due to a chain "reorg". A reorg can happen if the proposer publishes block `n` late, and the proposer of block `n+1` builds upon block `n-1` instead of `n`. This is called a "reorg". Due to the reorg, block `n` was never included in the chain.  If you are assigned to attest at slot `n`, it is possible you may still attest to block `n` despite most of the network recognizing the block as being late. In this case you will miss the head reward.
+
 
 ### <a name="vc-exit"></a> Can I submit a voluntary exit message without running a beacon node?
 
@@ -399,15 +437,13 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 
 ### <a name="net-bn-vc"></a> My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?
 
-The settings are as follows:
+The setting on the beacon node is the same for both cases below. In the beacon node, specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than `localhost`. You can find the `local_IP` by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
 
-1. On the beacon node: 
-   
-   Specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than on the `localhost`. 
-
-1. On the validator client:
-
+1. If the beacon node and validator clients are on different servers *in the same network*, the setting in the validator client is as follows:
+ 
    Use the flag `--beacon-nodes` to point to the beacon node. For example, `lighthouse vc --beacon-nodes http://local_IP:5052` where `local_IP` is the local IP address of the beacon node and `5052` is the default `http-port` of the beacon node.
+
+   If you have firewall setup, e.g., `ufw`, you will need to allow port 5052 (assuming that the default port is used) with `sudo ufw allow 5052`. Note: this will allow all IP addresses to access the HTTP API of the beacon node. If you are on an untrusted network (e.g., a university or public WiFi) or the host is exposed to the internet, use apply IP-address filtering as described later in this section.
 
    You can test that the setup is working with by running the following command on the validator client host:
 
@@ -416,14 +452,39 @@ The settings are as follows:
    ```
 
    You can refer to [Redundancy](./redundancy.md) for more information.
-   
-   It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://local_IP:5052` on the validator client.
+
+2. If the beacon node and validator clients are on different servers *and different networks*, it is necessary to perform port forwarding of the SSH port (e.g., the default port 22) on the router, and also allow firewall on the SSH port. The connection can be established via port forwarding on the router.
+
+
+
+      In the validator client, use the flag `--beacon-nodes` to point to the beacon node. However, since the beacon node and the validator client are on different networks, the IP address to use is the public IP address of the beacon node, i.e., `lighthouse vc --beacon-nodes http://public_IP:5052`. You can get the public IP address of the beacon node by running the command ` dig +short myip.opendns.com @resolver1.opendns.com` on the server running the beacon node.
+
+      Additionally, port forwarding of port 5052 on the router connected to the beacon node is required for the vc to connect to the bn. To do port forwarding, refer to [how to open ports](./advanced_networking.md#how-to-open-ports).
+
+
+      If you have firewall setup, e.g., `ufw`, you will need to allow connections to port 5052 (assuming that the default port is used). Since the beacon node HTTP/HTTPS API is public-facing (i.e., the 5052 port is now exposed to the internet due to port forwarding), we strongly recommend users to apply IP-address filtering to the BN/VC connection from malicious actors. This can be done using the command:
+      
+      ```
+      sudo ufw allow from vc_IP_address proto tcp to any port 5052
+      ```
+      where `vc_IP_address` is the public IP address of the validator client. The command will only allow connections to the beacon node from the validator client IP address to prevent malicious attacks on the beacon node over the internet.
+
+
+It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://IP-address:5052` on the validator client.
 
 ### <a name="net-ip"></a> Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?
 No. Lighthouse will auto-detect the change and update your Ethereum Node Record (ENR). You just need to make sure you are not manually setting the ENR with `--enr-address` (which, for common use cases, this flag is not used).
 
 ### <a name="net-port"></a> How to change the TCP/UDP port 9000 that Lighthouse listens on?
 Use the flag ```--port <PORT>``` in the beacon node. This flag can be useful when you are running two beacon nodes at the same time. You can leave one beacon node as the default port 9000, and configure the second beacon node to listen on, e.g., ```--port 9001```.
+
+### <a name="net-subnet"></a> Lighthouse `v4.3.0` introduces a change where a node will subscribe to only 2 subnets in total. I am worried that this will impact my validators return.
+
+Previously, having more validators means subscribing to more subnets. Since the change, a node will now only subscribe to 2 subnets in total. This will bring about significant reductions in bandwidth for nodes with multiple validators. 
+
+While subscribing to more subnets can ensure you have peers on a wider range of subnets, these subscriptions consume resources and bandwidth. This does not significantly increase the performance of the node, however it does benefit other nodes on the network. 
+ 
+If you would still like to subscribe to all subnets, you can use the flag `subscribe-all-subnets`. This may improve the block rewards by 1-5%, though it comes at the cost of a much higher bandwidth requirement.
 
 ## Miscellaneous
 
@@ -468,11 +529,9 @@ There is no pruning of Lighthouse database for now. However, since v4.2.0, a fea
 
 Yes, you can do so by using the flag `--freezer-dir /path/to/freezer_db` in the beacon node.
 
+### <a name="misc-timestamp"></a> Can Lighthouse log in local timestamp instead of UTC?
 
-
-
-
-
+The reason why Lighthouse logs in UTC is due to the dependency on an upstream library that is [yet to be resolved](https://github.com/sigp/lighthouse/issues/3130). Alternatively, using the flag `disable-log-timestamp` in combination with systemd will suppress the UTC timestamps and print the logs in local timestamps. 
 
 
 

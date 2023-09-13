@@ -1,10 +1,9 @@
 //! ENR extension trait to support libp2p integration.
+
 use crate::{Enr, Multiaddr, PeerId};
 use discv5::enr::{CombinedKey, CombinedPublicKey};
-use libp2p::{
-    core::{identity::Keypair, identity::PublicKey, multiaddr::Protocol},
-    identity::secp256k1,
-};
+use libp2p::core::multiaddr::Protocol;
+use libp2p::identity::{ed25519, secp256k1, KeyType, Keypair, PublicKey};
 use tiny_keccak::{Hasher, Keccak};
 
 /// Extend ENR for libp2p types.
@@ -38,7 +37,8 @@ pub trait CombinedKeyPublicExt {
 /// Extend ENR CombinedKey for conversion to libp2p keys.
 pub trait CombinedKeyExt {
     /// Converts a libp2p key into an ENR combined key.
-    fn from_libp2p(key: &libp2p::core::identity::Keypair) -> Result<CombinedKey, &'static str>;
+    fn from_libp2p(key: Keypair) -> Result<CombinedKey, &'static str>;
+
     /// Converts a [`secp256k1::Keypair`] into and Enr [`CombinedKey`].
     fn from_secp256k1(key: &secp256k1::Keypair) -> CombinedKey;
 }
@@ -93,14 +93,14 @@ impl EnrExt for Enr {
             if let Some(udp) = self.udp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Udp(udp));
-                multiaddr.push(Protocol::P2p(peer_id.into()));
+                multiaddr.push(Protocol::P2p(peer_id));
                 multiaddrs.push(multiaddr);
             }
 
             if let Some(tcp) = self.tcp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Tcp(tcp));
-                multiaddr.push(Protocol::P2p(peer_id.into()));
+                multiaddr.push(Protocol::P2p(peer_id));
                 multiaddrs.push(multiaddr);
             }
         }
@@ -108,14 +108,14 @@ impl EnrExt for Enr {
             if let Some(udp6) = self.udp6() {
                 let mut multiaddr: Multiaddr = ip6.into();
                 multiaddr.push(Protocol::Udp(udp6));
-                multiaddr.push(Protocol::P2p(peer_id.into()));
+                multiaddr.push(Protocol::P2p(peer_id));
                 multiaddrs.push(multiaddr);
             }
 
             if let Some(tcp6) = self.tcp6() {
                 let mut multiaddr: Multiaddr = ip6.into();
                 multiaddr.push(Protocol::Tcp(tcp6));
-                multiaddr.push(Protocol::P2p(peer_id.into()));
+                multiaddr.push(Protocol::P2p(peer_id));
                 multiaddrs.push(multiaddr);
             }
         }
@@ -133,7 +133,7 @@ impl EnrExt for Enr {
             if let Some(tcp) = self.tcp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Tcp(tcp));
-                multiaddr.push(Protocol::P2p(peer_id.into()));
+                multiaddr.push(Protocol::P2p(peer_id));
                 multiaddrs.push(multiaddr);
             }
         }
@@ -141,7 +141,7 @@ impl EnrExt for Enr {
             if let Some(tcp6) = self.tcp6() {
                 let mut multiaddr: Multiaddr = ip6.into();
                 multiaddr.push(Protocol::Tcp(tcp6));
-                multiaddr.push(Protocol::P2p(peer_id.into()));
+                multiaddr.push(Protocol::P2p(peer_id));
                 multiaddrs.push(multiaddr);
             }
         }
@@ -159,7 +159,7 @@ impl EnrExt for Enr {
             if let Some(udp) = self.udp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Udp(udp));
-                multiaddr.push(Protocol::P2p(peer_id.into()));
+                multiaddr.push(Protocol::P2p(peer_id));
                 multiaddrs.push(multiaddr);
             }
         }
@@ -167,7 +167,7 @@ impl EnrExt for Enr {
             if let Some(udp6) = self.udp6() {
                 let mut multiaddr: Multiaddr = ip6.into();
                 multiaddr.push(Protocol::Udp(udp6));
-                multiaddr.push(Protocol::P2p(peer_id.into()));
+                multiaddr.push(Protocol::P2p(peer_id));
                 multiaddrs.push(multiaddr);
             }
         }
@@ -204,18 +204,16 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
         match self {
             Self::Secp256k1(pk) => {
                 let pk_bytes = pk.to_sec1_bytes();
-                let libp2p_pk = libp2p::core::PublicKey::Secp256k1(
-                    libp2p::core::identity::secp256k1::PublicKey::decode(&pk_bytes)
-                        .expect("valid public key"),
-                );
+                let libp2p_pk: PublicKey = secp256k1::PublicKey::try_from_bytes(&pk_bytes)
+                    .expect("valid public key")
+                    .into();
                 PeerId::from_public_key(&libp2p_pk)
             }
             Self::Ed25519(pk) => {
                 let pk_bytes = pk.to_bytes();
-                let libp2p_pk = libp2p::core::PublicKey::Ed25519(
-                    libp2p::core::identity::ed25519::PublicKey::decode(&pk_bytes)
-                        .expect("valid public key"),
-                );
+                let libp2p_pk: PublicKey = ed25519::PublicKey::try_from_bytes(&pk_bytes)
+                    .expect("valid public key")
+                    .into();
                 PeerId::from_public_key(&libp2p_pk)
             }
         }
@@ -223,18 +221,25 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
 }
 
 impl CombinedKeyExt for CombinedKey {
-    fn from_libp2p(key: &libp2p::core::identity::Keypair) -> Result<CombinedKey, &'static str> {
-        match key {
-            Keypair::Secp256k1(key) => Ok(CombinedKey::from_secp256k1(key)),
-            Keypair::Ed25519(key) => {
+    fn from_libp2p(key: Keypair) -> Result<CombinedKey, &'static str> {
+        match key.key_type() {
+            KeyType::Secp256k1 => {
+                let key = key.try_into_secp256k1().expect("right key type");
+                let secret =
+                    discv5::enr::k256::ecdsa::SigningKey::from_slice(&key.secret().to_bytes())
+                        .expect("libp2p key must be valid");
+                Ok(CombinedKey::Secp256k1(secret))
+            }
+            KeyType::Ed25519 => {
+                let key = key.try_into_ed25519().expect("right key type");
                 let ed_keypair = discv5::enr::ed25519_dalek::SigningKey::from_bytes(
-                    &(key.encode()[..32])
+                    &(key.to_bytes()[..32])
                         .try_into()
                         .expect("libp2p key must be valid"),
                 );
                 Ok(CombinedKey::from(ed_keypair))
             }
-            Keypair::Ecdsa(_) => Err("Ecdsa keypairs not supported"),
+            _ => Err("Unsupported keypair kind"),
         }
     }
     fn from_secp256k1(key: &secp256k1::Keypair) -> Self {
@@ -251,37 +256,46 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
     // if generated from a PublicKey with Identity multihash.
     let pk_bytes = &peer_id.to_bytes()[2..];
 
-    match PublicKey::from_protobuf_encoding(pk_bytes).map_err(|e| {
+    let public_key = PublicKey::try_decode_protobuf(pk_bytes).map_err(|e| {
         format!(
             " Cannot parse libp2p public key public key from peer id: {}",
             e
         )
-    })? {
-        PublicKey::Secp256k1(pk) => {
-            let uncompressed_key_bytes = &pk.encode_uncompressed()[1..];
+    })?;
+
+    match public_key.key_type() {
+        KeyType::Secp256k1 => {
+            let pk = public_key
+                .clone()
+                .try_into_secp256k1()
+                .expect("right key type");
+            let uncompressed_key_bytes = &pk.to_bytes_uncompressed()[1..];
             let mut output = [0_u8; 32];
             let mut hasher = Keccak::v256();
             hasher.update(uncompressed_key_bytes);
             hasher.finalize(&mut output);
             Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
         }
-        PublicKey::Ed25519(pk) => {
-            let uncompressed_key_bytes = pk.encode();
+        KeyType::Ed25519 => {
+            let pk = public_key
+                .clone()
+                .try_into_ed25519()
+                .expect("right key type");
+            let uncompressed_key_bytes = pk.to_bytes();
             let mut output = [0_u8; 32];
             let mut hasher = Keccak::v256();
             hasher.update(&uncompressed_key_bytes);
             hasher.finalize(&mut output);
             Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
         }
-        PublicKey::Ecdsa(_) => Err(format!(
-            "Unsupported public key (Ecdsa) from peer {}",
-            peer_id
-        )),
+
+        _ => Err(format!("Unsupported public key from peer {}", peer_id)),
     }
 }
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -290,9 +304,9 @@ mod tests {
         let sk_bytes = hex::decode(sk_hex).unwrap();
         let secret_key = discv5::enr::k256::ecdsa::SigningKey::from_slice(&sk_bytes).unwrap();
 
-        let libp2p_sk = libp2p::identity::secp256k1::SecretKey::from_bytes(sk_bytes).unwrap();
-        let secp256k1_kp: libp2p::identity::secp256k1::Keypair = libp2p_sk.into();
-        let libp2p_kp = Keypair::Secp256k1(secp256k1_kp);
+        let libp2p_sk = secp256k1::SecretKey::try_from_bytes(sk_bytes).unwrap();
+        let secp256k1_kp: secp256k1::Keypair = libp2p_sk.into();
+        let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
 
         let enr = discv5::enr::EnrBuilder::new("v4")
@@ -311,9 +325,9 @@ mod tests {
             &sk_bytes.clone().try_into().unwrap(),
         );
 
-        let libp2p_sk = libp2p::identity::ed25519::SecretKey::from_bytes(sk_bytes).unwrap();
-        let secp256k1_kp: libp2p::identity::ed25519::Keypair = libp2p_sk.into();
-        let libp2p_kp = Keypair::Ed25519(secp256k1_kp);
+        let libp2p_sk = ed25519::SecretKey::try_from_bytes(sk_bytes).unwrap();
+        let secp256k1_kp: ed25519::Keypair = libp2p_sk.into();
+        let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
 
         let enr = discv5::enr::EnrBuilder::new("v4")

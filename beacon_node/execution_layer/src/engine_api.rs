@@ -1,9 +1,8 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
-    ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1, ENGINE_FORKCHOICE_UPDATED_V1,
-    ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
 };
 use eth2::types::{SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2};
 pub use ethers_core::types::Transaction;
@@ -451,7 +450,6 @@ pub struct EngineCapabilities {
     pub get_payload_bodies_by_range_v1: bool,
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
-    pub exchange_transition_configuration_v1: bool,
 }
 
 impl EngineCapabilities {
@@ -480,9 +478,6 @@ impl EngineCapabilities {
         }
         if self.get_payload_v2 {
             response.push(ENGINE_GET_PAYLOAD_V2);
-        }
-        if self.exchange_transition_configuration_v1 {
-            response.push(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1);
         }
 
         response

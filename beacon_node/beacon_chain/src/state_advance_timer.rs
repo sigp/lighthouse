@@ -304,7 +304,7 @@ fn advance_head<T: BeaconChainTypes>(
 
     let (head_state_root, mut state) = beacon_chain
         .store
-        .get_advanced_state(head_block_root, current_slot, head_block_state_root)?
+        .get_advanced_hot_state(head_block_root, current_slot, head_block_state_root)?
         .ok_or(Error::HeadMissingFromSnapshotCache(head_block_root))?;
 
     if state.slot() == current_slot + 1 {

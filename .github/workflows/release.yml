@@ -5,6 +5,10 @@ on:
         tags:
             - v*
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
@@ -71,15 +75,6 @@ jobs:
             - name: Set LIBCLANG_PATH
               if: startsWith(matrix.arch, 'x86_64-windows')
               run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
-
-            # ==============================
-            # Windows & Mac dependencies
-            # ==============================
-            - name: Install Protoc
-              if: contains(matrix.arch, 'darwin') || contains(matrix.arch, 'windows')
-              uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-              with:
-                repo-token: ${{ secrets.GITHUB_TOKEN }}
 
             # ==============================
             #       Builds

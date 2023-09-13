@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "4.2.990-exp"
+version = "4.4.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 autotests = false
@@ -57,6 +57,7 @@ unused_port = { path = "../common/unused_port" }
 store = { path = "../beacon_node/store" }
 database_manager = { path = "../database_manager" }
 slasher = { path = "../slasher" }
+validator_manager = { path = "../validator_manager" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
@@ -65,6 +66,8 @@ slashing_protection = { path = "../validator_client/slashing_protection" }
 lighthouse_network = { path = "../beacon_node/lighthouse_network" }
 sensitive_url = { path = "../common/sensitive_url" }
 eth1 = { path = "../beacon_node/eth1" }
+eth2 = { path = "../common/eth2" }
+beacon_processor = { path = "../beacon_node/beacon_processor" }
 
 [[test]]
 name = "lighthouse_tests"

@@ -160,7 +160,7 @@ pub enum WhenSlotSkipped {
     ///
     /// This is how the HTTP API behaves.
     None,
-    /// If the slot it a skip slot, return the previous non-skipped block.
+    /// If the slot is a skip slot, return the previous non-skipped block.
     ///
     /// This is generally how the specification behaves.
     Prev,
@@ -212,11 +212,6 @@ pub enum OverrideForkchoiceUpdate {
     Yes,
     AlreadyApplied,
 }
-
-/// The accepted clock drift for nodes gossiping blocks and attestations. See:
-///
-/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/p2p-interface.md#configuration
-pub const MAXIMUM_GOSSIP_CLOCK_DISPARITY: Duration = Duration::from_millis(500);
 
 #[derive(Debug, PartialEq)]
 pub enum AttestationProcessingOutcome {
@@ -3666,7 +3661,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // state cache thanks to the state advance timer.
                 let (state_root, state) = self
                     .store
-                    .get_advanced_state(head_block_root, slot, head_state_root)
+                    .get_advanced_hot_state(head_block_root, slot, head_state_root)
                     .map_err(BlockProductionError::FailedToLoadState)?
                     .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
                 (state, Some(state_root))
@@ -3784,7 +3779,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // FIXME(sproul): consider not re-orging if we miss the cache
         let (state_root, state) = self
             .store
-            .get_advanced_state(re_org_parent_block, slot, re_org_parent_state_root)
+            .get_advanced_hot_state(re_org_parent_block, slot, re_org_parent_state_root)
             .map_err(|e| {
                 warn!(
                     self.log,
@@ -4587,6 +4582,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.log,
             "Produced block on state";
             "block_size" => block_size,
+            "slot" => block.slot(),
         );
 
         metrics::observe(&metrics::BLOCK_SIZE, block_size as f64);
@@ -5526,7 +5522,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 let (state_root, state) = self
                     .store
-                    .get_advanced_state(head_block_root, target_slot, head_block.state_root)?
+                    .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)?
                     .ok_or(Error::MissingBeaconState(head_block.state_root))?;
                 (state, state_root)
             };

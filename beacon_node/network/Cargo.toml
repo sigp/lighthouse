@@ -36,7 +36,6 @@ logging = { path = "../../common/logging" }
 task_executor = { path = "../../common/task_executor" }
 igd = "0.12.1"
 itertools = "0.10.0"
-num_cpus = "1.13.0"
 lru_cache = { path = "../../common/lru_cache" }
 if-addrs = "0.6.4"
 strum = "0.24.0"
@@ -49,3 +48,7 @@ execution_layer =  { path = "../execution_layer" }
 beacon_processor =  { path = "../beacon_processor" }
 parking_lot = "0.12.0"
 environment = { path = "../../lighthouse/environment" }
+
+[features]
+# NOTE: This can be run via cargo build --bin lighthouse --features network/disable-backfill
+disable-backfill = []
