@@ -346,6 +346,7 @@ pub struct ValidatorMonitor<T> {
     /// A Map representing the missed blocks by epoch, validator_index(state.validators) and slot
     missed_blocks: HashSet<(Epoch, u64, Slot)>,
     log: Logger,
+    beacon_proposer_cache: BeaconProposerCache,
     _phantom: PhantomData<T>,
 }
 
@@ -354,6 +355,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         pubkeys: Vec<PublicKeyBytes>,
         auto_register: bool,
         individual_tracking_threshold: usize,
+        beacon_proposer_cache: BeaconProposerCache,
         log: Logger,
     ) -> Self {
         let mut s = Self {
@@ -363,6 +365,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             individual_tracking_threshold,
             missed_blocks: <_>::default(),
             log,
+            beacon_proposer_cache,
             _phantom: PhantomData,
         };
         for pubkey in pubkeys {
