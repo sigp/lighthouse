@@ -55,6 +55,12 @@ impl fmt::Debug for PrettyReqwestError {
     }
 }
 
+impl fmt::Display for PrettyReqwestError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl From<reqwest::Error> for PrettyReqwestError {
     fn from(inner: reqwest::Error) -> Self {
         Self(inner)

@@ -159,46 +159,6 @@ impl<E: EthSpec> TaskSpawner<E> {
                 .and_then(|x| x)
         }
     }
-
-    /// Executes an async task which always returns a `Response`.
-    pub async fn spawn_async(
-        self,
-        priority: Priority,
-        func: impl Future<Output = Response> + Send + Sync + 'static,
-    ) -> Response {
-        if let Some(beacon_processor_send) = &self.beacon_processor_send {
-            // Create a wrapper future that will execute `func` and send the
-            // result to a channel held by this thread.
-            let (tx, rx) = oneshot::channel();
-            let process_fn = async move {
-                // Await the future, collect the return value.
-                let func_result = func.await;
-                // Send the result down the channel. Ignore any failures; the
-                // send can only fail if the receiver is dropped.
-                let _ = tx.send(func_result);
-            };
-
-            // Send the function to the beacon processor for execution at some arbitrary time.
-            let result = send_to_beacon_processor(
-                beacon_processor_send,
-                priority,
-                BlockingOrAsync::Async(Box::pin(process_fn)),
-                rx,
-            )
-            .await;
-            convert_rejection(result).await
-        } else {
-            // There is no beacon processor so spawn a task directly on the
-            // tokio executor.
-            tokio::task::spawn(func).await.unwrap_or_else(|e| {
-                warp::reply::with_status(
-                    warp::reply::json(&format!("Tokio did not execute task: {e:?}")),
-                    eth2::StatusCode::INTERNAL_SERVER_ERROR,
-                )
-                .into_response()
-            })
-        }
-    }
 }
 
 /// Send a task to the beacon processor and await execution.

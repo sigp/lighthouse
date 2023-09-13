@@ -40,6 +40,7 @@
 - [How do I check the version of Lighthouse that is running?](#misc-version)
 - [Does Lighthouse have pruning function like the execution client to save disk space?](#misc-prune)
 - [Can I use a HDD for the freezer database and only have the hot db on SSD?](#misc-freezer)
+- [Can Lighthouse log in local timestamp instead of UTC?](#misc-timestamp)
 
 ## Beacon Node
 
@@ -436,15 +437,13 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 
 ### <a name="net-bn-vc"></a> My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?
 
-The settings are as follows:
+The setting on the beacon node is the same for both cases below. In the beacon node, specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than `localhost`. You can find the `local_IP` by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
 
-1. On the beacon node: 
-   
-   Specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than on the `localhost`. 
-
-1. On the validator client:
-
+1. If the beacon node and validator clients are on different servers *in the same network*, the setting in the validator client is as follows:
+ 
    Use the flag `--beacon-nodes` to point to the beacon node. For example, `lighthouse vc --beacon-nodes http://local_IP:5052` where `local_IP` is the local IP address of the beacon node and `5052` is the default `http-port` of the beacon node.
+
+   If you have firewall setup, e.g., `ufw`, you will need to allow port 5052 (assuming that the default port is used) with `sudo ufw allow 5052`. Note: this will allow all IP addresses to access the HTTP API of the beacon node. If you are on an untrusted network (e.g., a university or public WiFi) or the host is exposed to the internet, use apply IP-address filtering as described later in this section.
 
    You can test that the setup is working with by running the following command on the validator client host:
 
@@ -453,8 +452,25 @@ The settings are as follows:
    ```
 
    You can refer to [Redundancy](./redundancy.md) for more information.
-   
-   It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://local_IP:5052` on the validator client.
+
+2. If the beacon node and validator clients are on different servers *and different networks*, it is necessary to perform port forwarding of the SSH port (e.g., the default port 22) on the router, and also allow firewall on the SSH port. The connection can be established via port forwarding on the router.
+
+
+
+      In the validator client, use the flag `--beacon-nodes` to point to the beacon node. However, since the beacon node and the validator client are on different networks, the IP address to use is the public IP address of the beacon node, i.e., `lighthouse vc --beacon-nodes http://public_IP:5052`. You can get the public IP address of the beacon node by running the command ` dig +short myip.opendns.com @resolver1.opendns.com` on the server running the beacon node.
+
+      Additionally, port forwarding of port 5052 on the router connected to the beacon node is required for the vc to connect to the bn. To do port forwarding, refer to [how to open ports](./advanced_networking.md#how-to-open-ports).
+
+
+      If you have firewall setup, e.g., `ufw`, you will need to allow connections to port 5052 (assuming that the default port is used). Since the beacon node HTTP/HTTPS API is public-facing (i.e., the 5052 port is now exposed to the internet due to port forwarding), we strongly recommend users to apply IP-address filtering to the BN/VC connection from malicious actors. This can be done using the command:
+      
+      ```
+      sudo ufw allow from vc_IP_address proto tcp to any port 5052
+      ```
+      where `vc_IP_address` is the public IP address of the validator client. The command will only allow connections to the beacon node from the validator client IP address to prevent malicious attacks on the beacon node over the internet.
+
+
+It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://IP-address:5052` on the validator client.
 
 ### <a name="net-ip"></a> Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?
 No. Lighthouse will auto-detect the change and update your Ethereum Node Record (ENR). You just need to make sure you are not manually setting the ENR with `--enr-address` (which, for common use cases, this flag is not used).
@@ -513,11 +529,9 @@ There is no pruning of Lighthouse database for now. However, since v4.2.0, a fea
 
 Yes, you can do so by using the flag `--freezer-dir /path/to/freezer_db` in the beacon node.
 
+### <a name="misc-timestamp"></a> Can Lighthouse log in local timestamp instead of UTC?
 
-
-
-
-
+The reason why Lighthouse logs in UTC is due to the dependency on an upstream library that is [yet to be resolved](https://github.com/sigp/lighthouse/issues/3130). Alternatively, using the flag `disable-log-timestamp` in combination with systemd will suppress the UTC timestamps and print the logs in local timestamps. 
 
 
 

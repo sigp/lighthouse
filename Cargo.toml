@@ -91,7 +91,8 @@ resolver = "2"
 
 [patch]
 [patch.crates-io]
-warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
+# TODO: remove when 0.3.6 get's released.
+warp = { git = "https://github.com/seanmonstar/warp.git", rev="149913fe" }
 
 [profile.maxperf]
 inherits = "release"

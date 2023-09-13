@@ -30,16 +30,16 @@ where
     /// Create a new iterator which can yield elements from `start_vindex` up to the last
     /// index stored by the restore point at `last_restore_point_slot`.
     ///
-    /// The `last_restore_point` slot should be the slot of a recent restore point as obtained from
-    /// `HotColdDB::get_latest_restore_point_slot`. We pass it as a parameter so that the caller can
+    /// The `freezer_upper_limit` slot should be the slot of a recent restore point as obtained from
+    /// `Root::freezer_upper_limit`. We pass it as a parameter so that the caller can
     /// maintain a stable view of the database (see `HybridForwardsBlockRootsIterator`).
     pub fn new(
         store: &'a HotColdDB<E, Hot, Cold>,
         start_vindex: usize,
-        last_restore_point_slot: Slot,
+        freezer_upper_limit: Slot,
         spec: &ChainSpec,
     ) -> Self {
-        let (_, end_vindex) = F::start_and_end_vindex(last_restore_point_slot, spec);
+        let (_, end_vindex) = F::start_and_end_vindex(freezer_upper_limit, spec);
 
         // Set the next chunk to the one containing `start_vindex`.
         let next_cindex = start_vindex / F::chunk_size();
