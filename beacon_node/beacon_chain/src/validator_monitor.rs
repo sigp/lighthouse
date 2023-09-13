@@ -37,6 +37,9 @@ pub const HISTORIC_EPOCHS: usize = 10;
 /// Prometheus cardinality and log volume.
 pub const DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD: usize = 64;
 
+/// Lag slots used in detecting missed blocks for the monitored validators
+pub const MISSED_BLOCK_LAG_SLOTS: usize = 4;
+
 #[derive(Debug)]
 pub enum Error {
     InvalidPubkey(String),
@@ -416,6 +419,37 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 }
                 self.indices.insert(i, validator.pubkey);
             });
+
+        // Determine missed (non-finalized) blocks (can contain false positives)
+        let range_of_slot = (T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS) - 1;
+        let current_slot = state.slot();
+        for n in 0..range_of_slot {
+            let slot_n = Slot::new(n as u64);
+            let slot = state.slot() - slot_n;
+            let prev_slot = slot - slot_n - 1;
+
+            // condition for missed_block is defined as such block_root == block_root - n
+            if let (Ok(block_root), Ok(prev_block_root)) = (state.get_block_root(slot), state.get_block_root(prev_slot)) {
+                if block_root == prev_block_root {
+                    let epoch = slot.epoch(T::slots_per_epoch());
+                    if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root(epoch, *block_root) {
+                        // TODO: AI(Joel) Ask the team if we can use the beacon proposer cache without the mutex
+                        // mutex is implemented in the caller (BeaconChain), not in the cache implementation
+                        if let Some(proposer) = self.beacon_proposer_cache.get_slot::<T>(shuffling_decision_block, slot) {
+                            self.missed_blocks.insert((current_epoch, proposer.index as u64, slot));
+                        } else {
+                            debug!(
+                                self.log,
+                                "Could not find proposer for missed block";
+                                "slot" => slot,
+                                "block_root" => format!("{}", block_root),
+                                "shuffling_decision_block" => format!("{}", shuffling_decision_block),
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         // Update metrics for individual validators.
         for monitored_validator in self.validators.values() {
