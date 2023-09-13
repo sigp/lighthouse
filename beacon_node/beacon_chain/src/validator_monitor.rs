@@ -361,6 +361,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             indices: <_>::default(),
             auto_register,
             individual_tracking_threshold,
+            missed_blocks: <_>::default(),
             log,
             _phantom: PhantomData,
         };
