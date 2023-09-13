@@ -2704,12 +2704,6 @@ async fn revert_minority_fork_on_resume() {
 }
 
 #[tokio::test]
-#[ignore]
-// FIXME(jimmy): Ignoring this now as the test is flaky :/ It intermittently fails with an IO error
-// "..cold_db/LOCK file held by another process".
-// There seems to be some race condition between dropping the lock file and and re-opening the db.
-// There's a higher chance this test would fail when the entire test suite is run. Maybe it isn't
-// fast enough at dropping the cold_db LOCK file before the test attempts to open it again.
 async fn should_not_initialize_incompatible_store_config() {
     let validator_count = 16;
     let spec = MinimalEthSpec::default_spec();
@@ -2720,11 +2714,22 @@ async fn should_not_initialize_incompatible_store_config() {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .spec(spec.clone())
         .deterministic_keypairs(validator_count)
-        .fresh_disk_store(store)
+        .fresh_disk_store(store.clone())
         .build();
 
-    // Resume from disk with a different store config.
+    // Ensure the store is dropped & closed.
+    // This test was a bit flaky, with the store not getting dropped before attempting to re-open
+    // it. Checking the strong_count is an attempt to remedy this.
     drop(harness);
+    for _ in 0..100 {
+        if Arc::strong_count(&store) == 1 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    drop(store);
+
+    // Resume from disk with a different store config.
     let different_store_config = StoreConfig {
         linear_blocks: !store_config.linear_blocks,
         ..store_config
