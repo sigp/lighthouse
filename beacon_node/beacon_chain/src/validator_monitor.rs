@@ -15,12 +15,14 @@ use std::io;
 use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use itertools::Itertools;
 use store::AbstractExecPayload;
 use types::{
     AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
     IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
     SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
 };
+use crate::beacon_proposer_cache::BeaconProposerCache;
 
 /// Used for Prometheus labels.
 ///
@@ -436,7 +438,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         // TODO: AI(Joel) Ask the team if we can use the beacon proposer cache without the mutex
                         // mutex is implemented in the caller (BeaconChain), not in the cache implementation
                         if let Some(proposer) = self.beacon_proposer_cache.get_slot::<T>(shuffling_decision_block, slot) {
-                            self.missed_blocks.insert((current_epoch, proposer.index as u64, slot));
+                            // only add missed block for the proposer if it's in the list of monitored validators
+                            if self.validators
+                                .values()
+                                .into_iter()
+                                .find(|validator| validator.index == Some(proposer.index as u64))
+                                .is_some() {
+                                self.missed_blocks.insert((current_epoch, proposer.index as u64, slot));
+                            }
                         } else {
                             debug!(
                                 self.log,
