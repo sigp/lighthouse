@@ -73,7 +73,7 @@ jobs:
       run: make test-release
   release-tests-windows:
     name: release-tests-windows
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows"]') || 'windows-2019'  }}
+    runs-on: 'windows-2019' # temp nuke self-hosted ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows"]') || 'windows-2019'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
