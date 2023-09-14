@@ -522,6 +522,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             let slot = state.slot() - slot_n;
             let prev_slot = slot - slot_n - 1;
 
+            // safeguard if we are on a new chain, the slot - 1 can be negative
+            if prev_slot < 0 {
+                break;
+            }
+
             // condition for missed_block is defined such as block_root == block_root - n
             // where the proposer who missed the block is the proposer of the block at block_root - n
             if let (Ok(block_root), Ok(prev_block_root)) = (state.get_block_root(slot), state.get_block_root(prev_slot)) {
@@ -542,7 +547,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         } else {
                             debug!(
                                 self.log,
-                                "Could not find proposer for missed block in beacon proposer cache";
+                                "Could not find proposer for a missed non-finalized block in beacon proposer cache";
                                 "slot" => slot,
                                 "block_root" => format!("{}", block_root),
                                 "shuffling_decision_block" => format!("{}", shuffling_decision_block),
@@ -553,11 +558,16 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             }
         }
 
+        // Determine missed (finalized) blocks (should not contain false positives)
+        let finalized_epoch = state.finalized_checkpoint().epoch;
+        state
+            .block_roots()
+            .iter()
+
+
         // Prune missed blocks that are prior to last finalized epoch
         let finalized_epoch = state.finalized_checkpoint().epoch;
-        self.missed_blocks.retain(|(epoch, _, slot)| {
-            *epoch >= finalized_epoch && *slot >= state.slot()
-        });
+        self.missed_blocks.retain(|(epoch, _, _)| *epoch >= finalized_epoch);
     }
 
     /// Run `func` with the `TOTAL_LABEL` and optionally the
