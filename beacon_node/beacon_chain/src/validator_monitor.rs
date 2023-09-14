@@ -422,47 +422,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 self.indices.insert(i, validator.pubkey);
             });
 
-        // Determine missed (non-finalized) blocks (can contain false positives)
-        let range_of_slot = (T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS) - 1;
-        for n in 0..range_of_slot {
-            let slot_n = Slot::new(n as u64);
-            let slot = state.slot() - slot_n;
-            let prev_slot = slot - slot_n - 1;
-
-            // condition for missed_block is defined such as block_root == block_root - n
-            // where the proposer who missed the block is the proposer of the block at block_root - n
-            if let (Ok(block_root), Ok(prev_block_root)) = (state.get_block_root(slot), state.get_block_root(prev_slot)) {
-                if block_root == prev_block_root {
-                    let epoch = slot.epoch(T::slots_per_epoch());
-                    if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root(epoch, *block_root) {
-                        // TODO: AI(Joel) Ask the team if we can use the beacon proposer cache without the mutex
-                        // mutex is implemented in the caller (BeaconChain), not in the cache implementation
-                        if let Some(proposer) = self.beacon_proposer_cache.get_slot::<T>(shuffling_decision_block, slot) {
-                            // only add missed blocks for the proposer if it's in the list of monitored validators
-                            if self.validators
-                                .values()
-                                .into_iter()
-                                .find(|validator| validator.index == Some(proposer.index as u64))
-                                .is_some() {
-                                self.missed_blocks.insert((current_epoch, proposer.index as u64, slot));
-                            }
-                        } else {
-                            debug!(
-                                self.log,
-                                "Could not find proposer for missed block";
-                                "slot" => slot,
-                                "block_root" => format!("{}", block_root),
-                                "shuffling_decision_block" => format!("{}", shuffling_decision_block),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        // Prune missed blocks that are prior to last finalized epoch
-        let finalized_epoch = state.finalized_checkpoint().epoch;
-        self.missed_blocks.retain(|(epoch, _, _)| *epoch >= finalized_epoch);
+        // Add missed blocks for the monitored validators
+        self.add_validators_missed_blocks(current_epoch, state);
 
         // Update metrics for individual validators.
         for monitored_validator in self.validators.values() {
@@ -542,6 +503,50 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 }
             }
         }
+    }
+
+    fn add_validators_missed_blocks(&mut self, current_epoch: Epoch, state: &BeaconState<T>) {
+// Determine missed (non-finalized) blocks (can contain false positives)
+        let range_of_slot = (T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS) - 1;
+        for n in 0..range_of_slot {
+            let slot_n = Slot::new(n as u64);
+            let slot = state.slot() - slot_n;
+            let prev_slot = slot - slot_n - 1;
+
+            // condition for missed_block is defined such as block_root == block_root - n
+            // where the proposer who missed the block is the proposer of the block at block_root - n
+            if let (Ok(block_root), Ok(prev_block_root)) = (state.get_block_root(slot), state.get_block_root(prev_slot)) {
+                if block_root == prev_block_root {
+                    let epoch = slot.epoch(T::slots_per_epoch());
+                    if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root(epoch, *block_root) {
+                        // TODO: AI(Joel) Ask the team if we can use the beacon proposer cache without the mutex
+                        // mutex is implemented in the caller (BeaconChain), not in the cache implementation
+                        if let Some(proposer) = self.beacon_proposer_cache.get_slot::<T>(shuffling_decision_block, slot) {
+                            // only add missed blocks for the proposer if it's in the list of monitored validators
+                            if self.validators
+                                .values()
+                                .into_iter()
+                                .find(|validator| validator.index == Some(proposer.index as u64))
+                                .is_some() {
+                                self.missed_blocks.insert((current_epoch, proposer.index as u64, slot));
+                            }
+                        } else {
+                            debug!(
+                                self.log,
+                                "Could not find proposer for missed block";
+                                "slot" => slot,
+                                "block_root" => format!("{}", block_root),
+                                "shuffling_decision_block" => format!("{}", shuffling_decision_block),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Prune missed blocks that are prior to last finalized epoch
+        let finalized_epoch = state.finalized_checkpoint().epoch;
+        self.missed_blocks.retain(|(epoch, _, _)| *epoch >= finalized_epoch);
     }
 
     /// Run `func` with the `TOTAL_LABEL` and optionally the
