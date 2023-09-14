@@ -1322,6 +1322,24 @@ impl<T: EthSpec> BeaconState<T> {
         ))
     }
 
+    /// Return the activation churn limit for the current epoch (number of validators who can enter per epoch).
+    ///
+    /// Uses the epoch cache, and will error if it isn't initialized.
+    ///
+    /// Spec v1.4.0
+    pub fn get_activation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        Ok(match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_) => self.get_churn_limit(spec)?,
+            BeaconState::Deneb(_) => std::cmp::min(
+                spec.max_per_epoch_activation_churn_limit,
+                self.get_churn_limit(spec)?,
+            ),
+        })
+    }
+
     /// Returns the `slot`, `index`, `committee_position` and `committee_len` for which a validator must produce an
     /// attestation.
     ///

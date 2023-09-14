@@ -51,6 +51,7 @@ pub struct ChainSpec {
     pub max_committees_per_slot: usize,
     pub target_committee_size: usize,
     pub min_per_epoch_churn_limit: u64,
+    pub max_per_epoch_activation_churn_limit: u64,
     pub churn_limit_quotient: u64,
     pub shuffle_round_count: u8,
     pub min_genesis_active_validator_count: u64,
@@ -510,6 +511,7 @@ impl ChainSpec {
             max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
+            max_per_epoch_activation_churn_limit: 8,
             churn_limit_quotient: 65_536,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 16_384,
@@ -750,6 +752,7 @@ impl ChainSpec {
             max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
+            max_per_epoch_activation_churn_limit: 8,
             churn_limit_quotient: 4_096,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 4_096,
@@ -1015,6 +1018,8 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
+    max_per_epoch_activation_churn_limit: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
     churn_limit_quotient: u64,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1227,6 +1232,7 @@ impl Config {
             ejection_balance: spec.ejection_balance,
             churn_limit_quotient: spec.churn_limit_quotient,
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
+            max_per_epoch_activation_churn_limit: spec.max_per_epoch_activation_churn_limit,
 
             proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
 
@@ -1284,6 +1290,7 @@ impl Config {
             inactivity_score_recovery_rate,
             ejection_balance,
             min_per_epoch_churn_limit,
+            max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost,
             deposit_chain_id,
@@ -1328,6 +1335,7 @@ impl Config {
             inactivity_score_recovery_rate,
             ejection_balance,
             min_per_epoch_churn_limit,
+            max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost: proposer_score_boost.map(|q| q.value),
             deposit_chain_id,
@@ -1583,6 +1591,7 @@ mod yaml_tests {
         INACTIVITY_SCORE_RECOVERY_RATE: 16
         EJECTION_BALANCE: 16000000000
         MIN_PER_EPOCH_CHURN_LIMIT: 4
+        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
         CHURN_LIMIT_QUOTIENT: 65536
         PROPOSER_SCORE_BOOST: 40
         DEPOSIT_CHAIN_ID: 1
