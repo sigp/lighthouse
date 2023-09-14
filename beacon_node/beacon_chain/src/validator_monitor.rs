@@ -555,7 +555,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
         // Prune missed blocks that are prior to last finalized epoch
         let finalized_epoch = state.finalized_checkpoint().epoch;
-        self.missed_blocks.retain(|(epoch, _, _)| *epoch >= finalized_epoch);
+        self.missed_blocks.retain(|(epoch, _, slot)| {
+            *epoch >= finalized_epoch && *slot >= state.slot()
+        });
     }
 
     /// Run `func` with the `TOTAL_LABEL` and optionally the
