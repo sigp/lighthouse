@@ -813,6 +813,11 @@ lazy_static! {
         "Number of attester slashings seen",
         &["src", "validator"]
     );
+    pub static ref VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_missed_non_finalized_blocks_total",
+        "Number of non-finalized blocks missed",
+        &["epoch", "slot", "validator"]
+    );
 
     /*
      * Block Delay Metrics

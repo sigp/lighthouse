@@ -15,7 +15,6 @@ use std::io;
 use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use itertools::Itertools;
 use store::AbstractExecPayload;
 use types::{
     AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
@@ -501,12 +500,22 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         u64_to_i64(validator.withdrawable_epoch),
                     );
                 }
+
+                // Add non finalized missed blocks for the monitored validators for the current slot of the current epoch
+                let current_slot = state.slot();
+                self.missed_blocks.contains(&(current_epoch, i as u64, current_slot))
+                    .then(|| {
+                        metrics::inc_counter_vec(
+                            &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
+                            &[current_epoch.to_string().as_str(), current_slot.to_string().as_str(), id],
+                        );
+                    });
             }
         }
     }
 
     fn add_validators_missed_blocks(&mut self, current_epoch: Epoch, state: &BeaconState<T>) {
-// Determine missed (non-finalized) blocks (can contain false positives)
+        // Determine missed (non-finalized) blocks (can contain false positives)
         let range_of_slot = (T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS) - 1;
         for n in 0..range_of_slot {
             let slot_n = Slot::new(n as u64);
@@ -533,7 +542,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         } else {
                             debug!(
                                 self.log,
-                                "Could not find proposer for missed block";
+                                "Could not find proposer for missed block in beacon proposer cache";
                                 "slot" => slot,
                                 "block_root" => format!("{}", block_root),
                                 "shuffling_decision_block" => format!("{}", shuffling_decision_block),
