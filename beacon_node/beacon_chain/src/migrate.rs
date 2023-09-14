@@ -218,7 +218,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         if let Err(e) = db.try_prune_blobs(false, data_availability_boundary) {
             error!(
                 log,
-                "Blobs pruning failed";
+                "Blob pruning failed";
                 "error" => ?e,
             );
         }

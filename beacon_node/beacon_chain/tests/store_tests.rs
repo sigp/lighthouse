@@ -2859,10 +2859,11 @@ async fn deneb_prune_blobs_happy_case() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
 
-    if store.get_chain_spec().deneb_fork_epoch.is_none() {
+    let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
-    }
+    };
+    let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
 
     let num_blocks_produced = E::slots_per_epoch() * 8;
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
@@ -2877,7 +2878,10 @@ async fn deneb_prune_blobs_happy_case() {
 
     // Prior to manual pruning with an artifically low data availability boundary all blobs should
     // be stored.
-    assert_eq!(store.get_blob_info().oldest_blob_slot, None);
+    assert_eq!(
+        store.get_blob_info().oldest_blob_slot,
+        Some(deneb_fork_slot)
+    );
     check_blob_existence(&harness, Slot::new(1), harness.head_slot(), true);
 
     // Trigger blob pruning of blobs older than epoch 2.
@@ -2902,10 +2906,11 @@ async fn deneb_prune_blobs_no_finalization() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
 
-    if store.get_chain_spec().deneb_fork_epoch.is_none() {
+    let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
-    }
+    };
+    let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
 
     let initial_num_blocks = E::slots_per_epoch() * 5;
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
@@ -2936,7 +2941,10 @@ async fn deneb_prune_blobs_no_finalization() {
     assert_eq!(store.get_split_slot(), finalized_slot);
 
     // All blobs should still be available.
-    assert_eq!(store.get_blob_info().oldest_blob_slot, None);
+    assert_eq!(
+        store.get_blob_info().oldest_blob_slot,
+        Some(deneb_fork_slot)
+    );
     check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
 
     // Attempt blob pruning of blobs older than epoch 4, which is newer than finalization.
@@ -2958,6 +2966,7 @@ async fn deneb_prune_blobs_fork_boundary() {
     let deneb_fork_epoch = Epoch::new(4);
     let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
     spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+    let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
 
     let db_path = tempdir().unwrap();
     let store = get_store_with_spec(&db_path, spec);
@@ -2985,7 +2994,10 @@ async fn deneb_prune_blobs_fork_boundary() {
     assert_eq!(store.get_split_slot(), finalized_slot);
 
     // All blobs should still be available.
-    assert_eq!(store.get_blob_info().oldest_blob_slot, None);
+    assert_eq!(
+        store.get_blob_info().oldest_blob_slot,
+        Some(deneb_fork_slot)
+    );
     check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
 
     // Attempt pruning with data availability epochs that precede the fork epoch.
@@ -2997,7 +3009,10 @@ async fn deneb_prune_blobs_fork_boundary() {
             .unwrap();
 
         // Check oldest blob slot is not updated.
-        assert_eq!(store.get_blob_info().oldest_blob_slot, None);
+        assert_eq!(
+            store.get_blob_info().oldest_blob_slot,
+            Some(deneb_fork_slot)
+        );
     }
     // All blobs should still be available.
     check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);

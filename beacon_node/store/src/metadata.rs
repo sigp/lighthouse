@@ -127,7 +127,13 @@ impl StoreItem for AnchorInfo {
 /// Database parameters relevant to blob sync.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
 pub struct BlobInfo {
-    /// The slot after which blobs are available (>=).
+    /// The slot after which blobs are or *will be* available (>=).
+    ///
+    /// If this slot is in the future, then it is the first slot of the Deneb fork, from which blobs
+    /// will be available.
+    ///
+    /// If the `oldest_blob_slot` is `None` then this means that the Deneb fork epoch is not yet
+    /// known.
     pub oldest_blob_slot: Option<Slot>,
     /// A separate blobs database is in use.
     pub blobs_db: bool,

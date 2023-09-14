@@ -9,7 +9,7 @@ use state_processing::{
 use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
-use store::{chunked_vector::BlockRoots, AnchorInfo, ChunkWriter, KeyValueStore};
+use store::{chunked_vector::BlockRoots, AnchorInfo, BlobInfo, ChunkWriter, KeyValueStore};
 use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -65,6 +65,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .store
             .get_anchor_info()
             .ok_or(HistoricalBlockError::NoAnchorInfo)?;
+        let blob_info = self.store.get_blob_info();
 
         // Take all blocks with slots less than the oldest block slot.
         let num_relevant = blocks.partition_point(|available_block| {
@@ -98,6 +99,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut prev_block_slot = anchor_info.oldest_block_slot;
         let mut chunk_writer =
             ChunkWriter::<BlockRoots, _, _>::new(&self.store.cold_db, prev_block_slot.as_usize())?;
+        let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
 
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len() + n_blobs_lists_to_import);
@@ -123,6 +125,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .blinded_block_as_kv_store_ops(&block_root, &blinded_block, &mut hot_batch);
             // Store the blobs too
             if let Some(blobs) = maybe_blobs {
+                new_oldest_blob_slot = Some(block.slot());
                 self.store
                     .blobs_as_kv_store_ops(&block_root, blobs, &mut hot_batch);
             }
@@ -206,6 +209,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.hot_db.do_atomically(hot_batch)?;
         self.store.cold_db.do_atomically(cold_batch)?;
 
+        let mut anchor_and_blob_batch = Vec::with_capacity(2);
+
+        // Update the blob info.
+        if let Some(oldest_blob_slot) = new_oldest_blob_slot {
+            let new_blob_info = BlobInfo {
+                oldest_blob_slot: Some(oldest_blob_slot),
+                ..blob_info.clone()
+            };
+            anchor_and_blob_batch.push(
+                self.store
+                    .compare_and_set_blob_info(blob_info, new_blob_info)?,
+            );
+        }
+
         // Update the anchor.
         let new_anchor = AnchorInfo {
             oldest_block_slot: prev_block_slot,
@@ -213,8 +230,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ..anchor_info
         };
         let backfill_complete = new_anchor.block_backfill_complete(self.genesis_backfill_slot);
-        self.store
-            .compare_and_set_anchor_info_with_write(Some(anchor_info), Some(new_anchor))?;
+        anchor_and_blob_batch.push(
+            self.store
+                .compare_and_set_anchor_info(Some(anchor_info), Some(new_anchor))?,
+        );
+        self.store.hot_db.do_atomically(anchor_and_blob_batch)?;
 
         // If backfill has completed and the chain is configured to reconstruct historic states,
         // send a message to the background migrator instructing it to begin reconstruction.

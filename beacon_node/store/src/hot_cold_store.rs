@@ -263,35 +263,33 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         // Open separate blobs directory if configured and same configuration was used on previous
         // run.
         let blob_info = db.load_blob_info()?;
-        let new_blob_info = {
-            match (&blob_info, &blobs_db_path) {
-                (Some(blob_info), Some(_)) => {
-                    if !blob_info.blobs_db {
+        let deneb_fork_slot = db
+            .spec
+            .deneb_fork_epoch
+            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
+        let new_blob_info = match &blob_info {
+            Some(blob_info) => {
+                // If the oldest block slot is already set do not allow the blob DB path to be
+                // changed (require manual migration).
+                if blob_info.oldest_blob_slot.is_some() {
+                    if blobs_db_path.is_some() && !blob_info.blobs_db {
                         return Err(HotColdDBError::BlobsPreviouslyInDefaultStore.into());
-                    }
-                    BlobInfo {
-                        oldest_blob_slot: blob_info.oldest_blob_slot,
-                        blobs_db: true,
-                    }
-                }
-                (Some(blob_info), None) => {
-                    if blob_info.blobs_db {
+                    } else if blobs_db_path.is_none() && blob_info.blobs_db {
                         return Err(HotColdDBError::MissingPathToBlobsDatabase.into());
                     }
-                    BlobInfo {
-                        oldest_blob_slot: blob_info.oldest_blob_slot,
-                        blobs_db: false,
-                    }
                 }
-                (None, Some(_)) => BlobInfo {
-                    oldest_blob_slot: None,
-                    blobs_db: true,
-                }, // first time starting up node
-                (None, None) => BlobInfo {
-                    oldest_blob_slot: None,
-                    blobs_db: false,
-                }, // first time starting up node
+                BlobInfo {
+                    // Set the oldest blob slot to the Deneb fork slot if it is not yet set.
+                    oldest_blob_slot: deneb_fork_slot,
+                    blobs_db: blobs_db_path.is_some(),
+                }
             }
+            // First start.
+            None => BlobInfo {
+                // Set the oldest blob slot to the Deneb fork slot if it is not yet set.
+                oldest_blob_slot: deneb_fork_slot,
+                blobs_db: blobs_db_path.is_some(),
+            },
         };
         if new_blob_info.blobs_db {
             if let Some(path) = &blobs_db_path {
@@ -1624,6 +1622,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|a| a.anchor_slot)
     }
 
+    /// Initialize the `BlobInfo` when starting from genesis or a checkpoint.
+    pub fn init_blob_info(&self, anchor_slot: Slot) -> Result<KeyValueStoreOp, Error> {
+        let oldest_blob_slot = if let Some(deneb_fork_epoch) = self.spec.deneb_fork_epoch {
+            Some(std::cmp::max(
+                anchor_slot,
+                deneb_fork_epoch.start_slot(E::slots_per_epoch()),
+            ))
+        } else {
+            // Deneb fork epoch not known yet.
+            None
+        };
+        let blob_info = BlobInfo {
+            oldest_blob_slot,
+            blobs_db: self.blobs_db.is_some(),
+        };
+        self.compare_and_set_blob_info(self.get_blob_info(), blob_info)
+    }
+
     /// Get a clone of the store's blob info.
     ///
     /// To do mutations, use `compare_and_set_blob_info`.
@@ -1638,7 +1654,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Return an `BlobInfoConcurrentMutation` error if the `prev_value` provided
     /// is not correct.
-    fn compare_and_set_blob_info(
+    pub fn compare_and_set_blob_info(
         &self,
         prev_value: BlobInfo,
         new_value: BlobInfo,
@@ -1654,7 +1670,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// As for `compare_and_set_blob_info`, but also writes the blob info to disk immediately.
-    fn compare_and_set_blob_info_with_write(
+    pub fn compare_and_set_blob_info_with_write(
         &self,
         prev_value: BlobInfo,
         new_value: BlobInfo,
@@ -2046,14 +2062,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         force: bool,
         data_availability_boundary: Epoch,
     ) -> Result<(), Error> {
-        let deneb_fork_epoch = match self.spec.deneb_fork_epoch {
+        let _deneb_fork_epoch = match self.spec.deneb_fork_epoch {
             Some(epoch) => epoch,
             None => {
                 debug!(self.log, "Deneb fork is disabled");
                 return Ok(());
             }
         };
-        let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
 
         let pruning_enabled = self.get_config().prune_blobs;
         let margin_epochs = self.get_config().blob_prune_margin_epochs;
@@ -2068,19 +2083,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(());
         }
 
-        if data_availability_boundary <= deneb_fork_epoch {
-            debug!(
-                self.log,
-                "Blob pruning unnecessary";
-                "data_availability_boundary" => data_availability_boundary,
-                "deneb_fork_epoch_epoch" => deneb_fork_epoch,
-            );
-            return Ok(());
-        }
-
-        let anchor = self.get_anchor_info();
         let blob_info = self.get_blob_info();
-        let oldest_blob_slot = blob_info.get_oldest_blob_slot(deneb_fork_slot, anchor.as_ref());
+        let Some(oldest_blob_slot) = blob_info.oldest_blob_slot else {
+            error!(self.log, "Slot of oldest blob is not known");
+            return Err(HotColdDBError::BlobPruneLogicError.into());
+        };
 
         // Start pruning from the epoch of the oldest blob stored.
         // The start epoch is inclusive (blobs in this epoch will be pruned).
@@ -2096,21 +2103,31 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         );
         let end_slot = end_epoch.end_slot(E::slots_per_epoch());
 
+        let can_prune = end_epoch != 0 && start_epoch <= end_epoch;
         let should_prune = start_epoch + epochs_per_blob_prune <= end_epoch + 1;
 
-        if !force && !should_prune {
+        if !force && !should_prune || !can_prune {
             debug!(
                 self.log,
                 "Blobs are pruned";
                 "oldest_blob_slot" => oldest_blob_slot,
                 "data_availability_boundary" => data_availability_boundary,
+                "split_slot" => split.slot,
             );
             return Ok(());
         }
 
-        // Sanity check.
-        if start_epoch > end_epoch {
-            return Err(HotColdDBError::BlobPruneLogicError.into());
+        // Sanity checks.
+        if let Some(anchor) = self.get_anchor_info() {
+            if oldest_blob_slot < anchor.oldest_block_slot {
+                error!(
+                    self.log,
+                    "Oldest blob is older than oldest block";
+                    "oldest_blob_slot" => oldest_blob_slot,
+                    "oldest_block_slot" => anchor.oldest_block_slot
+                );
+                return Err(HotColdDBError::BlobPruneLogicError.into());
+            }
         }
 
         // Iterate block roots forwards from the oldest blob slot.
@@ -2129,12 +2146,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             oldest_blob_slot,
             end_slot,
             || {
-                let split_state = self.get_state(&split.state_root, Some(split.slot))?.ok_or(
-                    HotColdDBError::MissingSplitState(split.state_root, split.slot),
-                )?;
-                let split_block_root = split_state.get_latest_block_root(split.state_root);
+                let (_, split_state) = self
+                    .get_advanced_hot_state(split.block_root, split.slot, split.state_root)?
+                    .ok_or(HotColdDBError::MissingSplitState(
+                        split.state_root,
+                        split.slot,
+                    ))?;
 
-                Ok((split_state, split_block_root))
+                Ok((split_state, split.block_root))
             },
             &self.spec,
         )? {
