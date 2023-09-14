@@ -518,9 +518,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         // Determine missed (non-finalized) blocks (can contain false positives)
         let range_of_slot = (T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS) - 1;
         for n in 0..range_of_slot {
-            let slot_n = Slot::new(n as u64);
-            let slot = state.slot() - slot_n;
-            let prev_slot = slot - slot_n - 1;
+            let slot = state.slot() - Slot::new(n as u64);
+            let prev_slot = slot - 1;
 
             // safeguard if we are on a new chain, the slot - 1 can be negative
             if prev_slot < 0 {
@@ -557,13 +556,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 }
             }
         }
-
-        // Determine missed (finalized) blocks (should not contain false positives)
-        let finalized_epoch = state.finalized_checkpoint().epoch;
-        state
-            .block_roots()
-            .iter()
-
 
         // Prune missed blocks that are prior to last finalized epoch
         let finalized_epoch = state.finalized_checkpoint().epoch;
