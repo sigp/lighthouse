@@ -2795,14 +2795,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        todo!()
-        // self.data_availability_checker.notify_blob();
-        // self.check_gossip_blob_availability_and_import(blob)
-        //     .await
-        //     .map_err(|e| {
-        //         self.data_availability_checker.remove_notified_blob();
-        //         e
-        //     })
+        self.data_availability_checker.notify_blob();
+        self.check_gossip_blob_availability_and_import(blob)
+            .await
+            .map_err(|e| {
+                self.data_availability_checker.remove_notified_blob();
+                e
+            })
     }
 
     pub async fn process_rpc_blobs(
@@ -2811,14 +2810,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        todo!();
-        // self.data_availability_checker.notify_blob();
-        // self.check_rpc_blob_availability_and_import(slot, block_root, blobs)
-        //     .await
-        //     .map_err(|e| {
-        //         self.data_availability_checker.remove_notified_blob(block_root);
-        //         e
-        //     })
+        self.data_availability_checker.notify_blob();
+        self.check_rpc_blob_availability_and_import(slot, block_root, blobs)
+            .await
+            .map_err(|e| {
+                self.data_availability_checker
+                    .remove_notified_blob(block_root);
+                e
+            })
     }
 
     pub async fn process_block_with_early_caching<B: IntoExecutionPendingBlock<T>>(
@@ -2827,15 +2826,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        todo!();
-
-        // self.data_availability_checker.notify_block();
-        // self.process_block(block_root, unverified_block, notify_execution_layer)
-        //     .await
-        //     .map_err(|e| {
-        //         self.data_availability_checker.remove_notified_block();
-        //         e
-        //     })
+        self.data_availability_checker.notify_block();
+        self.process_block(block_root, unverified_block, notify_execution_layer)
+            .await
+            .map_err(|e| {
+                self.data_availability_checker.remove_notified_block();
+                e
+            })
     }
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
     /// imported into the chain.

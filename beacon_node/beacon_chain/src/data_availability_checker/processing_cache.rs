@@ -4,6 +4,7 @@ use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::GossipVerifiedBlock;
 use kzg::KzgCommitment;
 use parking_lot::{Mutex, RwLock};
+use ssz_types::FixedVector;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
@@ -47,8 +48,15 @@ impl<E: EthSpec> SimplifiedPendingComponents<E> {
 }
 
 impl<E: EthSpec> ProcessingCache<E> {
-    pub fn put_processed(&mut self, block_root: Hash256) -> bool {
-        self.processed_cache.insert(block_root)
+    pub fn put_processing_block(&mut self, block_root: Hash256) {
+        self.processing_cache.insert(block_root);
+    }
+    pub fn put_processing_blob(&mut self, block_root: Hash256) {
+        self.processing_cache.insert(block_root);
+    }
+
+    pub fn put_processed(&mut self, block_root: Hash256) {
+        self.processed_cache.insert(block_root);
     }
 
     pub fn has_block(&self, block_root: &Hash256) -> bool {

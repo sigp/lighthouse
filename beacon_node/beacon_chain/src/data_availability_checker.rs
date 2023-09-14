@@ -5,6 +5,7 @@ use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
 use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
+use crate::data_availability_checker::processing_cache::ProcessingCache;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore, GossipVerifiedBlock};
 use kzg::Error as KzgError;
 use kzg::Kzg;
@@ -85,6 +86,7 @@ impl From<ssz::DecodeError> for AvailabilityCheckError {
 /// `DataAvailabilityChecker` is responsible for KZG verification of block components as well as
 /// checking whether a "availability check" is required at all.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
+    processing_cache: ProcessingCache<T::EthSpec>,
     availability_cache: Arc<OverflowLRUCache<T>>,
     slot_clock: T::SlotClock,
     kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
@@ -285,7 +287,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 
     pub fn notify_block(&self, block: &GossipVerifiedBlock<T>) -> bool {
-        todo!()
+        self.availability_cache.notify_block(block)
     }
 
     pub fn notify_blob(&self, block_root: Hash256, blob: &BlobSidecar<T::EthSpec>) -> bool {
