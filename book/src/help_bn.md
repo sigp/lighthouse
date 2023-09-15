@@ -29,8 +29,6 @@ FLAGS:
         --disable-deposit-contract-sync        Explictly disables syncing of deposit logs from the execution node. This
                                                overrides any previous option that depends on it. Useful if you intend to
                                                run a non-validating beacon node.
-        --disable-discovery                    Disables the discv5 discovery protocol. The node will not search for new
-                                               peers or participate in the discovery protocol.
     -x, --disable-enr-auto-update              Discovery automatically updates the nodes local ENR with an external IP
                                                address and port as seen by other peers on the network. This disables
                                                this feature, fixing the ENR's IP/PORT to those specified on boot.
@@ -47,6 +45,8 @@ FLAGS:
         --disable-packet-filter                Disables the discovery packet filter. Useful for testing in smaller
                                                networks
         --disable-proposer-reorgs              Do not attempt to reorg late blocks from other validators when proposing.
+        --disable-quic                         Disables the quic transport. The node will rely solely on the TCP
+                                               transport for libp2p connections.
         --disable-upnp                         Disables UPnP support. Setting this will prevent Lighthouse from
                                                attempting to automatically establish external port mappings.
         --dummy-eth1                           If present, uses an eth1 backend that generates static dummy
@@ -196,7 +196,7 @@ OPTIONS:
             The UDP port that discovery will listen on. Defaults to `port`
 
         --discovery-port6 <PORT>
-            The UDP port that discovery will listen on over IpV6 if listening over both Ipv4 and IpV6. Defaults to
+            The UDP port that discovery will listen on over IPv6 if listening over both IPv4 and IPv6. Defaults to
             `port6`
         --enr-address <ADDRESS>...
             The IP address/ DNS address to broadcast to other peers on how to reach this node. If a DNS address is
@@ -204,18 +204,24 @@ OPTIONS:
             responses in discovery. Set this only if you are sure other nodes can connect to your local node on this
             address. This will update the `ip4` or `ip6` ENR fields accordingly. To update both, set this flag twice
             with the different values.
+        --enr-quic-port <PORT>
+            The quic UDP4 port that will be set on the local ENR. Set this only if you are sure other nodes can connect
+            to your local node on this port over IPv4.
+        --enr-quic6-port <PORT>
+            The quic UDP6 port that will be set on the local ENR. Set this only if you are sure other nodes can connect
+            to your local node on this port over IPv6.
         --enr-tcp-port <PORT>
             The TCP4 port of the local ENR. Set this only if you are sure other nodes can connect to your local node on
-            this port over IpV4. The --port flag is used if this is not set.
+            this port over IPv4. The --port flag is used if this is not set.
         --enr-tcp6-port <PORT>
             The TCP6 port of the local ENR. Set this only if you are sure other nodes can connect to your local node on
-            this port over IpV6. The --port6 flag is used if this is not set.
+            this port over IPv6. The --port6 flag is used if this is not set.
         --enr-udp-port <PORT>
             The UDP4 port of the local ENR. Set this only if you are sure other nodes can connect to your local node on
-            this port over IpV4.
+            this port over IPv4.
         --enr-udp6-port <PORT>
             The UDP6 port of the local ENR. Set this only if you are sure other nodes can connect to your local node on
-            this port over IpV6.
+            this port over IPv6.
         --epochs-per-migration <N>
             The number of epochs to wait between running the migration of data from the hot DB to the cold DB. Less
             frequent runs can be useful for minimizing disk writes [default: 1]
@@ -311,10 +317,10 @@ OPTIONS:
             The address lighthouse will listen for UDP and TCP connections. To listen over IpV4 and IpV6 set this flag
             twice with the different values.
             Examples:
-            - --listen-address '0.0.0.0' will listen over Ipv4.
-            - --listen-address '::' will listen over Ipv6.
-            - --listen-address '0.0.0.0' --listen-address '::' will listen over both Ipv4 and Ipv6. The order of the
-            given addresses is not relevant. However, multiple Ipv4, or multiple Ipv6 addresses will not be accepted.
+            - --listen-address '0.0.0.0' will listen over IPv4.
+            - --listen-address '::' will listen over IPv6.
+            - --listen-address '0.0.0.0' --listen-address '::' will listen over both IPv4 and IPv6. The order of the
+            given addresses is not relevant. However, multiple IPv4, or multiple IPv6 addresses will not be accepted.
             [default: 0.0.0.0]
         --log-format <FORMAT>
             Specifies the log format used when emitting logs to the terminal. [possible values: JSON]
@@ -365,12 +371,13 @@ OPTIONS:
             Data directory for network keys. Defaults to network/ inside the beacon node dir.
 
         --port <PORT>
-            The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag. If listening over
-            both Ipv4 and Ipv6 the --port flag will apply to the Ipv4 address and --port6 to the Ipv6 address. [default:
-            9000]
+            The TCP/UDP ports to listen on. There are two UDP ports. The discovery UDP port will be set to this value
+            and the Quic UDP port will be set to this value + 1. The discovery port can be modified by the --discovery-
+            port flag and the quic port can be modified by the --quic-port flag. If listening over both IPv4
+            and IPv6 the --port flag will apply to the IPv4 address and --port6 to the IPv6 address. [default: 9000]
         --port6 <PORT>
-            The TCP/UDP port to listen on over IpV6 when listening over both Ipv4 and Ipv6. Defaults to 9090 when
-            required. [default: 9090]
+            The TCP/UDP ports to listen on over IPv6 when listening over both IPv4 and IPv6. Defaults to 9090 when
+            required. The Quic UDP port will be set to this value + 1. [default: 9090]
         --prepare-payload-lookahead <MILLISECONDS>
             The time before the start of a proposal slot at which payload attributes should be sent. Low values are
             useful for execution nodes which don't improve their payload after the first call, and high values are
@@ -399,6 +406,12 @@ OPTIONS:
         --prune-payloads <prune-payloads>
             Prune execution payloads from Lighthouse's database. This saves space but imposes load on the execution
             client, as payloads need to be reconstructed and sent to syncing peers. [default: true]
+        --quic-port <PORT>
+            The UDP port that quic will listen on. Defaults to `port` + 1
+
+        --quic-port6 <PORT>
+            The UDP port that quic will listen on over IPv6 if listening over both IPv4 and IPv6. Defaults to `port6` +
+            1
         --safe-slots-to-import-optimistically <INTEGER>
             Used to coordinate manual overrides of the SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
