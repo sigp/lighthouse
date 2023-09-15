@@ -30,6 +30,13 @@ OPTIONS:
         --debug-level <LEVEL>
             Specifies the verbosity level used when emitting logs to the terminal. [default: info]  [possible values:
             info, debug, trace, warn, error, crit]
+        --genesis-state-url <URL>
+            A URL of a beacon-API compatible server from which to download the genesis state. Checkpoint sync server
+            URLs can generally be used with this flag. If not supplied, a default URL or the --checkpoint-sync-url may
+            be used. If the genesis state is already included in this binary then this value will be ignored.
+        --genesis-state-url-timeout <SECONDS>
+            The timeout in seconds for the request to --genesis-state-url. [default: 180]
+
         --log-format <FORMAT>
             Specifies the log format used when emitting logs to the terminal. [possible values: JSON]
 
@@ -51,7 +58,7 @@ OPTIONS:
             disabled. [default: 200]
         --network <network>
             Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
-            sepolia]
+            chiado, sepolia, holesky]
         --safe-slots-to-import-optimistically <INTEGER>
             Used to coordinate manual overrides of the SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override

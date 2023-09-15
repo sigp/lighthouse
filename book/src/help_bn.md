@@ -62,6 +62,8 @@ FLAGS:
         --eth1-purge-cache                     Purges the eth1 block and deposit caches
         --genesis-backfill                     Attempts to download blocks all the way back to genesis when checkpoint
                                                syncing.
+        --gui                                  Enable the graphical user interface and all its requirements. This
+                                               enables --http and --validator-monitor-auto and enables SSE logging.
     -h, --help                                 Prints help information
         --http                                 Enable the RESTful HTTP API server. Disabled by default.
         --http-allow-sync-stalled              Forces the HTTP to indicate that the node is synced when sync is actually
@@ -119,6 +121,25 @@ OPTIONS:
         --auto-compact-db <auto-compact-db>
             Enable or disable automatic compaction of the database on finalization. [default: true]
 
+        --beacon-processor-aggregate-batch-size <INTEGER>
+            Specifies the number of gossip aggregate attestations in a signature verification batch. Higher values may
+            reduce CPU usage in a healthy network while lower values may increase CPU usage in an unhealthy or hostile
+            network. [default: 64]
+        --beacon-processor-attestation-batch-size <INTEGER>
+            Specifies the number of gossip attestations in a signature verification batch. Higher values may reduce CPU
+            usage in a healthy network whilst lower values may increase CPU usage in an unhealthy or hostile network.
+            [default: 64]
+        --beacon-processor-max-workers <INTEGER>
+            Specifies the maximum concurrent tasks for the task scheduler. Increasing this value may increase resource
+            consumption. Reducing the value may result in decreased resource usage and diminished performance. The
+            default value is the number of logical CPU cores on the host.
+        --beacon-processor-reprocess-queue-len <INTEGER>
+            Specifies the length of the queue for messages requiring delayed processing. Higher values may prevent
+            messages from being dropped while lower values may help protect the node from becoming overwhelmed.
+            [default: 12288]
+        --beacon-processor-work-queue-len <INTEGER>
+            Specifies the length of the inbound event queue. Higher values may prevent messages from being dropped while
+            lower values may help protect the node from becoming overwhelmed. [default: 16384]
         --block-cache-size <SIZE>
             Specifies how many blocks the database should cache in memory [default: 5]
 
@@ -162,7 +183,7 @@ OPTIONS:
             Set the remote beacon node HTTP endpoint to use for checkpoint sync.
 
         --checkpoint-sync-url-timeout <SECONDS>
-            Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint. [default: 60]
+            Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint. [default: 180]
 
     -d, --datadir <DIR>
             Used to specify a custom root data directory for lighthouse keys and databases. Defaults to
@@ -195,6 +216,9 @@ OPTIONS:
         --enr-udp6-port <PORT>
             The UDP6 port of the local ENR. Set this only if you are sure other nodes can connect to your local node on
             this port over IpV6.
+        --epochs-per-migration <N>
+            The number of epochs to wait between running the migration of data from the hot DB to the cold DB. Less
+            frequent runs can be useful for minimizing disk writes [default: 1]
         --eth1-blocks-per-log-query <BLOCKS>
             Specifies the number of blocks that a deposit log query should span. This will reduce the size of responses
             from the Eth1 endpoint. [default: 1000]
@@ -234,6 +258,13 @@ OPTIONS:
         --freezer-dir <DIR>
             Data directory for the freezer database.
 
+        --genesis-state-url <URL>
+            A URL of a beacon-API compatible server from which to download the genesis state. Checkpoint sync server
+            URLs can generally be used with this flag. If not supplied, a default URL or the --checkpoint-sync-url may
+            be used. If the genesis state is already included in this binary then this value will be ignored.
+        --genesis-state-url-timeout <SECONDS>
+            The timeout in seconds for the request to --genesis-state-url. [default: 180]
+
         --graffiti <GRAFFITI>
             Specify your custom graffiti to be included in blocks. Defaults to the current version and commit, truncated
             to fit in 32 bytes. 
@@ -247,12 +278,22 @@ OPTIONS:
             Set the value of the Access-Control-Allow-Origin response HTTP header. Use * to allow any origin (not
             recommended in production). If no value is supplied, the CORS allowed origin is set to the listen address of
             this server (e.g., http://localhost:5052).
+        --http-duplicate-block-status <STATUS_CODE>
+            Status code to send when a block that is already known is POSTed to the HTTP API. [default: 202]
+
+        --http-enable-beacon-processor <BOOLEAN>
+            The beacon processor is a scheduler which provides quality-of-service and DoS protection. When set to
+            "true", HTTP API requests will be queued and scheduled alongside other tasks. When set to "false", HTTP API
+            responses will be executed immediately. [default: true]
         --http-port <PORT>
             Set the listen TCP port for the RESTful HTTP API server. [default: 5052]
 
         --http-spec-fork <FORK>
             Serve the spec for a specific hard fork on /eth/v1/config/spec. It should not be necessary to set this flag.
 
+        --http-sse-capacity-multiplier <N>
+            Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. Increasing this value can
+            prevent messages from being dropped. [default: 1]
         --http-tls-cert <http-tls-cert>
             The path of the certificate to be used when serving the HTTP API server over TLS.
 
@@ -319,7 +360,7 @@ OPTIONS:
 
         --network <network>
             Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
-            sepolia]
+            chiado, sepolia, holesky]
         --network-dir <DIR>
             Data directory for network keys. Defaults to network/ inside the beacon node dir.
 

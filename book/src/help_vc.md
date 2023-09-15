@@ -38,6 +38,14 @@ FLAGS:
             metrics being collected.
     -h, --help                                   Prints help information
         --http                                   Enable the RESTful HTTP API server. Disabled by default.
+        --http-allow-keystore-export
+            If present, allow access to the DELETE /lighthouse/keystores HTTP API method, which allows exporting
+            keystores and passwords to HTTP API consumers who have access to the API token. This method is useful for
+            exporting validators, however it should be used with caution since it exposes private key data to authorized
+            users.
+        --http-store-passwords-in-secrets-dir
+            If present, any validators created via the HTTP will have keystore passwords stored in the secrets-dir
+            rather than the validator definitions file.
         --init-slashing-protection
             If present, do not require the slashing protection database to exist before running. You SHOULD NOT use this
             flag unless you're certain that a new slashing protection database is required. Usually, your database will
@@ -93,6 +101,13 @@ OPTIONS:
             The gas limit to be used in all builder proposals for all validators managed by this validator client. Note
             this will not necessarily be used if the gas limit set here moves too far from the previous block's gas
             limit. [default: 30,000,000]
+        --genesis-state-url <URL>
+            A URL of a beacon-API compatible server from which to download the genesis state. Checkpoint sync server
+            URLs can generally be used with this flag. If not supplied, a default URL or the --checkpoint-sync-url may
+            be used. If the genesis state is already included in this binary then this value will be ignored.
+        --genesis-state-url-timeout <SECONDS>
+            The timeout in seconds for the request to --genesis-state-url. [default: 180]
+
         --graffiti <GRAFFITI>
             Specify your custom graffiti to be included in blocks.
 
@@ -154,7 +169,7 @@ OPTIONS:
 
         --network <network>
             Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
-            sepolia]
+            chiado, sepolia, holesky]
         --proposer-nodes <NETWORK_ADDRESSES>
             Comma-separated addresses to one or more beacon node HTTP APIs. These specify nodes that are used to send
             beacon block proposals. A failure will revert back to the standard beacon nodes specified in --beacon-nodes.
