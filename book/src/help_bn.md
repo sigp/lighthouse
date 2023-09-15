@@ -1,4 +1,4 @@
-#Beacon Node
+# Beacon Node
 
 ```
 Sigma Prime <contact@sigmaprime.io>

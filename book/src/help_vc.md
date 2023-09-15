@@ -1,4 +1,4 @@
-#Validator Client
+# Validator Client
 
 ```
 When connected to a beacon node, performs the duties of a staked validator (e.g., proposing blocks and attestations).
