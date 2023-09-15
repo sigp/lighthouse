@@ -671,7 +671,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
                 ];
-                if store.blob_sidecar_exists(&block_root).unwrap_or(false) {
+                if store.blobs_exist(&block_root).unwrap_or(false) {
                     store_ops.extend([StoreOp::DeleteBlobs(block_root)]);
                 }
                 store_ops

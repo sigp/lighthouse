@@ -977,7 +977,7 @@ where
             );
         }
 
-        // Prune blobs sidecars older than the blob data availability boundary in the background.
+        // Prune blobs older than the blob data availability boundary in the background.
         if let Some(data_availability_boundary) = beacon_chain.data_availability_boundary() {
             beacon_chain
                 .store_migrator

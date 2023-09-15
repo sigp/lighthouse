@@ -1121,10 +1121,7 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
             "abandoned block {block_hash:?} should have been pruned",
         );
         assert!(
-            !rig.chain
-                .store
-                .blob_sidecar_exists(&block_hash.into())
-                .unwrap(),
+            !rig.chain.store.blobs_exist(&block_hash.into()).unwrap(),
             "blobs for abandoned block {block_hash:?} should have been pruned"
         );
     }
@@ -1815,11 +1812,7 @@ fn check_no_blocks_exist<'a>(
             block_hash
         );
         assert!(
-            !harness
-                .chain
-                .store
-                .blob_sidecar_exists(&block_hash.into())
-                .unwrap(),
+            !harness.chain.store.blobs_exist(&block_hash.into()).unwrap(),
             "blobs for abandoned block {block_hash:?} should have been pruned"
         );
     }

@@ -583,8 +583,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|payload| payload.is_some())
     }
 
-    /// Check if the blobs sidecar for a block exists on disk.
-    pub fn blob_sidecar_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
+    /// Check if the blobs for a block exists on disk.
+    pub fn blobs_exist(&self, block_root: &Hash256) -> Result<bool, Error> {
         let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
         blobs_db.key_exists(DBColumn::BeaconBlob.into(), block_root.as_bytes())
     }
@@ -1441,7 +1441,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             })
     }
 
-    /// Fetch a blobs sidecar from the store.
+    /// Fetch blobs for a given block from the store.
     pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobSidecarList<E>>, Error> {
         let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
 
@@ -1624,15 +1624,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Initialize the `BlobInfo` when starting from genesis or a checkpoint.
     pub fn init_blob_info(&self, anchor_slot: Slot) -> Result<KeyValueStoreOp, Error> {
-        let oldest_blob_slot = if let Some(deneb_fork_epoch) = self.spec.deneb_fork_epoch {
-            Some(std::cmp::max(
-                anchor_slot,
-                deneb_fork_epoch.start_slot(E::slots_per_epoch()),
-            ))
-        } else {
-            // Deneb fork epoch not known yet.
-            None
-        };
+        let oldest_blob_slot = self.spec.deneb_fork_epoch.map(|fork_epoch| {
+            std::cmp::max(anchor_slot, fork_epoch.start_slot(E::slots_per_epoch()))
+        });
         let blob_info = BlobInfo {
             oldest_blob_slot,
             blobs_db: self.blobs_db.is_some(),
@@ -2171,12 +2165,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
             };
 
-            if Some(block_root) != last_pruned_block_root
-                && self.blob_sidecar_exists(&block_root)?
-            {
+            if Some(block_root) != last_pruned_block_root && self.blobs_exist(&block_root)? {
                 debug!(
                     self.log,
-                    "Pruning blob sidecar";
+                    "Pruning blobs of block";
                     "slot" => slot,
                     "block_root" => ?block_root,
                 );
@@ -2187,13 +2179,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             if slot >= end_slot {
                 debug!(
                     self.log,
-                    "Blob pruning reached earliest available blob sidecar";
+                    "Blob pruning complete";
                     "slot" => slot
                 );
                 break;
             }
         }
-        let blob_sidecars_pruned = ops.len();
+        let blob_lists_pruned = ops.len();
         let new_blob_info = BlobInfo {
             oldest_blob_slot: Some(end_slot + 1),
             blobs_db: blob_info.blobs_db,
@@ -2205,7 +2197,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         info!(
             self.log,
             "Blob pruning complete";
-            "blob_sidecars_pruned" => blob_sidecars_pruned,
+            "blob_lists_pruned" => blob_lists_pruned,
         );
 
         Ok(())
