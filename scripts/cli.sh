@@ -55,6 +55,47 @@ write_to_file "$vm_cli" "$vm" "Validator Manager"
 old_files=(./book/src/help_general.md ./book/src/help_bn.md ./book/src/help_vc.md ./book/src/help_am.md ./book/src/help_vm.md)
 new_files=($general $bn $vc $am $vm)
 
+check() {
+if [[ -f $1 ]]; # check for existence of file
+then 
+    diff=$(diff $1 $2)
+else
+    cp $2 ./book/src
+    changes=true 
+fi
+
+if [[ -z $diff ]]; # check for difference
+then 
+    return 1 # exit a function (i.e., do nothing)
+else
+    cp $2 ./book/src
+    changes=true
+fi
+}
+
+# define changes as false
+changes=false
+# call check function to check for each help file
+check ${old_files[0]} ${new_files[0]}
+check ${old_files[1]} ${new_files[1]}
+check ${old_files[2]} ${new_files[2]}
+check ${old_files[3]} ${new_files[3]}
+check ${old_files[4]} ${new_files[4]}
+
+# remove help files
+rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md
+
+# only exit at the very end
+if [[ $changes == true ]]; then
+    echo "CLI parameters are not up to date. Run \"make cli\" to update, then commit the changes"
+    exit 1
+else
+    echo "CLI parameters are up to date."
+    exit 0
+fi
+
+
+: '
 exist=()
 changes=()
 diff=()
@@ -95,6 +136,7 @@ echo "exist = ${exist[@]}"
 echo "changes = ${changes[@]}"
 echo "difference = ${diff[@]}"
 
+
 if [[ ${exist[@]} == *"true"* && ${update[@]} == *"true"* ]];
 then
     echo "exit 1 due to one or more .md file does not exist and changes updated."
@@ -110,44 +152,6 @@ then
 else
     echo "Task completed, no changes in CLI parameters"
 fi
-
-: '
-check() {
-if [[ -f $1 ]]; # check for existence of file
-then 
-    diff=$(diff $1 $2)
-else
-    cp $2 ./book/src
-    changes=true 
-fi
-
-if [[ -z $diff ]]; # check for difference
-then 
-    return 1 # exit a function (i.e., do nothing)
-else
-    cp $2 ./book/src
-    changes=true
-fi
-}
-
-# define changes as false
-changes=false
-# call check function to check for each help file
-check ${old_files[0]} ${new_files[0]}
-check ${old_files[1]} ${new_files[1]}
-check ${old_files[2]} ${new_files[2]}
-check ${old_files[3]} ${new_files[3]}
-#check ${old_files[4]} ${new_files[4]}
-
-# remove help files
-rm -f help_general.md help_bn.md help_vc.md help_am.md
-
-# only exit at the very end
-if [[ $changes == true ]]; then
-    echo "CLI parameters are not up to date. Run \"make cli\" to update, then commit the changes"
-    exit 1
-else
-    echo "CLI parameters are up to date."
-    exit 0
-fi
 '
+
+
