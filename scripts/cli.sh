@@ -57,10 +57,12 @@ new_files=($general $bn $vc $am)
 
 exist=()
 changes=()
+diff=()
 check() {
 if [[ -f $1 ]]; # check for existence of file
 then
     diff=$(diff $1 $2)
+    diff+=($diff)
     exist+=(false)
 else
     cp $2 ./book/src
@@ -91,7 +93,7 @@ rm -f help_general.md help_bn.md help_vc.md help_am.md
 
 echo "exist = ${exist[@]}"
 echo "changes = ${changes[@]}"
-echo "$diff"
+echo "difference = ${diff[@]}"
 
 if [[ ${exist[@]} == *"true"* && ${update[@]} == *"true"* ]];
 then
