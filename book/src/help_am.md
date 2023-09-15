@@ -4,7 +4,7 @@
 Utilities for generating and managing Ethereum 2.0 accounts.
 
 USAGE:
-    lighthouse.exe account_manager [FLAGS] [OPTIONS] [SUBCOMMAND]
+    lighthouse account_manager [FLAGS] [OPTIONS] [SUBCOMMAND]
 
 FLAGS:
         --disable-log-timestamp          If present, do not include timestamps in logging output.

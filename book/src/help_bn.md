@@ -6,7 +6,7 @@ The primary component which connects to the Ethereum 2.0 P2P network and downloa
 a HTTP API for querying the beacon chain and publishing messages to the network.
 
 USAGE:
-    lighthouse.exe beacon_node [FLAGS] [OPTIONS]
+    lighthouse beacon_node [FLAGS] [OPTIONS]
 
 FLAGS:
         --always-prefer-builder-payload        If set, the beacon node always uses the payload from the builder instead
