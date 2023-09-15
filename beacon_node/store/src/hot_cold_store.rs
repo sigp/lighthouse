@@ -2113,6 +2113,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "oldest_blob_slot" => oldest_blob_slot,
                 "data_availability_boundary" => data_availability_boundary,
                 "split_slot" => split.slot,
+                "end_epoch" => end_epoch,
+                "start_epoch" => start_epoch,
             );
             return Ok(());
         }
@@ -2185,7 +2187,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             if slot >= end_slot {
                 debug!(
                     self.log,
-                    "Blob pruning reached earliest available blobs sidecar";
+                    "Blob pruning reached earliest available blob sidecar";
                     "slot" => slot
                 );
                 break;

@@ -51,16 +51,16 @@ type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
-    get_store_with_spec(db_path, test_spec::<E>())
+    get_store_generic(db_path, StoreConfig::default(), test_spec::<E>())
 }
 
-fn get_store_with_spec(
+fn get_store_generic(
     db_path: &TempDir,
+    config: StoreConfig,
     spec: ChainSpec,
 ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
-    let config = StoreConfig::default();
     let log = test_logger();
 
     HotColdDB::open(
@@ -2604,7 +2604,7 @@ async fn revert_minority_fork_on_resume() {
 
     // Chain with no fork epoch configured.
     let db_path1 = tempdir().unwrap();
-    let store1 = get_store_with_spec(&db_path1, spec1.clone());
+    let store1 = get_store_generic(&db_path1, StoreConfig::default(), spec1.clone());
     let harness1 = BeaconChainHarness::builder(MinimalEthSpec)
         .spec(spec1)
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -2614,7 +2614,7 @@ async fn revert_minority_fork_on_resume() {
 
     // Chain with fork epoch configured.
     let db_path2 = tempdir().unwrap();
-    let store2 = get_store_with_spec(&db_path2, spec2.clone());
+    let store2 = get_store_generic(&db_path2, StoreConfig::default(), spec2.clone());
     let harness2 = BeaconChainHarness::builder(MinimalEthSpec)
         .spec(spec2.clone())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -2709,7 +2709,7 @@ async fn revert_minority_fork_on_resume() {
     // We have to do some hackery with the `slot_clock` so that the correct slot is set when
     // the beacon chain builder loads the head block.
     drop(harness1);
-    let resume_store = get_store_with_spec(&db_path1, spec2.clone());
+    let resume_store = get_store_generic(&db_path1, StoreConfig::default(), spec2.clone());
 
     let resumed_harness = TestHarness::builder(MinimalEthSpec)
         .spec(spec2)
@@ -2969,7 +2969,7 @@ async fn deneb_prune_blobs_fork_boundary() {
     let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
 
     let db_path = tempdir().unwrap();
-    let store = get_store_with_spec(&db_path, spec);
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
 
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
@@ -3023,6 +3023,79 @@ async fn deneb_prune_blobs_fork_boundary() {
     assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
     check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
     check_blob_existence(&harness, pruned_slot, harness.head_slot(), true);
+}
+
+/// Check that blob pruning prunes blobs older than the data availability boundary with margin
+/// applied.
+#[tokio::test]
+async fn deneb_prune_blobs_margin1() {
+    deneb_prune_blobs_margin_test(1).await;
+}
+
+#[tokio::test]
+async fn deneb_prune_blobs_margin3() {
+    deneb_prune_blobs_margin_test(3).await;
+}
+
+#[tokio::test]
+async fn deneb_prune_blobs_margin4() {
+    deneb_prune_blobs_margin_test(4).await;
+}
+
+async fn deneb_prune_blobs_margin_test(margin: u64) {
+    let config = StoreConfig {
+        blob_prune_margin_epochs: margin,
+        ..StoreConfig::default()
+    };
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, config, test_spec::<E>());
+
+    let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
+        // No-op prior to Deneb.
+        return;
+    };
+    let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let num_blocks_produced = E::slots_per_epoch() * 8;
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Prior to manual pruning with an artifically low data availability boundary all blobs should
+    // be stored.
+    assert_eq!(
+        store.get_blob_info().oldest_blob_slot,
+        Some(deneb_fork_slot)
+    );
+    check_blob_existence(&harness, Slot::new(1), harness.head_slot(), true);
+
+    // Trigger blob pruning of blobs older than epoch 6 - margin (6 is the minimum, due to
+    // finalization).
+    let data_availability_boundary = Epoch::new(6);
+    let effective_data_availability_boundary =
+        data_availability_boundary - store.get_config().blob_prune_margin_epochs;
+    assert!(
+        effective_data_availability_boundary > 0,
+        "must be > 0 because epoch 0 won't get pruned alone"
+    );
+    store
+        .try_prune_blobs(true, data_availability_boundary)
+        .unwrap();
+
+    // Check oldest blob slot is updated accordingly and prior blobs have been deleted.
+    let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+    assert_eq!(
+        oldest_blob_slot,
+        effective_data_availability_boundary.start_slot(E::slots_per_epoch())
+    );
+    check_blob_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
+    check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
 }
 
 /// Check that there are blob sidecars (or not) at every slot in the range.
