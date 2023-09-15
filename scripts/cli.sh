@@ -89,8 +89,9 @@ check ${old_files[3]} ${new_files[3]}
 # remove help files
 rm -f help_general.md help_bn.md help_vc.md help_am.md
 
-echo "${exist[@]}"
-echo "${changes[@]}"
+echo "exist = ${exist[@]}"
+echo "changes = ${changes[@]}"
+echo "$diff"
 
 if [[ ${exist[@]} == *"true"* && ${update[@]} == *"true"* ]];
 then
@@ -100,7 +101,7 @@ elif [[  ${exist[@]} == *"true"* ]];
 then
     echo "exit 1 due to one or more .md file does not exist"
     exit 1
-elif [[ ${update[@]} == *"true"* ]];
+elif [[ ${changes[@]} == *"true"* ]];
 then
     echo "exit 1 due to changes updated"
     exit 1
