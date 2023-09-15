@@ -7,7 +7,7 @@ use super::ENR_FILENAME;
 use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
 use discv5::enr::EnrKey;
-use libp2p::core::identity::Keypair;
+use libp2p::identity::Keypair;
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
@@ -133,7 +133,7 @@ pub fn build_or_load_enr<T: EthSpec>(
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers, if the CLI doesn't expressly forbid it.
-    let enr_key = CombinedKey::from_libp2p(&local_key)?;
+    let enr_key = CombinedKey::from_libp2p(local_key)?;
     let mut local_enr = build_enr::<T>(&enr_key, config, enr_fork_id)?;
 
     use_or_load_enr(&enr_key, &mut local_enr, config, log)?;

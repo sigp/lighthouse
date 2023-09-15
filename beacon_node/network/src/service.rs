@@ -1,5 +1,5 @@
 use super::sync::manager::RequestId as SyncId;
-use crate::beacon_processor::InvalidBlockStorage;
+use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::SyncCommitteeService;
@@ -9,6 +9,7 @@ use crate::{
     NetworkConfig,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
@@ -224,10 +225,18 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
         gossipsub_registry: Option<&'_ mut Registry>,
+        beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
         let network_log = executor.log().clone();
         // build the channels for external comms
         let (network_senders, network_recievers) = NetworkSenders::new();
+
+        #[cfg(feature = "disable-backfill")]
+        warn!(
+            network_log,
+            "Backfill is disabled. DO NOT RUN IN PRODUCTION"
+        );
 
         // try and construct UPnP port mappings if required.
         if let Some(upnp_config) = crate::nat::UPnPConfig::from_config(config) {
@@ -311,6 +320,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_senders.network_send(),
             executor.clone(),
             invalid_block_storage,
+            beacon_processor_send,
+            beacon_processor_reprocess_tx,
             network_log.clone(),
         )?;
 
@@ -482,10 +493,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                 self.send_to_router(RouterMessage::StatusPeer(peer_id));
             }
-            NetworkEvent::PeerConnectedIncoming(_)
-            | NetworkEvent::PeerBanned(_)
-            | NetworkEvent::PeerUnbanned(_) => {
-                // No action required for these events.
+            NetworkEvent::PeerConnectedIncoming(_) => {
+                // No action required for this event.
             }
             NetworkEvent::PeerDisconnected(peer_id) => {
                 self.send_to_router(RouterMessage::PeerDisconnected(peer_id));

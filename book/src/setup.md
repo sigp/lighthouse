@@ -9,13 +9,11 @@ particularly useful for development but still a good way to ensure you have the
 base dependencies.
 
 The additional requirements for developers are:
-- [`anvil`](https://github.com/foundry-rs/foundry/tree/master/anvil). This is used to
+- [`anvil`](https://github.com/foundry-rs/foundry/tree/master/crates/anvil). This is used to
   simulate the execution chain during tests. You'll get failures during tests if you
   don't have `anvil` available on your `PATH`.
 - [`cmake`](https://cmake.org/cmake/help/latest/command/install.html). Used by
   some dependencies. See [`Installation Guide`](./installation.md) for more info.
-- [`protoc`](https://github.com/protocolbuffers/protobuf/releases) required for
-  the networking stack.
 - [`java 11 runtime`](https://openjdk.java.net/projects/jdk/). 11 is the minimum,
   used by web3signer_tests.
 - [`libpq-dev`](https://www.postgresql.org/docs/devel/libpq.html). Also know as

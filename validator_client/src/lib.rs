@@ -172,9 +172,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             let new_validators = validator_defs
                 .discover_local_keystores(&config.validator_dir, &config.secrets_dir, &log)
                 .map_err(|e| format!("Unable to discover local validator keystores: {:?}", e))?;
-            validator_defs
-                .save(&config.validator_dir)
-                .map_err(|e| format!("Unable to update validator definitions: {:?}", e))?;
+            validator_defs.save(&config.validator_dir).map_err(|e| {
+                format!(
+                    "Provide --suggested-fee-recipient or update validator definitions: {:?}",
+                    e
+                )
+            })?;
             info!(
                 log,
                 "Completed validator discovery";
@@ -521,7 +524,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
     pub fn start_service(&mut self) -> Result<(), String> {
         // We use `SLOTS_PER_EPOCH` as the capacity of the block notification channel, because
-        // we don't except notifications to be delayed by more than a single slot, let alone a
+        // we don't expect notifications to be delayed by more than a single slot, let alone a
         // whole epoch!
         let channel_capacity = T::slots_per_epoch() as usize;
         let (block_service_tx, block_service_rx) = mpsc::channel(channel_capacity);
@@ -573,6 +576,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
+                secrets_dir: Some(self.config.secrets_dir.clone()),
                 graffiti_file: self.config.graffiti_file.clone(),
                 graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
@@ -623,8 +627,8 @@ async fn init_from_beacon_node<E: EthSpec>(
         let num_available = beacon_nodes.num_available().await;
         let num_total = beacon_nodes.num_total();
 
-        let proposer_available = beacon_nodes.num_available().await;
-        let proposer_total = beacon_nodes.num_total();
+        let proposer_available = proposer_nodes.num_available().await;
+        let proposer_total = proposer_nodes.num_total();
 
         if proposer_total > 0 && proposer_available == 0 {
             warn!(

@@ -324,11 +324,36 @@ fn main() {
                 .takes_value(true)
                 .global(true)
         )
+        .arg(
+            Arg::with_name("genesis-state-url")
+                .long("genesis-state-url")
+                .value_name("URL")
+                .help(
+                    "A URL of a beacon-API compatible server from which to download the genesis state. \
+                    Checkpoint sync server URLs can generally be used with this flag. \
+                    If not supplied, a default URL or the --checkpoint-sync-url may be used. \
+                    If the genesis state is already included in this binary then this value will be ignored.",
+                )
+                .takes_value(true)
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("genesis-state-url-timeout")
+                .long("genesis-state-url-timeout")
+                .value_name("SECONDS")
+                .help(
+                    "The timeout in seconds for the request to --genesis-state-url.",
+                )
+                .takes_value(true)
+                .default_value("180")
+                .global(true),
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
         .subcommand(database_manager::cli_app())
+        .subcommand(validator_manager::cli_app())
         .get_matches();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
@@ -512,7 +537,7 @@ fn run<E: EthSpec>(
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_network_config(Some(eth2_network_config))?
+        .eth2_network_config(eth2_network_config)?
         .build()?;
 
     let log = environment.core_context().log().clone();
@@ -558,10 +583,20 @@ fn run<E: EthSpec>(
         (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 
-    if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
+    if let Some(sub_matches) = matches.subcommand_matches(account_manager::CMD) {
         eprintln!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         account_manager::run(sub_matches, environment)?;
+
+        // Exit as soon as account manager returns control.
+        return Ok(());
+    }
+
+    if let Some(sub_matches) = matches.subcommand_matches(validator_manager::CMD) {
+        eprintln!("Running validator manager for {} network", network_name);
+
+        // Pass the entire `environment` to the account manager so it can run blocking operations.
+        validator_manager::run::<E>(sub_matches, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());

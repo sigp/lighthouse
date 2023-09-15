@@ -5,7 +5,6 @@ use crate::config::Config as FullConfig;
 use crate::database::{self, PgPool};
 use crate::suboptimal_attestations::{attestation_routes, blockprint_attestation_routes};
 use axum::{
-    handler::Handler,
     http::{StatusCode, Uri},
     routing::get,
     Extension, Json, Router,
@@ -104,7 +103,7 @@ pub fn start_server(
     }
 
     let app = routes
-        .fallback(route_not_found.into_service())
+        .fallback(route_not_found)
         .layer(Extension(pool))
         .layer(Extension(slots_per_epoch));
 

@@ -7,7 +7,8 @@ use slashing_protection::{
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
-use types::{BeaconState, Epoch, EthSpec, PublicKeyBytes, Slot};
+use std::time::Duration;
+use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 
 pub const CMD: &str = "slashing-protection";
 pub const IMPORT_CMD: &str = "import";
@@ -82,19 +83,24 @@ pub fn cli_run<T: EthSpec>(
 ) -> Result<(), String> {
     let slashing_protection_db_path = validator_base_dir.join(SLASHING_PROTECTION_FILENAME);
 
+    let genesis_state_url: Option<String> =
+        clap_utils::parse_optional(matches, "genesis-state-url")?;
+    let genesis_state_url_timeout =
+        clap_utils::parse_required(matches, "genesis-state-url-timeout")
+            .map(Duration::from_secs)?;
+
+    let context = env.core_context();
     let eth2_network_config = env
         .eth2_network_config
         .ok_or("Unable to get testnet configuration from the environment")?;
 
     let genesis_validators_root = eth2_network_config
-        .beacon_state::<T>()
-        .map(|state: BeaconState<T>| state.genesis_validators_root())
-        .map_err(|e| {
-            format!(
-                "Unable to get genesis state, has genesis occurred? Detail: {:?}",
-                e
-            )
-        })?;
+        .genesis_validators_root::<T>(
+            genesis_state_url.as_deref(),
+            genesis_state_url_timeout,
+            context.log(),
+        )?
+        .ok_or_else(|| "Unable to get genesis state, has genesis occurred?".to_string())?;
 
     match matches.subcommand() {
         (IMPORT_CMD, Some(matches)) => {
