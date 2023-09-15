@@ -36,68 +36,60 @@ general_cli=$($CMD --help)
 bn_cli=$($CMD bn --help)
 vc_cli=$($CMD vc --help)
 am_cli=$($CMD am --help)
+vm_cli=$($CMD vm --help)
 
 general=./help_general.md
 bn=./help_bn.md
 vc=./help_vc.md
 am=./help_am.md
+vm=./help_vm.md
 
 # create .md files
 write_to_file "$general_cli" "$general" "Lighthouse General Commands"
 write_to_file "$bn_cli" "$bn" "Beacon Node"
 write_to_file "$vc_cli" "$vc" "Validator Client"
 write_to_file "$am_cli" "$am" "Account Manager"
+write_to_file "$vm_cli" "$vm" "Validator Manager"
 
-# create empty array to store variables for exit condition later
-exist=()
-update=()
-for i in help_general help_bn help_vc help_am
-do
-    if [[ -f ./book/src/$i.md ]];  # first check if .md exists
-    then 
-        echo  "$i.md exists, continue to check for any changes"
-        difference=$(diff ./book/src/$i.md $i.md)
-        case1=false
-        exist+=($case1)
-        if [[ -z $difference ]]; # then check if any changes required
-        then 
-            case2=false
-            update+=($case2)
-            echo "$i.md is up to date"
-        else
-            cp $i.md ./book/src/$i.md
-            echo "$i has been updated"
-            case2=true
-            update+=($case2)
-        fi
-    else
-        echo "$i.md is not found, it will be created now"
-        cp $i.md ./book/src/$i.md
-        case1=true
-        exist+=($case1)
-    fi
-done 
+#input 1 = $1 = old files; input 2 = $2 = new files
+old_files=(./book/src/help_general.md ./book/src/help_bn.md ./book/src/help_vc.md ./book/src/help_am.md ./book/src/help_vm.md)
+new_files=($general $bn $vc $am $vm)
 
-# use during testing to show exit conditions
-#echo "${exist[@]}"
-#echo "${update[@]}"
-
-# exit condition, exit when .md does not exist or changes requried
-if [[ ${exist[@]} == *"true"* && ${update[@]} == *"true"* ]]; 
-then
-    echo "exit 1 due to one or more .md file does not exist and changes updated."
-    exit 1
-elif [[  ${exist[@]} == *"true"* ]]; 
-then
-    echo "exit 1 due to one or more .md file does not exist"
-    exit 1
-elif [[ ${update[@]} == *"true"* ]]; 
-then
-    echo "exit 1 due to changes updated"
-    exit 1
+check() {
+if [[ -f $1 ]]; # check for existence of file
+then 
+    diff=$(diff $1 $2)
 else
-    echo "Task completed, no changes in CLI parameters"
+    cp $2 ./book/src
+    changes=true 
 fi
 
-# remove .md files in current directory
+if [[ -z $diff ]]; # check for difference
+then 
+    return 1 # exit a function (i.e., do nothing)
+else
+    cp $2 ./book/src
+    changes=true
+fi
+}
+
+# define changes as false
+changes=false
+# call check function to check for each help file
+check ${old_files[0]} ${new_files[0]}
+check ${old_files[1]} ${new_files[1]}
+check ${old_files[2]} ${new_files[2]}
+check ${old_files[3]} ${new_files[3]}
+check ${old_files[4]} ${new_files[4]}
+
+# remove help files
 rm -f help_general.md help_bn.md help_vc.md help_am.md
+
+# only exit at the very end
+if [[ $changes == true ]]; then
+    echo "CLI parameters are not up to date. Run \"make cli\" to update, then commit the changes"
+    exit 1
+else
+    echo "CLI parameters are up to date."
+    exit 0
+fi
