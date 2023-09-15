@@ -3109,13 +3109,8 @@ fn check_blob_existence(
             assert!(should_exist, "blobs at slot {slot} exist but should not");
             blobs_seen += blobs.len();
         } else {
-            // FIXME(sproul): seems weird that we don't store empty blob lists
-            /*
-            assert!(
-                !should_exist,
-                "blobs at slot {slot} should exist but do not"
-            );
-            */
+            // We don't actually store empty blobs, so unfortunately we can't assert anything
+            // meaningful here (like asserting that the blob should not exist).
         }
     }
     if should_exist {
