@@ -95,7 +95,7 @@ rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md
 
 # used for debug to show status
 echo "exist = ${exist[@]}"
-echo "changes = ${changes[@]}"
+echo "changes = ${update[@]}"
 echo "difference = ${diff[@]}"
 
 # only exit at the very end
