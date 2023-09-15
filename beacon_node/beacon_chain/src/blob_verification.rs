@@ -521,14 +521,19 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
 ///
 /// Returns an error if the kzg verification check fails.
 pub fn verify_kzg_for_blob<T: EthSpec>(
-    blob: Arc<BlobSidecar<T>>,
+    sidecar: Arc<BlobSidecar<T>>,
     kzg: &Kzg<T::Kzg>,
 ) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
-    if validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)
-        .map_err(AvailabilityCheckError::Kzg)?
+    if validate_blob::<T>(
+        kzg,
+        &sidecar.blob,
+        sidecar.kzg_commitment,
+        sidecar.kzg_proof,
+    )
+    .map_err(AvailabilityCheckError::Kzg)?
     {
-        Ok(KzgVerifiedBlob { blob })
+        Ok(KzgVerifiedBlob { blob: sidecar })
     } else {
         Err(AvailabilityCheckError::KzgVerificationFailed)
     }
@@ -546,7 +551,12 @@ pub fn verify_kzg_for_blob_list<T: EthSpec>(
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_BATCH_TIMES);
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
         .iter()
-        .map(|blob| (blob.blob.clone(), (blob.kzg_commitment, blob.kzg_proof)))
+        .map(|sidecar| {
+            (
+                sidecar.blob.clone(),
+                (sidecar.kzg_commitment, sidecar.kzg_proof),
+            )
+        })
         .unzip();
     if validate_blobs::<T>(
         kzg,
