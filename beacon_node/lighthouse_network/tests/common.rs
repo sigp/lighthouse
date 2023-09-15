@@ -67,15 +67,19 @@ pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
     }
 }
 
-pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
+pub fn build_config(mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     let mut config = NetworkConfig::default();
+
+    // Find unused ports by using the 0 port.
+    let port = 0;
+
+    let random_path: u16 = rand::random();
     let path = TempBuilder::new()
-        .prefix(&format!("libp2p_test{}", port))
+        .prefix(&format!("libp2p_test_{}", random_path))
         .tempdir()
         .unwrap();
 
-    config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, port, port);
-    config.enr_udp4_port = if port == 0 { None } else { Some(port) };
+    config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, port, port, port);
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
@@ -95,8 +99,7 @@ pub async fn build_libp2p_instance(
     fork_name: ForkName,
     spec: &ChainSpec,
 ) -> Libp2pInstance {
-    let port = 0;
-    let config = build_config(port, boot_nodes);
+    let config = build_config(boot_nodes);
     // launch libp2p service
 
     let (signal, exit) = exit_future::signal();
@@ -123,6 +126,12 @@ pub fn get_enr(node: &LibP2PService<ReqId, E>) -> Enr {
     node.local_enr()
 }
 
+// Protocol for the node pair connection.
+pub enum Protocol {
+    Tcp,
+    Quic,
+}
+
 // Constructs a pair of nodes with separate loggers. The sender dials the receiver.
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]
@@ -131,6 +140,7 @@ pub async fn build_node_pair(
     log: &slog::Logger,
     fork_name: ForkName,
     spec: &ChainSpec,
+    protocol: Protocol,
 ) -> (Libp2pInstance, Libp2pInstance) {
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
@@ -142,14 +152,45 @@ pub async fn build_node_pair(
     let sender_fut = async {
         loop {
             if let NetworkEvent::NewListenAddr(addr) = sender.next_event().await {
-                return addr;
+                // Only end once we've listened on the protocol we care about
+                match protocol {
+                    Protocol::Tcp => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::Tcp(_))
+                        }) {
+                            return addr;
+                        }
+                    }
+                    Protocol::Quic => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::QuicV1)
+                        }) {
+                            return addr;
+                        }
+                    }
+                }
             }
         }
     };
     let receiver_fut = async {
         loop {
             if let NetworkEvent::NewListenAddr(addr) = receiver.next_event().await {
-                return addr;
+                match protocol {
+                    Protocol::Tcp => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::Tcp(_))
+                        }) {
+                            return addr;
+                        }
+                    }
+                    Protocol::Quic => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::QuicV1)
+                        }) {
+                            return addr;
+                        }
+                    }
+                }
             }
         }
     };
