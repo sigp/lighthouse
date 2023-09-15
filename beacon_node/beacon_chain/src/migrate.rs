@@ -390,39 +390,44 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let (tx, rx) = mpsc::channel();
         let thread = thread::spawn(move || {
             while let Ok(notif) = rx.recv() {
-                // Read the rest of the messages in the channel, preferring any reconstruction
-                // notification, or the finalization notification with the greatest finalized epoch.
-                let notif =
-                    rx.try_iter()
-                        .fold(notif, |best, other: Notification| match (&best, &other) {
-                            (Notification::Reconstruction, _)
-                            | (_, Notification::Reconstruction) => Notification::Reconstruction,
-                            (
-                                Notification::Finalization(fin1),
-                                Notification::Finalization(fin2),
-                            ) => {
-                                if fin2.finalized_checkpoint.epoch > fin1.finalized_checkpoint.epoch
-                                {
-                                    other
-                                } else {
-                                    best
-                                }
-                            }
-                            (Notification::Finalization(_), Notification::PruneBlobs(_)) => best,
-                            (Notification::PruneBlobs(_), Notification::Finalization(_)) => other,
-                            (Notification::PruneBlobs(dab1), Notification::PruneBlobs(dab2)) => {
-                                if dab2 > dab1 {
-                                    other
-                                } else {
-                                    best
-                                }
-                            }
-                        });
-
+                let mut reconstruction_notif = None;
+                let mut finalization_notif = None;
+                let mut prune_blobs_notif = None;
                 match notif {
-                    Notification::Reconstruction => Self::run_reconstruction(db.clone(), &log),
-                    Notification::Finalization(fin) => Self::run_migration(db.clone(), fin, &log),
-                    Notification::PruneBlobs(dab) => Self::run_prune_blobs(db.clone(), dab, &log),
+                    Notification::Reconstruction => reconstruction_notif = Some(notif),
+                    Notification::Finalization(fin) => finalization_notif = Some(fin),
+                    Notification::PruneBlobs(dab) => prune_blobs_notif = Some(dab),
+                }
+                // Read the rest of the messages in the channel, taking the best of each type.
+                for notif in rx.try_iter() {
+                    match notif {
+                        Notification::Reconstruction => reconstruction_notif = Some(notif),
+                        Notification::Finalization(fin) => {
+                            if let Some(current) = finalization_notif.as_mut() {
+                                if fin.finalized_checkpoint.epoch
+                                    > current.finalized_checkpoint.epoch
+                                {
+                                    *current = fin;
+                                }
+                            } else {
+                                finalization_notif = Some(fin);
+                            }
+                        }
+                        Notification::PruneBlobs(dab) => {
+                            prune_blobs_notif = std::cmp::max(prune_blobs_notif, Some(dab));
+                        }
+                    }
+                }
+                // If reconstruction is on-going, ignore finalization migration and blob pruning.
+                if reconstruction_notif.is_some() {
+                    Self::run_reconstruction(db.clone(), &log);
+                } else {
+                    if let Some(fin) = finalization_notif {
+                        Self::run_migration(db.clone(), fin, &log);
+                    }
+                    if let Some(dab) = prune_blobs_notif {
+                        Self::run_prune_blobs(db.clone(), dab, &log);
+                    }
                 }
             }
         });

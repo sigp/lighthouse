@@ -278,9 +278,10 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                         return Err(HotColdDBError::MissingPathToBlobsDatabase.into());
                     }
                 }
+                // Set the oldest blob slot to the Deneb fork slot if it is not yet set.
+                let oldest_blob_slot = blob_info.oldest_blob_slot.or(deneb_fork_slot);
                 BlobInfo {
-                    // Set the oldest blob slot to the Deneb fork slot if it is not yet set.
-                    oldest_blob_slot: deneb_fork_slot,
+                    oldest_blob_slot,
                     blobs_db: blobs_db_path.is_some(),
                 }
             }
@@ -296,12 +297,13 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 db.blobs_db = Some(LevelDB::open(path.as_path())?);
             }
         }
-        db.compare_and_set_blob_info_with_write(<_>::default(), new_blob_info)?;
+        db.compare_and_set_blob_info_with_write(<_>::default(), new_blob_info.clone())?;
         info!(
             db.log,
-            "Blobs DB initialized";
-            "use separate blobs db" => db.get_blob_info().blobs_db,
-            "path" => ?blobs_db_path
+            "Blob DB initialized";
+            "separate_db" => new_blob_info.blobs_db,
+            "path" => ?blobs_db_path,
+            "oldest_blob_slot" => ?new_blob_info.oldest_blob_slot,
         );
 
         // Ensure that the schema version of the on-disk database matches the software.
@@ -317,17 +319,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             migrate_schema(db.clone(), schema_version, CURRENT_SCHEMA_VERSION)?;
         } else {
             db.store_schema_version(CURRENT_SCHEMA_VERSION)?;
-        }
-
-        if let Some(blob_info) = db.load_blob_info()? {
-            let oldest_blob_slot = blob_info.oldest_blob_slot;
-            *db.blob_info.write() = blob_info;
-
-            info!(
-                db.log,
-                "Blob info loaded from disk";
-                "oldest_blob_slot" => ?oldest_blob_slot,
-            );
         }
 
         // Ensure that any on-disk config is compatible with the supplied config.
@@ -2210,11 +2201,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
 
             if slot >= end_slot {
-                debug!(
-                    self.log,
-                    "Blob pruning complete";
-                    "slot" => slot
-                );
                 break;
             }
         }
