@@ -34,6 +34,13 @@ OPTIONS:
         --debug-level <LEVEL>
             Specifies the verbosity level used when emitting logs to the terminal. [default: info]  [possible values:
             info, debug, trace, warn, error, crit]
+        --genesis-state-url <URL>
+            A URL of a beacon-API compatible server from which to download the genesis state. Checkpoint sync server
+            URLs can generally be used with this flag. If not supplied, a default URL or the --checkpoint-sync-url may
+            be used. If the genesis state is already included in this binary then this value will be ignored.
+        --genesis-state-url-timeout <SECONDS>
+            The timeout in seconds for the request to --genesis-state-url. [default: 180]
+
         --log-format <FORMAT>
             Specifies the log format used when emitting logs to the terminal. [possible values: JSON]
 
@@ -55,7 +62,7 @@ OPTIONS:
             disabled. [default: 200]
         --network <network>
             Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
-            sepolia]
+            chiado, sepolia, holesky]
         --safe-slots-to-import-optimistically <INTEGER>
             Used to coordinate manual overrides of the SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
@@ -84,18 +91,20 @@ OPTIONS:
             if there is no existing database.
 
 SUBCOMMANDS:
-    account_manager     Utilities for generating and managing Ethereum 2.0 accounts. [aliases: a, am, account,
-                        account_manager]
-    beacon_node         The primary component which connects to the Ethereum 2.0 P2P network and downloads, verifies
-                        and stores blocks. Provides a HTTP API for querying the beacon chain and publishing messages
-                        to the network. [aliases: b, bn, beacon]
-    boot_node           Start a special Lighthouse process that only serves as a discv5 boot-node. This process will
-                        *not* import blocks or perform most typical beacon node functions. Instead, it will simply
-                        run the discv5 service and assist nodes on the network to discover each other. This is the
-                        recommended way to provide a network boot-node since it has a reduced attack surface
-                        compared to a full beacon node.
-    database_manager    Manage a beacon node database [aliases: db]
-    help                Prints this message or the help of the given subcommand(s)
-    validator_client    When connected to a beacon node, performs the duties of a staked validator (e.g., proposing
-                        blocks and attestations). [aliases: v, vc, validator]
+    account_manager      Utilities for generating and managing Ethereum 2.0 accounts. [aliases: a, am, account,
+                         account_manager]
+    beacon_node          The primary component which connects to the Ethereum 2.0 P2P network and downloads,
+                         verifies and stores blocks. Provides a HTTP API for querying the beacon chain and
+                         publishing messages to the network. [aliases: b, bn, beacon]
+    boot_node            Start a special Lighthouse process that only serves as a discv5 boot-node. This process
+                         will *not* import blocks or perform most typical beacon node functions. Instead, it will
+                         simply run the discv5 service and assist nodes on the network to discover each other. This
+                         is the recommended way to provide a network boot-node since it has a reduced attack surface
+                         compared to a full beacon node.
+    database_manager     Manage a beacon node database [aliases: db]
+    help                 Prints this message or the help of the given subcommand(s)
+    validator_client     When connected to a beacon node, performs the duties of a staked validator (e.g., proposing
+                         blocks and attestations). [aliases: v, vc, validator]
+    validator_manager    Utilities for managing a Lighthouse validator client via the HTTP API. [aliases: vm,
+                         validator-manager, validator_manager]
 ```
