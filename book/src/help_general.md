@@ -1,4 +1,4 @@
-#Lighthouse General Commands
+# Lighthouse General Commands
 
 ```
 Sigma Prime <contact@sigmaprime.io>
