@@ -1,8 +1,8 @@
 use super::*;
-use crate::SigpBlob;
+use crate::WrappedBlob;
 
-impl<E: EthSpec> TestRandom for SigpBlob<E> {
+impl<E: EthSpec> TestRandom for WrappedBlob<E> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        SigpBlob::random_valid(rng).expect("should create valid blob")
+        WrappedBlob::random_valid(rng).expect("should create valid blob")
     }
 }

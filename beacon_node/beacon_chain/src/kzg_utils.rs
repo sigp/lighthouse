@@ -1,10 +1,10 @@
 use kzg::{Error as KzgError, Kzg};
-use types::{EthSpec, Hash256, KzgCommitment, KzgProof, SigpBlob};
+use types::{EthSpec, Hash256, KzgCommitment, KzgProof, WrappedBlob};
 
 /// Validate a single blob-commitment-proof triplet from a `BlobSidecar`.
 pub fn validate_blob<T: EthSpec>(
     kzg: &Kzg<T::Kzg>,
-    blob: &SigpBlob<T>,
+    blob: &WrappedBlob<T>,
     kzg_commitment: KzgCommitment,
     kzg_proof: KzgProof,
 ) -> Result<bool, KzgError> {
@@ -15,7 +15,7 @@ pub fn validate_blob<T: EthSpec>(
 pub fn validate_blobs<T: EthSpec>(
     kzg: &Kzg<T::Kzg>,
     expected_kzg_commitments: &[KzgCommitment],
-    blobs: &[SigpBlob<T>],
+    blobs: &[WrappedBlob<T>],
     kzg_proofs: &[KzgProof],
 ) -> Result<bool, KzgError> {
     let blobs = blobs
@@ -30,7 +30,7 @@ pub fn validate_blobs<T: EthSpec>(
 /// Compute the kzg proof given an ssz blob and its kzg commitment.
 pub fn compute_blob_kzg_proof<T: EthSpec>(
     kzg: &Kzg<T::Kzg>,
-    blob: &SigpBlob<T>,
+    blob: &WrappedBlob<T>,
     kzg_commitment: KzgCommitment,
 ) -> Result<KzgProof, KzgError> {
     kzg.compute_blob_kzg_proof(blob.c_kzg_blob(), kzg_commitment)
@@ -39,7 +39,7 @@ pub fn compute_blob_kzg_proof<T: EthSpec>(
 /// Compute the kzg commitment for a given blob.
 pub fn blob_to_kzg_commitment<T: EthSpec>(
     kzg: &Kzg<T::Kzg>,
-    blob: &SigpBlob<T>,
+    blob: &WrappedBlob<T>,
 ) -> Result<KzgCommitment, KzgError> {
     kzg.blob_to_kzg_commitment(blob.c_kzg_blob())
 }
@@ -47,7 +47,7 @@ pub fn blob_to_kzg_commitment<T: EthSpec>(
 /// Compute the kzg proof for a given blob and an evaluation point z.
 pub fn compute_kzg_proof<T: EthSpec>(
     kzg: &Kzg<T::Kzg>,
-    blob: &SigpBlob<T>,
+    blob: &WrappedBlob<T>,
     z: Hash256,
 ) -> Result<(KzgProof, Hash256), KzgError> {
     let z = z.0.into();

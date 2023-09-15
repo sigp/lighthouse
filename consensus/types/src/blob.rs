@@ -12,18 +12,21 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tree_hash::{PackedEncoding, TreeHash};
 
+/// A wrapper around a c_kzg::Blob that implements all the required traits
+/// to be easily included & used in other consensus types. The blob is wrapped
+/// in an Arc making it cheaply cloneable & allocated on the heap.
+///
+/// Use the `c_kzg_blob` method to obtain a reference to the underlying blob
 #[derive(Clone, PartialEq, Eq)]
-pub struct SigpBlob<E: EthSpec>(Arc<<E::Kzg as KzgPreset>::Blob>);
-
-impl<E: EthSpec> SigpBlob<E> {
-    pub fn random_valid<R: Rng>(rng: &mut R) -> Result<Self, String> {
-        let mut blob_bytes = vec![0u8; <E::Kzg as KzgPreset>::BYTES_PER_BLOB];
-        rng.fill_bytes(&mut blob_bytes);
-
+pub struct WrappedBlob<E: EthSpec>(Arc<<E::Kzg as KzgPreset>::Blob>);
+impl<E: EthSpec> WrappedBlob<E> {
+    /// Constructs a new blob from random bytes while ensuring it conforms
+    /// to the canonical form required for cryptographic operations.
+    fn canonical_blob_from_bytes(random_bytes: &mut [u8]) -> Result<Self, String> {
         // Ensure that the blob is canonical by ensuring that
         // each field element contained in the blob is < BLS_MODULUS
         for i in 0..<E::Kzg as KzgPreset>::FIELD_ELEMENTS_PER_BLOB {
-            let Some(byte) = blob_bytes.get_mut(
+            let Some(byte) = random_bytes.get_mut(
                 i.checked_mul(BYTES_PER_FIELD_ELEMENT)
                     .ok_or("overflow".to_string())?,
             ) else {
@@ -31,45 +34,39 @@ impl<E: EthSpec> SigpBlob<E> {
             };
             *byte = 0;
         }
-        let kzg_blob = <E::Kzg as KzgPreset>::Blob::from_bytes(&blob_bytes)
-            .map_err(|e| format!("failed to create blob: {:?}", e))?;
-        Ok(Self(Arc::new(kzg_blob)))
+        <E::Kzg as KzgPreset>::Blob::from_bytes(random_bytes)
+            .map(|blob| Self(Arc::new(blob)))
+            .map_err(|e| format!("failed to create blob: {:?}", e))
     }
 
+    pub fn random_valid<R: Rng>(rng: &mut R) -> Result<Self, String> {
+        let mut blob_bytes = vec![0u8; <E::Kzg as KzgPreset>::BYTES_PER_BLOB];
+        rng.fill_bytes(&mut blob_bytes);
+        Self::canonical_blob_from_bytes(&mut blob_bytes)
+    }
+
+    /// Obtain a reference to the underlying c_kzg::Blob
     pub fn c_kzg_blob(&self) -> &<E::Kzg as KzgPreset>::Blob {
         self.0.as_ref()
     }
 }
 
-impl<'a, E: EthSpec> Arbitrary<'a> for SigpBlob<E> {
+impl<'a, E: EthSpec> Arbitrary<'a> for WrappedBlob<E> {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let mut blob_bytes = vec![0u8; <E::Kzg as KzgPreset>::BYTES_PER_BLOB];
         u.fill_buffer(&mut blob_bytes)?;
-        // FIXME: what is the correct error condition here?
-        //        also.. this is a duplication of the code above..
-        let arbitrary_error = arbitrary::Error::NotEnoughData;
-        for i in 0..<E::Kzg as KzgPreset>::FIELD_ELEMENTS_PER_BLOB {
-            let Some(byte) = blob_bytes.get_mut(
-                i.checked_mul(BYTES_PER_FIELD_ELEMENT)
-                    .ok_or(arbitrary_error)?,
-            ) else {
-                return Err(arbitrary_error);
-            };
-            *byte = 0;
-        }
-        let kzg_blob =
-            <E::Kzg as KzgPreset>::Blob::from_bytes(&blob_bytes).map_err(|_| arbitrary_error)?;
-        Ok(Self(Arc::new(kzg_blob)))
+        Self::canonical_blob_from_bytes(&mut blob_bytes)
+            .map_err(|_| arbitrary::Error::NotEnoughData)
     }
 }
 
-impl<E: EthSpec> Hash for SigpBlob<E> {
+impl<E: EthSpec> Hash for WrappedBlob<E> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.as_ref().as_ref().hash(state)
     }
 }
 
-impl<E: EthSpec> Serialize for SigpBlob<E> {
+impl<E: EthSpec> Serialize for WrappedBlob<E> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -79,7 +76,7 @@ impl<E: EthSpec> Serialize for SigpBlob<E> {
     }
 }
 
-impl<'de, T: EthSpec> Deserialize<'de> for SigpBlob<T> {
+impl<'de, T: EthSpec> Deserialize<'de> for WrappedBlob<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -89,7 +86,7 @@ impl<'de, T: EthSpec> Deserialize<'de> for SigpBlob<T> {
         }
 
         impl<'de, T: EthSpec> Visitor<'de> for BlobVisitor<T> {
-            type Value = SigpBlob<T>;
+            type Value = WrappedBlob<T>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("a hex-encoded string representing a blob")
@@ -114,7 +111,7 @@ impl<'de, T: EthSpec> Deserialize<'de> for SigpBlob<T> {
                         )
                     })?;
 
-                Ok(SigpBlob(Arc::new(kzg_blob)))
+                Ok(WrappedBlob(Arc::new(kzg_blob)))
             }
         }
 
@@ -124,7 +121,7 @@ impl<'de, T: EthSpec> Deserialize<'de> for SigpBlob<T> {
     }
 }
 
-impl<E: EthSpec> Encode for SigpBlob<E> {
+impl<E: EthSpec> Encode for WrappedBlob<E> {
     fn is_ssz_fixed_len() -> bool {
         true
     }
@@ -142,7 +139,7 @@ impl<E: EthSpec> Encode for SigpBlob<E> {
     }
 }
 
-impl<E: EthSpec> Decode for SigpBlob<E> {
+impl<E: EthSpec> Decode for WrappedBlob<E> {
     fn is_ssz_fixed_len() -> bool {
         true
     }
@@ -163,7 +160,7 @@ impl<E: EthSpec> Decode for SigpBlob<E> {
     }
 }
 
-impl<E: EthSpec> TryFrom<Vec<u8>> for SigpBlob<E> {
+impl<E: EthSpec> TryFrom<Vec<u8>> for WrappedBlob<E> {
     type Error = String;
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
@@ -179,7 +176,7 @@ impl<E: EthSpec> TryFrom<Vec<u8>> for SigpBlob<E> {
     }
 }
 
-impl<E: EthSpec> TreeHash for SigpBlob<E> {
+impl<E: EthSpec> TreeHash for WrappedBlob<E> {
     fn tree_hash_type() -> tree_hash::TreeHashType {
         tree_hash::TreeHashType::Vector
     }
@@ -212,17 +209,17 @@ impl<E: EthSpec> TreeHash for SigpBlob<E> {
     }
 }
 
-impl<E: EthSpec> Default for SigpBlob<E> {
+impl<E: EthSpec> Default for WrappedBlob<E> {
     fn default() -> Self {
         let bytes = vec![0u8; <E::Kzg as KzgPreset>::BYTES_PER_BLOB];
-        SigpBlob(Arc::new(
+        WrappedBlob(Arc::new(
             <E::Kzg as KzgPreset>::Blob::from_bytes(bytes.as_slice())
                 .expect("default blob should be valid"),
         ))
     }
 }
 
-impl<E: EthSpec> std::fmt::Debug for SigpBlob<E> {
+impl<E: EthSpec> std::fmt::Debug for WrappedBlob<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", serde_utils::hex::encode(self.0.as_ref()))
     }

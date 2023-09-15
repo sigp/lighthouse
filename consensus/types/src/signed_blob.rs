@@ -1,7 +1,7 @@
 use crate::sidecar::Sidecar;
 use crate::{
     test_utils::TestRandom, BlindedBlobSidecar, BlobSidecar, ChainSpec, Domain, EthSpec, Fork,
-    Hash256, Signature, SignedRoot, SigningData, SigpBlob,
+    Hash256, Signature, SignedRoot, SigningData, WrappedBlob,
 };
 use bls::PublicKey;
 use derivative::Derivative;
@@ -41,7 +41,7 @@ pub struct SignedSidecar<T: EthSpec, S: Sidecar<T>> {
 }
 
 impl<T: EthSpec> SignedSidecar<T, BlindedBlobSidecar> {
-    pub fn into_full_blob_sidecars(self, blob: SigpBlob<T>) -> SignedSidecar<T, BlobSidecar<T>> {
+    pub fn into_full_blob_sidecars(self, blob: WrappedBlob<T>) -> SignedSidecar<T, BlobSidecar<T>> {
         let blinded_sidecar = self.message;
         SignedSidecar {
             message: Arc::new(BlobSidecar {

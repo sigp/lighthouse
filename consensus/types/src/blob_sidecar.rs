@@ -14,7 +14,7 @@ use kzg::{Kzg, KzgCommitment, KzgProof};
 use test_random_derive::TestRandom;
 
 use crate::test_utils::TestRandom;
-use crate::{EthSpec, Hash256, SignedRoot, SigpBlob, Slot};
+use crate::{EthSpec, Hash256, SignedRoot, Slot, WrappedBlob};
 
 /// Container of the data that identifies an individual blob.
 #[derive(
@@ -60,7 +60,7 @@ pub struct BlobSidecar<T: EthSpec> {
     pub block_parent_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
-    pub blob: SigpBlob<T>,
+    pub blob: WrappedBlob<T>,
     pub kzg_commitment: KzgCommitment,
     pub kzg_proof: KzgProof,
 }
@@ -124,14 +124,14 @@ impl<T: EthSpec> BlobSidecar<T> {
             slot: Slot::new(0),
             block_parent_root: Hash256::zero(),
             proposer_index: 0,
-            blob: SigpBlob::<T>::default(),
+            blob: WrappedBlob::<T>::default(),
             kzg_commitment: KzgCommitment::empty_for_testing(),
             kzg_proof: KzgProof::empty(),
         }
     }
 
     pub fn random_valid<R: Rng>(rng: &mut R, kzg: &Kzg<T::Kzg>) -> Result<Self, String> {
-        let blob = SigpBlob::<T>::random_valid(rng)?;
+        let blob = WrappedBlob::<T>::random_valid(rng)?;
         let kzg_blob = blob.c_kzg_blob();
 
         let commitment = kzg
@@ -192,5 +192,5 @@ pub type BlindedBlobSidecarList<T> = SidecarList<T, BlindedBlobSidecar>;
 pub type FixedBlobSidecarList<T> =
     FixedVector<Option<Arc<BlobSidecar<T>>>, <T as EthSpec>::MaxBlobsPerBlock>;
 
-pub type BlobsList<T> = VariableList<SigpBlob<T>, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type BlobsList<T> = VariableList<WrappedBlob<T>, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
 pub type BlobRootsList<T> = VariableList<Hash256, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
