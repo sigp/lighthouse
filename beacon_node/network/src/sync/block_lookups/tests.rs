@@ -18,7 +18,6 @@ use rand::Rng;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;
-use types::beacon_block_body::to_block_kzg_commitments;
 use types::{
     map_fork_name, map_fork_name_with,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
@@ -121,8 +120,7 @@ impl TestRig {
             for tx in Vec::from(transactions) {
                 payload.execution_payload.transactions.push(tx).unwrap();
             }
-            message.body.blob_kzg_commitments =
-                to_block_kzg_commitments::<E>(bundle.commitments.clone());
+            message.body.blob_kzg_commitments = bundle.commitments.clone();
 
             let eth2::types::BlobsBundle {
                 commitments,

@@ -80,14 +80,6 @@ jobs:
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
-    - name: Use Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '14'
-    - name: Install windows build tools
-      run: |
-        choco install python visualstudio2019-workload-vctools -y
-        npm config set msvs_version 2019
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
       with:

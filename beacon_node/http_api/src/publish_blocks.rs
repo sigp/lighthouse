@@ -1,12 +1,12 @@
 use crate::metrics;
 
-use beacon_chain::block_verification_types::AsBlock;
+use beacon_chain::block_verification_types::{AsBlock, BlockContentsError};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     IntoGossipVerifiedBlockContents, NotifyExecutionLayer,
 };
-use eth2::types::BroadcastValidation;
+use eth2::types::{BroadcastValidation, ErrorMessage};
 use eth2::types::{FullPayloadContents, SignedBlockContents};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
@@ -20,9 +20,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
-    FullPayload, Hash256, SignedBeaconBlock, SignedBlobSidecarList,
+    ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock, SignedBlobSidecarList,
 };
-use warp::Rejection;
+use warp::http::StatusCode;
+use warp::{reply::Response, Rejection, Reply};
 
 pub enum ProvenancedBlock<T: BeaconChainTypes, B: IntoGossipVerifiedBlockContents<T>> {
     /// The payload was built using a local EE.
@@ -50,7 +51,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
     validation_level: BroadcastValidation,
-) -> Result<(), Rejection> {
+    duplicate_status_code: StatusCode,
+) -> Result<Response, Rejection> {
     let seen_timestamp = timestamp_now();
 
     let (block_contents, is_locally_built_block) = match provenanced_block {
@@ -114,12 +116,31 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     let blobs_opt = block_contents.inner_blobs();
 
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
-    let (gossip_verified_block, gossip_verified_blobs) = block_contents
-        .into_gossip_verified_block(&chain)
-        .map_err(|e| {
-            warn!(log, "Not publishing block, not gossip verified"; "slot" => slot, "error" => ?e);
-            warp_utils::reject::custom_bad_request(e.to_string())
-        })?;
+    let (gossip_verified_block, gossip_verified_blobs) =
+        match block_contents.into_gossip_verified_block(&chain) {
+            Ok(b) => b,
+            Err(BlockContentsError::BlockError(BlockError::BlockIsAlreadyKnown)) => {
+                // Allow the status code for duplicate blocks to be overridden based on config.
+                return Ok(warp::reply::with_status(
+                    warp::reply::json(&ErrorMessage {
+                        code: duplicate_status_code.as_u16(),
+                        message: "duplicate block".to_string(),
+                        stacktraces: vec![],
+                    }),
+                    duplicate_status_code,
+                )
+                .into_response());
+            }
+            Err(e) => {
+                warn!(
+                    log,
+                    "Not publishing block - not gossip verified";
+                    "slot" => slot,
+                    "error" => ?e
+                );
+                return Err(warp_utils::reject::custom_bad_request(e.to_string()));
+            }
+        };
 
     // Clone here, so we can take advantage of the `Arc`. The block in `BlockContents` is not,
     // `Arc`'d but blobs are.
@@ -222,8 +243,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             if is_locally_built_block {
                 late_block_logging(&chain, seen_timestamp, block.message(), root, "local", &log)
             }
-
-            Ok(())
+            Ok(warp::reply().into_response())
         }
         Ok(AvailabilityProcessingStatus::MissingComponents(_, block_root)) => {
             let msg = format!("Missing parts of block with root {:?}", block_root);
@@ -235,7 +255,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                     "Invalid block provided to HTTP API";
                     "reason" => &msg
                 );
-                Err(warp_utils::reject::broadcast_without_import(msg))
+                Err(warp_utils::reject::custom_bad_request(msg))
             }
         }
         Err(BlockError::BeaconChainError(BeaconChainError::UnableToPublish)) => {
@@ -246,10 +266,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         Err(BlockError::Slashable) => Err(warp_utils::reject::custom_bad_request(
             "proposal for this slot and proposer has already been seen".to_string(),
         )),
-        Err(BlockError::BlockIsAlreadyKnown) => {
-            info!(log, "Block from HTTP API already known"; "block" => ?block_root);
-            Ok(())
-        }
         Err(e) => {
             if let BroadcastValidation::Gossip = validation_level {
                 Err(warp_utils::reject::broadcast_without_import(format!("{e}")))
@@ -276,7 +292,8 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
     validation_level: BroadcastValidation,
-) -> Result<(), Rejection> {
+    duplicate_status_code: StatusCode,
+) -> Result<Response, Rejection> {
     let block_root = block_contents.signed_block().canonical_root();
     let full_block: ProvenancedBlock<T, SignedBlockContents<T::EthSpec>> =
         reconstruct_block(chain.clone(), block_root, block_contents, log.clone()).await?;
@@ -287,6 +304,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
         network_tx,
         log,
         validation_level,
+        duplicate_status_code,
     )
     .await
 }
@@ -308,18 +326,17 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
 
         // If the execution block hash is zero, use an empty payload.
         let full_payload_contents = if payload_header.block_hash() == ExecutionBlockHash::zero() {
-            let payload = FullPayload::default_at_fork(
-                chain
-                    .spec
-                    .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
-            )
-            .map_err(|e| {
-                warp_utils::reject::custom_server_error(format!(
-                    "Default payload construction error: {e:?}"
-                ))
-            })?
-            .into();
-            ProvenancedPayload::Local(FullPayloadContents::Payload(payload))
+            let fork_name = chain
+                .spec
+                .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
+            if fork_name == ForkName::Merge {
+                let payload: FullPayload<T::EthSpec> = FullPayloadMerge::default().into();
+                ProvenancedPayload::Local(FullPayloadContents::Payload(payload.into()))
+            } else {
+                Err(warp_utils::reject::custom_server_error(
+                    "Failed to construct full payload - block hash must be non-zero after Bellatrix.".to_string()
+                ))?
+            }
         // If we already have an execution payload with this transactions root cached, use it.
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())

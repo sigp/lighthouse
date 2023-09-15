@@ -9,23 +9,8 @@ use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-//TODO: Remove this type and use `BlockBodyKzgCommitments` everywhere when this PR is merged:
-// https://github.com/ethereum/builder-specs/pull/87
-pub type BuilderKzgCommitments<T> = VariableList<KzgCommitment, <T as EthSpec>::MaxBlobsPerBlock>;
-pub type BlockBodyKzgCommitments<T> =
+pub type KzgCommitments<T> =
     VariableList<KzgCommitment, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
-
-pub fn to_block_kzg_commitments<E: EthSpec>(
-    commitments: BuilderKzgCommitments<E>,
-) -> BlockBodyKzgCommitments<E> {
-    commitments.to_vec().into()
-}
-
-pub fn from_block_kzg_commitments<E: EthSpec>(
-    commitments: &BlockBodyKzgCommitments<E>,
-) -> BuilderKzgCommitments<E> {
-    commitments.to_vec().into()
-}
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
@@ -87,7 +72,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
     #[superstruct(only(Deneb))]
-    pub blob_kzg_commitments: BlockBodyKzgCommitments<T>,
+    pub blob_kzg_commitments: KzgCommitments<T>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]

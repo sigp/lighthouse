@@ -1,15 +1,18 @@
-use crate::beacon_block_body::BuilderKzgCommitments;
+use crate::beacon_block_body::KzgCommitments;
 use crate::test_utils::TestRandom;
 use crate::{
     AbstractExecPayload, BeaconBlock, BlindedBlobSidecar, BlindedBlobSidecarList, BlobRootsList,
-    BlobSidecar, BlobSidecarList, BlobsList, EthSpec, SidecarList, SignedRoot, Slot,
+    BlobSidecar, BlobSidecarList, BlobsList, ChainSpec, Domain, EthSpec, Fork, Hash256,
+    SidecarList, SignedRoot, SignedSidecar, Slot,
 };
+use bls::SecretKey;
 use kzg::KzgProof;
 use serde::de::DeserializeOwned;
 use ssz::{Decode, Encode};
 use ssz_types::VariableList;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 
@@ -29,13 +32,40 @@ pub trait Sidecar<E: EthSpec>:
     + for<'a> arbitrary::Arbitrary<'a>
 {
     type BlobItems: BlobItems<E>;
+
     fn slot(&self) -> Slot;
+
     fn build_sidecar<Payload: AbstractExecPayload<E>>(
         blob_items: Self::BlobItems,
         block: &BeaconBlock<E, Payload>,
-        expected_kzg_commitments: &BuilderKzgCommitments<E>,
+        expected_kzg_commitments: &KzgCommitments<E>,
         kzg_proofs: Vec<KzgProof>,
     ) -> Result<SidecarList<E, Self>, String>;
+
+    // this is mostly not used except for in testing
+    fn sign(
+        self: Arc<Self>,
+        secret_key: &SecretKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> SignedSidecar<E, Self> {
+        let signing_epoch = self.slot().epoch(E::slots_per_epoch());
+        let domain = spec.get_domain(
+            signing_epoch,
+            Domain::BlobSidecar,
+            fork,
+            genesis_validators_root,
+        );
+        let message = self.signing_root(domain);
+        let signature = secret_key.sign(message);
+
+        SignedSidecar {
+            message: self,
+            signature,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 pub trait BlobItems<T: EthSpec>: Sync + Send + Sized {
@@ -106,7 +136,7 @@ impl<E: EthSpec> Sidecar<E> for BlobSidecar<E> {
     fn build_sidecar<Payload: AbstractExecPayload<E>>(
         blobs: BlobsList<E>,
         block: &BeaconBlock<E, Payload>,
-        expected_kzg_commitments: &BuilderKzgCommitments<E>,
+        expected_kzg_commitments: &KzgCommitments<E>,
         kzg_proofs: Vec<KzgProof>,
     ) -> Result<SidecarList<E, Self>, String> {
         let beacon_block_root = block.canonical_root();
@@ -152,7 +182,7 @@ impl<E: EthSpec> Sidecar<E> for BlindedBlobSidecar {
     fn build_sidecar<Payload: AbstractExecPayload<E>>(
         blob_roots: BlobRootsList<E>,
         block: &BeaconBlock<E, Payload>,
-        expected_kzg_commitments: &BuilderKzgCommitments<E>,
+        expected_kzg_commitments: &KzgCommitments<E>,
         kzg_proofs: Vec<KzgProof>,
     ) -> Result<SidecarList<E, BlindedBlobSidecar>, String> {
         let beacon_block_root = block.canonical_root();
