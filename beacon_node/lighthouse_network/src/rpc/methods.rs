@@ -297,6 +297,12 @@ pub struct BlobsByRangeRequest {
     pub count: u64,
 }
 
+impl BlobsByRangeRequest {
+    pub fn max_blobs_requested<E: EthSpec>(&self) -> u64 {
+        self.count.saturating_mul(E::max_blobs_per_block() as u64)
+    }
+}
+
 /// Request a number of beacon block roots from a peer.
 #[superstruct(
     variants(V1, V2),
