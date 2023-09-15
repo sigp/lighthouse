@@ -55,21 +55,29 @@ write_to_file "$vm_cli" "$vm" "Validator Manager"
 old_files=(./book/src/help_general.md ./book/src/help_bn.md ./book/src/help_vc.md ./book/src/help_am.md ./book/src/help_vm.md)
 new_files=($general $bn $vc $am $vm)
 
+exist=()
+update=() 
+diff=()
 check() {
 if [[ -f $1 ]]; # check for existence of file
 then 
     diff=$(diff $1 $2)
+    diff+=($diff)
+    exist+=(false)
 else
     cp $2 ./book/src
-    changes=true 
+    changes=true
+    exist+=(true) 
 fi
 
 if [[ -z $diff ]]; # check for difference
 then 
+    update+=(false)
     return 1 # exit a function (i.e., do nothing)
 else
     cp $2 ./book/src
     changes=true
+    update+=(true)
 fi
 }
 
@@ -84,6 +92,11 @@ check ${old_files[4]} ${new_files[4]}
 
 # remove help files
 rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md
+
+# used for debug to show status
+echo "exist = ${exist[@]}"
+echo "changes = ${changes[@]}"
+echo "difference = ${diff[@]}"
 
 # only exit at the very end
 if [[ $changes == true ]]; then
