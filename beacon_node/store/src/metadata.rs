@@ -4,7 +4,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::{Checkpoint, Hash256, Slot};
 
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(17);
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(18);
 
 // All the keys that get stored under the `BeaconMeta` column.
 //
@@ -137,17 +137,6 @@ pub struct BlobInfo {
     pub oldest_blob_slot: Option<Slot>,
     /// A separate blobs database is in use.
     pub blobs_db: bool,
-}
-
-impl BlobInfo {
-    pub fn get_oldest_blob_slot(&self, deneb_fork_slot: Slot, anchor: Option<&AnchorInfo>) -> Slot {
-        self.oldest_blob_slot.unwrap_or_else(|| {
-            std::cmp::max(
-                deneb_fork_slot,
-                anchor.map_or(Slot::new(0), |anchor| anchor.oldest_block_slot),
-            )
-        })
-    }
 }
 
 impl StoreItem for BlobInfo {
