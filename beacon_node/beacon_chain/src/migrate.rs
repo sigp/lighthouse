@@ -668,18 +668,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             head_tracker_lock.remove(&head_hash);
         }
 
-        let batch: Vec<StoreOp<E>> = abandoned_blocks
+        let mut batch: Vec<StoreOp<E>> = abandoned_blocks
             .into_iter()
             .map(Into::into)
             .flat_map(|block_root: Hash256| {
-                let mut store_ops = vec![
+                [
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
-                ];
-                if store.blobs_exist(&block_root).unwrap_or(false) {
-                    store_ops.extend([StoreOp::DeleteBlobs(block_root)]);
-                }
-                store_ops
+                    StoreOp::DeleteBlobs(block_root),
+                ]
             })
             .chain(
                 abandoned_states
@@ -687,8 +684,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash.into(), Some(slot))),
             )
             .collect();
-
-        let mut kv_batch = store.convert_to_kv_batch(batch)?;
 
         // Persist the head in case the process is killed or crashes here. This prevents
         // the head tracker reverting after our mutation above.
@@ -698,12 +693,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             ssz_head_tracker: SszHeadTracker::from_map(&head_tracker_lock),
         };
         drop(head_tracker_lock);
-        kv_batch.push(persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY));
+        batch.push(StoreOp::KeyValueOp(
+            persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY),
+        ));
 
         // Persist the new finalized checkpoint as the pruning checkpoint.
-        kv_batch.push(store.pruning_checkpoint_store_op(new_finalized_checkpoint));
+        batch.push(StoreOp::KeyValueOp(
+            store.pruning_checkpoint_store_op(new_finalized_checkpoint),
+        ));
 
-        store.hot_db.do_atomically(kv_batch)?;
+        store.do_atomically_with_block_and_blobs_cache(batch)?;
         debug!(log, "Database pruning complete");
 
         Ok(PruningOutcome::Successful {

@@ -2777,9 +2777,11 @@ async fn schema_downgrade_to_min_version() {
         )
         .await;
 
-    let min_version = if harness.spec.capella_fork_epoch.is_some() {
-        // Can't downgrade beyond V14 once Capella is reached, for simplicity don't test that
-        // at all if Capella is enabled.
+    let min_version = if harness.spec.deneb_fork_epoch.is_some() {
+        // Can't downgrade beyond V18 once Deneb is reached, for simplicity don't test that
+        // at all if Deneb is enabled.
+        SchemaVersion(18)
+    } else if harness.spec.capella_fork_epoch.is_some() {
         SchemaVersion(14)
     } else {
         SchemaVersion(11)
