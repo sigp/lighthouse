@@ -12,20 +12,50 @@ AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
+CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
+
+# List of features to use when building natively. Can be overriden via the environment.
+# No jemalloc on Windows
+ifeq ($(OS),Windows_NT)
+    FEATURES?=
+else
+    FEATURES?=jemalloc
+endif
+
+# List of features to use when cross-compiling. Can be overridden via the environment.
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,jemalloc
+
+# Cargo profile for Cross builds. Default is for local builds, CI uses an override.
+CROSS_PROFILE ?= release
+
+# List of features to use when running EF tests.
+EF_TEST_FEATURES ?=
+
+# Cargo profile for regular builds.
+PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair merge
+FORKS=phase0 altair merge capella
+
+# Extra flags for Cargo
+CARGO_INSTALL_EXTRA_FLAGS?=
 
 # Builds the Lighthouse binary in release (optimized).
 #
 # Binaries will most likely be found in `./target/release`
 install:
-	cargo install --path lighthouse --force --locked --features "$(FEATURES)"
+	cargo install --path lighthouse --force --locked \
+		--features "$(FEATURES)" \
+		--profile "$(PROFILE)" \
+		$(CARGO_INSTALL_EXTRA_FLAGS)
 
 # Builds the lcli binary in release (optimized).
 install-lcli:
-	cargo install --path lcli --force --locked --features "$(FEATURES)"
+	cargo install --path lcli --force --locked \
+		--features "$(FEATURES)" \
+		--profile "$(PROFILE)" \
+		$(CARGO_INSTALL_EXTRA_FLAGS)
 
 # The following commands use `cross` to build a cross-compile.
 #
@@ -41,13 +71,13 @@ install-lcli:
 # optimized CPU functions that may not be available on some systems. This
 # results in a more portable binary with ~20% slower BLS verification.
 build-x86_64:
-	cross build --release --bin lighthouse --target x86_64-unknown-linux-gnu --features modern,gnosis
+	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "modern,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-x86_64-portable:
-	cross build --release --bin lighthouse --target x86_64-unknown-linux-gnu --features portable,gnosis
+	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-aarch64:
-	cross build --release --bin lighthouse --target aarch64-unknown-linux-gnu --features gnosis
+	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-aarch64-portable:
-	cross build --release --bin lighthouse --target aarch64-unknown-linux-gnu --features portable,gnosis
+	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
@@ -76,7 +106,7 @@ build-release-tarballs:
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
-	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain
+	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
@@ -91,23 +121,19 @@ cargo-fmt:
 check-benches:
 	cargo check --workspace --benches
 
-# Typechecks consensus code *without* allowing deprecated legacy arithmetic or metrics.
-check-consensus:
-	cargo check -p state_processing --no-default-features
-
 # Runs only the ef-test vectors.
 run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
-	cargo test --release -p ef_tests --features "ef_tests"
-	cargo test --release -p ef_tests --features "ef_tests,fake_crypto"
-	cargo test --release -p ef_tests --features "ef_tests,milagro"
+	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
+	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
+	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo test --release --features fork_from_env -p beacon_chain
+	env FORK_NAME=$* cargo test --release --features fork_from_env,slasher/lmdb -p beacon_chain
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
@@ -116,6 +142,12 @@ test-op-pool-%:
 	env FORK_NAME=$* cargo test --release \
 		--features 'beacon_chain/fork_from_env'\
 		-p operation_pool
+
+# Run the tests in the `slasher` crate for all supported database backends.
+test-slasher:
+	cargo test --release -p slasher --features lmdb
+	cargo test --release -p slasher --no-default-features --features mdbx
+	cargo test --release -p slasher --features lmdb,mdbx # both backends enabled
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
@@ -138,12 +170,26 @@ test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	cargo clippy --workspace --tests -- \
+	cargo clippy --workspace --tests $(EXTRA_CLIPPY_OPTS) -- \
 		-D clippy::fn_to_numeric_cast_any \
 		-D warnings \
+		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
-		-A clippy::vec-init-then-push
+		-A clippy::vec-init-then-push \
+		-A clippy::question-mark \
+		-A clippy::uninlined-format-args
+
+# Lints the code using Clippy and automatically fix some simple compiler warnings.
+lint-fix:
+	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint
+
+nightly-lint:
+	cp .github/custom/clippy.toml .
+	cargo +$(CLIPPY_PINNED_NIGHTLY) clippy --workspace --tests --release -- \
+		-A clippy::all \
+		-D clippy::disallowed_from_async
+	rm clippy.toml
 
 # Runs the makefile in the `ef_tests` repo.
 #
@@ -161,7 +207,7 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159
+	cargo audit --ignore RUSTSEC-2023-0052
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:

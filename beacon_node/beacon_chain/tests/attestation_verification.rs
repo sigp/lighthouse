@@ -1,12 +1,17 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::attestation_verification::{
+    batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations, Error,
+};
+use beacon_chain::test_utils::{MakeAttestationOptions, HARNESS_GENESIS_TIME};
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{
         test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
     },
-    BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped,
+    BeaconChain, BeaconChainError, BeaconChainTypes, ChainConfig, WhenSlotSkipped,
 };
+use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use lazy_static::lazy_static;
 use state_processing::{
@@ -14,9 +19,9 @@ use state_processing::{
 };
 use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
-    BitList, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
-    SignedAggregateAndProof, Slot, SubnetId, Unsigned,
+    test_utils::generate_deterministic_keypair, Address, AggregateSignature, Attestation,
+    BeaconStateError, BitList, ChainSpec, Epoch, EthSpec, ForkName, Hash256, Keypair,
+    MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof, Slot, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -24,6 +29,8 @@ pub type E = MainnetEthSpec;
 /// The validator count needs to be relatively high compared to other tests to ensure that we can
 /// have committees where _some_ validators are aggregators but not _all_.
 pub const VALIDATOR_COUNT: usize = 256;
+
+pub const CAPELLA_FORK_EPOCH: usize = 1;
 
 lazy_static! {
     /// A cached set of keys.
@@ -40,6 +47,10 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec)
+        .chain_config(ChainConfig {
+            reconstruct_historic_states: true,
+            ..ChainConfig::default()
+        })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -50,13 +61,61 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     harness
 }
 
+/// Returns a beacon chain harness with Capella fork enabled at epoch 1, and
+/// all genesis validators start with BLS withdrawal credentials.
+fn get_harness_capella_spec(
+    validator_count: usize,
+) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
+    let mut spec = E::default_spec();
+    spec.altair_fork_epoch = Some(Epoch::new(0));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH as u64));
+
+    let validator_keypairs = KEYPAIRS[0..validator_count].to_vec();
+    let genesis_state = interop_genesis_state(
+        &validator_keypairs,
+        HARNESS_GENESIS_TIME,
+        Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+        None,
+        &spec,
+    )
+    .unwrap();
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.clone())
+        .chain_config(ChainConfig {
+            reconstruct_historic_states: true,
+            ..ChainConfig::default()
+        })
+        .keypairs(validator_keypairs)
+        .withdrawal_keypairs(
+            KEYPAIRS[0..validator_count]
+                .iter()
+                .cloned()
+                .map(Some)
+                .collect(),
+        )
+        .genesis_state_ephemeral_store(genesis_state)
+        .mock_execution_layer()
+        .build();
+
+    harness
+        .execution_block_generator()
+        .move_to_terminal_block()
+        .unwrap();
+
+    harness.advance_slot();
+
+    (harness, spec)
+}
+
 /// Returns an attestation that is valid for some slot in the given `chain`.
 ///
 /// Also returns some info about who created it.
 fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> (Attestation<T::EthSpec>, usize, usize, SecretKey, SubnetId) {
-    let head = chain.head().expect("should get head");
+    let head = chain.head_snapshot();
     let current_slot = chain.slot().expect("should get slot");
 
     let mut valid_attestation = chain
@@ -106,7 +165,8 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     aggregate: Attestation<T::EthSpec>,
 ) -> (SignedAggregateAndProof<T::EthSpec>, usize, SecretKey) {
-    let state = &chain.head().expect("should get head").beacon_state;
+    let head = chain.head_snapshot();
+    let state = &head.beacon_state;
     let current_slot = chain.slot().expect("should get slot");
 
     let committee = state
@@ -155,7 +215,8 @@ fn get_non_aggregator<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     aggregate: &Attestation<T::EthSpec>,
 ) -> (usize, SecretKey) {
-    let state = &chain.head().expect("should get head").beacon_state;
+    let head = chain.head_snapshot();
+    let state = &head.beacon_state;
     let current_slot = chain.slot().expect("should get slot");
 
     let committee = state
@@ -213,15 +274,17 @@ struct GossipTester {
 }
 
 impl GossipTester {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         let harness = get_harness(VALIDATOR_COUNT);
 
         // Extend the chain out a few epochs so we have some chain depth to play with.
-        harness.extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        );
+        harness
+            .extend_chain(
+                MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
 
         // Advance into a slot where there have not been blocks or attestations produced.
         harness.advance_slot();
@@ -395,9 +458,10 @@ impl GossipTester {
     }
 }
 /// Tests verification of `SignedAggregateAndProof` from the gossip network.
-#[test]
-fn aggregated_gossip_verification() {
+#[tokio::test]
+async fn aggregated_gossip_verification() {
     GossipTester::new()
+        .await
         /*
          * The following two tests ensure:
          *
@@ -511,8 +575,7 @@ fn aggregated_gossip_verification() {
                 let committee_len = tester
                     .harness
                     .chain
-                    .head()
-                    .unwrap()
+                    .head_snapshot()
                     .beacon_state
                     .get_beacon_committee(tester.slot(), a.message.aggregate.data.index)
                     .expect("should get committees")
@@ -612,7 +675,7 @@ fn aggregated_gossip_verification() {
                     tester.valid_aggregate.message.aggregate.clone(),
                     None,
                     &sk,
-                    &chain.head_info().unwrap().fork,
+                    &chain.canonical_head.cached_head().head_fork(),
                     chain.genesis_validators_root,
                     &chain.spec,
                 )
@@ -644,8 +707,8 @@ fn aggregated_gossip_verification() {
             |tester, err| {
                 assert!(matches!(
                     err,
-                    AttnError::AttestationAlreadyKnown(hash)
-                    if hash == tester.valid_aggregate.message.aggregate.tree_hash_root()
+                    AttnError::AttestationSupersetKnown(hash)
+                    if hash == tester.valid_aggregate.message.aggregate.data.tree_hash_root()
                 ))
             },
         )
@@ -669,9 +732,10 @@ fn aggregated_gossip_verification() {
 }
 
 /// Tests the verification conditions for an unaggregated attestation on the gossip network.
-#[test]
-fn unaggregated_gossip_verification() {
+#[tokio::test]
+async fn unaggregated_gossip_verification() {
     GossipTester::new()
+        .await
         /*
          * The following test ensures:
          *
@@ -684,8 +748,7 @@ fn unaggregated_gossip_verification() {
                 a.data.index = tester
                     .harness
                     .chain
-                    .head()
-                    .unwrap()
+                    .head_snapshot()
                     .beacon_state
                     .get_committee_count_at_slot(a.data.slot)
                     .unwrap()
@@ -924,16 +987,18 @@ fn unaggregated_gossip_verification() {
 /// Ensures that an attestation that skips epochs can still be processed.
 ///
 /// This also checks that we can do a state lookup if we don't get a hit from the shuffling cache.
-#[test]
-fn attestation_that_skips_epochs() {
+#[tokio::test]
+async fn attestation_that_skips_epochs() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::SomeValidators(vec![]),
-    );
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
 
     let current_slot = harness.chain.slot().expect("should get slot");
     let current_epoch = harness.chain.epoch().expect("should get epoch");
@@ -975,7 +1040,7 @@ fn attestation_that_skips_epochs() {
     let block_slot = harness
         .chain
         .store
-        .get_block(&block_root)
+        .get_blinded_block(&block_root)
         .expect("should not error getting block")
         .expect("should find attestation block")
         .message()
@@ -992,16 +1057,112 @@ fn attestation_that_skips_epochs() {
         .expect("should gossip verify attestation that skips slots");
 }
 
-#[test]
-fn attestation_to_finalized_block() {
+/// Ensures that an attestation can be processed when a validator receives proposer reward
+/// in an epoch _and_ is scheduled for a withdrawal. This is a regression test for a scenario where
+/// inconsistent state lookup could cause withdrawal root mismatch.
+#[tokio::test]
+async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
+    let (harness, _) = get_harness_capella_spec(VALIDATOR_COUNT);
+
+    // Advance to a Capella block. Make sure the blocks have attestations.
+    let two_thirds = (VALIDATOR_COUNT / 3) * 2;
+    let attesters = (0..two_thirds).collect();
+    harness
+        .extend_chain(
+            // To trigger the bug we need the proposer attestation reward to be signed at a block
+            // that isn't the first in the epoch.
+            MainnetEthSpec::slots_per_epoch() as usize + 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(attesters),
+        )
+        .await;
+
+    // Add BLS change for the block proposer at slot 33. This sets up a withdrawal for the block proposer.
+    let proposer_index = harness
+        .chain
+        .block_at_slot(harness.get_current_slot(), WhenSlotSkipped::None)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot")
+        .message()
+        .proposer_index();
+    harness
+        .add_bls_to_execution_change(proposer_index, Address::from_low_u64_be(proposer_index))
+        .unwrap();
+
+    // Apply two blocks: one to process the BLS change, and another to process the withdrawal.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+    let earlier_slot = harness.get_current_slot();
+    let earlier_block = harness
+        .chain
+        .block_at_slot(earlier_slot, WhenSlotSkipped::None)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot");
+
+    // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    let current_slot = harness.get_current_slot();
+    let mut state = harness
+        .chain
+        .get_state(&earlier_block.state_root(), Some(earlier_slot))
+        .expect("should not error getting state")
+        .expect("should find state");
+
+    while state.slot() < current_slot {
+        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+    }
+
+    let state_root = state.update_tree_hash_cache().unwrap();
+
+    // Get an attestation pointed to an old block (where we do not have its shuffling cached).
+    // Verifying the attestation triggers an inconsistent state replay.
+    let remaining_attesters = (two_thirds..VALIDATOR_COUNT).collect();
+    let (attestation, subnet_id) = harness
+        .get_unaggregated_attestations(
+            &AttestationStrategy::SomeValidators(remaining_attesters),
+            &state,
+            state_root,
+            earlier_block.canonical_root(),
+            current_slot,
+        )
+        .first()
+        .expect("should have at least one committee")
+        .first()
+        .cloned()
+        .expect("should have at least one attestation in committee");
+
+    harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
+        .expect("should gossip verify attestation without checking withdrawals root");
+}
+
+#[tokio::test]
+async fn attestation_to_finalized_block() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 4 + 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 4 + 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     let finalized_checkpoint = harness
         .chain
@@ -1067,16 +1228,18 @@ fn attestation_to_finalized_block() {
         .contains(earlier_block_root));
 }
 
-#[test]
-fn verify_aggregate_for_gossip_doppelganger_detection() {
+#[tokio::test]
+async fn verify_aggregate_for_gossip_doppelganger_detection() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     // Advance into a slot where there have not been blocks or attestations produced.
     harness.advance_slot();
@@ -1124,16 +1287,18 @@ fn verify_aggregate_for_gossip_doppelganger_detection() {
         .expect("should check if gossip aggregator was observed"));
 }
 
-#[test]
-fn verify_attestation_for_gossip_doppelganger_detection() {
+#[tokio::test]
+async fn verify_attestation_for_gossip_doppelganger_detection() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     // Advance into a slot where there have not been blocks or attestations produced.
     harness.advance_slot();
@@ -1176,4 +1341,199 @@ fn verify_attestation_for_gossip_doppelganger_detection() {
         .read()
         .validator_has_been_observed(epoch, index)
         .expect("should check if gossip aggregator was observed"));
+}
+
+#[tokio::test]
+async fn attestation_verification_use_head_state_fork() {
+    let (harness, spec) = get_harness_capella_spec(VALIDATOR_COUNT);
+
+    // Advance to last block of the pre-Capella fork epoch. Capella is at slot 32.
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    // Assert our head is a block at slot 31 in the pre-Capella fork epoch.
+    let pre_capella_slot = harness.get_current_slot();
+    let pre_capella_block = harness
+        .chain
+        .block_at_slot(pre_capella_slot, WhenSlotSkipped::Prev)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot");
+    assert_eq!(pre_capella_block.fork_name(&spec).unwrap(), ForkName::Merge);
+
+    // Advance slot clock to Capella fork.
+    harness.advance_slot();
+    let first_capella_slot = harness.get_current_slot();
+    assert_eq!(
+        spec.fork_name_at_slot::<E>(first_capella_slot),
+        ForkName::Capella
+    );
+
+    let (state, state_root) = harness.get_current_state_and_root();
+
+    // Scenario 1: other node signed attestation using the Capella fork epoch.
+    {
+        let attesters = (0..VALIDATOR_COUNT / 2).collect::<Vec<_>>();
+        let capella_fork = spec.fork_for_name(ForkName::Capella).unwrap();
+        let committee_attestations = harness
+            .make_unaggregated_attestations_with_opts(
+                attesters.as_slice(),
+                &state,
+                state_root,
+                pre_capella_block.canonical_root().into(),
+                first_capella_slot,
+                MakeAttestationOptions {
+                    fork: capella_fork,
+                    limit: None,
+                },
+            )
+            .0
+            .first()
+            .cloned()
+            .expect("should have at least one committee");
+        let attestations_and_subnets = committee_attestations
+            .iter()
+            .map(|(attestation, subnet_id)| (attestation, Some(*subnet_id)));
+
+        assert!(
+            batch_verify_unaggregated_attestations(attestations_and_subnets, &harness.chain).is_ok(),
+            "should accept attestations with `data.slot` >= first capella slot signed using the Capella fork"
+        );
+    }
+
+    // Scenario 2: other node forgot to update their node and signed attestations using bellatrix fork
+    {
+        let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
+        let merge_fork = spec.fork_for_name(ForkName::Merge).unwrap();
+        let committee_attestations = harness
+            .make_unaggregated_attestations_with_opts(
+                attesters.as_slice(),
+                &state,
+                state_root,
+                pre_capella_block.canonical_root().into(),
+                first_capella_slot,
+                MakeAttestationOptions {
+                    fork: merge_fork,
+                    limit: None,
+                },
+            )
+            .0
+            .first()
+            .cloned()
+            .expect("should have at least one committee");
+        let attestations_and_subnets = committee_attestations
+            .iter()
+            .map(|(attestation, subnet_id)| (attestation, Some(*subnet_id)));
+
+        let results =
+            batch_verify_unaggregated_attestations(attestations_and_subnets, &harness.chain)
+                .expect("should return attestation results");
+        let error = results
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .err()
+            .expect("should return an error");
+        assert!(
+            matches!(error, Error::InvalidSignature),
+            "should reject attestations with `data.slot` >= first capella slot signed using the pre-Capella fork"
+        );
+    }
+}
+
+#[tokio::test]
+async fn aggregated_attestation_verification_use_head_state_fork() {
+    let (harness, spec) = get_harness_capella_spec(VALIDATOR_COUNT);
+
+    // Advance to last block of the pre-Capella fork epoch. Capella is at slot 32.
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    // Assert our head is a block at slot 31 in the pre-Capella fork epoch.
+    let pre_capella_slot = harness.get_current_slot();
+    let pre_capella_block = harness
+        .chain
+        .block_at_slot(pre_capella_slot, WhenSlotSkipped::Prev)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot");
+    assert_eq!(pre_capella_block.fork_name(&spec).unwrap(), ForkName::Merge);
+
+    // Advance slot clock to Capella fork.
+    harness.advance_slot();
+    let first_capella_slot = harness.get_current_slot();
+    assert_eq!(
+        spec.fork_name_at_slot::<E>(first_capella_slot),
+        ForkName::Capella
+    );
+
+    let (state, state_root) = harness.get_current_state_and_root();
+
+    // Scenario 1: other node signed attestation using the Capella fork epoch.
+    {
+        let attesters = (0..VALIDATOR_COUNT / 2).collect::<Vec<_>>();
+        let capella_fork = spec.fork_for_name(ForkName::Capella).unwrap();
+        let aggregates = harness
+            .make_attestations_with_opts(
+                attesters.as_slice(),
+                &state,
+                state_root,
+                pre_capella_block.canonical_root().into(),
+                first_capella_slot,
+                MakeAttestationOptions {
+                    fork: capella_fork,
+                    limit: None,
+                },
+            )
+            .0
+            .into_iter()
+            .map(|(_, aggregate)| aggregate.expect("should have signed aggregate and proof"))
+            .collect::<Vec<_>>();
+
+        assert!(
+            batch_verify_aggregated_attestations(aggregates.iter(), &harness.chain).is_ok(),
+            "should accept aggregates with `data.slot` >= first capella slot signed using the Capella fork"
+        );
+    }
+
+    // Scenario 2: other node forgot to update their node and signed attestations using bellatrix fork
+    {
+        let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
+        let merge_fork = spec.fork_for_name(ForkName::Merge).unwrap();
+        let aggregates = harness
+            .make_attestations_with_opts(
+                attesters.as_slice(),
+                &state,
+                state_root,
+                pre_capella_block.canonical_root().into(),
+                first_capella_slot,
+                MakeAttestationOptions {
+                    fork: merge_fork,
+                    limit: None,
+                },
+            )
+            .0
+            .into_iter()
+            .map(|(_, aggregate)| aggregate.expect("should have signed aggregate and proof"))
+            .collect::<Vec<_>>();
+
+        let results = batch_verify_aggregated_attestations(aggregates.iter(), &harness.chain)
+            .expect("should return attestation results");
+        let error = results
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .err()
+            .expect("should return an error");
+        assert!(
+            matches!(error, Error::InvalidSignature),
+            "should reject aggregates with `data.slot` >= first capella slot signed using the pre-Capella fork"
+        );
+    }
 }

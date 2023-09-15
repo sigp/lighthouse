@@ -7,7 +7,7 @@ macro_rules! impl_tree_hash {
             tree_hash::TreeHashType::Vector
         }
 
-        fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
             unreachable!("Vector should never be packed.")
         }
 

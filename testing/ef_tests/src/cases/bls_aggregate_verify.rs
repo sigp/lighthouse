@@ -1,6 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::cases::common::BlsCase;
+use crate::impl_bls_load_case;
 use bls::{AggregateSignature, PublicKeyBytes};
 use serde_derive::Deserialize;
 use types::Hash256;
@@ -18,13 +18,9 @@ pub struct BlsAggregateVerify {
     pub output: bool,
 }
 
-impl BlsCase for BlsAggregateVerify {}
+impl_bls_load_case!(BlsAggregateVerify);
 
 impl Case for BlsAggregateVerify {
-    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name == ForkName::Base
-    }
-
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let messages = self
             .input

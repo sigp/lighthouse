@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use types::{Hash256, Slot};
+use types::{AttestationData, Hash256, Slot};
 
 /// Details about the rewards paid to a block proposer for proposing a block.
 ///
@@ -42,6 +42,9 @@ pub struct AttestationRewards {
     ///
     /// Each element of the vec is a map from validator index to reward.
     pub per_attestation_rewards: Vec<HashMap<u64, u64>>,
+    /// The attestations themselves (optional).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attestations: Vec<AttestationData>,
 }
 
 /// Query parameters for the `/lighthouse/block_rewards` endpoint.
@@ -51,4 +54,7 @@ pub struct BlockRewardsQuery {
     pub start_slot: Slot,
     /// Upper slot limit for block rewards returned (inclusive).
     pub end_slot: Slot,
+    /// Include the full attestations themselves?
+    #[serde(default)]
+    pub include_attestations: bool,
 }

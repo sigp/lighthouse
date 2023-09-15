@@ -1,0 +1,18 @@
+[package]
+name = "database_manager"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+beacon_chain = { path = "../beacon_node/beacon_chain" }
+beacon_node = { path = "../beacon_node" }
+clap = "2.33.3"
+clap_utils = { path = "../common/clap_utils" }
+environment = { path = "../lighthouse/environment" }
+logging = { path = "../common/logging" }
+sloggers = "2.0.2"
+store = { path = "../beacon_node/store" }
+tempfile = "3.1.0"
+types = { path = "../consensus/types" }
+slog = "2.5.2"
+strum = { version = "0.24.0", features = ["derive"] }

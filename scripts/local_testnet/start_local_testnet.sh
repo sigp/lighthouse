@@ -5,14 +5,19 @@ set -Eeuo pipefail
 
 source ./vars.env
 
+# Set a higher ulimit in case we want to import 1000s of validators.
+ulimit -n 65536
+
 # VC_COUNT is defaulted in vars.env
 DEBUG_LEVEL=${DEBUG_LEVEL:-info}
+BUILDER_PROPOSALS=
 
 # Get options
-while getopts "v:d:h" flag; do
+while getopts "v:d:ph" flag; do
   case "${flag}" in
     v) VC_COUNT=${OPTARG};;
     d) DEBUG_LEVEL=${OPTARG};;
+    p) BUILDER_PROPOSALS="-p";;
     h)
         validators=$(( $VALIDATOR_COUNT / $BN_COUNT ))
         echo "Start local testnet, defaults: 1 eth1 node, $BN_COUNT beacon nodes,"
@@ -23,6 +28,7 @@ while getopts "v:d:h" flag; do
         echo "Options:"
         echo "   -v: VC_COUNT    default: $VC_COUNT"
         echo "   -d: DEBUG_LEVEL default: info"
+        echo "   -p:             enable builder proposals"
         echo "   -h:             this help"
         exit
         ;;
@@ -33,6 +39,8 @@ if (( $VC_COUNT > $BN_COUNT )); then
     echo "Error $VC_COUNT is too large, must be <= BN_COUNT=$BN_COUNT"
     exit
 fi
+
+genesis_file=${@:$OPTIND+0:1}
 
 # Init some constants
 PID_FILE=$TESTNET_DIR/PIDS.pid
@@ -48,6 +56,9 @@ LOG_DIR=$TESTNET_DIR
 mkdir -p $LOG_DIR
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
     touch $LOG_DIR/beacon_node_$bn.log
+done
+for (( el=1; el<=$BN_COUNT; el++ )); do
+    touch $LOG_DIR/geth_$el.log
 done
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do
     touch $LOG_DIR/validator_node_$vc.log
@@ -86,34 +97,54 @@ execute_command_add_PID() {
     echo "$!" >> $PID_FILE
 }
 
-# Start ganache-cli, setup things up and start the bootnode.
-# The delays are necessary, hopefully there is a better way :(
-
-# Delay to let ganache-cli to get started
-execute_command_add_PID ganache_test_node.log ./ganache_test_node.sh
-sleeping 10
 
 # Setup data
 echo "executing: ./setup.sh >> $LOG_DIR/setup.log"
 ./setup.sh >> $LOG_DIR/setup.log 2>&1
 
+# Update future hardforks time in the EL genesis file based on the CL genesis time
+GENESIS_TIME=$(lcli pretty-ssz --testnet-dir $TESTNET_DIR BeaconState $TESTNET_DIR/genesis.ssz | jq | grep -Po 'genesis_time": "\K.*\d')
+echo $GENESIS_TIME
+CAPELLA_TIME=$((GENESIS_TIME + (CAPELLA_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
+echo $CAPELLA_TIME
+sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' $genesis_file
+cat $genesis_file
+
 # Delay to let boot_enr.yaml to be created
 execute_command_add_PID bootnode.log ./bootnode.sh
+sleeping 1
+
+execute_command_add_PID el_bootnode.log ./el_bootnode.sh
 sleeping 1
 
 # Start beacon nodes
 BN_udp_tcp_base=9000
 BN_http_port_base=8000
 
+EL_base_network=7000
+EL_base_http=6000
+EL_base_auth_http=5000
+
 (( $VC_COUNT < $BN_COUNT )) && SAS=-s || SAS=
 
+for (( el=1; el<=$BN_COUNT; el++ )); do
+    execute_command_add_PID geth_$el.log ./geth.sh $DATADIR/geth_datadir$el $((EL_base_network + $el)) $((EL_base_http + $el)) $((EL_base_auth_http + $el)) $genesis_file
+done
+
+sleeping 20
+
+# Reset the `genesis.json` config file fork times.
+sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' $genesis_file
+
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
-    execute_command_add_PID beacon_node_$bn.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_$bn $((BN_udp_tcp_base + $bn)) $((BN_http_port_base + $bn))
+    secret=$DATADIR/geth_datadir$bn/geth/jwtsecret
+    echo $secret
+    execute_command_add_PID beacon_node_$bn.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_$bn $((BN_udp_tcp_base + $bn)) $((BN_http_port_base + $bn)) http://localhost:$((EL_base_auth_http + $bn)) $secret
 done
 
 # Start requested number of validator clients
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do
-    execute_command_add_PID validator_node_$vc.log ./validator_client.sh $DATADIR/node_$vc http://localhost:$((BN_http_port_base + $vc)) $DEBUG_LEVEL
+    execute_command_add_PID validator_node_$vc.log ./validator_client.sh $BUILDER_PROPOSALS -d $DEBUG_LEVEL $DATADIR/node_$vc http://localhost:$((BN_http_port_base + $vc))
 done
 
 echo "Started!"

@@ -2,17 +2,15 @@
 
 An open-source Ethereum consensus client, written in Rust and maintained by Sigma Prime.
 
-[![Build Status]][Build Link] [![Book Status]][Book Link] [![Chat Badge]][Chat Link]
+[![Book Status]][Book Link] [![Chat Badge]][Chat Link]
 
-[Build Status]: https://github.com/sigp/lighthouse/workflows/test-suite/badge.svg?branch=stable
-[Build Link]: https://github.com/sigp/lighthouse/actions
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
 [Book Status]:https://img.shields.io/badge/user--docs-unstable-informational
 [Book Link]: https://lighthouse-book.sigmaprime.io
 [stable]: https://github.com/sigp/lighthouse/tree/stable
 [unstable]: https://github.com/sigp/lighthouse/tree/unstable
-[blog]: https://lighthouse.sigmaprime.io
+[blog]: https://lighthouse-blog.sigmaprime.io
 
 [Documentation](https://lighthouse-book.sigmaprime.io)
 
@@ -43,7 +41,7 @@ as the canonical staking deposit contract address.
 The [Lighthouse Book](https://lighthouse-book.sigmaprime.io) contains information for users and
 developers.
 
-The Lighthouse team maintains a blog at [lighthouse.sigmaprime.io][blog] which contains periodical
+The Lighthouse team maintains a blog at [lighthouse-blog.sigmaprime.io][blog] which contains periodical
 progress updates, roadmap insights and interesting findings.
 
 ## Branches
@@ -68,7 +66,7 @@ of the Lighthouse book.
 The best place for discussion is the [Lighthouse Discord
 server](https://discord.gg/cyAszAh).
 
-Sign up to the [Lighthouse Development Updates](http://eepurl.com/dh9Lvb) mailing list for email
+Sign up to the [Lighthouse Development Updates](https://eepurl.com/dh9Lvb) mailing list for email
 notifications about releases, network status and other important information.
 
 Encrypt sensitive messages using our [PGP

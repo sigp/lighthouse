@@ -26,14 +26,20 @@ pub struct ValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_fee_recipient: Option<Address>,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_limit: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_proposals: Option<bool>,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateValidatorsMnemonicRequest {
     pub mnemonic: ZeroizeString,
-    #[serde(with = "eth2_serde_utils::quoted_u32")]
+    #[serde(with = "serde_utils::quoted_u32")]
     pub key_derivation_path_offset: u32,
     pub validators: Vec<ValidatorRequest>,
 }
@@ -49,8 +55,14 @@ pub struct CreatedValidator {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_fee_recipient: Option<Address>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_limit: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_proposals: Option<bool>,
     pub eth1_deposit_tx_data: String,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
 
@@ -62,7 +74,18 @@ pub struct PostValidatorsResponseData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorPatchRequest {
-    pub enabled: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_limit: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_proposals: Option<bool>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graffiti: Option<GraffitiString>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -70,8 +93,18 @@ pub struct KeystoreValidatorsPostRequest {
     pub password: ZeroizeString,
     pub enable: bool,
     pub keystore: Keystore,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub graffiti: Option<GraffitiString>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_fee_recipient: Option<Address>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_limit: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_proposals: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -84,6 +117,12 @@ pub struct Web3SignerValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_fee_recipient: Option<Address>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_limit: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_proposals: Option<bool>,
     pub voting_public_key: PublicKey,
     pub url: String,
     #[serde(default)]
@@ -92,4 +131,40 @@ pub struct Web3SignerValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_timeout_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_identity_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_identity_password: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct UpdateFeeRecipientRequest {
+    pub ethaddress: Address,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct UpdateGasLimitRequest {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub gas_limit: u64,
+}
+
+#[derive(Deserialize)]
+pub struct VoluntaryExitQuery {
+    pub epoch: Option<Epoch>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct ExportKeystoresResponse {
+    pub data: Vec<SingleExportKeystoresResponse>,
+    #[serde(with = "serde_utils::json_str")]
+    pub slashing_protection: Interchange,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct SingleExportKeystoresResponse {
+    pub status: Status<DeleteKeystoreStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validating_keystore: Option<KeystoreJsonStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validating_keystore_password: Option<ZeroizeString>,
 }

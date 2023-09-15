@@ -1,6 +1,6 @@
 # Running a Slasher
 
-Lighthouse includes a slasher for identifying slashable offences comitted by other validators and
+Lighthouse includes a slasher for identifying slashable offences committed by other validators and
 including proof of those offences in blocks.
 
 Running a slasher is a good way to contribute to the health of the network, and doing so can earn
@@ -8,10 +8,9 @@ extra income for your validators. However it is currently only recommended for e
 of the immaturity of the slasher UX and the extra resources required.
 
 ## Minimum System Requirements
-
 * Quad-core CPU
 * 16 GB RAM
-* 256 GB solid state storage (in addition to space for the beacon node DB)
+* 256 GB solid state storage (in addition to the space requirement for the beacon node DB)
 
 ## How to Run
 
@@ -28,7 +27,7 @@ messages are filtered for relevancy, and all relevant messages are checked for s
 to the slasher database.
 
 You **should** run with debug logs, so that you can see the slasher's internal machinations, and
-provide logs to the devs should you encounter any bugs.
+provide logs to the developers should you encounter any bugs.
 
 ## Configuration
 
@@ -42,6 +41,60 @@ The slasher has several configuration options that control its functioning.
 By default the slasher stores data in the `slasher_db` directory inside the beacon node's datadir,
 e.g. `~/.lighthouse/{network}/beacon/slasher_db`. You can use this flag to change that storage
 directory.
+
+### Database Backend
+
+* Flag: `--slasher-backend NAME`
+* Argument: one of `mdbx`, `lmdb` or `disabled`
+* Default: `lmdb` for new installs, `mdbx` if an MDBX database already exists
+
+It is possible to use one of several database backends with the slasher:
+
+- LMDB (default)
+- MDBX
+
+The advantage of MDBX is that it performs compaction, resulting in less disk usage over time. The
+disadvantage is that upstream MDBX is unstable, so Lighthouse is pinned to a specific version.
+If bugs are found in our pinned version of MDBX it may be deprecated in future.
+
+LMDB does not have compaction but is more stable upstream than MDBX. If running with the LMDB
+backend on Windows it is recommended to allow extra space due to this issue:
+[sigp/lighthouse#2342](https://github.com/sigp/lighthouse/issues/2342).
+
+More backends may be added in future.
+
+#### Backend Override
+
+The default backend was changed from MDBX to LMDB in Lighthouse v4.3.0.
+
+If an MDBX database is already found on disk, then Lighthouse will try to use it. This will result
+in a log at start-up:
+
+```
+INFO Slasher backend overriden    reason: database exists, configured_backend: lmdb, overriden_backend: mdbx
+```
+
+If the running Lighthouse binary doesn't have the MDBX backend enabled but an existing database is
+found, then a warning will be logged and Lighthouse will use the LMDB backend and create a new database:
+
+```
+WARN Slasher backend override failed    advice: delete old MDBX database or enable MDBX backend, path: /home/user/.lighthouse/mainnet/beacon/slasher_db/mdbx.dat
+```
+
+In this case you should either obtain a Lighthouse binary with the MDBX backend enabled, or delete
+the files for the old backend. The pre-built Lighthouse binaries and Docker images have MDBX enabled,
+or if you're [building from source](./installation-source.md) you can enable the `slasher-mdbx` feature.
+
+To delete the files, use the `path` from the `WARN` log, and then delete the `mbdx.dat` and
+`mdbx.lck` files.
+
+#### Switching Backends
+
+If you change database backends and want to reclaim the space used by the old backend you can
+delete the following files from your `slasher_db` directory:
+
+* removing MDBX: delete `mdbx.dat` and `mdbx.lck`
+* removing LMDB: delete `data.mdb` and `lock.mdb`
 
 ### History Length
 
@@ -65,11 +118,11 @@ changed after initialization.
 * Argument: maximum size of the database in gigabytes
 * Default: 256 GB
 
-The slasher uses MDBX as its backing store, which places a hard limit on the size of the database
+Both database backends LMDB and MDBX place a hard limit on the size of the database
 file. You can use the `--slasher-max-db-size` flag to set this limit. It can be adjusted after
 initialization if the limit is reached.
 
-By default the limit is set to accomodate the default history length and around 300K validators but
+By default the limit is set to accommodate the default history length and around 600K validators (with about 30% headroom) but
 you can set it lower if running with a reduced history length. The space required scales
 approximately linearly in validator count and history length, i.e. if you halve either you can halve
 the space required.
@@ -80,14 +133,10 @@ If you want an estimate of the database size you can use this formula:
 4.56 GB * (N / 256) * (V / 250000)
 ```
 
-where `V` is the validator count and `N` is the history length.
+where `N` is the history length and `V` is the validator count.
 
 You should set the maximum size higher than the estimate to allow room for growth in the validator
 count.
-
-> NOTE: In Lighthouse v2.1.0 the slasher database was switched from LMDB to MDBX. Unlike LMDB, MDBX
-> does garbage collection of free pages and is capable of shrinking the database file and preventing
-> it from growing indefinitely.
 
 ### Update Period
 
@@ -134,7 +183,7 @@ the slot duration.
 ### Chunk Size and Validator Chunk Size
 
 * Flags: `--slasher-chunk-size EPOCHS`, `--slasher-validator-chunk-size NUM_VALIDATORS`
-* Arguments: number of ecochs, number of validators
+* Arguments: number of epochs, number of validators
 * Defaults: 16, 256
 
 Adjusting these parameter should only be done in conjunction with reading in detail

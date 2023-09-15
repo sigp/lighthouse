@@ -4,6 +4,7 @@ mod tests {
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
+    use beacon_processor::BeaconProcessorChannels;
     use lighthouse_network::Enr;
     use slog::{o, Drain, Level, Logger};
     use sloggers::{null::NullLoggerBuilder, Build};
@@ -59,19 +60,31 @@ mod tests {
         );
 
         let mut config = NetworkConfig::default();
+        config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21212, 21212);
         config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
-        config.libp2p_port = 21212;
         config.upnp_enabled = false;
-        config.discovery_port = 21212;
         config.boot_nodes_enr = enrs.clone();
         runtime.block_on(async move {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
-            let _network_service =
-                NetworkService::start(beacon_chain.clone(), &config, executor, None)
-                    .await
-                    .unwrap();
+            let BeaconProcessorChannels {
+                beacon_processor_tx,
+                beacon_processor_rx: _beacon_processor_rx,
+                work_reprocessing_tx,
+                work_reprocessing_rx: _work_reprocessing_rx,
+            } = <_>::default();
+
+            let _network_service = NetworkService::start(
+                beacon_chain.clone(),
+                &config,
+                executor,
+                None,
+                beacon_processor_tx,
+                work_reprocessing_tx,
+            )
+            .await
+            .unwrap();
             drop(signal);
         });
 

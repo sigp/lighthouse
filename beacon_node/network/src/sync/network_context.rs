@@ -3,24 +3,22 @@
 
 use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ChainId};
+use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
+use beacon_chain::{BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::EthSpec;
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
 
-pub struct SyncNetworkContext<T: EthSpec> {
+pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
-
-    /// Access to the network global vars.
-    network_globals: Arc<NetworkGlobals<T>>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
 
     /// A sequential ID for all RPC requests.
     request_id: Id,
@@ -28,31 +26,44 @@ pub struct SyncNetworkContext<T: EthSpec> {
     /// BlocksByRange requests made by the range syncing algorithm.
     range_requests: FnvHashMap<Id, (ChainId, BatchId)>,
 
+    /// BlocksByRange requests made by backfill syncing.
     backfill_requests: FnvHashMap<Id, BatchId>,
+
+    /// Whether the ee is online. If it's not, we don't allow access to the
+    /// `beacon_processor_send`.
+    execution_engine_state: EngineState,
+
+    /// Sends work to the beacon processor via a channel.
+    network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
 
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
 }
 
-impl<T: EthSpec> SyncNetworkContext<T> {
+impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn new(
-        network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
-        network_globals: Arc<NetworkGlobals<T>>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         log: slog::Logger,
     ) -> Self {
         Self {
             network_send,
-            network_globals,
+            execution_engine_state: EngineState::Online, // always assume `Online` at the start
             request_id: 1,
             range_requests: FnvHashMap::default(),
             backfill_requests: FnvHashMap::default(),
+            network_beacon_processor,
             log,
         }
     }
 
+    pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
+        &self.network_beacon_processor.network_globals
+    }
+
     /// Returns the Client type of the peer if known
     pub fn client_type(&self, peer_id: &PeerId) -> Client {
-        self.network_globals
+        self.network_globals()
             .peers
             .read()
             .peer_info(peer_id)
@@ -65,27 +76,26 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         chain: &C,
         peers: impl Iterator<Item = PeerId>,
     ) {
-        if let Ok(status_message) = chain.status_message() {
-            for peer_id in peers {
-                debug!(
-                    self.log,
-                    "Sending Status Request";
-                    "peer" => %peer_id,
-                    "fork_digest" => ?status_message.fork_digest,
-                    "finalized_root" => ?status_message.finalized_root,
-                    "finalized_epoch" => ?status_message.finalized_epoch,
-                    "head_root" => %status_message.head_root,
-                    "head_slot" => %status_message.head_slot,
-                );
+        let status_message = chain.status_message();
+        for peer_id in peers {
+            debug!(
+                self.log,
+                "Sending Status Request";
+                "peer" => %peer_id,
+                "fork_digest" => ?status_message.fork_digest,
+                "finalized_root" => ?status_message.finalized_root,
+                "finalized_epoch" => ?status_message.finalized_epoch,
+                "head_root" => %status_message.head_root,
+                "head_slot" => %status_message.head_slot,
+            );
 
-                let request = Request::Status(status_message.clone());
-                let request_id = RequestId::Router;
-                let _ = self.send_network_msg(NetworkMessage::SendRequest {
-                    peer_id,
-                    request,
-                    request_id,
-                });
-            }
+            let request = Request::Status(status_message.clone());
+            let request_id = RequestId::Router;
+            let _ = self.send_network_msg(NetworkMessage::SendRequest {
+                peer_id,
+                request,
+                request_id,
+            });
         }
     }
 
@@ -101,7 +111,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRange Request";
             "method" => "BlocksByRange",
-            "count" => request.count,
+            "count" => request.count(),
             "peer" => %peer_id,
         );
         let request = Request::BlocksByRange(request);
@@ -127,7 +137,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             self.log,
             "Sending backfill BlocksByRange Request";
             "method" => "BlocksByRange",
-            "count" => request.count,
+            "count" => request.count(),
             "peer" => %peer_id,
         );
         let request = Request::BlocksByRange(request);
@@ -174,7 +184,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
+            "count" => request.block_roots().len(),
             "peer" => %peer_id
         );
         let request = Request::BlocksByRoot(request);
@@ -198,7 +208,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
+            "count" => request.block_roots().len(),
             "peer" => %peer_id
         );
         let request = Request::BlocksByRoot(request);
@@ -212,6 +222,16 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         Ok(id)
     }
 
+    pub fn is_execution_engine_online(&self) -> bool {
+        self.execution_engine_state == EngineState::Online
+    }
+
+    pub fn update_execution_engine_state(&mut self, engine_state: EngineState) {
+        debug!(self.log, "Sync's view on execution engine state updated";
+            "past_state" => ?self.execution_engine_state, "new_state" => ?engine_state);
+        self.execution_engine_state = engine_state;
+    }
+
     /// Terminates the connection with the peer and bans them.
     pub fn goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
         self.network_send
@@ -221,7 +241,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
                 source: ReportSource::SyncService,
             })
             .unwrap_or_else(|_| {
-                warn!(self.log, "Could not report peer, channel failed");
+                warn!(self.log, "Could not report peer: channel failed");
             });
     }
 
@@ -236,7 +256,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
                 msg,
             })
             .unwrap_or_else(|e| {
-                warn!(self.log, "Could not report peer, channel failed"; "error"=> %e);
+                warn!(self.log, "Could not report peer: channel failed"; "error"=> %e);
             });
     }
 
@@ -250,11 +270,20 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     }
 
     /// Sends an arbitrary network message.
-    fn send_network_msg(&mut self, msg: NetworkMessage<T>) -> Result<(), &'static str> {
+    fn send_network_msg(&mut self, msg: NetworkMessage<T::EthSpec>) -> Result<(), &'static str> {
         self.network_send.send(msg).map_err(|_| {
             debug!(self.log, "Could not send message to the network service");
             "Network channel send Failed"
         })
+    }
+
+    pub fn beacon_processor_if_enabled(&self) -> Option<&Arc<NetworkBeaconProcessor<T>>> {
+        self.is_execution_engine_online()
+            .then_some(&self.network_beacon_processor)
+    }
+
+    pub fn beacon_processor(&self) -> &Arc<NetworkBeaconProcessor<T>> {
+        &self.network_beacon_processor
     }
 
     fn next_id(&mut self) -> Id {

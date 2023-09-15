@@ -1,4 +1,4 @@
-#![allow(clippy::integer_arithmetic)]
+#![allow(clippy::arithmetic_side_effects)]
 
 use super::BeaconState;
 use crate::*;
@@ -38,12 +38,27 @@ impl CommitteeCache {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<CommitteeCache, Error> {
-        RelativeEpoch::from_epoch(state.current_epoch(), epoch)
-            .map_err(|_| Error::EpochOutOfBounds)?;
+        // Check that the cache is being built for an in-range epoch.
+        //
+        // We allow caches to be constructed for historic epochs, per:
+        //
+        // https://github.com/sigp/lighthouse/issues/3270
+        let reqd_randao_epoch = epoch
+            .saturating_sub(spec.min_seed_lookahead)
+            .saturating_sub(1u64);
+
+        if reqd_randao_epoch < state.min_randao_epoch() || epoch > state.current_epoch() + 1 {
+            return Err(Error::EpochOutOfBounds);
+        }
 
         // May cause divide-by-zero errors.
         if T::slots_per_epoch() == 0 {
             return Err(Error::ZeroSlotsPerEpoch);
+        }
+
+        // The use of `NonZeroUsize` reduces the maximum number of possible validators by one.
+        if state.validators().len() == usize::max_value() {
+            return Err(Error::TooManyValidators);
         }
 
         let active_validator_indices = get_active_validator_indices(state.validators(), epoch);
@@ -64,11 +79,6 @@ impl CommitteeCache {
             false,
         )
         .ok_or(Error::UnableToShuffle)?;
-
-        // The use of `NonZeroUsize` reduces the maximum number of possible validators by one.
-        if state.validators().len() == usize::max_value() {
-            return Err(Error::TooManyValidators);
-        }
 
         let mut shuffling_positions = vec![<_>::default(); state.validators().len()];
         for (i, &v) in shuffling.iter().enumerate() {
@@ -134,7 +144,7 @@ impl CommitteeCache {
             self.committees_per_slot as usize,
             index as usize,
         );
-        let committee = self.compute_committee(committee_index as usize)?;
+        let committee = self.compute_committee(committee_index)?;
 
         Some(BeaconCommittee {
             slot,
@@ -164,7 +174,7 @@ impl CommitteeCache {
             .ok_or(Error::CommitteeCacheUninitialized(None))?;
 
         initialized_epoch.slot_iter(self.slots_per_epoch).try_fold(
-            Vec::with_capacity(self.slots_per_epoch as usize),
+            Vec::with_capacity(self.epoch_committee_count()),
             |mut vec, slot| {
                 vec.append(&mut self.get_beacon_committees_at_slot(slot)?);
                 Ok(vec)
@@ -326,7 +336,6 @@ pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> V
     active
 }
 
-#[cfg(feature = "arbitrary-fuzz")]
 impl arbitrary::Arbitrary<'_> for CommitteeCache {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())

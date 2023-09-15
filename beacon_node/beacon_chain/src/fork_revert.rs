@@ -4,12 +4,16 @@ use itertools::process_results;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
-    per_block_processing, per_block_processing::BlockSignatureStrategy, VerifyBlockRoot,
+    per_block_processing, per_block_processing::BlockSignatureStrategy, ConsensusContext,
+    StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::sync::Arc;
 use std::time::Duration;
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
-use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    BeaconState, ChainSpec, EthSpec, ForkName, Hash256, ProgressiveBalancesMode, SignedBeaconBlock,
+    Slot,
+};
 
 const CORRUPT_DB_MESSAGE: &str = "The database could be corrupt. Check its file permissions or \
                                   consider deleting it by running with the --purge-db flag.";
@@ -48,7 +52,7 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
     );
     let block_iter = ParentRootBlockIterator::fork_tolerant(&store, head_block_root);
 
-    process_results(block_iter, |mut iter| {
+    let (block_root, blinded_block) = process_results(block_iter, |mut iter| {
         iter.find_map(|(block_root, block)| {
             if block.slot() < fork_epoch.start_slot(E::slots_per_epoch()) {
                 Some((block_root, block))
@@ -69,7 +73,13 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
             e, CORRUPT_DB_MESSAGE
         )
     })?
-    .ok_or_else(|| format!("No pre-fork blocks found. {}", CORRUPT_DB_MESSAGE))
+    .ok_or_else(|| format!("No pre-fork blocks found. {}", CORRUPT_DB_MESSAGE))?;
+
+    let block = store
+        .make_full_block(&block_root, blinded_block)
+        .map_err(|e| format!("Unable to add payload to new head block: {:?}", e))?;
+
+    Ok((block_root, block))
 }
 
 /// Reset fork choice to the finalized checkpoint of the supplied head state.
@@ -91,13 +101,16 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     head_block_root: Hash256,
     head_state: &BeaconState<E>,
     store: Arc<HotColdDB<E, Hot, Cold>>,
+    current_slot: Option<Slot>,
     spec: &ChainSpec,
+    progressive_balances_mode: ProgressiveBalancesMode,
+    log: &Logger,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
     let finalized_checkpoint = head_state.finalized_checkpoint();
     let finalized_block_root = finalized_checkpoint.root;
     let finalized_block = store
-        .get_block(&finalized_block_root)
+        .get_full_block(&finalized_block_root)
         .map_err(|e| format!("Error loading finalized block: {:?}", e))?
         .ok_or_else(|| {
             format!(
@@ -132,17 +145,20 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     })?;
     let finalized_snapshot = BeaconSnapshot {
         beacon_block_root: finalized_block_root,
-        beacon_block: finalized_block,
+        beacon_block: Arc::new(finalized_block),
         beacon_state: finalized_state,
     };
 
-    let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &finalized_snapshot);
+    let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &finalized_snapshot)
+        .map_err(|e| format!("Unable to reset fork choice store for revert: {e:?}"))?;
 
     let mut fork_choice = ForkChoice::from_anchor(
         fc_store,
         finalized_block_root,
         &finalized_snapshot.beacon_block,
         &finalized_snapshot.beacon_state,
+        current_slot,
+        spec,
     )
     .map_err(|e| format!("Unable to reset fork choice for revert: {:?}", e))?;
 
@@ -158,12 +174,15 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         complete_state_advance(&mut state, None, block.slot(), spec)
             .map_err(|e| format!("State advance failed: {:?}", e))?;
 
+        let mut ctxt = ConsensusContext::new(block.slot())
+            .set_proposer_index(block.message().proposer_index());
         per_block_processing(
             &mut state,
             &block,
-            None,
             BlockSignatureStrategy::NoVerification,
+            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
+            &mut ctxt,
             spec,
         )
         .map_err(|e| format!("Error replaying block: {:?}", e))?;
@@ -172,19 +191,20 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         // retro-actively determine if they were valid or not.
         //
         // This scenario is so rare that it seems OK to double-verify some blocks.
-        let payload_verification_status = PayloadVerificationStatus::NotVerified;
+        let payload_verification_status = PayloadVerificationStatus::Optimistic;
 
-        let (block, _) = block.deconstruct();
         fork_choice
             .on_block(
                 block.slot(),
-                &block,
+                block.message(),
                 block.canonical_root(),
                 // Reward proposer boost. We are reinforcing the canonical chain.
                 Duration::from_secs(0),
                 &state,
                 payload_verification_status,
+                progressive_balances_mode,
                 spec,
+                log,
             )
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
     }

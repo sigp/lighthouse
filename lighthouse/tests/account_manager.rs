@@ -28,10 +28,6 @@ use tempfile::{tempdir, TempDir};
 use types::{Keypair, PublicKey};
 use validator_dir::ValidatorDir;
 
-// TODO: create tests for the `lighthouse account validator deposit` command. This involves getting
-// access to an IPC endpoint during testing or adding support for deposit submission via HTTP and
-// using ganache-cli.
-
 /// Returns the `lighthouse account` command.
 fn account_cmd() -> Command {
     let lighthouse_bin = env!("CARGO_BIN_EXE_lighthouse");
@@ -494,6 +490,8 @@ fn validator_import_launchpad() {
         description: "".into(),
         graffiti: None,
         suggested_fee_recipient: None,
+        gas_limit: None,
+        builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
@@ -614,6 +612,8 @@ fn validator_import_launchpad_no_password_then_add_password() {
         description: "".into(),
         graffiti: None,
         suggested_fee_recipient: None,
+        gas_limit: None,
+        builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
@@ -638,6 +638,8 @@ fn validator_import_launchpad_no_password_then_add_password() {
         description: "".into(),
         graffiti: None,
         suggested_fee_recipient: None,
+        gas_limit: None,
+        builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path: dst_keystore_dir.join(KEYSTORE_NAME),
@@ -738,6 +740,8 @@ fn validator_import_launchpad_password_file() {
         voting_public_key: keystore.public_key().unwrap(),
         graffiti: None,
         suggested_fee_recipient: None,
+        gas_limit: None,
+        builder_proposals: None,
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
             voting_keystore_password_path: None,

@@ -50,7 +50,7 @@ pub fn run(
 
     let logger = Logger::root(drain.fuse(), o!());
     let _scope_guard = slog_scope::set_global_logger(logger);
-    let _log_guard = slog_stdlog::init_with_level(debug_level).unwrap();
+    slog_stdlog::init_with_level(debug_level).unwrap();
 
     let log = slog_scope::logger();
     // Run the main function emitting any errors

@@ -1,6 +1,7 @@
 use super::SlotClock;
 use parking_lot::RwLock;
 use std::convert::TryInto;
+use std::sync::Arc;
 use std::time::Duration;
 use types::Slot;
 
@@ -10,7 +11,7 @@ pub struct ManualSlotClock {
     /// Duration from UNIX epoch to genesis.
     genesis_duration: Duration,
     /// Duration from UNIX epoch to right now.
-    current_time: RwLock<Duration>,
+    current_time: Arc<RwLock<Duration>>,
     /// The length of each slot.
     slot_duration: Duration,
 }
@@ -20,7 +21,7 @@ impl Clone for ManualSlotClock {
         ManualSlotClock {
             genesis_slot: self.genesis_slot,
             genesis_duration: self.genesis_duration,
-            current_time: RwLock::new(*self.current_time.read()),
+            current_time: Arc::clone(&self.current_time),
             slot_duration: self.slot_duration,
         }
     }
@@ -90,7 +91,7 @@ impl SlotClock for ManualSlotClock {
 
         Self {
             genesis_slot,
-            current_time: RwLock::new(genesis_duration),
+            current_time: Arc::new(RwLock::new(genesis_duration)),
             genesis_duration,
             slot_duration,
         }

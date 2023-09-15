@@ -1,8 +1,22 @@
 use account_utils::ZeroizeString;
 use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
-use slashing_protection::interchange::Interchange;
-use types::PublicKeyBytes;
+use types::{Address, PublicKeyBytes};
+
+pub use slashing_protection::interchange::Interchange;
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct GetFeeRecipientResponse {
+    pub pubkey: PublicKeyBytes,
+    pub ethaddress: Address,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct GetGasLimitResponse {
+    pub pubkey: PublicKeyBytes,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub gas_limit: u64,
+}
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct AuthResponse {
@@ -14,7 +28,7 @@ pub struct ListKeystoresResponse {
     pub data: Vec<SingleKeystoreResponse>,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct SingleKeystoreResponse {
     pub validating_pubkey: PublicKeyBytes,
     pub derivation_path: Option<String>,
@@ -32,7 +46,7 @@ pub struct ImportKeystoresRequest {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
-pub struct KeystoreJsonStr(#[serde(with = "eth2_serde_utils::json_str")] pub Keystore);
+pub struct KeystoreJsonStr(#[serde(with = "serde_utils::json_str")] pub Keystore);
 
 impl std::ops::Deref for KeystoreJsonStr {
     type Target = Keystore;
@@ -43,7 +57,7 @@ impl std::ops::Deref for KeystoreJsonStr {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
-pub struct InterchangeJsonStr(#[serde(with = "eth2_serde_utils::json_str")] pub Interchange);
+pub struct InterchangeJsonStr(#[serde(with = "serde_utils::json_str")] pub Interchange);
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ImportKeystoresResponse {
@@ -90,7 +104,7 @@ pub struct DeleteKeystoresRequest {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteKeystoresResponse {
     pub data: Vec<Status<DeleteKeystoreStatus>>,
-    #[serde(with = "eth2_serde_utils::json_str")]
+    #[serde(with = "serde_utils::json_str")]
     pub slashing_protection: Interchange,
 }
 
@@ -101,4 +115,60 @@ pub enum DeleteKeystoreStatus {
     NotActive,
     NotFound,
     Error,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct ListRemotekeysResponse {
+    pub data: Vec<SingleListRemotekeysResponse>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct SingleListRemotekeysResponse {
+    pub pubkey: PublicKeyBytes,
+    pub url: String,
+    pub readonly: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportRemotekeysRequest {
+    pub remote_keys: Vec<SingleImportRemotekeysRequest>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct SingleImportRemotekeysRequest {
+    pub pubkey: PublicKeyBytes,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImportRemotekeyStatus {
+    Imported,
+    Duplicate,
+    Error,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ImportRemotekeysResponse {
+    pub data: Vec<Status<ImportRemotekeyStatus>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeleteRemotekeysRequest {
+    pub pubkeys: Vec<PublicKeyBytes>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteRemotekeyStatus {
+    Deleted,
+    NotFound,
+    Error,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DeleteRemotekeysResponse {
+    pub data: Vec<Status<DeleteRemotekeyStatus>>,
 }

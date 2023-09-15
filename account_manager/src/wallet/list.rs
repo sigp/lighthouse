@@ -10,7 +10,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run(wallet_base_dir: PathBuf) -> Result<(), String> {
-    let mgr = WalletManager::open(&wallet_base_dir)
+    let mgr = WalletManager::open(wallet_base_dir)
         .map_err(|e| format!("Unable to open --{}: {:?}", WALLETS_DIR_FLAG, e))?;
 
     for (name, _uuid) in mgr

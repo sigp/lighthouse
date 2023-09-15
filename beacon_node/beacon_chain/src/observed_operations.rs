@@ -1,10 +1,12 @@
 use derivative::Derivative;
-use smallvec::SmallVec;
-use state_processing::{SigVerifiedOp, VerifyOperation};
+use smallvec::{smallvec, SmallVec};
+use ssz::{Decode, Encode};
+use state_processing::{SigVerifiedOp, VerifyOperation, VerifyOperationAt};
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use types::{
-    AttesterSlashing, BeaconState, ChainSpec, EthSpec, ProposerSlashing, SignedVoluntaryExit,
+    AttesterSlashing, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, ProposerSlashing,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, Slot,
 };
 
 /// Number of validator indices to store on the stack in `observed_validators`.
@@ -24,17 +26,20 @@ pub struct ObservedOperations<T: ObservableOperation<E>, E: EthSpec> {
     /// previously seen attester slashings, i.e. those validators in the intersection of
     /// `attestation_1.attester_indices` and `attestation_2.attester_indices`.
     observed_validator_indices: HashSet<u64>,
+    /// The name of the current fork. The default will be overwritten on first use.
+    #[derivative(Default(value = "ForkName::Base"))]
+    current_fork: ForkName,
     _phantom: PhantomData<(T, E)>,
 }
 
 /// Was the observed operation new and valid for further processing, or a useless duplicate?
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ObservationOutcome<T> {
-    New(SigVerifiedOp<T>),
+pub enum ObservationOutcome<T: Encode + Decode, E: EthSpec> {
+    New(SigVerifiedOp<T, E>),
     AlreadyKnown,
 }
 
-/// Trait for exits and slashings which can be observed using `ObservedOperations`.
+/// Trait for operations which can be observed using `ObservedOperations`.
 pub trait ObservableOperation<E: EthSpec>: VerifyOperation<E> + Sized {
     /// The set of validator indices involved in this operation.
     ///
@@ -44,13 +49,13 @@ pub trait ObservableOperation<E: EthSpec>: VerifyOperation<E> + Sized {
 
 impl<E: EthSpec> ObservableOperation<E> for SignedVoluntaryExit {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
-        std::iter::once(self.message.validator_index).collect()
+        smallvec![self.message.validator_index]
     }
 }
 
 impl<E: EthSpec> ObservableOperation<E> for ProposerSlashing {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
-        std::iter::once(self.signed_header_1.message.proposer_index).collect()
+        smallvec![self.signed_header_1.message.proposer_index]
     }
 }
 
@@ -75,13 +80,25 @@ impl<E: EthSpec> ObservableOperation<E> for AttesterSlashing<E> {
     }
 }
 
+impl<E: EthSpec> ObservableOperation<E> for SignedBlsToExecutionChange {
+    fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
+        smallvec![self.message.validator_index]
+    }
+}
+
 impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
-    pub fn verify_and_observe(
+    pub fn verify_and_observe_parametric<F>(
         &mut self,
         op: T,
+        validate: F,
         head_state: &BeaconState<E>,
         spec: &ChainSpec,
-    ) -> Result<ObservationOutcome<T>, T::Error> {
+    ) -> Result<ObservationOutcome<T, E>, T::Error>
+    where
+        F: Fn(T) -> Result<SigVerifiedOp<T, E>, T::Error>,
+    {
+        self.reset_at_fork_boundary(head_state.slot(), spec);
+
         let observed_validator_indices = &mut self.observed_validator_indices;
         let new_validator_indices = op.observed_validators();
 
@@ -99,12 +116,54 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
         }
 
         // Validate the op using operation-specific logic (`verify_attester_slashing`, etc).
-        let verified_op = op.validate(head_state, spec)?;
+        let verified_op = validate(op)?;
 
         // Add the relevant indices to the set of known indices to prevent processing of duplicates
         // in the future.
         observed_validator_indices.extend(new_validator_indices);
 
         Ok(ObservationOutcome::New(verified_op))
+    }
+
+    pub fn verify_and_observe(
+        &mut self,
+        op: T,
+        head_state: &BeaconState<E>,
+        spec: &ChainSpec,
+    ) -> Result<ObservationOutcome<T, E>, T::Error> {
+        let validate = |op: T| op.validate(head_state, spec);
+        self.verify_and_observe_parametric(op, validate, head_state, spec)
+    }
+
+    /// Reset the cache when crossing a fork boundary.
+    ///
+    /// This prevents an attacker from crafting a self-slashing which is only valid before the fork
+    /// (e.g. using the Altair fork domain at a Bellatrix epoch), in order to prevent propagation of
+    /// all other slashings due to the duplicate check.
+    ///
+    /// It doesn't matter if this cache gets reset too often, as we reset it on restart anyway and a
+    /// false negative just results in propagation of messages which should have been ignored.
+    ///
+    /// In future we could check slashing relevance against the op pool itself, but that would
+    /// require indexing the attester slashings in the op pool by validator index.
+    fn reset_at_fork_boundary(&mut self, head_slot: Slot, spec: &ChainSpec) {
+        let head_fork = spec.fork_name_at_slot::<E>(head_slot);
+        if head_fork != self.current_fork {
+            self.observed_validator_indices.clear();
+            self.current_fork = head_fork;
+        }
+    }
+}
+
+impl<T: ObservableOperation<E> + VerifyOperationAt<E>, E: EthSpec> ObservedOperations<T, E> {
+    pub fn verify_and_observe_at(
+        &mut self,
+        op: T,
+        verify_at_epoch: Epoch,
+        head_state: &BeaconState<E>,
+        spec: &ChainSpec,
+    ) -> Result<ObservationOutcome<T, E>, T::Error> {
+        let validate = |op: T| op.validate_at(head_state, verify_at_epoch, spec);
+        self.verify_and_observe_parametric(op, validate, head_state, spec)
     }
 }

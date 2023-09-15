@@ -29,9 +29,10 @@ lazy_static::lazy_static! {
         "http_api_beacon_proposer_cache_misses_total",
         "Count of times the proposer cache has been missed",
     );
-    pub static ref HTTP_API_BLOCK_BROADCAST_DELAY_TIMES: Result<Histogram> = try_create_histogram(
+    pub static ref HTTP_API_BLOCK_BROADCAST_DELAY_TIMES: Result<HistogramVec> = try_create_histogram_vec(
         "http_api_block_broadcast_delay_times",
-        "Time between start of the slot and when the block was broadcast"
+        "Time between start of the slot and when the block was broadcast",
+        &["provenance"]
     );
     pub static ref HTTP_API_BLOCK_PUBLISHED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
         "http_api_block_published_late_total",

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Kill processes
 
-set -Eeuo pipefail
+set -Euo pipefail
 
 # First parameter is the file with
 # one pid per line.
@@ -12,7 +12,7 @@ if [ -f "$1" ]; then
       [[ -n "$pid" ]] || continue
 
       echo killing $pid
-      kill $pid
+      kill $pid || true
     done < $1
 fi
 

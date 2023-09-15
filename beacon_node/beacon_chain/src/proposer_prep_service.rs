@@ -5,13 +5,9 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 
-/// At 12s slot times, the means that the payload preparation routine will run 4s before the start
-/// of each slot (`12 / 3 = 4`).
-pub const PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR: u32 = 3;
-
 /// Spawns a routine which ensures the EL is provided advance notice of any block producers.
 ///
-/// This routine will run once per slot, at `slot_duration / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR`
+/// This routine will run once per slot, at `chain.prepare_payload_lookahead()`
 /// before the start of each slot.
 ///
 /// The service will not be started if there is no `execution_layer` on the `chain`.
@@ -38,8 +34,8 @@ async fn proposer_prep_service<T: BeaconChainTypes>(
     loop {
         match chain.slot_clock.duration_to_next_slot() {
             Some(duration) => {
-                let additional_delay = slot_duration
-                    - chain.slot_clock.slot_duration() / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR;
+                let additional_delay =
+                    slot_duration.saturating_sub(chain.config.prepare_payload_lookahead);
                 sleep(duration + additional_delay).await;
 
                 debug!(
@@ -50,24 +46,26 @@ async fn proposer_prep_service<T: BeaconChainTypes>(
                 let inner_chain = chain.clone();
                 executor.spawn(
                     async move {
-                        if let Err(e) = inner_chain.prepare_beacon_proposer_async().await {
-                            error!(
-                                inner_chain.log,
-                                "Proposer prepare routine failed";
-                                "error" => ?e
-                            );
+                        if let Ok(current_slot) = inner_chain.slot() {
+                            if let Err(e) = inner_chain.prepare_beacon_proposer(current_slot).await
+                            {
+                                error!(
+                                    inner_chain.log,
+                                    "Proposer prepare routine failed";
+                                    "error" => ?e
+                                );
+                            }
+                        } else {
+                            debug!(inner_chain.log, "No slot for proposer prepare routine");
                         }
                     },
                     "proposer_prep_update",
                 );
-
-                continue;
             }
             None => {
                 error!(chain.log, "Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
                 sleep(slot_duration).await;
-                continue;
             }
         };
     }

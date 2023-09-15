@@ -7,9 +7,9 @@ status = [
     "ef-tests-ubuntu",
     "dockerfile-ubuntu",
     "eth1-simulator-ubuntu",
+    "merge-transition-ubuntu",
     "no-eth1-simulator-ubuntu",
     "check-benchmarks",
-    "check-consensus",
     "clippy",
     "arbitrary-check",
     "cargo-audit",
@@ -18,7 +18,11 @@ status = [
     "op-pool-tests",
     "doppelganger-protection-test",
     "execution-engine-integration-ubuntu",
-    "cargo-vendor"
+    "cargo-vendor",
+    "check-msrv",
+    "slasher-tests",
+    "syncing-simulator-ubuntu",
+    "compile-with-beta-compiler"
 ]
 use_squash_merge = true
 timeout_sec = 10800

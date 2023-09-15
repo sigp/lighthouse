@@ -15,6 +15,6 @@ pub use crate::validator_dir::{
     ETH1_DEPOSIT_TX_HASH_FILE,
 };
 pub use builder::{
-    Builder, Error as BuilderError, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,
-    WITHDRAWAL_KEYSTORE_FILE,
+    keystore_password_path, Builder, Error as BuilderError, ETH1_DEPOSIT_DATA_FILE,
+    VOTING_KEYSTORE_FILE, WITHDRAWAL_KEYSTORE_FILE,
 };

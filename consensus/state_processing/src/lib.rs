@@ -2,7 +2,7 @@
 #![cfg_attr(
     not(test),
     deny(
-        clippy::integer_arithmetic,
+        clippy::arithmetic_side_effects,
         clippy::disallowed_methods,
         clippy::indexing_slicing,
         clippy::unwrap_used,
@@ -18,6 +18,7 @@ mod metrics;
 
 pub mod block_replayer;
 pub mod common;
+pub mod consensus_context;
 pub mod genesis;
 pub mod per_block_processing;
 pub mod per_epoch_processing;
@@ -26,7 +27,8 @@ pub mod state_advance;
 pub mod upgrade;
 pub mod verify_operation;
 
-pub use block_replayer::{BlockReplayError, BlockReplayer, StateRootStrategy};
+pub use block_replayer::{BlockReplayError, BlockReplayer, StateProcessingStrategy};
+pub use consensus_context::{ConsensusContext, ContextError};
 pub use genesis::{
     eth2_genesis_time, initialize_beacon_state_from_eth1, is_valid_genesis_state,
     process_activations,
@@ -39,4 +41,4 @@ pub use per_epoch_processing::{
     errors::EpochProcessingError, process_epoch as per_epoch_processing,
 };
 pub use per_slot_processing::{per_slot_processing, Error as SlotProcessingError};
-pub use verify_operation::{SigVerifiedOp, VerifyOperation};
+pub use verify_operation::{SigVerifiedOp, VerifyOperation, VerifyOperationAt};

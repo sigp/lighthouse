@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use warp::filters::cors::Builder;
 
 /// Configure a `cors::Builder`.
@@ -7,16 +7,23 @@ use warp::filters::cors::Builder;
 pub fn set_builder_origins(
     builder: Builder,
     allow_origin: Option<&str>,
-    default_origin: (Ipv4Addr, u16),
+    default_origin: (IpAddr, u16),
 ) -> Result<Builder, String> {
     if let Some(allow_origin) = allow_origin {
-        let origins = allow_origin
-            .split(',')
-            .map(|s| verify_cors_origin_str(s).map(|_| s))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut origins = vec![];
+        for origin in allow_origin.split(',') {
+            verify_cors_origin_str(origin)?;
+            if origin == "*" {
+                return Ok(builder.allow_any_origin());
+            }
+            origins.push(origin)
+        }
         Ok(builder.allow_origins(origins))
     } else {
-        let origin = format!("http://{}:{}", default_origin.0, default_origin.1);
+        let origin = match default_origin.0 {
+            IpAddr::V4(_) => format!("http://{}:{}", default_origin.0, default_origin.1),
+            IpAddr::V6(_) => format!("http://[{}]:{}", default_origin.0, default_origin.1),
+        };
         verify_cors_origin_str(&origin)?;
 
         Ok(builder.allow_origin(origin.as_str()))
@@ -65,6 +72,8 @@ mod test {
         verify_cors_origin_str("http://localhost").unwrap();
         verify_cors_origin_str("http://127.0.0.1:8000").unwrap();
         verify_cors_origin_str("http://localhost:8000").unwrap();
+        verify_cors_origin_str("http://[::1]").unwrap();
+        verify_cors_origin_str("http://[::1]:8000").unwrap();
     }
 
     #[test]
@@ -72,5 +81,6 @@ mod test {
         verify_cors_origin_str(".*").unwrap_err();
         verify_cors_origin_str("127.0.0.1").unwrap_err();
         verify_cors_origin_str("localhost").unwrap_err();
+        verify_cors_origin_str("[::1]").unwrap_err();
     }
 }

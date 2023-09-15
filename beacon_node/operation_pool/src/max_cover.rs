@@ -11,16 +11,21 @@ use itertools::Itertools;
 pub trait MaxCover: Clone {
     /// The result type, of which we would eventually like a collection of maximal quality.
     type Object: Clone;
+    /// The intermediate object type, which can be converted to `Object`.
+    type Intermediate: Clone;
     /// The type used to represent sets.
     type Set: Clone;
 
-    /// Extract an object for inclusion in a solution.
-    fn object(&self) -> &Self::Object;
+    /// Extract the intermediate object.
+    fn intermediate(&self) -> &Self::Intermediate;
+
+    /// Convert the borrowed intermediate object to an owned object for the solution.
+    fn convert_to_object(intermediate: &Self::Intermediate) -> Self::Object;
 
     /// Get the set of elements covered.
     fn covering_set(&self) -> &Self::Set;
     /// Update the set of items covered, for the inclusion of some object in the solution.
-    fn update_covering_set(&mut self, max_obj: &Self::Object, max_set: &Self::Set);
+    fn update_covering_set(&mut self, max_obj: &Self::Intermediate, max_set: &Self::Set);
     /// The quality of this item's covering set, usually its cardinality.
     fn score(&self) -> usize;
 }
@@ -86,7 +91,7 @@ where
             .filter(|x| x.available && x.item.score() != 0)
             .for_each(|x| {
                 x.item
-                    .update_covering_set(best.object(), best.covering_set())
+                    .update_covering_set(best.intermediate(), best.covering_set())
             });
 
         result.push(best);
@@ -106,7 +111,7 @@ where
         .into_iter()
         .merge_by(cover2, |item1, item2| item1.score() >= item2.score())
         .take(limit)
-        .map(|item| item.object().clone())
+        .map(|item| T::convert_to_object(item.intermediate()))
         .collect()
 }
 
@@ -121,10 +126,15 @@ mod test {
         T: Clone + Eq + Hash,
     {
         type Object = Self;
+        type Intermediate = Self;
         type Set = Self;
 
-        fn object(&self) -> &Self {
+        fn intermediate(&self) -> &Self {
             self
+        }
+
+        fn convert_to_object(set: &Self) -> Self {
+            set.clone()
         }
 
         fn covering_set(&self) -> &Self {

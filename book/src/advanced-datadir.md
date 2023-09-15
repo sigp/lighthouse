@@ -55,5 +55,5 @@ In this case, the user could solve this warn by following these steps:
 1. Restarting the BN process
 
 Although there are no known issues with using backwards compatibility functionality, having split
-directories is likely to cause confusion for users. Therefore, we recommend affected users migrate
+directories is likely to cause confusion for users. Therefore, we recommend that affected users migrate
 to a consolidated directory structure.

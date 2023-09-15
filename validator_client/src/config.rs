@@ -1,8 +1,7 @@
-use crate::fee_recipient_file::FeeRecipientFile;
 use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
 use clap::ArgMatches;
-use clap_utils::{parse_optional, parse_required};
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 use directory::{
     get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
@@ -12,8 +11,9 @@ use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
@@ -29,6 +29,8 @@ pub struct Config {
     ///
     /// Should be similar to `["http://localhost:8080"]`
     pub beacon_nodes: Vec<SensitiveUrl>,
+    /// An optional beacon node used for block proposals only.
+    pub proposer_nodes: Vec<SensitiveUrl>,
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
@@ -44,8 +46,6 @@ pub struct Config {
     pub graffiti_file: Option<GraffitiFile>,
     /// Fallback fallback address.
     pub fee_recipient: Option<Address>,
-    /// Fee recipient file to load per validator suggested-fee-recipients.
-    pub fee_recipient_file: Option<FeeRecipientFile>,
     /// Configuration for the HTTP REST API.
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
@@ -55,9 +55,30 @@ pub struct Config {
     /// If true, enable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
+    /// If true, then we publish validator specific metrics (e.g next attestation duty slot)
+    /// for all our managed validators.
+    /// Note: We publish validator specific metrics for low validator counts without this flag
+    /// (<= 64 validators)
+    pub enable_high_validator_count_metrics: bool,
+    /// Enable use of the blinded block endpoints during proposals.
+    pub builder_proposals: bool,
+    /// Overrides the timestamp field in builder api ValidatorRegistrationV1
+    pub builder_registration_timestamp_override: Option<u64>,
+    /// Fallback gas limit.
+    pub gas_limit: Option<u64>,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
+    /// Delay from the start of the slot to wait before publishing a block.
+    ///
+    /// This is *not* recommended in prod and should only be used for testing.
+    pub block_delay: Option<Duration>,
+    /// Disables publishing http api requests to all beacon nodes for select api calls.
+    pub disable_run_on_all: bool,
+    /// Enables a service which attempts to measure latency between the VC and BNs.
+    pub enable_latency_measurement_service: bool,
+    /// Defines the number of validators per `validator/register_validator` request sent to the BN.
+    pub validator_registration_batch_size: usize,
 }
 
 impl Default for Config {
@@ -78,6 +99,7 @@ impl Default for Config {
             validator_dir,
             secrets_dir,
             beacon_nodes,
+            proposer_nodes: Vec::new(),
             allow_unsynced_beacon_node: false,
             disable_auto_discover: false,
             init_slashing_protection: false,
@@ -85,12 +107,19 @@ impl Default for Config {
             graffiti: None,
             graffiti_file: None,
             fee_recipient: None,
-            fee_recipient_file: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
+            enable_high_validator_count_metrics: false,
             beacon_nodes_tls_certs: None,
+            block_delay: None,
+            builder_proposals: false,
+            builder_registration_timestamp_override: None,
+            gas_limit: None,
+            disable_run_on_all: false,
+            enable_latency_measurement_service: true,
+            validator_registration_batch_size: 500,
         }
     }
 }
@@ -163,6 +192,14 @@ impl Config {
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
         }
 
+        if let Some(proposer_nodes) = parse_optional::<String>(cli_args, "proposer_nodes")? {
+            config.proposer_nodes = proposer_nodes
+                .split(',')
+                .map(SensitiveUrl::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("Unable to parse proposer node URL: {:?}", e))?;
+        }
+
         if cli_args.is_present("delete-lockfiles") {
             warn!(
                 log,
@@ -171,7 +208,14 @@ impl Config {
             );
         }
 
-        config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
+        if cli_args.is_present("allow-unsynced") {
+            warn!(
+                log,
+                "The --allow-unsynced flag is deprecated";
+                "msg" => "it no longer has any effect",
+            );
+        }
+        config.disable_run_on_all = cli_args.is_present("disable-run-on-all");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
         config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
@@ -204,19 +248,6 @@ impl Config {
             }
         }
 
-        if let Some(fee_recipient_file_path) = cli_args.value_of("suggested-fee-recipient-file") {
-            let mut fee_recipient_file = FeeRecipientFile::new(fee_recipient_file_path.into());
-            fee_recipient_file
-                .read_fee_recipient_file()
-                .map_err(|e| format!("Error reading suggested-fee-recipient file: {:?}", e))?;
-            config.fee_recipient_file = Some(fee_recipient_file);
-            info!(
-                log,
-                "Successfully loaded suggested-fee-recipient file";
-                "path" => fee_recipient_file_path
-            );
-        }
-
         if let Some(input_fee_recipient) =
             parse_optional::<Address>(cli_args, "suggested-fee-recipient")?
         {
@@ -238,8 +269,8 @@ impl Config {
         if let Some(address) = cli_args.value_of("http-address") {
             if cli_args.is_present("unencrypted-http-transport") {
                 config.http_api.listen_addr = address
-                    .parse::<Ipv4Addr>()
-                    .map_err(|_| "http-address is not a valid IPv4 address.")?;
+                    .parse::<IpAddr>()
+                    .map_err(|_| "http-address is not a valid IP address.")?;
             } else {
                 return Err(
                     "While using `--http-address`, you must also use `--unencrypted-http-transport`."
@@ -263,6 +294,14 @@ impl Config {
             config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
+        if cli_args.is_present("http-allow-keystore-export") {
+            config.http_api.allow_keystore_export = true;
+        }
+
+        if cli_args.is_present("http-store-passwords-in-secrets-dir") {
+            config.http_api.store_passwords_in_secrets_dir = true;
+        }
+
         /*
          * Prometheus metrics HTTP server
          */
@@ -271,10 +310,14 @@ impl Config {
             config.http_metrics.enabled = true;
         }
 
+        if cli_args.is_present("enable-high-validator-count-metrics") {
+            config.enable_high_validator_count_metrics = true;
+        }
+
         if let Some(address) = cli_args.value_of("metrics-address") {
             config.http_metrics.listen_addr = address
-                .parse::<Ipv4Addr>()
-                .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
+                .parse::<IpAddr>()
+                .map_err(|_| "metrics-address is not a valid IP address.")?;
         }
 
         if let Some(port) = cli_args.value_of("metrics-port") {
@@ -291,19 +334,74 @@ impl Config {
 
             config.http_metrics.allow_origin = Some(allow_origin.to_string());
         }
+
+        if cli_args.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+            config.http_metrics.allocator_metrics_enabled = false;
+        }
+
         /*
          * Explorer metrics
          */
         if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+            let update_period_secs =
+                clap_utils::parse_optional(cli_args, "monitoring-endpoint-period")?;
             config.monitoring_api = Some(monitoring_api::Config {
                 db_path: None,
                 freezer_db_path: None,
+                update_period_secs,
                 monitoring_endpoint: monitoring_endpoint.to_string(),
             });
         }
 
         if cli_args.is_present("enable-doppelganger-protection") {
             config.enable_doppelganger_protection = true;
+        }
+
+        if cli_args.is_present("builder-proposals") {
+            config.builder_proposals = true;
+        }
+
+        config.gas_limit = cli_args
+            .value_of("gas-limit")
+            .map(|gas_limit| {
+                gas_limit
+                    .parse::<u64>()
+                    .map_err(|_| "gas-limit is not a valid u64.")
+            })
+            .transpose()?;
+
+        if let Some(registration_timestamp_override) =
+            cli_args.value_of("builder-registration-timestamp-override")
+        {
+            config.builder_registration_timestamp_override = Some(
+                registration_timestamp_override
+                    .parse::<u64>()
+                    .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
+            );
+        }
+
+        if cli_args.is_present("strict-fee-recipient") {
+            warn!(
+                log,
+                "The flag `--strict-fee-recipient` has been deprecated due to a bug causing \
+                missed proposals. The flag will be ignored."
+            );
+        }
+
+        config.enable_latency_measurement_service =
+            parse_optional(cli_args, "latency-measurement-service")?.unwrap_or(true);
+
+        config.validator_registration_batch_size =
+            parse_required(cli_args, "validator-registration-batch-size")?;
+        if config.validator_registration_batch_size == 0 {
+            return Err("validator-registration-batch-size cannot be 0".to_string());
+        }
+
+        /*
+         * Experimental
+         */
+        if let Some(delay_ms) = parse_optional::<u64>(cli_args, "block-delay-ms")? {
+            config.block_delay = Some(Duration::from_millis(delay_ms));
         }
 
         Ok(config)

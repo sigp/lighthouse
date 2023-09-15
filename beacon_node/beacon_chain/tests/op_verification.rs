@@ -46,18 +46,20 @@ fn get_harness(store: Arc<HotColdDB>, validator_count: usize) -> TestHarness {
     harness
 }
 
-#[test]
-fn voluntary_exit() {
+#[tokio::test]
+async fn voluntary_exit() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), VALIDATOR_COUNT);
     let spec = &harness.chain.spec.clone();
 
-    harness.extend_chain(
-        (E::slots_per_epoch() * (spec.shard_committee_period + 1)) as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * (spec.shard_committee_period + 1)) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     let validator_index1 = VALIDATOR_COUNT - 1;
     let validator_index2 = VALIDATOR_COUNT - 2;

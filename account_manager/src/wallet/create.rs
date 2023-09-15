@@ -159,7 +159,7 @@ pub fn create_wallet_from_mnemonic(
         unknown => return Err(format!("--{} {} is not supported", TYPE_FLAG, unknown)),
     };
 
-    let mgr = WalletManager::open(&wallet_base_dir)
+    let mgr = WalletManager::open(wallet_base_dir)
         .map_err(|e| format!("Unable to open --{}: {:?}", WALLETS_DIR_FLAG, e))?;
 
     let wallet_password: PlainText = match wallet_password_path {

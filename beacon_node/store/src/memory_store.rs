@@ -1,14 +1,17 @@
 use super::{Error, ItemStore, KeyValueStore, KeyValueStoreOp};
+use crate::{ColumnIter, DBColumn};
 use parking_lot::{Mutex, MutexGuard, RwLock};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use types::*;
 
 type DBHashMap = HashMap<Vec<u8>, Vec<u8>>;
+type DBKeyMap = HashMap<Vec<u8>, HashSet<Vec<u8>>>;
 
 /// A thread-safe `HashMap` wrapper.
 pub struct MemoryStore<E: EthSpec> {
     db: RwLock<DBHashMap>,
+    col_keys: RwLock<DBKeyMap>,
     transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
 }
@@ -18,6 +21,7 @@ impl<E: EthSpec> MemoryStore<E> {
     pub fn open() -> Self {
         Self {
             db: RwLock::new(HashMap::new()),
+            col_keys: RwLock::new(HashMap::new()),
             transaction_mutex: Mutex::new(()),
             _phantom: PhantomData,
         }
@@ -41,6 +45,11 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
         let column_key = Self::get_key_for_col(col, key);
         self.db.write().insert(column_key, val.to_vec());
+        self.col_keys
+            .write()
+            .entry(col.as_bytes().to_vec())
+            .or_insert_with(HashSet::new)
+            .insert(key.to_vec());
         Ok(())
     }
 
@@ -63,6 +72,10 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
         let column_key = Self::get_key_for_col(col, key);
         self.db.write().remove(&column_key);
+        self.col_keys
+            .write()
+            .get_mut(&col.as_bytes().to_vec())
+            .map(|set| set.remove(key));
         Ok(())
     }
 
@@ -79,6 +92,26 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
             }
         }
         Ok(())
+    }
+
+    // pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
+    fn iter_column(&self, column: DBColumn) -> ColumnIter {
+        let col = column.as_str();
+        if let Some(keys) = self
+            .col_keys
+            .read()
+            .get(col.as_bytes())
+            .map(|set| set.iter().cloned().collect::<Vec<_>>())
+        {
+            Box::new(keys.into_iter().filter_map(move |key| {
+                let hash = Hash256::from_slice(&key);
+                self.get_bytes(col, &key)
+                    .transpose()
+                    .map(|res| res.map(|bytes| (hash, bytes)))
+            }))
+        } else {
+            Box::new(std::iter::empty())
+        }
     }
 
     fn begin_rw_transaction(&self) -> MutexGuard<()> {

@@ -3,21 +3,19 @@
 
 use super::methods::{GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode, ResponseTermination};
 use super::outbound::OutboundRequestContainer;
-use super::protocol::{max_rpc_size, InboundRequest, Protocol, RPCError, RPCProtocol};
+use super::protocol::{InboundOutput, InboundRequest, Protocol, RPCError, RPCProtocol};
 use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
 use futures::prelude::*;
 use futures::{Sink, SinkExt};
-use libp2p::core::upgrade::{
-    InboundUpgrade, NegotiationError, OutboundUpgrade, ProtocolError, UpgradeError,
-};
 use libp2p::swarm::handler::{
-    ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, KeepAlive,
+    ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
+    FullyNegotiatedInbound, FullyNegotiatedOutbound, KeepAlive, StreamUpgradeError,
     SubstreamProtocol,
 };
-use libp2p::swarm::NegotiatedSubstream;
+use libp2p::swarm::Stream;
 use slog::{crit, debug, trace, warn};
 use smallvec::SmallVec;
 use std::{
@@ -31,20 +29,20 @@ use tokio::time::{sleep_until, Instant as TInstant, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
 use types::{EthSpec, ForkContext};
 
-/// The time (in seconds) before a substream that is awaiting a response from the user times out.
-pub const RESPONSE_TIMEOUT: u64 = 10;
-
 /// The number of times to retry an outbound upgrade in the case of IO errors.
 const IO_ERROR_RETRIES: u8 = 3;
 
 /// Maximum time given to the handler to perform shutdown operations.
 const SHUTDOWN_TIMEOUT_SECS: u8 = 15;
 
+/// Maximum number of simultaneous inbound substreams we keep for this peer.
+const MAX_INBOUND_SUBSTREAMS: usize = 32;
+
 /// Identifier of inbound and outbound substreams from the handler's perspective.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SubstreamId(usize);
 
-type InboundSubstream<TSpec> = InboundFramed<NegotiatedSubstream, TSpec>;
+type InboundSubstream<TSpec> = InboundFramed<Stream, TSpec>;
 
 /// Events the handler emits to the behaviour.
 pub type HandlerEvent<Id, T> = Result<RPCReceived<Id, T>, HandlerErr<Id>>;
@@ -128,6 +126,9 @@ where
 
     /// Logger for handling RPC streams
     log: slog::Logger,
+
+    /// Timeout that will me used for inbound and outbound responses.
+    resp_timeout: Duration,
 }
 
 enum HandlerState {
@@ -137,7 +138,7 @@ enum HandlerState {
     ///
     /// While in this state the handler rejects new requests but tries to finish existing ones.
     /// Once the timer expires, all messages are killed.
-    ShuttingDown(Box<Sleep>),
+    ShuttingDown(Pin<Box<Sleep>>),
     /// The handler is deactivated. A goodbye has been sent and no more messages are sent or
     /// received.
     Deactivated,
@@ -192,12 +193,12 @@ pub enum OutboundSubstreamState<TSpec: EthSpec> {
     /// handler because GOODBYE requests can be handled and responses dropped instantly.
     RequestPendingResponse {
         /// The framed negotiated substream.
-        substream: Box<OutboundFramed<NegotiatedSubstream, TSpec>>,
+        substream: Box<OutboundFramed<Stream, TSpec>>,
         /// Keeps track of the actual request sent.
         request: OutboundRequest<TSpec>,
     },
     /// Closing an outbound substream>
-    Closing(Box<OutboundFramed<NegotiatedSubstream, TSpec>>),
+    Closing(Box<OutboundFramed<Stream, TSpec>>),
     /// Temporary state during processing
     Poisoned,
 }
@@ -210,6 +211,7 @@ where
         listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
         fork_context: Arc<ForkContext>,
         log: &slog::Logger,
+        resp_timeout: Duration,
     ) -> Self {
         RPCHandler {
             listen_protocol,
@@ -228,6 +230,7 @@ where
             fork_context,
             waker: None,
             log: log.clone(),
+            resp_timeout,
         }
     }
 
@@ -241,8 +244,8 @@ where
             // We now drive to completion communications already dialed/established
             while let Some((id, req)) = self.dial_queue.pop() {
                 self.events_out.push(Err(HandlerErr::Outbound {
-                    error: RPCError::HandlerRejected,
-                    proto: req.protocol(),
+                    error: RPCError::Disconnected,
+                    proto: req.versioned_protocol().protocol(),
                     id,
                 }));
             }
@@ -252,7 +255,7 @@ where
                 self.dial_queue.push((id, OutboundRequest::Goodbye(reason)));
             }
 
-            self.state = HandlerState::ShuttingDown(Box::new(sleep_until(
+            self.state = HandlerState::ShuttingDown(Box::pin(sleep_until(
                 TInstant::now() + Duration::from_secs(SHUTDOWN_TIMEOUT_SECS as u64),
             )));
         }
@@ -265,8 +268,8 @@ where
                 self.dial_queue.push((id, req));
             }
             _ => self.events_out.push(Err(HandlerErr::Outbound {
-                error: RPCError::HandlerRejected,
-                proto: req.protocol(),
+                error: RPCError::Disconnected,
+                proto: req.versioned_protocol().protocol(),
                 id,
             })),
         }
@@ -282,7 +285,7 @@ where
         } else {
             if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
                 // the stream is closed after sending the expected number of responses
-                trace!(self.log, "Inbound stream has expired, response not sent";
+                trace!(self.log, "Inbound stream has expired. Response not sent";
                     "response" => %response, "id" => inbound_id);
             }
             return;
@@ -312,8 +315,8 @@ where
     TSpec: EthSpec,
     Id: ReqId,
 {
-    type InEvent = RPCSend<Id, TSpec>;
-    type OutEvent = HandlerEvent<Id, TSpec>;
+    type FromBehaviour = RPCSend<Id, TSpec>;
+    type ToBehaviour = HandlerEvent<Id, TSpec>;
     type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = OutboundRequestContainer<TSpec>;
@@ -324,109 +327,7 @@ where
         self.listen_protocol.clone()
     }
 
-    fn inject_fully_negotiated_inbound(
-        &mut self,
-        substream: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
-        _info: Self::InboundOpenInfo,
-    ) {
-        // only accept new peer requests when active
-        if !matches!(self.state, HandlerState::Active) {
-            return;
-        }
-
-        let (req, substream) = substream;
-        let expected_responses = req.expected_responses();
-
-        // store requests that expect responses
-        if expected_responses > 0 {
-            // Store the stream and tag the output.
-            let delay_key = self.inbound_substreams_delay.insert(
-                self.current_inbound_substream_id,
-                Duration::from_secs(RESPONSE_TIMEOUT),
-            );
-            let awaiting_stream = InboundState::Idle(substream);
-            self.inbound_substreams.insert(
-                self.current_inbound_substream_id,
-                InboundInfo {
-                    state: awaiting_stream,
-                    pending_items: VecDeque::with_capacity(expected_responses as usize),
-                    delay_key: Some(delay_key),
-                    protocol: req.protocol(),
-                    request_start_time: Instant::now(),
-                    remaining_chunks: expected_responses,
-                },
-            );
-        }
-
-        // If we received a goodbye, shutdown the connection.
-        if let InboundRequest::Goodbye(_) = req {
-            self.shutdown(None);
-        }
-
-        self.events_out.push(Ok(RPCReceived::Request(
-            self.current_inbound_substream_id,
-            req,
-        )));
-        self.current_inbound_substream_id.0 += 1;
-    }
-
-    fn inject_fully_negotiated_outbound(
-        &mut self,
-        out: <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Output,
-        request_info: Self::OutboundOpenInfo,
-    ) {
-        self.dial_negotiated -= 1;
-        let (id, request) = request_info;
-        let proto = request.protocol();
-
-        // accept outbound connections only if the handler is not deactivated
-        if matches!(self.state, HandlerState::Deactivated) {
-            self.events_out.push(Err(HandlerErr::Outbound {
-                error: RPCError::HandlerRejected,
-                proto,
-                id,
-            }));
-        }
-
-        // add the stream to substreams if we expect a response, otherwise drop the stream.
-        let expected_responses = request.expected_responses();
-        if expected_responses > 0 {
-            // new outbound request. Store the stream and tag the output.
-            let delay_key = self.outbound_substreams_delay.insert(
-                self.current_outbound_substream_id,
-                Duration::from_secs(RESPONSE_TIMEOUT),
-            );
-            let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
-                substream: Box::new(out),
-                request,
-            };
-            let expected_responses = if expected_responses > 1 {
-                // Currently enforced only for multiple responses
-                Some(expected_responses)
-            } else {
-                None
-            };
-            if self
-                .outbound_substreams
-                .insert(
-                    self.current_outbound_substream_id,
-                    OutboundInfo {
-                        state: awaiting_stream,
-                        delay_key,
-                        proto,
-                        remaining_chunks: expected_responses,
-                        req_id: id,
-                    },
-                )
-                .is_some()
-            {
-                crit!(self.log, "Duplicate outbound substream id"; "id" => self.current_outbound_substream_id);
-            }
-            self.current_outbound_substream_id.0 += 1;
-        }
-    }
-
-    fn inject_event(&mut self, rpc_event: Self::InEvent) {
+    fn on_behaviour_event(&mut self, rpc_event: Self::FromBehaviour) {
         match rpc_event {
             RPCSend::Request(id, req) => self.send_request(id, req),
             RPCSend::Response(inbound_id, response) => self.send_response(inbound_id, response),
@@ -436,56 +337,6 @@ where
         if let Some(waker) = &self.waker {
             waker.wake_by_ref();
         }
-    }
-
-    fn inject_dial_upgrade_error(
-        &mut self,
-        request_info: Self::OutboundOpenInfo,
-        error: ConnectionHandlerUpgrErr<
-            <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Error,
-        >,
-    ) {
-        let (id, req) = request_info;
-        if let ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(RPCError::IoError(_))) = error
-        {
-            self.outbound_io_error_retries += 1;
-            if self.outbound_io_error_retries < IO_ERROR_RETRIES {
-                self.send_request(id, req);
-                return;
-            }
-        }
-
-        // This dialing is now considered failed
-        self.dial_negotiated -= 1;
-
-        self.outbound_io_error_retries = 0;
-        // map the error
-        let error = match error {
-            ConnectionHandlerUpgrErr::Timer => RPCError::InternalError("Timer failed"),
-            ConnectionHandlerUpgrErr::Timeout => RPCError::NegotiationTimeout,
-            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(e)) => e,
-            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(NegotiationError::Failed)) => {
-                RPCError::UnsupportedProtocol
-            }
-            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(
-                NegotiationError::ProtocolError(e),
-            )) => match e {
-                ProtocolError::IoError(io_err) => RPCError::IoError(io_err.to_string()),
-                ProtocolError::InvalidProtocol => {
-                    RPCError::InternalError("Protocol was deemed invalid")
-                }
-                ProtocolError::InvalidMessage | ProtocolError::TooManyProtocols => {
-                    // Peer is sending invalid data during the negotiation phase, not
-                    // participating in the protocol
-                    RPCError::InvalidData
-                }
-            },
-        };
-        self.events_out.push(Err(HandlerErr::Outbound {
-            error,
-            proto: req.protocol(),
-            id,
-        }));
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
@@ -520,7 +371,7 @@ where
         ConnectionHandlerEvent<
             Self::OutboundProtocol,
             Self::OutboundOpenInfo,
-            Self::OutEvent,
+            Self::ToBehaviour,
             Self::Error,
         >,
     > {
@@ -533,20 +384,23 @@ where
         }
         // return any events that need to be reported
         if !self.events_out.is_empty() {
-            return Poll::Ready(ConnectionHandlerEvent::Custom(self.events_out.remove(0)));
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                self.events_out.remove(0),
+            ));
         } else {
             self.events_out.shrink_to_fit();
         }
 
         // Check if we are shutting down, and if the timer ran out
-        if let HandlerState::ShuttingDown(delay) = &self.state {
-            if delay.is_elapsed() {
-                self.state = HandlerState::Deactivated;
-                debug!(self.log, "Handler deactivated");
-                return Poll::Ready(ConnectionHandlerEvent::Close(RPCError::InternalError(
-                    "Shutdown timeout",
-                )));
-            }
+        if let HandlerState::ShuttingDown(delay) = &mut self.state {
+            match delay.as_mut().poll(cx) {
+                Poll::Ready(_) => {
+                    self.state = HandlerState::Deactivated;
+                    debug!(self.log, "Handler deactivated");
+                    return Poll::Ready(ConnectionHandlerEvent::Close(RPCError::Disconnected));
+                }
+                Poll::Pending => {}
+            };
         }
 
         // purge expired inbound substreams and send an error
@@ -596,7 +450,9 @@ where
                             error: RPCError::StreamTimeout,
                         };
                         // notify the user
-                        return Poll::Ready(ConnectionHandlerEvent::Custom(Err(outbound_err)));
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(
+                            outbound_err,
+                        )));
                     } else {
                         crit!(self.log, "timed out substream not in the books"; "stream_id" => outbound_id.get_ref());
                     }
@@ -670,7 +526,7 @@ where
                                 {
                                     // if the request was still active, report back to cancel it
                                     self.events_out.push(Err(HandlerErr::Inbound {
-                                        error: RPCError::HandlerRejected,
+                                        error: RPCError::Disconnected,
                                         proto: info.protocol,
                                         id: *id,
                                     }));
@@ -698,7 +554,7 @@ where
                                 // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
                                 if let Some(ref delay_key) = info.delay_key {
                                     self.inbound_substreams_delay
-                                        .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
+                                        .reset(delay_key, self.resp_timeout);
                                 }
 
                                 // The stream may be currently idle. Attempt to process more
@@ -802,7 +658,7 @@ where
                     // the handler is deactivated. Close the stream
                     entry.get_mut().state = OutboundSubstreamState::Closing(substream);
                     self.events_out.push(Err(HandlerErr::Outbound {
-                        error: RPCError::HandlerRejected,
+                        error: RPCError::Disconnected,
                         proto: entry.get().proto,
                         id: entry.get().req_id,
                     }))
@@ -832,7 +688,7 @@ where
                                     };
                                 substream_entry.remaining_chunks = Some(remaining_chunks);
                                 self.outbound_substreams_delay
-                                    .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
+                                    .reset(delay_key, self.resp_timeout);
                             }
                         } else {
                             // either this is a single response request or this response closes the
@@ -856,7 +712,7 @@ where
                             }),
                         };
 
-                        return Poll::Ready(ConnectionHandlerEvent::Custom(received));
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(received));
                     }
                     Poll::Ready(None) => {
                         // stream closed
@@ -871,7 +727,7 @@ where
                         // notify the application error
                         if request.expected_responses() > 1 {
                             // return an end of stream result
-                            return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
+                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Ok(
                                 RPCReceived::EndOfStream(request_id, request.stream_termination()),
                             )));
                         }
@@ -879,10 +735,12 @@ where
                         // else we return an error, stream should not have closed early.
                         let outbound_err = HandlerErr::Outbound {
                             id: request_id,
-                            proto: request.protocol(),
+                            proto: request.versioned_protocol().protocol(),
                             error: RPCError::IncompleteStream,
                         };
-                        return Poll::Ready(ConnectionHandlerEvent::Custom(Err(outbound_err)));
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(
+                            outbound_err,
+                        )));
                     }
                     Poll::Pending => {
                         entry.get_mut().state =
@@ -898,7 +756,9 @@ where
                             error: e,
                         };
                         entry.remove_entry();
-                        return Poll::Ready(ConnectionHandlerEvent::Custom(Err(outbound_err)));
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(
+                            outbound_err,
+                        )));
                     }
                 },
                 OutboundSubstreamState::Closing(mut substream) => {
@@ -924,7 +784,7 @@ where
                             };
 
                             if let Some(termination) = termination {
-                                return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
+                                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Ok(
                                     RPCReceived::EndOfStream(request_id, termination),
                                 )));
                             }
@@ -951,7 +811,7 @@ where
                     OutboundRequestContainer {
                         req: req.clone(),
                         fork_context: self.fork_context.clone(),
-                        max_rpc_size: max_rpc_size(&self.fork_context),
+                        max_rpc_size: self.listen_protocol().upgrade().max_rpc_size,
                     },
                     (),
                 )
@@ -972,6 +832,205 @@ where
         }
 
         Poll::Pending
+    }
+
+    fn on_connection_event(
+        &mut self,
+        event: ConnectionEvent<
+            Self::InboundProtocol,
+            Self::OutboundProtocol,
+            Self::InboundOpenInfo,
+            Self::OutboundOpenInfo,
+        >,
+    ) {
+        match event {
+            ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
+                protocol,
+                info: _,
+            }) => self.on_fully_negotiated_inbound(protocol),
+            ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
+                protocol,
+                info,
+            }) => self.on_fully_negotiated_outbound(protocol, info),
+            ConnectionEvent::DialUpgradeError(DialUpgradeError { info, error }) => {
+                self.on_dial_upgrade_error(info, error)
+            }
+            ConnectionEvent::ListenUpgradeError(libp2p::swarm::handler::ListenUpgradeError {
+                info: _,
+                error: _, /* RPCError */
+            }) => {
+                // This is going to be removed in the next libp2p release. I think its fine to do
+                // nothing.
+            }
+            ConnectionEvent::LocalProtocolsChange(_) => {
+                // This shouldn't effect this handler, we will still negotiate streams if we support
+                // the protocol as usual.
+            }
+            ConnectionEvent::RemoteProtocolsChange(_) => {
+                // This shouldn't effect this handler, we will still negotiate streams if we support
+                // the protocol as usual.
+            }
+            ConnectionEvent::AddressChange(_) => {
+                // We dont care about these changes as they have no bearing on our RPC internal
+                // logic.
+            }
+        }
+    }
+}
+
+impl<Id, TSpec: EthSpec> RPCHandler<Id, TSpec>
+where
+    Id: ReqId,
+    TSpec: EthSpec,
+{
+    fn on_fully_negotiated_inbound(&mut self, substream: InboundOutput<Stream, TSpec>) {
+        // only accept new peer requests when active
+        if !matches!(self.state, HandlerState::Active) {
+            return;
+        }
+
+        let (req, substream) = substream;
+        let expected_responses = req.expected_responses();
+
+        // store requests that expect responses
+        if expected_responses > 0 {
+            if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
+                // Store the stream and tag the output.
+                let delay_key = self
+                    .inbound_substreams_delay
+                    .insert(self.current_inbound_substream_id, self.resp_timeout);
+                let awaiting_stream = InboundState::Idle(substream);
+                self.inbound_substreams.insert(
+                    self.current_inbound_substream_id,
+                    InboundInfo {
+                        state: awaiting_stream,
+                        pending_items: VecDeque::with_capacity(std::cmp::min(
+                            expected_responses,
+                            128,
+                        ) as usize),
+                        delay_key: Some(delay_key),
+                        protocol: req.versioned_protocol().protocol(),
+                        request_start_time: Instant::now(),
+                        remaining_chunks: expected_responses,
+                    },
+                );
+            } else {
+                self.events_out.push(Err(HandlerErr::Inbound {
+                    id: self.current_inbound_substream_id,
+                    proto: req.versioned_protocol().protocol(),
+                    error: RPCError::HandlerRejected,
+                }));
+                return self.shutdown(None);
+            }
+        }
+
+        // If we received a goodbye, shutdown the connection.
+        if let InboundRequest::Goodbye(_) = req {
+            self.shutdown(None);
+        }
+
+        self.events_out.push(Ok(RPCReceived::Request(
+            self.current_inbound_substream_id,
+            req,
+        )));
+        self.current_inbound_substream_id.0 += 1;
+    }
+
+    fn on_fully_negotiated_outbound(
+        &mut self,
+        substream: OutboundFramed<Stream, TSpec>,
+        (id, request): (Id, OutboundRequest<TSpec>),
+    ) {
+        self.dial_negotiated -= 1;
+        // Reset any io-retries counter.
+        self.outbound_io_error_retries = 0;
+
+        let proto = request.versioned_protocol().protocol();
+
+        // accept outbound connections only if the handler is not deactivated
+        if matches!(self.state, HandlerState::Deactivated) {
+            self.events_out.push(Err(HandlerErr::Outbound {
+                error: RPCError::Disconnected,
+                proto,
+                id,
+            }));
+        }
+
+        // add the stream to substreams if we expect a response, otherwise drop the stream.
+        let expected_responses = request.expected_responses();
+        if expected_responses > 0 {
+            // new outbound request. Store the stream and tag the output.
+            let delay_key = self
+                .outbound_substreams_delay
+                .insert(self.current_outbound_substream_id, self.resp_timeout);
+            let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
+                substream: Box::new(substream),
+                request,
+            };
+            let expected_responses = if expected_responses > 1 {
+                // Currently enforced only for multiple responses
+                Some(expected_responses)
+            } else {
+                None
+            };
+            if self
+                .outbound_substreams
+                .insert(
+                    self.current_outbound_substream_id,
+                    OutboundInfo {
+                        state: awaiting_stream,
+                        delay_key,
+                        proto,
+                        remaining_chunks: expected_responses,
+                        req_id: id,
+                    },
+                )
+                .is_some()
+            {
+                crit!(self.log, "Duplicate outbound substream id"; "id" => self.current_outbound_substream_id);
+            }
+            self.current_outbound_substream_id.0 += 1;
+        }
+    }
+    fn on_dial_upgrade_error(
+        &mut self,
+        request_info: (Id, OutboundRequest<TSpec>),
+        error: StreamUpgradeError<RPCError>,
+    ) {
+        let (id, req) = request_info;
+
+        // map the error
+        let error = match error {
+            StreamUpgradeError::Timeout => RPCError::NegotiationTimeout,
+            StreamUpgradeError::Apply(RPCError::IoError(e)) => {
+                self.outbound_io_error_retries += 1;
+                if self.outbound_io_error_retries < IO_ERROR_RETRIES {
+                    self.send_request(id, req);
+                    return;
+                }
+                RPCError::IoError(e)
+            }
+            StreamUpgradeError::NegotiationFailed => RPCError::UnsupportedProtocol,
+            StreamUpgradeError::Io(io_err) => {
+                self.outbound_io_error_retries += 1;
+                if self.outbound_io_error_retries < IO_ERROR_RETRIES {
+                    self.send_request(id, req);
+                    return;
+                }
+                RPCError::IoError(io_err.to_string())
+            }
+            StreamUpgradeError::Apply(other) => other,
+        };
+
+        // This dialing is now considered failed
+        self.dial_negotiated -= 1;
+
+        self.outbound_io_error_retries = 0;
+        self.events_out.push(Err(HandlerErr::Outbound {
+            error,
+            proto: req.versioned_protocol().protocol(),
+            id,
+        }));
     }
 }
 

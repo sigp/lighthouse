@@ -29,9 +29,7 @@ pub fn verify_deposit_signature(deposit_data: &DepositData, spec: &ChainSpec) ->
 /// Returns a `Some(validator index)` if a pubkey already exists in the `validators`,
 /// otherwise returns `None`.
 ///
-/// ## Errors
-///
-/// Errors if the state's `pubkey_cache` is not current.
+/// Builds the pubkey cache if it is not already built.
 pub fn get_existing_validator_index<T: EthSpec>(
     state: &mut BeaconState<T>,
     pub_key: &PublicKeyBytes,

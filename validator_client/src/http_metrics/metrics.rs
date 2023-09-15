@@ -1,4 +1,5 @@
 use super::Context;
+use malloc_utils::scrape_allocator_metrics;
 use slot_clock::SlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::EthSpec;
@@ -10,7 +11,9 @@ pub const UNREGISTERED: &str = "unregistered";
 pub const FULL_UPDATE: &str = "full_update";
 pub const BEACON_BLOCK: &str = "beacon_block";
 pub const BEACON_BLOCK_HTTP_GET: &str = "beacon_block_http_get";
+pub const BLINDED_BEACON_BLOCK_HTTP_GET: &str = "blinded_beacon_block_http_get";
 pub const BEACON_BLOCK_HTTP_POST: &str = "beacon_block_http_post";
+pub const BLINDED_BEACON_BLOCK_HTTP_POST: &str = "blinded_beacon_block_http_post";
 pub const ATTESTATIONS: &str = "attestations";
 pub const ATTESTATIONS_HTTP_GET: &str = "attestations_http_get";
 pub const ATTESTATIONS_HTTP_POST: &str = "attestations_http_post";
@@ -26,9 +29,11 @@ pub const UPDATE_ATTESTERS_FETCH: &str = "update_attesters_fetch";
 pub const UPDATE_ATTESTERS_STORE: &str = "update_attesters_store";
 pub const ATTESTER_DUTIES_HTTP_POST: &str = "attester_duties_http_post";
 pub const PROPOSER_DUTIES_HTTP_GET: &str = "proposer_duties_http_get";
+pub const VALIDATOR_DUTIES_SYNC_HTTP_POST: &str = "validator_duties_sync_http_post";
 pub const VALIDATOR_ID_HTTP_GET: &str = "validator_id_http_get";
 pub const SUBSCRIPTIONS_HTTP_POST: &str = "subscriptions_http_post";
 pub const UPDATE_PROPOSERS: &str = "update_proposers";
+pub const ATTESTATION_SELECTION_PROOFS: &str = "attestation_selection_proofs";
 pub const SUBSCRIPTIONS: &str = "subscriptions";
 pub const LOCAL_KEYSTORE: &str = "local_keystore";
 pub const WEB3SIGNER: &str = "web3signer";
@@ -84,6 +89,16 @@ lazy_static::lazy_static! {
         "Total count of attempted SyncSelectionProof signings",
         &["status"]
     );
+    pub static ref SIGNED_VOLUNTARY_EXITS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "vc_signed_voluntary_exits_total",
+        "Total count of VoluntaryExit signings",
+        &["status"]
+    );
+    pub static ref SIGNED_VALIDATOR_REGISTRATIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "builder_validator_registrations_total",
+        "Total count of ValidatorRegistrationData signings",
+        &["status"]
+    );
     pub static ref DUTIES_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
         "vc_duties_service_task_times_seconds",
         "Duration to perform duties service tasks",
@@ -131,6 +146,22 @@ lazy_static::lazy_static! {
         &["endpoint"]
     );
 
+    /*
+    * Beacon node availability metrics
+    */
+    pub static ref AVAILABLE_BEACON_NODES_COUNT: Result<IntGauge> = try_create_int_gauge(
+        "vc_beacon_nodes_available_count",
+        "Number of available beacon nodes",
+    );
+    pub static ref SYNCED_BEACON_NODES_COUNT: Result<IntGauge> = try_create_int_gauge(
+        "vc_beacon_nodes_synced_count",
+        "Number of synced beacon nodes",
+    );
+    pub static ref TOTAL_BEACON_NODES_COUNT: Result<IntGauge> = try_create_int_gauge(
+        "vc_beacon_nodes_total_count",
+        "Total number of beacon nodes",
+    );
+
     pub static ref ETH2_FALLBACK_CONFIGURED: Result<IntGauge> = try_create_int_gauge(
         "sync_eth2_fallback_configured",
         "The number of configured eth2 fallbacks",
@@ -147,6 +178,28 @@ lazy_static::lazy_static! {
         "vc_signing_times_seconds",
         "Duration to obtain a signature",
         &["type"]
+    );
+    pub static ref BLOCK_SIGNING_TIMES: Result<Histogram> = try_create_histogram(
+        "vc_block_signing_times_seconds",
+        "Duration to obtain a signature for a block",
+    );
+
+    pub static ref ATTESTATION_DUTY: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "vc_attestation_duty_slot",
+        "Attestation duty slot for all managed validators",
+        &["validator"]
+    );
+    /*
+     * BN latency
+     */
+    pub static ref VC_BEACON_NODE_LATENCY: Result<HistogramVec> = try_create_histogram_vec(
+        "vc_beacon_node_latency",
+        "Round-trip latency for a simple API endpoint on each BN",
+        &["endpoint"]
+    );
+    pub static ref VC_BEACON_NODE_LATENCY_PRIMARY_ENDPOINT: Result<Histogram> = try_create_histogram(
+        "vc_beacon_node_latency_primary_endpoint",
+        "Round-trip latency for the primary BN endpoint",
     );
 }
 
@@ -188,6 +241,12 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
                 );
             }
         }
+    }
+
+    // It's important to ensure these metrics are explicitly enabled in the case that users aren't
+    // using glibc and this function causes panics.
+    if ctx.config.allocator_metrics_enabled {
+        scrape_allocator_metrics();
     }
 
     warp_utils::metrics::scrape_health_metrics();

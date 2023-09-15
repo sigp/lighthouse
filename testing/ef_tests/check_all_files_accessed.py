@@ -25,20 +25,40 @@ excluded_paths = [
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
     "tests/.*/.*/ssz_static/Eth1Block/",
     "tests/.*/.*/ssz_static/PowBlock/",
+    # light_client
+    "tests/.*/.*/light_client",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientUpdate
     "tests/.*/.*/ssz_static/LightClientUpdate",
     # LightClientSnapshot
     "tests/.*/.*/ssz_static/LightClientSnapshot",
-    # Merkle-proof tests for light clients
-    "tests/.*/.*/merkle/single_proof",
+    # LightClientBootstrap
+    "tests/.*/.*/ssz_static/LightClientBootstrap",
+    # LightClientOptimistic
+    "tests/.*/.*/ssz_static/LightClientOptimistic",
+    # LightClientFinalityUpdate
+    "tests/.*/.*/ssz_static/LightClientFinalityUpdate",
+    # LightClientHeader
+    "tests/.*/.*/ssz_static/LightClientHeader",
+    # Deneb (previously known as eip4844) tests are disabled for now.
+    "tests/.*/deneb",
     # One of the EF researchers likes to pack the tarballs on a Mac
-    ".*\.DS_Store.*"
+    ".*\.DS_Store.*",
+    # More Mac weirdness.
+    "tests/mainnet/bellatrix/operations/deposit/pyspec_tests/deposit_with_previous_fork_version__valid_ineffective/._meta.yaml",
+    # bls tests are moved to bls12-381-tests directory
+    "tests/general/phase0/bls",
+    # some bls tests are not included now
+    "bls12-381-tests/deserialization_G1",
+    "bls12-381-tests/deserialization_G2",
+    "bls12-381-tests/hash_to_G2"
 ]
+
 
 def normalize_path(path):
     return path.split("consensus-spec-tests/")[1]
+
 
 # Determine the list of filenames which were accessed during tests.
 passed = set()
@@ -72,4 +92,5 @@ for root, dirs, files in os.walk(tests_dir_filename):
 # Exit with an error if there were any files missed.
 assert len(missed) == 0, "{} missed files".format(len(missed))
 
-print("Accessed {} files ({} intentionally excluded)".format(accessed_files, excluded_files))
+print("Accessed {} files ({} intentionally excluded)".format(
+    accessed_files, excluded_files))

@@ -18,6 +18,8 @@ slog-async = "2.5.0"
 futures = "0.3.7"
 slog-json = "2.3.0"
 exit-future = "0.2.0"
+serde = "1.0.116"
+serde_derive = "1.0.116"
 
 [target.'cfg(not(target_family = "unix"))'.dependencies]
 ctrlc = { version = "3.1.6", features = ["termination"] }

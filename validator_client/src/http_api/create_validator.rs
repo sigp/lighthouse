@@ -1,15 +1,16 @@
 use crate::ValidatorStore;
-use account_utils::validator_definitions::{SigningDefinition, ValidatorDefinition};
+use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use account_utils::{
+    eth2_keystore::Keystore,
     eth2_wallet::{bip39::Mnemonic, WalletBuilder},
     random_mnemonic, random_password, ZeroizeString,
 };
 use eth2::lighthouse_vc::types::{self as api_types};
 use slot_clock::SlotClock;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use types::ChainSpec;
 use types::EthSpec;
-use validator_dir::Builder as ValidatorDirBuilder;
+use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
 
 /// Create some validator EIP-2335 keystores and store them on disk. Then, enroll the validators in
 /// this validator client.
@@ -27,6 +28,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
     key_derivation_path_offset: Option<u32>,
     validator_requests: &[api_types::ValidatorRequest],
     validator_dir: P,
+    secrets_dir: Option<PathBuf>,
     validator_store: &ValidatorStore<T, E>,
     spec: &ChainSpec,
 ) -> Result<(Vec<api_types::CreatedValidator>, Mnemonic), warp::Rejection> {
@@ -95,7 +97,11 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
                 ))
             })?;
 
+        let voting_password_storage =
+            get_voting_password_storage(&secrets_dir, &keystores.voting, &voting_password_string)?;
+
         let validator_dir = ValidatorDirBuilder::new(validator_dir.as_ref().into())
+            .password_dir_opt(secrets_dir.clone())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
             .create_eth1_tx_data(request.deposit_gwei, spec)
@@ -136,10 +142,12 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
         validator_store
             .add_validator_keystore(
                 voting_keystore_path,
-                voting_password_string,
+                voting_password_storage,
                 request.enable,
                 request.graffiti.clone(),
                 request.suggested_fee_recipient,
+                request.gas_limit,
+                request.builder_proposals,
             )
             .await
             .map_err(|e| {
@@ -154,8 +162,10 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
             description: request.description.clone(),
             graffiti: request.graffiti.clone(),
             suggested_fee_recipient: request.suggested_fee_recipient,
+            gas_limit: request.gas_limit,
+            builder_proposals: request.builder_proposals,
             voting_pubkey,
-            eth1_deposit_tx_data: eth2_serde_utils::hex::encode(&eth1_deposit_data.rlp),
+            eth1_deposit_tx_data: serde_utils::hex::encode(&eth1_deposit_data.rlp),
             deposit_gwei: request.deposit_gwei,
         });
     }
@@ -164,24 +174,12 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
 }
 
 pub async fn create_validators_web3signer<T: 'static + SlotClock, E: EthSpec>(
-    validator_requests: &[api_types::Web3SignerValidatorRequest],
+    validators: Vec<ValidatorDefinition>,
     validator_store: &ValidatorStore<T, E>,
 ) -> Result<(), warp::Rejection> {
-    for request in validator_requests {
-        let validator_definition = ValidatorDefinition {
-            enabled: request.enable,
-            voting_public_key: request.voting_public_key.clone(),
-            graffiti: request.graffiti.clone(),
-            suggested_fee_recipient: request.suggested_fee_recipient,
-            description: request.description.clone(),
-            signing_definition: SigningDefinition::Web3Signer {
-                url: request.url.clone(),
-                root_certificate_path: request.root_certificate_path.clone(),
-                request_timeout_ms: request.request_timeout_ms,
-            },
-        };
+    for validator in validators {
         validator_store
-            .add_validator(validator_definition)
+            .add_validator(validator)
             .await
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(
@@ -192,4 +190,27 @@ pub async fn create_validators_web3signer<T: 'static + SlotClock, E: EthSpec>(
     }
 
     Ok(())
+}
+
+/// Attempts to return a `PasswordStorage::File` if `secrets_dir` is defined.
+/// Otherwise, returns a `PasswordStorage::ValidatorDefinitions`.
+pub fn get_voting_password_storage(
+    secrets_dir: &Option<PathBuf>,
+    voting_keystore: &Keystore,
+    voting_password_string: &ZeroizeString,
+) -> Result<PasswordStorage, warp::Rejection> {
+    if let Some(secrets_dir) = &secrets_dir {
+        let password_path = keystore_password_path(secrets_dir, voting_keystore);
+        if password_path.exists() {
+            Err(warp_utils::reject::custom_server_error(
+                "Duplicate keystore password path".to_string(),
+            ))
+        } else {
+            Ok(PasswordStorage::File(password_path))
+        }
+    } else {
+        Ok(PasswordStorage::ValidatorDefinitions(
+            voting_password_string.clone(),
+        ))
+    }
 }

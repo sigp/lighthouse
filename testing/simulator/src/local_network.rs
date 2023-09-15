@@ -1,7 +1,8 @@
 use node_test_rig::{
     environment::RuntimeContext,
     eth2::{types::StateId, BeaconNodeHttpClient},
-    ClientConfig, LocalBeaconNode, LocalValidatorClient, ValidatorConfig, ValidatorFiles,
+    ClientConfig, LocalBeaconNode, LocalExecutionNode, LocalValidatorClient, MockExecutionConfig,
+    MockServerConfig, ValidatorConfig, ValidatorFiles,
 };
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -15,11 +16,18 @@ use types::{Epoch, EthSpec};
 const BOOTNODE_PORT: u16 = 42424;
 pub const INVALID_ADDRESS: &str = "http://127.0.0.1:42423";
 
+pub const EXECUTION_PORT: u16 = 4000;
+
+pub const TERMINAL_DIFFICULTY: u64 = 6400;
+pub const TERMINAL_BLOCK: u64 = 64;
+
 /// Helper struct to reduce `Arc` usage.
 pub struct Inner<E: EthSpec> {
     pub context: RuntimeContext<E>,
     pub beacon_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
+    pub proposer_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
     pub validator_clients: RwLock<Vec<LocalValidatorClient<E>>>,
+    pub execution_nodes: RwLock<Vec<LocalExecutionNode<E>>>,
 }
 
 /// Represents a set of interconnected `LocalBeaconNode` and `LocalValidatorClient`.
@@ -46,16 +54,43 @@ impl<E: EthSpec> Deref for LocalNetwork<E> {
 }
 
 impl<E: EthSpec> LocalNetwork<E> {
-    /// Creates a new network with a single `BeaconNode`.
+    /// Creates a new network with a single `BeaconNode` and a connected `ExecutionNode`.
     pub async fn new(
         context: RuntimeContext<E>,
         mut beacon_config: ClientConfig,
     ) -> Result<Self, String> {
-        beacon_config.network.discovery_port = BOOTNODE_PORT;
-        beacon_config.network.libp2p_port = BOOTNODE_PORT;
-        beacon_config.network.enr_udp_port = Some(BOOTNODE_PORT);
-        beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT);
+        beacon_config.network.set_ipv4_listening_address(
+            std::net::Ipv4Addr::UNSPECIFIED,
+            BOOTNODE_PORT,
+            BOOTNODE_PORT,
+        );
+        beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT);
+        beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT);
         beacon_config.network.discv5_config.table_filter = |_| true;
+
+        let execution_node = if let Some(el_config) = &mut beacon_config.execution_layer {
+            let mock_execution_config = MockExecutionConfig {
+                server_config: MockServerConfig {
+                    listen_port: EXECUTION_PORT,
+                    ..Default::default()
+                },
+                terminal_block: TERMINAL_BLOCK,
+                terminal_difficulty: TERMINAL_DIFFICULTY.into(),
+                ..Default::default()
+            };
+            let execution_node = LocalExecutionNode::new(
+                context.service_context("boot_node_el".into()),
+                mock_execution_config,
+            );
+            el_config.default_datadir = execution_node.datadir.path().to_path_buf();
+            el_config.secret_files = vec![execution_node.datadir.path().join("jwt.hex")];
+            el_config.execution_endpoints =
+                vec![SensitiveUrl::parse(&execution_node.server.url()).unwrap()];
+            vec![execution_node]
+        } else {
+            vec![]
+        };
+
         let beacon_node =
             LocalBeaconNode::production(context.service_context("boot_node".into()), beacon_config)
                 .await?;
@@ -63,6 +98,8 @@ impl<E: EthSpec> LocalNetwork<E> {
             inner: Arc::new(Inner {
                 context,
                 beacon_nodes: RwLock::new(vec![beacon_node]),
+                proposer_nodes: RwLock::new(vec![]),
+                execution_nodes: RwLock::new(execution_node),
                 validator_clients: RwLock::new(vec![]),
             }),
         })
@@ -76,6 +113,14 @@ impl<E: EthSpec> LocalNetwork<E> {
         self.beacon_nodes.read().len()
     }
 
+    /// Returns the number of proposer nodes in the network.
+    ///
+    /// Note: does not count nodes that are external to this `LocalNetwork` that may have connected
+    /// (e.g., another Lighthouse process on the same machine.)
+    pub fn proposer_node_count(&self) -> usize {
+        self.proposer_nodes.read().len()
+    }
+
     /// Returns the number of validator clients in the network.
     ///
     /// Note: does not count nodes that are external to this `LocalNetwork` that may have connected
@@ -85,8 +130,13 @@ impl<E: EthSpec> LocalNetwork<E> {
     }
 
     /// Adds a beacon node to the network, connecting to the 0'th beacon node via ENR.
-    pub async fn add_beacon_node(&self, mut beacon_config: ClientConfig) -> Result<(), String> {
+    pub async fn add_beacon_node(
+        &self,
+        mut beacon_config: ClientConfig,
+        is_proposer: bool,
+    ) -> Result<(), String> {
         let self_1 = self.clone();
+        let count = self.beacon_node_count() as u16;
         println!("Adding beacon node..");
         {
             let read_lock = self.beacon_nodes.read();
@@ -99,23 +149,51 @@ impl<E: EthSpec> LocalNetwork<E> {
                     .enr()
                     .expect("bootnode must have a network"),
             );
-            let count = self.beacon_node_count() as u16;
-            beacon_config.network.discovery_port = BOOTNODE_PORT + count;
-            beacon_config.network.libp2p_port = BOOTNODE_PORT + count;
-            beacon_config.network.enr_udp_port = Some(BOOTNODE_PORT + count);
-            beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT + count);
+            let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
+            beacon_config.network.set_ipv4_listening_address(
+                std::net::Ipv4Addr::UNSPECIFIED,
+                BOOTNODE_PORT + count,
+                BOOTNODE_PORT + count,
+            );
+            beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT + count);
+            beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT + count);
             beacon_config.network.discv5_config.table_filter = |_| true;
+            beacon_config.network.proposer_only = is_proposer;
+        }
+        if let Some(el_config) = &mut beacon_config.execution_layer {
+            let config = MockExecutionConfig {
+                server_config: MockServerConfig {
+                    listen_port: EXECUTION_PORT + count,
+                    ..Default::default()
+                },
+                terminal_block: TERMINAL_BLOCK,
+                terminal_difficulty: TERMINAL_DIFFICULTY.into(),
+                ..Default::default()
+            };
+            let execution_node = LocalExecutionNode::new(
+                self.context.service_context(format!("node_{}_el", count)),
+                config,
+            );
+            el_config.default_datadir = execution_node.datadir.path().to_path_buf();
+            el_config.secret_files = vec![execution_node.datadir.path().join("jwt.hex")];
+            el_config.execution_endpoints =
+                vec![SensitiveUrl::parse(&execution_node.server.url()).unwrap()];
+            self.execution_nodes.write().push(execution_node);
         }
 
-        let mut write_lock = self_1.beacon_nodes.write();
-        let index = write_lock.len();
-
+        // We create the beacon node without holding the lock, so that the lock isn't held
+        // across the await. This is only correct if this function never runs in parallel
+        // with itself (which at the time of writing, it does not).
         let beacon_node = LocalBeaconNode::production(
-            self.context.service_context(format!("node_{}", index)),
+            self.context.service_context(format!("node_{}", count)),
             beacon_config,
         )
         .await?;
-        write_lock.push(beacon_node);
+        if is_proposer {
+            self_1.proposer_nodes.write().push(beacon_node);
+        } else {
+            self_1.beacon_nodes.write().push(beacon_node);
+        }
         Ok(())
     }
 
@@ -142,6 +220,16 @@ impl<E: EthSpec> LocalNetwork<E> {
                 .http_api_listen_addr()
                 .expect("Must have http started")
         };
+        // If there is a proposer node for the same index, we will use that for proposing
+        let proposer_socket_addr = {
+            let read_lock = self.proposer_nodes.read();
+            read_lock.get(beacon_node).map(|proposer_node| {
+                proposer_node
+                    .client
+                    .http_api_listen_addr()
+                    .expect("Must have http started")
+            })
+        };
 
         let beacon_node = SensitiveUrl::parse(
             format!("http://{}:{}", socket_addr.ip(), socket_addr.port()).as_str(),
@@ -152,6 +240,21 @@ impl<E: EthSpec> LocalNetwork<E> {
         } else {
             vec![beacon_node]
         };
+
+        // If we have a proposer node established, use it.
+        if let Some(proposer_socket_addr) = proposer_socket_addr {
+            let url = SensitiveUrl::parse(
+                format!(
+                    "http://{}:{}",
+                    proposer_socket_addr.ip(),
+                    proposer_socket_addr.port()
+                )
+                .as_str(),
+            )
+            .unwrap();
+            validator_config.proposer_nodes = vec![url];
+        }
+
         let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
             context,
             validator_config,
@@ -165,9 +268,11 @@ impl<E: EthSpec> LocalNetwork<E> {
     /// For all beacon nodes in `Self`, return a HTTP client to access each nodes HTTP API.
     pub fn remote_nodes(&self) -> Result<Vec<BeaconNodeHttpClient>, String> {
         let beacon_nodes = self.beacon_nodes.read();
+        let proposer_nodes = self.proposer_nodes.read();
 
         beacon_nodes
             .iter()
+            .chain(proposer_nodes.iter())
             .map(|beacon_node| beacon_node.remote_node())
             .collect()
     }
@@ -181,6 +286,16 @@ impl<E: EthSpec> LocalNetwork<E> {
             .await
             .map_err(|e| format!("Cannot get head: {:?}", e))
             .map(|body| body.unwrap().data.finalized.epoch)
+    }
+
+    pub fn mine_pow_blocks(&self, block_number: u64) -> Result<(), String> {
+        let execution_nodes = self.execution_nodes.read();
+        for execution_node in execution_nodes.iter() {
+            let mut block_gen = execution_node.server.ctx.execution_block_generator.write();
+            block_gen.insert_pow_block(block_number)?;
+            println!("Mined pow block {}", block_number);
+        }
+        Ok(())
     }
 
     pub async fn duration_to_genesis(&self) -> Duration {

@@ -10,6 +10,7 @@ use eth2_keystore::Keystore;
 use eth2_network_config::Eth2NetworkConfig;
 use safe_arith::SafeArith;
 use sensitive_url::SensitiveUrl;
+use slog::Logger;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -27,7 +28,6 @@ pub const PASSWORD_PROMPT: &str = "Enter the keystore password";
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
 pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-exit.html";
-pub const PROMPT: &str = "WARNING: WITHDRAWING STAKED ETH IS NOT CURRENTLY POSSIBLE";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("exit")
@@ -79,6 +79,12 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let password_file_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
 
+    let genesis_state_url: Option<String> =
+        clap_utils::parse_optional(matches, "genesis-state-url")?;
+    let genesis_state_url_timeout =
+        clap_utils::parse_required(matches, "genesis-state-url-timeout")
+            .map(Duration::from_secs)?;
+
     let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
     let no_wait = matches.is_present(NO_WAIT);
     let no_confirmation = matches.is_present(NO_CONFIRMATION);
@@ -105,6 +111,9 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         &eth2_network_config,
         no_wait,
         no_confirmation,
+        genesis_state_url,
+        genesis_state_url_timeout,
+        env.core_context().log(),
     ))?;
 
     Ok(())
@@ -121,13 +130,14 @@ async fn publish_voluntary_exit<E: EthSpec>(
     eth2_network_config: &Eth2NetworkConfig,
     no_wait: bool,
     no_confirmation: bool,
+    genesis_state_url: Option<String>,
+    genesis_state_url_timeout: Duration,
+    log: &Logger,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = eth2_network_config
-        .beacon_state::<E>()
-        .as_ref()
-        .expect("network should have valid genesis state")
-        .genesis_validators_root();
+        .genesis_validators_root::<E>(genesis_state_url.as_deref(), genesis_state_url_timeout, log)?
+        .ok_or("Genesis state is unknown")?;
 
     // Verify that the beacon node and validator being exited are on the same network.
     if genesis_data.genesis_validators_root != testnet_genesis_root {
@@ -161,7 +171,6 @@ async fn publish_voluntary_exit<E: EthSpec>(
     );
     if !no_confirmation {
         eprintln!("WARNING: THIS IS AN IRREVERSIBLE OPERATION\n");
-        eprintln!("{}\n", PROMPT);
         eprintln!(
             "PLEASE VISIT {} TO MAKE SURE YOU UNDERSTAND THE IMPLICATIONS OF A VOLUNTARY EXIT.",
             WEBSITE_URL
@@ -349,7 +358,7 @@ fn load_voting_keypair(
     password_file_path: Option<&PathBuf>,
     stdin_inputs: bool,
 ) -> Result<Keypair, String> {
-    let keystore = Keystore::from_json_file(&voting_keystore_path).map_err(|e| {
+    let keystore = Keystore::from_json_file(voting_keystore_path).map_err(|e| {
         format!(
             "Unable to read keystore JSON {:?}: {:?}",
             voting_keystore_path, e

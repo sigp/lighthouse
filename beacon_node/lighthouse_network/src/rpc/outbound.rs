@@ -1,11 +1,8 @@
-use std::marker::PhantomData;
-
 use super::methods::*;
-use super::protocol::Protocol;
 use super::protocol::ProtocolId;
+use super::protocol::SupportedProtocol;
 use super::RPCError;
 use crate::rpc::protocol::Encoding;
-use crate::rpc::protocol::Version;
 use crate::rpc::{
     codec::{base::BaseOutboundCodec, ssz_snappy::SSZSnappyOutboundCodec, OutboundCodec},
     methods::ResponseTermination,
@@ -36,10 +33,10 @@ pub struct OutboundRequestContainer<TSpec: EthSpec> {
 pub enum OutboundRequest<TSpec: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
-    BlocksByRange(BlocksByRangeRequest),
+    BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
     Ping(Ping),
-    MetaData(PhantomData<TSpec>),
+    MetaData(MetadataRequest<TSpec>),
 }
 
 impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {
@@ -58,35 +55,31 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
         match self {
             // add more protocols when versions/encodings are supported
             OutboundRequest::Status(_) => vec![ProtocolId::new(
-                Protocol::Status,
-                Version::V1,
+                SupportedProtocol::StatusV1,
                 Encoding::SSZSnappy,
             )],
             OutboundRequest::Goodbye(_) => vec![ProtocolId::new(
-                Protocol::Goodbye,
-                Version::V1,
+                SupportedProtocol::GoodbyeV1,
                 Encoding::SSZSnappy,
             )],
             OutboundRequest::BlocksByRange(_) => vec![
-                ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRangeV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRangeV1, Encoding::SSZSnappy),
             ],
             OutboundRequest::BlocksByRoot(_) => vec![
-                ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRootV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRootV1, Encoding::SSZSnappy),
             ],
             OutboundRequest::Ping(_) => vec![ProtocolId::new(
-                Protocol::Ping,
-                Version::V1,
+                SupportedProtocol::PingV1,
                 Encoding::SSZSnappy,
             )],
             OutboundRequest::MetaData(_) => vec![
-                ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::MetaDataV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::MetaDataV1, Encoding::SSZSnappy),
             ],
         }
     }
-
     /* These functions are used in the handler for stream management */
 
     /// Number of responses expected for this request.
@@ -94,22 +87,31 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
         match self {
             OutboundRequest::Status(_) => 1,
             OutboundRequest::Goodbye(_) => 0,
-            OutboundRequest::BlocksByRange(req) => req.count,
-            OutboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
+            OutboundRequest::BlocksByRange(req) => *req.count(),
+            OutboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
         }
     }
 
-    /// Gives the corresponding `Protocol` to this request.
-    pub fn protocol(&self) -> Protocol {
+    /// Gives the corresponding `SupportedProtocol` to this request.
+    pub fn versioned_protocol(&self) -> SupportedProtocol {
         match self {
-            OutboundRequest::Status(_) => Protocol::Status,
-            OutboundRequest::Goodbye(_) => Protocol::Goodbye,
-            OutboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
-            OutboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
-            OutboundRequest::Ping(_) => Protocol::Ping,
-            OutboundRequest::MetaData(_) => Protocol::MetaData,
+            OutboundRequest::Status(_) => SupportedProtocol::StatusV1,
+            OutboundRequest::Goodbye(_) => SupportedProtocol::GoodbyeV1,
+            OutboundRequest::BlocksByRange(req) => match req {
+                OldBlocksByRangeRequest::V1(_) => SupportedProtocol::BlocksByRangeV1,
+                OldBlocksByRangeRequest::V2(_) => SupportedProtocol::BlocksByRangeV2,
+            },
+            OutboundRequest::BlocksByRoot(req) => match req {
+                BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,
+                BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
+            },
+            OutboundRequest::Ping(_) => SupportedProtocol::PingV1,
+            OutboundRequest::MetaData(req) => match req {
+                MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
+                MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
+            },
         }
     }
 

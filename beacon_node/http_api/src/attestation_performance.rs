@@ -7,7 +7,7 @@ use state_processing::{
     per_epoch_processing::EpochProcessingSummary, BlockReplayError, BlockReplayer,
 };
 use std::sync::Arc;
-use types::{BeaconState, BeaconStateError, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BeaconState, BeaconStateError, EthSpec, Hash256};
 use warp_utils::reject::{beacon_chain_error, custom_bad_request, custom_server_error};
 
 const MAX_REQUEST_RANGE_EPOCHS: usize = 100;
@@ -77,12 +77,16 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     // query is within permitted bounds to prevent potential OOM errors.
     if (end_epoch - start_epoch).as_usize() > MAX_REQUEST_RANGE_EPOCHS {
         return Err(custom_bad_request(format!(
-            "end_epoch must not exceed start_epoch by more than 100 epochs. start: {}, end: {}",
-            query.start_epoch, query.end_epoch
+            "end_epoch must not exceed start_epoch by more than {} epochs. start: {}, end: {}",
+            MAX_REQUEST_RANGE_EPOCHS, query.start_epoch, query.end_epoch
         )));
     }
 
     // Either use the global validator set, or the specified index.
+    //
+    // Does no further validation of the indices, so in the event an index has not yet been
+    // activated or does not yet exist (according to the head state), it will return all fields as
+    // `false`.
     let index_range = if target.to_lowercase() == "global" {
         chain
             .with_head(|head| Ok((0..head.beacon_state.validators().len() as u64).collect()))
@@ -112,7 +116,7 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
         )
     })?;
     let first_block = chain
-        .get_block(first_block_root)
+        .get_blinded_block(first_block_root)
         .and_then(|maybe_block| {
             maybe_block.ok_or(BeaconChainError::MissingBeaconBlock(*first_block_root))
         })
@@ -120,7 +124,7 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
 
     // Load the block of the prior slot which will be used to build the starting state.
     let prior_block = chain
-        .get_block(&first_block.parent_root())
+        .get_blinded_block(&first_block.parent_root())
         .and_then(|maybe_block| {
             maybe_block
                 .ok_or_else(|| BeaconChainError::MissingBeaconBlock(first_block.parent_root()))
@@ -197,13 +201,13 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
             .iter()
             .map(|root| {
                 chain
-                    .get_block(root)
+                    .get_blinded_block(root)
                     .and_then(|maybe_block| {
                         maybe_block.ok_or(BeaconChainError::MissingBeaconBlock(*root))
                     })
                     .map_err(beacon_chain_error)
             })
-            .collect::<Result<Vec<SignedBeaconBlock<T::EthSpec>>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
         replayer = replayer
             .apply_blocks(blocks, None)

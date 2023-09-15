@@ -1,4 +1,5 @@
-use types::{Checkpoint, Epoch, ExecutionBlockHash, Hash256};
+use safe_arith::ArithError;
+use types::{Checkpoint, Epoch, ExecutionBlockHash, Hash256, Slot};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Error {
@@ -13,8 +14,11 @@ pub enum Error {
     InvalidBestDescendant(usize),
     InvalidParentDelta(usize),
     InvalidNodeDelta(usize),
+    MissingJustifiedCheckpoint,
+    MissingFinalizedCheckpoint,
     DeltaOverflow(usize),
     ProposerBoostOverflow(usize),
+    ReOrgThresholdOverflow,
     IndexOverflow(&'static str),
     InvalidExecutionDeltaOverflow(usize),
     InvalidDeltaLen {
@@ -44,14 +48,27 @@ pub enum Error {
     IrrelevantDescendant {
         block_root: Hash256,
     },
+    ParentExecutionStatusIsInvalid {
+        block_root: Hash256,
+        parent_root: Hash256,
+    },
+    InvalidEpochOffset(u64),
+    Arith(ArithError),
+}
+
+impl From<ArithError> for Error {
+    fn from(e: ArithError) -> Self {
+        Error::Arith(e)
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct InvalidBestNodeInfo {
+    pub current_slot: Slot,
     pub start_root: Hash256,
     pub justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
     pub head_root: Hash256,
-    pub head_justified_checkpoint: Option<Checkpoint>,
-    pub head_finalized_checkpoint: Option<Checkpoint>,
+    pub head_justified_checkpoint: Checkpoint,
+    pub head_finalized_checkpoint: Checkpoint,
 }

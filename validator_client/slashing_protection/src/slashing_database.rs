@@ -23,7 +23,7 @@ pub const POOL_SIZE: u32 = 1;
 #[cfg(not(test))]
 pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
-pub const CONNECTION_TIMEOUT: Duration = Duration::from_millis(100);
+pub const CONNECTION_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Supported version of the interchange format.
 pub const SUPPORTED_INTERCHANGE_FORMAT_VERSION: u64 = 5;
@@ -162,8 +162,8 @@ impl SlashingDatabase {
     /// The exclusive locking mode also has the benefit of applying to other processes, so multiple
     /// Lighthouse processes trying to access the same database will also be blocked.
     fn apply_pragmas(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {
-        conn.pragma_update(None, "foreign_keys", &true)?;
-        conn.pragma_update(None, "locking_mode", &"EXCLUSIVE")?;
+        conn.pragma_update(None, "foreign_keys", true)?;
+        conn.pragma_update(None, "locking_mode", "EXCLUSIVE")?;
         Ok(())
     }
 

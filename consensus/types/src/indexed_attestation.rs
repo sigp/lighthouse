@@ -12,12 +12,21 @@ use tree_hash_derive::TreeHash;
 /// To be included in an `AttesterSlashing`.
 ///
 /// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Derivative, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Derivative,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    arbitrary::Arbitrary,
 )]
 #[derivative(PartialEq, Eq)] // to satisfy Clippy's lint about `Hash`
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
     #[serde(with = "quoted_variable_list_u64")]
@@ -63,9 +72,9 @@ impl<T: EthSpec> Hash for IndexedAttestation<T> {
 mod quoted_variable_list_u64 {
     use super::*;
     use crate::Unsigned;
-    use eth2_serde_utils::quoted_u64_vec::{QuotedIntVecVisitor, QuotedIntWrapper};
     use serde::ser::SerializeSeq;
     use serde::{Deserializer, Serializer};
+    use serde_utils::quoted_u64_vec::{QuotedIntVecVisitor, QuotedIntWrapper};
 
     pub fn serialize<S, T>(value: &VariableList<u64, T>, serializer: S) -> Result<S::Ok, S::Error>
     where

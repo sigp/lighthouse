@@ -1,16 +1,19 @@
+use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
+use beacon_processor::BeaconProcessorConfig;
 use directory::DEFAULT_ROOT_DIR;
+use environment::LoggerConfig;
 use network::NetworkConfig;
 use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 use types::{Graffiti, PublicKeyBytes};
-
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
 
 /// Defines how the client should initialize the `BeaconChain` and other components.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum ClientGenesis {
     /// Creates a genesis state as per the 2019 Canada interop specifications.
     Interop {
@@ -21,33 +24,23 @@ pub enum ClientGenesis {
     FromStore,
     /// Connects to an eth1 node and waits until it can create the genesis state from the deposit
     /// contract.
+    #[default]
     DepositContract,
-    /// Loads the genesis state from SSZ-encoded `BeaconState` bytes.
-    ///
-    /// We include the bytes instead of the `BeaconState<E>` because the `EthSpec` type
-    /// parameter would be very annoying.
-    SszBytes { genesis_state_bytes: Vec<u8> },
+    /// Loads the genesis state from the genesis state in the `Eth2NetworkConfig`.
+    GenesisState,
     WeakSubjSszBytes {
-        genesis_state_bytes: Vec<u8>,
         anchor_state_bytes: Vec<u8>,
         anchor_block_bytes: Vec<u8>,
     },
     CheckpointSyncUrl {
-        genesis_state_bytes: Vec<u8>,
         url: SensitiveUrl,
     },
-}
-
-impl Default for ClientGenesis {
-    fn default() -> Self {
-        Self::DepositContract
-    }
 }
 
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    pub data_dir: PathBuf,
+    data_dir: PathBuf,
     /// Name of the directory inside the data directory where the main "hot" DB is located.
     pub db_name: String,
     /// Path where the freezer database will be located.
@@ -64,6 +57,11 @@ pub struct Config {
     pub validator_monitor_auto: bool,
     /// A list of validator pubkeys to monitor.
     pub validator_monitor_pubkeys: Vec<PublicKeyBytes>,
+    /// Once the number of monitored validators goes above this threshold, we
+    /// will stop tracking metrics on a per-validator basis. This prevents large
+    /// validator counts causing infeasibly high cardinailty for Prometheus and
+    /// high log volumes.
+    pub validator_monitor_individual_tracking_threshold: usize,
     #[serde(skip)]
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
@@ -77,6 +75,10 @@ pub struct Config {
     pub http_metrics: http_metrics::Config,
     pub monitoring_api: Option<monitoring_api::Config>,
     pub slasher: Option<slasher::Config>,
+    pub logger_config: LoggerConfig,
+    pub beacon_processor: BeaconProcessorConfig,
+    pub genesis_state_url: Option<String>,
+    pub genesis_state_url_timeout: Duration,
 }
 
 impl Default for Config {
@@ -101,11 +103,28 @@ impl Default for Config {
             slasher: None,
             validator_monitor_auto: false,
             validator_monitor_pubkeys: vec![],
+            validator_monitor_individual_tracking_threshold: DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+            logger_config: LoggerConfig::default(),
+            beacon_processor: <_>::default(),
+            genesis_state_url: <_>::default(),
+            // This default value should always be overwritten by the CLI default value.
+            genesis_state_url_timeout: Duration::from_secs(60),
         }
     }
 }
 
 impl Config {
+    /// Updates the data directory for the Client.
+    pub fn set_data_dir(&mut self, data_dir: PathBuf) {
+        self.data_dir = data_dir.clone();
+        self.http_api.data_dir = data_dir;
+    }
+
+    /// Gets the config's data_dir.
+    pub fn data_dir(&self) -> &PathBuf {
+        &self.data_dir
+    }
+
     /// Get the database path without initialising it.
     pub fn get_db_path(&self) -> PathBuf {
         self.get_data_dir().join(&self.db_name)
@@ -149,10 +168,8 @@ impl Config {
     pub fn get_existing_legacy_data_dir(&self) -> Option<PathBuf> {
         dirs::home_dir()
             .map(|home_dir| home_dir.join(&self.data_dir))
-            // Return `None` if the directory does not exists.
-            .filter(|dir| dir.exists())
-            // Return `None` if the legacy directory is identical to the modern.
-            .filter(|dir| *dir != self.get_modern_data_dir())
+            // Return `None` if the legacy directory does not exist or if it is identical to the modern.
+            .filter(|dir| dir.exists() && *dir != self.get_modern_data_dir())
     }
 
     /// Returns the core path for the client.
@@ -169,7 +186,7 @@ impl Config {
     /// For more information, see:
     ///
     /// https://github.com/sigp/lighthouse/pull/2843
-    fn get_data_dir(&self) -> PathBuf {
+    pub fn get_data_dir(&self) -> PathBuf {
         let existing_legacy_dir = self.get_existing_legacy_data_dir();
 
         if let Some(legacy_dir) = existing_legacy_dir {
@@ -200,7 +217,8 @@ mod tests {
     #[test]
     fn serde() {
         let config = Config::default();
-        let serialized = toml::to_string(&config).expect("should serde encode default config");
-        toml::from_str::<Config>(&serialized).expect("should serde decode default config");
+        let serialized =
+            serde_yaml::to_string(&config).expect("should serde encode default config");
+        serde_yaml::from_str::<Config>(&serialized).expect("should serde decode default config");
     }
 }

@@ -1,20 +1,21 @@
 use beacon_node::{get_data_dir, set_network_config};
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
+use lighthouse_network::discovery::create_enr_builder_from_config;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use lighthouse_network::{
-    discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
+    discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
-use std::net::SocketAddr;
+use std::net::{SocketAddrV4, SocketAddrV6};
+use std::time::Duration;
 use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
 pub struct BootNodeConfig<T: EthSpec> {
-    pub listen_socket: SocketAddr,
     // TODO: Generalise to multiaddr
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
@@ -55,24 +56,32 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         let logger = slog_scope::logger();
 
-        set_network_config(&mut network_config, matches, &data_dir, &logger, true)?;
+        set_network_config(&mut network_config, matches, &data_dir, &logger)?;
 
-        // Set the enr-udp-port to the default listening port if it was not specified.
-        if !matches.is_present("enr-udp-port") {
-            network_config.enr_udp_port = Some(network_config.discovery_port);
-        }
+        // Set the Enr UDP ports to the listening ports if not present.
+        if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
+            network_config.enr_udp4_port = Some(
+                network_config
+                    .enr_udp4_port
+                    .unwrap_or(listening_addr_v4.udp_port),
+            )
+        };
+
+        if let Some(listening_addr_v6) = network_config.listen_addrs().v6() {
+            network_config.enr_udp6_port = Some(
+                network_config
+                    .enr_udp6_port
+                    .unwrap_or(listening_addr_v6.udp_port),
+            )
+        };
 
         // By default this is enabled. If it is not set, revert to false.
         if !matches.is_present("enable-enr-auto-update") {
             network_config.discv5_config.enr_update = false;
         }
 
-        // the address to listen on
-        let listen_socket =
-            SocketAddr::new(network_config.listen_address, network_config.discovery_port);
-
         let private_key = load_private_key(&network_config, &logger);
-        let local_key = CombinedKey::from_libp2p(&private_key)?;
+        let local_key = CombinedKey::from_libp2p(private_key)?;
 
         let local_enr = if let Some(dir) = matches.value_of("network-dir") {
             let network_dir: PathBuf = dir.into();
@@ -82,8 +91,19 @@ impl<T: EthSpec> BootNodeConfig<T> {
             let enr_fork = {
                 let spec = eth2_network_config.chain_spec::<T>()?;
 
-                if eth2_network_config.beacon_state_is_known() {
-                    let genesis_state = eth2_network_config.beacon_state::<T>()?;
+                let genesis_state_url: Option<String> =
+                    clap_utils::parse_optional(matches, "genesis-state-url")?;
+                let genesis_state_url_timeout =
+                    clap_utils::parse_required(matches, "genesis-state-url-timeout")
+                        .map(Duration::from_secs)?;
+
+                if eth2_network_config.genesis_state_is_known() {
+                    let genesis_state = eth2_network_config
+                        .genesis_state::<T>(genesis_state_url.as_deref(), genesis_state_url_timeout, &logger)?
+                        .ok_or_else(|| {
+                            "The genesis state for this network is not known, this is an unsupported mode"
+                                .to_string()
+                        })?;
 
                     slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
                     let enr_fork = spec.enr_fork_id::<T>(
@@ -104,11 +124,11 @@ impl<T: EthSpec> BootNodeConfig<T> {
             // Build the local ENR
 
             let mut local_enr = {
-                let mut builder = create_enr_builder_from_config(&network_config, false);
-
+                let enable_tcp = false;
+                let mut builder = create_enr_builder_from_config(&network_config, enable_tcp);
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {
-                    builder.add_value("eth2", enr_fork_bytes.as_slice());
+                    builder.add_value("eth2", &enr_fork_bytes);
                 }
                 builder
                     .build(&local_key)
@@ -120,7 +140,6 @@ impl<T: EthSpec> BootNodeConfig<T> {
         };
 
         Ok(BootNodeConfig {
-            listen_socket,
             boot_nodes,
             local_enr,
             local_key,
@@ -135,7 +154,8 @@ impl<T: EthSpec> BootNodeConfig<T> {
 /// Its fields are a subset of the fields of `BootNodeConfig`, some of them are copied from `Discv5Config`.
 #[derive(Serialize, Deserialize)]
 pub struct BootNodeConfigSerialization {
-    pub listen_socket: SocketAddr,
+    pub ipv4_listen_socket: Option<SocketAddrV4>,
+    pub ipv6_listen_socket: Option<SocketAddrV6>,
     // TODO: Generalise to multiaddr
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
@@ -148,7 +168,6 @@ impl BootNodeConfigSerialization {
     /// relevant fields of `config`
     pub fn from_config_ref<T: EthSpec>(config: &BootNodeConfig<T>) -> Self {
         let BootNodeConfig {
-            listen_socket,
             boot_nodes,
             local_enr,
             local_key: _,
@@ -156,8 +175,27 @@ impl BootNodeConfigSerialization {
             phantom: _,
         } = config;
 
+        let (ipv4_listen_socket, ipv6_listen_socket) = match discv5_config.listen_config {
+            lighthouse_network::discv5::ListenConfig::Ipv4 { ip, port } => {
+                (Some(SocketAddrV4::new(ip, port)), None)
+            }
+            lighthouse_network::discv5::ListenConfig::Ipv6 { ip, port } => {
+                (None, Some(SocketAddrV6::new(ip, port, 0, 0)))
+            }
+            lighthouse_network::discv5::ListenConfig::DualStack {
+                ipv4,
+                ipv4_port,
+                ipv6,
+                ipv6_port,
+            } => (
+                Some(SocketAddrV4::new(ipv4, ipv4_port)),
+                Some(SocketAddrV6::new(ipv6, ipv6_port, 0, 0)),
+            ),
+        };
+
         BootNodeConfigSerialization {
-            listen_socket: *listen_socket,
+            ipv4_listen_socket,
+            ipv6_listen_socket,
             boot_nodes: boot_nodes.clone(),
             local_enr: local_enr.clone(),
             disable_packet_filter: !discv5_config.enable_packet_filter,

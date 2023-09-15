@@ -1,12 +1,15 @@
 use crate::{
     per_block_processing, per_epoch_processing::EpochProcessingSummary, per_slot_processing,
-    BlockProcessingError, BlockSignatureStrategy, SlotProcessingError, VerifyBlockRoot,
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
+    VerifyBlockRoot,
 };
 use std::marker::PhantomData;
-use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BeaconState, BlindedPayload, ChainSpec, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
-type PreBlockHook<'a, E, Error> =
-    Box<dyn FnMut(&mut BeaconState<E>, &SignedBeaconBlock<E>) -> Result<(), Error> + 'a>;
+type PreBlockHook<'a, E, Error> = Box<
+    dyn FnMut(&mut BeaconState<E>, &SignedBeaconBlock<E, BlindedPayload<E>>) -> Result<(), Error>
+        + 'a,
+>;
 type PostBlockHook<'a, E, Error> = PreBlockHook<'a, E, Error>;
 type PreSlotHook<'a, E, Error> = Box<dyn FnMut(&mut BeaconState<E>) -> Result<(), Error> + 'a>;
 type PostSlotHook<'a, E, Error> = Box<
@@ -26,7 +29,7 @@ pub struct BlockReplayer<
 > {
     state: BeaconState<Spec>,
     spec: &'a ChainSpec,
-    state_root_strategy: StateRootStrategy,
+    state_processing_strategy: StateProcessingStrategy,
     block_sig_strategy: BlockSignatureStrategy,
     verify_block_root: Option<VerifyBlockRoot>,
     pre_block_hook: Option<PreBlockHook<'a, Spec, Error>>,
@@ -57,13 +60,13 @@ impl From<BlockProcessingError> for BlockReplayError {
     }
 }
 
-/// Defines how state roots should be computed during block replay.
-#[derive(PartialEq)]
-pub enum StateRootStrategy {
+/// Defines how state roots should be computed and whether to perform all state transitions during block replay.
+#[derive(PartialEq, Clone, Copy)]
+pub enum StateProcessingStrategy {
     /// Perform all transitions faithfully to the specification.
     Accurate,
-    /// Don't compute state roots, eventually computing an invalid beacon state that can only be
-    /// used for obtaining shuffling.
+    /// Don't compute state roots and process withdrawals, eventually computing an invalid beacon
+    /// state that can only be used for obtaining shuffling.
     Inconsistent,
 }
 
@@ -84,7 +87,7 @@ where
         Self {
             state,
             spec,
-            state_root_strategy: StateRootStrategy::Accurate,
+            state_processing_strategy: StateProcessingStrategy::Accurate,
             block_sig_strategy: BlockSignatureStrategy::VerifyBulk,
             verify_block_root: Some(VerifyBlockRoot::True),
             pre_block_hook: None,
@@ -97,12 +100,15 @@ where
         }
     }
 
-    /// Set the replayer's state root strategy different from the default.
-    pub fn state_root_strategy(mut self, state_root_strategy: StateRootStrategy) -> Self {
-        if state_root_strategy == StateRootStrategy::Inconsistent {
+    /// Set the replayer's state processing strategy different from the default.
+    pub fn state_processing_strategy(
+        mut self,
+        state_processing_strategy: StateProcessingStrategy,
+    ) -> Self {
+        if state_processing_strategy == StateProcessingStrategy::Inconsistent {
             self.verify_block_root = None;
         }
-        self.state_root_strategy = state_root_strategy;
+        self.state_processing_strategy = state_processing_strategy;
         self
     }
 
@@ -175,11 +181,11 @@ where
     fn get_state_root(
         &mut self,
         slot: Slot,
-        blocks: &[SignedBeaconBlock<E>],
+        blocks: &[SignedBeaconBlock<E, BlindedPayload<E>>],
         i: usize,
     ) -> Result<Option<Hash256>, Error> {
         // If we don't care about state roots then return immediately.
-        if self.state_root_strategy == StateRootStrategy::Inconsistent {
+        if self.state_processing_strategy == StateProcessingStrategy::Inconsistent {
             return Ok(Some(Hash256::zero()));
         }
 
@@ -214,7 +220,7 @@ where
     /// after the blocks have been applied.
     pub fn apply_blocks(
         mut self,
-        blocks: Vec<SignedBeaconBlock<E>>,
+        blocks: Vec<SignedBeaconBlock<E, BlindedPayload<E>>>,
         target_slot: Option<Slot>,
     ) -> Result<Self, Error> {
         for (i, block) in blocks.iter().enumerate() {
@@ -246,18 +252,23 @@ where
                 // If no explicit policy is set, verify only the first 1 or 2 block roots if using
                 // accurate state roots. Inaccurate state roots require block root verification to
                 // be off.
-                if i <= 1 && self.state_root_strategy == StateRootStrategy::Accurate {
+                if i <= 1 && self.state_processing_strategy == StateProcessingStrategy::Accurate {
                     VerifyBlockRoot::True
                 } else {
                     VerifyBlockRoot::False
                 }
             });
+            // Proposer index was already checked when this block was originally processed, we
+            // can omit recomputing it during replay.
+            let mut ctxt = ConsensusContext::new(block.slot())
+                .set_proposer_index(block.message().proposer_index());
             per_block_processing(
                 &mut self.state,
                 block,
-                None,
                 self.block_sig_strategy,
+                self.state_processing_strategy,
                 verify_block_root,
+                &mut ctxt,
                 self.spec,
             )
             .map_err(BlockReplayError::from)?;

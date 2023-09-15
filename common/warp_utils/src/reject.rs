@@ -205,8 +205,13 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
         code = StatusCode::FORBIDDEN;
         message = format!("FORBIDDEN: Invalid auth token: {}", e.0);
     } else if let Some(e) = err.find::<warp::reject::MissingHeader>() {
-        code = StatusCode::BAD_REQUEST;
-        message = format!("BAD_REQUEST: missing {} header", e.name());
+        if e.name().eq("Authorization") {
+            code = StatusCode::UNAUTHORIZED;
+            message = "UNAUTHORIZED: missing Authorization header".to_string();
+        } else {
+            code = StatusCode::BAD_REQUEST;
+            message = format!("BAD_REQUEST: missing {} header", e.name());
+        }
     } else if let Some(e) = err.find::<warp::reject::InvalidHeader>() {
         code = StatusCode::BAD_REQUEST;
         message = format!("BAD_REQUEST: invalid {} header", e.name());

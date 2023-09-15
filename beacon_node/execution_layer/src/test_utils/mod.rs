@@ -2,16 +2,17 @@
 
 use crate::engine_api::auth::JwtKey;
 use crate::engine_api::{
-    auth::Auth, http::JSONRPC_VERSION, PayloadStatusV1, PayloadStatusV1Status,
+    auth::Auth, http::JSONRPC_VERSION, ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status,
 };
 use bytes::Bytes;
 use environment::null_logger;
-use execution_block_generator::{Block, PoWBlock};
+use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use slog::{info, Logger};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -21,16 +22,57 @@ use tokio::{runtime, sync::oneshot};
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
-pub use execution_block_generator::{generate_pow_block, ExecutionBlockGenerator};
-pub use mock_execution_layer::{ExecutionLayerRuntime, MockExecutionLayer};
+use crate::EngineCapabilities;
+pub use execution_block_generator::{generate_pow_block, Block, ExecutionBlockGenerator};
+pub use hook::Hook;
+pub use mock_builder::{Context as MockBuilderContext, MockBuilder, Operation, TestingBuilder};
+pub use mock_execution_layer::MockExecutionLayer;
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
-pub const JWT_SECRET: [u8; 32] = [42; 32];
+pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
+pub const DEFAULT_BUILDER_THRESHOLD_WEI: u128 = 1_000_000_000_000_000_000;
+pub const DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI: u128 = 10_000_000_000_000_000;
+pub const DEFAULT_BUILDER_PAYLOAD_VALUE_WEI: u128 = 20_000_000_000_000_000;
+pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
+    new_payload_v1: true,
+    new_payload_v2: true,
+    forkchoice_updated_v1: true,
+    forkchoice_updated_v2: true,
+    get_payload_bodies_by_hash_v1: true,
+    get_payload_bodies_by_range_v1: true,
+    get_payload_v1: true,
+    get_payload_v2: true,
+};
 
 mod execution_block_generator;
 mod handle_rpc;
+mod hook;
+mod mock_builder;
 mod mock_execution_layer;
+
+/// Configuration for the MockExecutionLayer.
+pub struct MockExecutionConfig {
+    pub server_config: Config,
+    pub jwt_key: JwtKey,
+    pub terminal_difficulty: Uint256,
+    pub terminal_block: u64,
+    pub terminal_block_hash: ExecutionBlockHash,
+    pub shanghai_time: Option<u64>,
+}
+
+impl Default for MockExecutionConfig {
+    fn default() -> Self {
+        Self {
+            jwt_key: JwtKey::random(),
+            terminal_difficulty: DEFAULT_TERMINAL_DIFFICULTY.into(),
+            terminal_block: DEFAULT_TERMINAL_BLOCK,
+            terminal_block_hash: ExecutionBlockHash::zero(),
+            server_config: Config::default(),
+            shanghai_time: None,
+        }
+    }
+}
 
 pub struct MockServer<T: EthSpec> {
     _shutdown_tx: oneshot::Sender<()>,
@@ -43,31 +85,48 @@ impl<T: EthSpec> MockServer<T> {
     pub fn unit_testing() -> Self {
         Self::new(
             &runtime::Handle::current(),
+            JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(),
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
+            None, // FIXME(capella): should this be the default?
         )
     }
 
-    pub fn new(
-        handle: &runtime::Handle,
-        terminal_difficulty: Uint256,
-        terminal_block: u64,
-        terminal_block_hash: ExecutionBlockHash,
-    ) -> Self {
+    pub fn new_with_config(handle: &runtime::Handle, config: MockExecutionConfig) -> Self {
+        let MockExecutionConfig {
+            jwt_key,
+            terminal_difficulty,
+            terminal_block,
+            terminal_block_hash,
+            server_config,
+            shanghai_time,
+        } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
-        let execution_block_generator =
-            ExecutionBlockGenerator::new(terminal_difficulty, terminal_block, terminal_block_hash);
+        let execution_block_generator = ExecutionBlockGenerator::new(
+            terminal_difficulty,
+            terminal_block,
+            terminal_block_hash,
+            shanghai_time,
+        );
 
         let ctx: Arc<Context<T>> = Arc::new(Context {
-            config: <_>::default(),
+            config: server_config,
+            jwt_key,
             log: null_logger().unwrap(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),
             preloaded_responses,
             static_new_payload_response: <_>::default(),
+            static_forkchoice_updated_response: <_>::default(),
+            static_get_block_by_hash_response: <_>::default(),
+            hook: <_>::default(),
+            new_payload_statuses: <_>::default(),
+            fcu_payload_statuses: <_>::default(),
+            syncing_response: Arc::new(Mutex::new(Ok(false))),
+            engine_capabilities: Arc::new(RwLock::new(DEFAULT_ENGINE_CAPABILITIES)),
             _phantom: PhantomData,
         });
 
@@ -98,6 +157,31 @@ impl<T: EthSpec> MockServer<T> {
         }
     }
 
+    pub fn set_engine_capabilities(&self, engine_capabilities: EngineCapabilities) {
+        *self.ctx.engine_capabilities.write() = engine_capabilities;
+    }
+
+    pub fn new(
+        handle: &runtime::Handle,
+        jwt_key: JwtKey,
+        terminal_difficulty: Uint256,
+        terminal_block: u64,
+        terminal_block_hash: ExecutionBlockHash,
+        shanghai_time: Option<u64>,
+    ) -> Self {
+        Self::new_with_config(
+            handle,
+            MockExecutionConfig {
+                server_config: Config::default(),
+                jwt_key,
+                terminal_difficulty,
+                terminal_block,
+                terminal_block_hash,
+                shanghai_time,
+            },
+        )
+    }
+
     pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<T>> {
         self.ctx.execution_block_generator.write()
     }
@@ -125,48 +209,166 @@ impl<T: EthSpec> MockServer<T> {
         self.ctx.previous_request.lock().take()
     }
 
-    pub fn all_payloads_valid(&self) {
-        let response = StaticNewPayloadResponse {
-            status: PayloadStatusV1 {
-                status: PayloadStatusV1Status::Valid,
-                latest_valid_hash: None,
-                validation_error: None,
-            },
-            should_import: true,
-        };
+    pub fn set_new_payload_response(&self, response: StaticNewPayloadResponse) {
         *self.ctx.static_new_payload_response.lock() = Some(response)
+    }
+
+    pub fn set_forkchoice_updated_response(&self, status: PayloadStatusV1) {
+        *self.ctx.static_forkchoice_updated_response.lock() = Some(status);
+    }
+
+    fn valid_status() -> PayloadStatusV1 {
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: None,
+            validation_error: None,
+        }
+    }
+
+    fn valid_new_payload_response() -> StaticNewPayloadResponse {
+        StaticNewPayloadResponse {
+            status: Self::valid_status(),
+            should_import: true,
+        }
+    }
+
+    fn syncing_status() -> PayloadStatusV1 {
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::Syncing,
+            latest_valid_hash: None,
+            validation_error: None,
+        }
+    }
+
+    fn syncing_new_payload_response(should_import: bool) -> StaticNewPayloadResponse {
+        StaticNewPayloadResponse {
+            status: Self::syncing_status(),
+            should_import,
+        }
+    }
+
+    fn invalid_status(latest_valid_hash: ExecutionBlockHash) -> PayloadStatusV1 {
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::Invalid,
+            latest_valid_hash: Some(latest_valid_hash),
+            validation_error: Some("static response".into()),
+        }
+    }
+
+    fn invalid_new_payload_response(
+        latest_valid_hash: ExecutionBlockHash,
+    ) -> StaticNewPayloadResponse {
+        StaticNewPayloadResponse {
+            status: Self::invalid_status(latest_valid_hash),
+            should_import: true,
+        }
+    }
+
+    fn invalid_block_hash_status() -> PayloadStatusV1 {
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::InvalidBlockHash,
+            latest_valid_hash: None,
+            validation_error: Some("static response".into()),
+        }
+    }
+
+    fn invalid_block_hash_new_payload_response() -> StaticNewPayloadResponse {
+        StaticNewPayloadResponse {
+            status: Self::invalid_block_hash_status(),
+            should_import: true,
+        }
+    }
+
+    fn invalid_terminal_block_status() -> PayloadStatusV1 {
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::Invalid,
+            latest_valid_hash: Some(ExecutionBlockHash::zero()),
+            validation_error: Some("static response".into()),
+        }
+    }
+
+    fn invalid_terminal_block_new_payload_response() -> StaticNewPayloadResponse {
+        StaticNewPayloadResponse {
+            status: Self::invalid_terminal_block_status(),
+            should_import: true,
+        }
+    }
+
+    pub fn all_payloads_valid(&self) {
+        self.all_payloads_valid_on_new_payload();
+        self.all_payloads_valid_on_forkchoice_updated();
+    }
+
+    pub fn all_payloads_valid_on_new_payload(&self) {
+        self.set_new_payload_response(Self::valid_new_payload_response());
+    }
+
+    pub fn all_payloads_valid_on_forkchoice_updated(&self) {
+        self.set_forkchoice_updated_response(Self::valid_status());
     }
 
     /// Setting `should_import = true` simulates an EE that initially returns `SYNCING` but obtains
-    /// the block via it's own means (e.g., devp2p).
+    /// the block via its own means (e.g., devp2p).
     pub fn all_payloads_syncing(&self, should_import: bool) {
-        let response = StaticNewPayloadResponse {
-            status: PayloadStatusV1 {
-                status: PayloadStatusV1Status::Syncing,
-                latest_valid_hash: None,
-                validation_error: None,
-            },
-            should_import,
-        };
-        *self.ctx.static_new_payload_response.lock() = Some(response)
+        self.all_payloads_syncing_on_new_payload(should_import);
+        self.all_payloads_syncing_on_forkchoice_updated();
+    }
+
+    pub fn all_payloads_syncing_on_new_payload(&self, should_import: bool) {
+        self.set_new_payload_response(Self::syncing_new_payload_response(should_import));
+    }
+
+    pub fn all_payloads_syncing_on_forkchoice_updated(&self) {
+        self.set_forkchoice_updated_response(Self::syncing_status());
     }
 
     pub fn all_payloads_invalid(&self, latest_valid_hash: ExecutionBlockHash) {
-        let response = StaticNewPayloadResponse {
-            status: PayloadStatusV1 {
-                status: PayloadStatusV1Status::Invalid,
-                latest_valid_hash: Some(latest_valid_hash),
-                validation_error: Some("static response".into()),
-            },
-            should_import: true,
-        };
-        *self.ctx.static_new_payload_response.lock() = Some(response)
+        self.all_payloads_invalid_on_new_payload(latest_valid_hash);
+        self.all_payloads_invalid_on_forkchoice_updated(latest_valid_hash);
     }
 
-    /// Disables any static payload response so the execution block generator will do its own
+    pub fn all_payloads_invalid_on_new_payload(&self, latest_valid_hash: ExecutionBlockHash) {
+        self.set_new_payload_response(Self::invalid_new_payload_response(latest_valid_hash));
+    }
+
+    pub fn all_payloads_invalid_on_forkchoice_updated(
+        &self,
+        latest_valid_hash: ExecutionBlockHash,
+    ) {
+        self.set_forkchoice_updated_response(Self::invalid_status(latest_valid_hash));
+    }
+
+    pub fn all_payloads_invalid_block_hash_on_new_payload(&self) {
+        self.set_new_payload_response(Self::invalid_block_hash_new_payload_response());
+    }
+
+    pub fn all_payloads_invalid_block_hash_on_forkchoice_updated(&self) {
+        self.set_forkchoice_updated_response(Self::invalid_block_hash_status());
+    }
+
+    pub fn all_payloads_invalid_terminal_block_on_new_payload(&self) {
+        self.set_new_payload_response(Self::invalid_terminal_block_new_payload_response());
+    }
+
+    pub fn all_payloads_invalid_terminal_block_on_forkchoice_updated(&self) {
+        self.set_forkchoice_updated_response(Self::invalid_terminal_block_status());
+    }
+
+    /// This will make the node appear like it is syncing.
+    pub fn all_get_block_by_hash_requests_return_none(&self) {
+        *self.ctx.static_get_block_by_hash_response.lock() = Some(None);
+    }
+
+    /// The node will respond "naturally"; it will return blocks if they're known to it.
+    pub fn all_get_block_by_hash_requests_return_natural_value(&self) {
+        *self.ctx.static_get_block_by_hash_response.lock() = None;
+    }
+
+    /// Disables any static payload responses so the execution block generator will do its own
     /// verification.
     pub fn full_payload_verification(&self) {
-        *self.ctx.static_new_payload_response.lock() = None
+        *self.ctx.static_new_payload_response.lock() = None;
+        *self.ctx.static_forkchoice_updated_response.lock() = None;
     }
 
     pub fn insert_pow_block(
@@ -181,6 +383,7 @@ impl<T: EthSpec> MockServer<T> {
             block_hash,
             parent_hash,
             total_difficulty,
+            timestamp: block_number,
         });
 
         self.ctx
@@ -188,8 +391,7 @@ impl<T: EthSpec> MockServer<T> {
             .write()
             // The EF tests supply blocks out of order, so we must import them "without checks" and
             // trust they form valid chains.
-            .insert_block_without_checks(block)
-            .unwrap()
+            .insert_block_without_checks(block);
     }
 
     pub fn get_block(&self, block_hash: ExecutionBlockHash) -> Option<Block<T>> {
@@ -201,6 +403,36 @@ impl<T: EthSpec> MockServer<T> {
 
     pub fn drop_all_blocks(&self) {
         self.ctx.execution_block_generator.write().drop_all_blocks()
+    }
+
+    pub fn set_payload_statuses(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
+        self.set_new_payload_status(block_hash, status.clone());
+        self.set_fcu_payload_status(block_hash, status);
+    }
+
+    pub fn set_new_payload_status(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
+        self.ctx
+            .new_payload_statuses
+            .lock()
+            .insert(block_hash, Ok(status));
+    }
+
+    pub fn set_fcu_payload_status(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
+        self.ctx
+            .fcu_payload_statuses
+            .lock()
+            .insert(block_hash, Ok(status));
+    }
+
+    pub fn set_new_payload_error(&self, block_hash: ExecutionBlockHash, error: String) {
+        self.ctx
+            .new_payload_statuses
+            .lock()
+            .insert(block_hash, Err(error));
+    }
+
+    pub fn set_syncing_response(&self, res: Result<bool, String>) {
+        *self.ctx.syncing_response.lock() = res;
     }
 }
 
@@ -242,13 +474,45 @@ impl warp::reject::Reject for AuthError {}
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<T: EthSpec> {
     pub config: Config,
+    pub jwt_key: JwtKey,
     pub log: Logger,
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<T>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
+    pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
+    pub static_get_block_by_hash_response: Arc<Mutex<Option<Option<ExecutionBlock>>>>,
+    pub hook: Arc<Mutex<Hook>>,
+
+    // Canned responses by block hash.
+    //
+    // This is a more flexible and less stateful alternative to `static_new_payload_response`
+    // and `preloaded_responses`.
+    pub new_payload_statuses:
+        Arc<Mutex<HashMap<ExecutionBlockHash, Result<PayloadStatusV1, String>>>>,
+    pub fcu_payload_statuses:
+        Arc<Mutex<HashMap<ExecutionBlockHash, Result<PayloadStatusV1, String>>>>,
+    pub syncing_response: Arc<Mutex<Result<bool, String>>>,
+
+    pub engine_capabilities: Arc<RwLock<EngineCapabilities>>,
     pub _phantom: PhantomData<T>,
+}
+
+impl<T: EthSpec> Context<T> {
+    pub fn get_new_payload_status(
+        &self,
+        block_hash: &ExecutionBlockHash,
+    ) -> Option<Result<PayloadStatusV1, String>> {
+        self.new_payload_statuses.lock().get(block_hash).cloned()
+    }
+
+    pub fn get_fcu_payload_status(
+        &self,
+        block_hash: &ExecutionBlockHash,
+    ) -> Option<Result<PayloadStatusV1, String>> {
+        self.fcu_payload_statuses.lock().get(block_hash).cloned()
+    }
 }
 
 /// Configuration for the HTTP server.
@@ -276,28 +540,30 @@ struct ErrorMessage {
 
 /// Returns a `warp` header which filters out request that has a missing or incorrectly
 /// signed JWT token.
-fn auth_header_filter() -> warp::filters::BoxedFilter<()> {
+fn auth_header_filter(jwt_key: JwtKey) -> warp::filters::BoxedFilter<()> {
     warp::any()
         .and(warp::filters::header::optional("Authorization"))
-        .and_then(move |authorization: Option<String>| async move {
-            match authorization {
-                None => Err(warp::reject::custom(AuthError(
-                    "auth absent from request".to_string(),
-                ))),
-                Some(auth) => {
-                    if let Some(token) = auth.strip_prefix("Bearer ") {
-                        let secret = JwtKey::from_slice(&JWT_SECRET).unwrap();
-                        match Auth::validate_token(token, &secret) {
-                            Ok(_) => Ok(()),
-                            Err(e) => Err(warp::reject::custom(AuthError(format!(
-                                "Auth failure: {:?}",
-                                e
-                            )))),
+        .and_then(move |authorization: Option<String>| {
+            let secret = jwt_key.clone();
+            async move {
+                match authorization {
+                    None => Err(warp::reject::custom(AuthError(
+                        "auth absent from request".to_string(),
+                    ))),
+                    Some(auth) => {
+                        if let Some(token) = auth.strip_prefix("Bearer ") {
+                            match Auth::validate_token(token, &secret) {
+                                Ok(_) => Ok(()),
+                                Err(e) => Err(warp::reject::custom(AuthError(format!(
+                                    "Auth failure: {:?}",
+                                    e
+                                )))),
+                            }
+                        } else {
+                            Err(warp::reject::custom(AuthError(
+                                "Bearer token not present in auth header".to_string(),
+                            )))
                         }
-                    } else {
-                        Err(warp::reject::custom(AuthError(
-                            "Bearer token not present in auth header".to_string(),
-                        )))
                     }
                 }
             }
@@ -381,11 +647,11 @@ pub fn serve<T: EthSpec>(
                         "jsonrpc": JSONRPC_VERSION,
                         "result": result
                     }),
-                    Err(message) => json!({
+                    Err((message, code)) => json!({
                         "id": id,
                         "jsonrpc": JSONRPC_VERSION,
                         "error": {
-                            "code": -1234,   // Junk error code.
+                            "code": code,
                             "message": message
                         }
                     }),
@@ -413,7 +679,7 @@ pub fn serve<T: EthSpec>(
         });
 
     let routes = warp::post()
-        .and(auth_header_filter())
+        .and(auth_header_filter(ctx.jwt_key.clone()))
         .and(root.or(echo))
         .recover(handle_rejection)
         // Add a `Server` header.

@@ -31,6 +31,7 @@
 
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::validator_store::ValidatorStore;
+use crate::OfflineOnFailure;
 use environment::RuntimeContext;
 use eth2::types::LivenessResponseData;
 use parking_lot::RwLock;
@@ -176,13 +177,17 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
     } else {
         // Request the previous epoch liveness state from the beacon node.
         beacon_nodes
-            .first_success(RequireSynced::Yes, |beacon_node| async move {
-                beacon_node
-                    .post_lighthouse_liveness(validator_indices, previous_epoch)
-                    .await
-                    .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
-                    .map(|result| result.data)
-            })
+            .first_success(
+                RequireSynced::Yes,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    beacon_node
+                        .post_lighthouse_liveness(validator_indices, previous_epoch)
+                        .await
+                        .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
+                        .map(|result| result.data)
+                },
+            )
             .await
             .unwrap_or_else(|e| {
                 crit!(
@@ -199,13 +204,17 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
 
     // Request the current epoch liveness state from the beacon node.
     let current_epoch_responses = beacon_nodes
-        .first_success(RequireSynced::Yes, |beacon_node| async move {
-            beacon_node
-                .post_lighthouse_liveness(validator_indices, current_epoch)
-                .await
-                .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
-                .map(|result| result.data)
-        })
+        .first_success(
+            RequireSynced::Yes,
+            OfflineOnFailure::Yes,
+            |beacon_node| async move {
+                beacon_node
+                    .post_lighthouse_liveness(validator_indices, current_epoch)
+                    .await
+                    .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
+                    .map(|result| result.data)
+            },
+        )
         .await
         .unwrap_or_else(|e| {
             crit!(
@@ -432,7 +441,7 @@ impl DoppelgangerService {
         }
 
         // Get a list of indices to provide to the BN API.
-        let indices_only = indices_map.iter().map(|(index, _)| *index).collect();
+        let indices_only = indices_map.keys().copied().collect();
 
         // Pull the liveness responses from the BN.
         let request_epoch = request_slot.epoch(E::slots_per_epoch());
@@ -962,16 +971,16 @@ mod test {
         LivenessResponses {
             current_epoch_responses: detection_indices
                 .iter()
-                .map(|i| LivenessResponseData {
-                    index: *i as u64,
+                .map(|&index| LivenessResponseData {
+                    index,
                     epoch: current_epoch,
                     is_live: false,
                 })
                 .collect(),
             previous_epoch_responses: detection_indices
                 .iter()
-                .map(|i| LivenessResponseData {
-                    index: *i as u64,
+                .map(|&index| LivenessResponseData {
+                    index,
                     epoch: current_epoch - 1,
                     is_live: false,
                 })

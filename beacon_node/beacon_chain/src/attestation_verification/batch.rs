@@ -65,14 +65,15 @@ where
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
 
-        let fork = chain.with_head(|head| Ok::<_, BeaconChainError>(head.beacon_state.fork()))?;
-
         let mut signature_sets = Vec::with_capacity(num_indexed * 3);
 
         // Iterate, flattening to get only the `Ok` values.
         for indexed in indexing_results.iter().flatten() {
             let signed_aggregate = &indexed.signed_aggregate;
             let indexed_attestation = &indexed.indexed_attestation;
+            let fork = chain
+                .spec
+                .fork_at_epoch(indexed_attestation.data.target.epoch);
 
             signature_sets.push(
                 signed_aggregate_selection_proof_signature_set(
@@ -174,13 +175,14 @@ where
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
 
-        let fork = chain.with_head(|head| Ok::<_, BeaconChainError>(head.beacon_state.fork()))?;
-
         let mut signature_sets = Vec::with_capacity(num_partially_verified);
 
         // Iterate, flattening to get only the `Ok` values.
         for partially_verified in partial_results.iter().flatten() {
             let indexed_attestation = &partially_verified.indexed_attestation;
+            let fork = chain
+                .spec
+                .fork_at_epoch(indexed_attestation.data.target.epoch);
 
             let signature_set = indexed_attestation_signature_set_from_pubkeys(
                 |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),

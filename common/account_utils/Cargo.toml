@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand = "0.7.3"
+rand = "0.8.5"
 eth2_wallet = { path = "../../crypto/eth2_wallet" }
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
 filesystem = { path = "../filesystem" }

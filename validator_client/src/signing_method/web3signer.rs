@@ -17,6 +17,7 @@ pub enum MessageType {
     SyncCommitteeMessage,
     SyncCommitteeSelectionProof,
     SyncCommitteeContributionAndProof,
+    ValidatorRegistration,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize)]
@@ -24,6 +25,8 @@ pub enum MessageType {
 pub enum ForkName {
     Phase0,
     Altair,
+    Bellatrix,
+    Capella,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -34,7 +37,7 @@ pub struct ForkInfo {
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(bound = "T: EthSpec", rename_all = "snake_case")]
-pub enum Web3SignerObject<'a, T: EthSpec> {
+pub enum Web3SignerObject<'a, T: EthSpec, Payload: AbstractExecPayload<T>> {
     AggregationSlot {
         slot: Slot,
     },
@@ -42,21 +45,23 @@ pub enum Web3SignerObject<'a, T: EthSpec> {
     Attestation(&'a AttestationData),
     BeaconBlock {
         version: ForkName,
-        block: &'a BeaconBlock<T>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        block: Option<&'a BeaconBlock<T, Payload>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        block_header: Option<BeaconBlockHeader>,
     },
     #[allow(dead_code)]
     Deposit {
         pubkey: PublicKeyBytes,
         withdrawal_credentials: Hash256,
-        #[serde(with = "eth2_serde_utils::quoted_u64")]
+        #[serde(with = "serde_utils::quoted_u64")]
         amount: u64,
-        #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+        #[serde(with = "serde_utils::bytes_4_hex")]
         genesis_fork_version: [u8; 4],
     },
     RandaoReveal {
         epoch: Epoch,
     },
-    #[allow(dead_code)]
     VoluntaryExit(&'a VoluntaryExit),
     SyncCommitteeMessage {
         beacon_block_root: Hash256,
@@ -64,17 +69,33 @@ pub enum Web3SignerObject<'a, T: EthSpec> {
     },
     SyncAggregatorSelectionData(&'a SyncAggregatorSelectionData),
     ContributionAndProof(&'a ContributionAndProof<T>),
+    ValidatorRegistration(&'a ValidatorRegistrationData),
 }
 
-impl<'a, T: EthSpec> Web3SignerObject<'a, T> {
-    pub fn beacon_block(block: &'a BeaconBlock<T>) -> Result<Self, Error> {
-        let version = match block {
-            BeaconBlock::Base(_) => ForkName::Phase0,
-            BeaconBlock::Altair(_) => ForkName::Altair,
-            BeaconBlock::Merge(_) => return Err(Error::MergeForkNotSupported),
-        };
-
-        Ok(Web3SignerObject::BeaconBlock { version, block })
+impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> Web3SignerObject<'a, T, Payload> {
+    pub fn beacon_block(block: &'a BeaconBlock<T, Payload>) -> Result<Self, Error> {
+        match block {
+            BeaconBlock::Base(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Phase0,
+                block: Some(block),
+                block_header: None,
+            }),
+            BeaconBlock::Altair(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Altair,
+                block: Some(block),
+                block_header: None,
+            }),
+            BeaconBlock::Merge(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Bellatrix,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
+            BeaconBlock::Capella(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Capella,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
+        }
     }
 
     pub fn message_type(&self) -> MessageType {
@@ -93,13 +114,14 @@ impl<'a, T: EthSpec> Web3SignerObject<'a, T> {
             Web3SignerObject::ContributionAndProof(_) => {
                 MessageType::SyncCommitteeContributionAndProof
             }
+            Web3SignerObject::ValidatorRegistration(_) => MessageType::ValidatorRegistration,
         }
     }
 }
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(bound = "T: EthSpec")]
-pub struct SigningRequest<'a, T: EthSpec> {
+pub struct SigningRequest<'a, T: EthSpec, Payload: AbstractExecPayload<T>> {
     #[serde(rename = "type")]
     pub message_type: MessageType,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,7 +129,7 @@ pub struct SigningRequest<'a, T: EthSpec> {
     #[serde(rename = "signingRoot")]
     pub signing_root: Hash256,
     #[serde(flatten)]
-    pub object: Web3SignerObject<'a, T>,
+    pub object: Web3SignerObject<'a, T, Payload>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]

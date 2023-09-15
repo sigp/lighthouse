@@ -278,8 +278,8 @@ impl ValidatorStatuses {
             // Loop through the participating validator indices and update the status vec.
             for validator_index in attesting_indices {
                 self.statuses
-                    .get_mut(validator_index)
-                    .ok_or(BeaconStateError::UnknownValidator(validator_index))?
+                    .get_mut(validator_index as usize)
+                    .ok_or(BeaconStateError::UnknownValidator(validator_index as usize))?
                     .update(&status);
             }
         }

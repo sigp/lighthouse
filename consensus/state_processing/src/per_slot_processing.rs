@@ -1,4 +1,4 @@
-use crate::upgrade::{upgrade_to_altair, upgrade_to_bellatrix};
+use crate::upgrade::{upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella};
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use safe_arith::{ArithError, SafeArith};
 use types::*;
@@ -21,7 +21,7 @@ impl From<ArithError> for Error {
 ///
 /// If the root of the supplied `state` is known, then it can be passed as `state_root`. If
 /// `state_root` is `None`, the root of `state` will be computed using a cached tree hash.
-/// Providing the `state_root` makes this function several orders of magniude faster.
+/// Providing the `state_root` makes this function several orders of magnitude faster.
 pub fn per_slot_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     state_root: Option<Hash256>,
@@ -54,6 +54,10 @@ pub fn per_slot_processing<T: EthSpec>(
         // If the Merge fork epoch is reached, perform an irregular state upgrade.
         if spec.bellatrix_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_bellatrix(state, spec)?;
+        }
+        // Capella.
+        if spec.capella_fork_epoch == Some(state.current_epoch()) {
+            upgrade_to_capella(state, spec)?;
         }
     }
 

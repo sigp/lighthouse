@@ -1,3 +1,5 @@
+#![cfg(any(feature = "mdbx", feature = "lmdb"))]
+
 use logging::test_logger;
 use slasher::{
     test_utils::{block as test_block, E},

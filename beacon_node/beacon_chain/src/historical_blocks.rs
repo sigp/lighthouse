@@ -7,9 +7,10 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use std::iter;
+use std::sync::Arc;
 use std::time::Duration;
 use store::{chunked_vector::BlockRoots, AnchorInfo, ChunkWriter, KeyValueStore};
-use types::{Hash256, SignedBeaconBlock, Slot};
+use types::{Hash256, SignedBlindedBeaconBlock, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -58,7 +59,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return the number of blocks successfully imported.
     pub fn import_historical_block_batch(
         &self,
-        blocks: &[SignedBeaconBlock<T::EthSpec>],
+        blocks: Vec<Arc<SignedBlindedBeaconBlock<T::EthSpec>>>,
     ) -> Result<usize, Error> {
         let anchor_info = self
             .store
@@ -106,8 +107,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .into());
             }
 
-            // Store block in the hot database.
-            hot_batch.push(self.store.block_as_kv_store_op(&block_root, block));
+            // Store block in the hot database without payload.
+            self.store
+                .blinded_block_as_kv_store_ops(&block_root, block, &mut hot_batch);
 
             // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_usize()..prev_block_slot.as_usize()).rev() {
@@ -187,13 +189,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             oldest_block_parent: expected_block_root,
             ..anchor_info
         };
-        let backfill_complete = new_anchor.block_backfill_complete();
+        let backfill_complete = new_anchor.block_backfill_complete(self.genesis_backfill_slot);
         self.store
             .compare_and_set_anchor_info_with_write(Some(anchor_info), Some(new_anchor))?;
 
         // If backfill has completed and the chain is configured to reconstruct historic states,
         // send a message to the background migrator instructing it to begin reconstruction.
-        if backfill_complete && self.config.reconstruct_historic_states {
+        // This can only happen if we have backfilled all the way to genesis.
+        if backfill_complete
+            && self.genesis_backfill_slot == Slot::new(0)
+            && self.config.reconstruct_historic_states
+        {
             self.store_migrator.process_reconstruction();
         }
 

@@ -8,18 +8,18 @@
 
 use crate::signing_method::SigningMethod;
 use account_utils::{
-    read_password, read_password_from_user,
+    read_password, read_password_from_user, read_password_string,
     validator_definitions::{
-        self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, CONFIG_FILENAME,
+        self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
+        CONFIG_FILENAME,
     },
     ZeroizeString,
 };
-use eth2::lighthouse_vc::std_types::DeleteKeystoreStatus;
 use eth2_keystore::Keystore;
 use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
-use reqwest::{Certificate, Client, Error as ReqwestError};
+use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -27,6 +27,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use types::graffiti::GraffitiString;
 use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use url::{ParseError, Url};
 use validator_dir::Builder as ValidatorDirBuilder;
@@ -42,6 +43,19 @@ const DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
+
+pub enum OnDecryptFailure {
+    /// If the key cache fails to decrypt, create a new cache.
+    CreateNew,
+    /// Return an error if the key cache fails to decrypt. This should only be
+    /// used in testing.
+    Error,
+}
+
+pub struct KeystoreAndPassword {
+    pub keystore: Keystore,
+    pub password: Option<ZeroizeString>,
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -89,9 +103,19 @@ pub enum Error {
     /// Unable to read the root certificate file for the remote signer.
     InvalidWeb3SignerRootCertificateFile(io::Error),
     InvalidWeb3SignerRootCertificate(ReqwestError),
+    /// Unable to read the client certificate for the remote signer.
+    MissingWeb3SignerClientIdentityCertificateFile,
+    MissingWeb3SignerClientIdentityPassword,
+    InvalidWeb3SignerClientIdentityCertificateFile(io::Error),
+    InvalidWeb3SignerClientIdentityCertificate(ReqwestError),
     UnableToBuildWeb3SignerClient(ReqwestError),
-    /// Unable to apply an action to a validator because it is using a remote signer.
-    InvalidActionOnRemoteValidator,
+    /// Unable to apply an action to a validator.
+    InvalidActionOnValidator,
+    UnableToReadValidatorPassword(String),
+    UnableToReadKeystoreFile(eth2_keystore::Error),
+    UnableToSaveKeyCache(key_cache::Error),
+    UnableToDecryptKeyCache(key_cache::Error),
+    UnableToDeletePasswordFile(PathBuf, io::Error),
 }
 
 impl From<LockfileError> for Error {
@@ -105,6 +129,8 @@ pub struct InitializedValidator {
     signing_method: Arc<SigningMethod>,
     graffiti: Option<Graffiti>,
     suggested_fee_recipient: Option<Address>,
+    gas_limit: Option<u64>,
+    builder_proposals: Option<bool>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
 }
@@ -123,6 +149,26 @@ impl InitializedValidator {
             // Web3Signer validators do not have any lockfiles.
             SigningMethod::Web3Signer { .. } => None,
         }
+    }
+
+    pub fn get_suggested_fee_recipient(&self) -> Option<Address> {
+        self.suggested_fee_recipient
+    }
+
+    pub fn get_gas_limit(&self) -> Option<u64> {
+        self.gas_limit
+    }
+
+    pub fn get_builder_proposals(&self) -> Option<bool> {
+        self.builder_proposals
+    }
+
+    pub fn get_index(&self) -> Option<u64> {
+        self.index
+    }
+
+    pub fn get_graffiti(&self) -> Option<Graffiti> {
+        self.graffiti
     }
 }
 
@@ -151,6 +197,7 @@ impl InitializedValidator {
         def: ValidatorDefinition,
         key_cache: &mut KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
+        web3_signer_client_map: &mut Option<HashMap<Web3SignerDefinition, Client>>,
     ) -> Result<Self, Error> {
         if !def.enabled {
             return Err(Error::UnableToInitializeDisabledValidator);
@@ -235,29 +282,44 @@ impl InitializedValidator {
                     voting_keypair: Arc::new(voting_keypair),
                 }
             }
-            SigningDefinition::Web3Signer {
-                url,
-                root_certificate_path,
-                request_timeout_ms,
-            } => {
-                let signing_url = build_web3_signer_url(&url, &def.voting_public_key)
+            SigningDefinition::Web3Signer(web3_signer) => {
+                let signing_url = build_web3_signer_url(&web3_signer.url, &def.voting_public_key)
                     .map_err(|e| Error::InvalidWeb3SignerUrl(e.to_string()))?;
-                let request_timeout = request_timeout_ms
+
+                let request_timeout = web3_signer
+                    .request_timeout_ms
                     .map(Duration::from_millis)
                     .unwrap_or(DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT);
 
-                let builder = Client::builder().timeout(request_timeout);
-
-                let builder = if let Some(path) = root_certificate_path {
-                    let certificate = load_pem_certificate(path)?;
-                    builder.add_root_certificate(certificate)
+                // Check if a client has already been initialized for this remote signer url.
+                let http_client = if let Some(client_map) = web3_signer_client_map {
+                    match client_map.get(&web3_signer) {
+                        Some(client) => client.clone(),
+                        None => {
+                            let client = build_web3_signer_client(
+                                web3_signer.root_certificate_path.clone(),
+                                web3_signer.client_identity_path.clone(),
+                                web3_signer.client_identity_password.clone(),
+                                request_timeout,
+                            )?;
+                            client_map.insert(web3_signer, client.clone());
+                            client
+                        }
+                    }
                 } else {
-                    builder
+                    // There are no clients in the map.
+                    let mut new_web3_signer_client_map: HashMap<Web3SignerDefinition, Client> =
+                        HashMap::new();
+                    let client = build_web3_signer_client(
+                        web3_signer.root_certificate_path.clone(),
+                        web3_signer.client_identity_path.clone(),
+                        web3_signer.client_identity_password.clone(),
+                        request_timeout,
+                    )?;
+                    new_web3_signer_client_map.insert(web3_signer, client.clone());
+                    *web3_signer_client_map = Some(new_web3_signer_client_map);
+                    client
                 };
-
-                let http_client = builder
-                    .build()
-                    .map_err(Error::UnableToBuildWeb3SignerClient)?;
 
                 SigningMethod::Web3Signer {
                     signing_url,
@@ -271,6 +333,8 @@ impl InitializedValidator {
             signing_method: Arc::new(signing_method),
             graffiti: def.graffiti.map(Into::into),
             suggested_fee_recipient: def.suggested_fee_recipient,
+            gas_limit: def.gas_limit,
+            builder_proposals: def.builder_proposals,
             index: None,
         })
     }
@@ -295,8 +359,54 @@ pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, 
     Certificate::from_pem(&buf).map_err(Error::InvalidWeb3SignerRootCertificate)
 }
 
+pub fn load_pkcs12_identity<P: AsRef<Path>>(
+    pkcs12_path: P,
+    password: &str,
+) -> Result<Identity, Error> {
+    let mut buf = Vec::new();
+    File::open(&pkcs12_path)
+        .map_err(Error::InvalidWeb3SignerClientIdentityCertificateFile)?
+        .read_to_end(&mut buf)
+        .map_err(Error::InvalidWeb3SignerClientIdentityCertificateFile)?;
+    Identity::from_pkcs12_der(&buf, password)
+        .map_err(Error::InvalidWeb3SignerClientIdentityCertificate)
+}
+
 fn build_web3_signer_url(base_url: &str, voting_public_key: &PublicKey) -> Result<Url, ParseError> {
     Url::parse(base_url)?.join(&format!("api/v1/eth2/sign/{}", voting_public_key))
+}
+
+fn build_web3_signer_client(
+    root_certificate_path: Option<PathBuf>,
+    client_identity_path: Option<PathBuf>,
+    client_identity_password: Option<String>,
+    request_timeout: Duration,
+) -> Result<Client, Error> {
+    let builder = Client::builder().timeout(request_timeout);
+
+    let builder = if let Some(path) = root_certificate_path {
+        let certificate = load_pem_certificate(path)?;
+        builder.add_root_certificate(certificate)
+    } else {
+        builder
+    };
+
+    let builder = if let Some(path) = client_identity_path {
+        let identity = load_pkcs12_identity(
+            path,
+            &client_identity_password.ok_or(Error::MissingWeb3SignerClientIdentityPassword)?,
+        )?;
+        builder.identity(identity)
+    } else {
+        if client_identity_password.is_some() {
+            return Err(Error::MissingWeb3SignerClientIdentityCertificateFile);
+        }
+        builder
+    };
+
+    builder
+        .build()
+        .map_err(Error::UnableToBuildWeb3SignerClient)
 }
 
 /// Try to unlock `keystore` at `keystore_path` by prompting the user via `stdin`.
@@ -349,6 +459,8 @@ pub struct InitializedValidators {
     validators_dir: PathBuf,
     /// The canonical set of validators.
     validators: HashMap<PublicKeyBytes, InitializedValidator>,
+    /// The clients used for communications with a remote signer.
+    web3_signer_client_map: Option<HashMap<Web3SignerDefinition, Client>>,
     /// For logging via `slog`.
     log: Logger,
 }
@@ -364,6 +476,7 @@ impl InitializedValidators {
             validators_dir,
             definitions,
             validators: HashMap::default(),
+            web3_signer_client_map: None,
             log,
         };
         this.update_validators().await?;
@@ -382,7 +495,7 @@ impl InitializedValidators {
 
     /// Iterate through all voting public keys in `self` that should be used when querying for duties.
     pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
-        self.validators.iter().map(|(pubkey, _)| pubkey)
+        self.validators.keys()
     }
 
     /// Returns the voting `Keypair` for a given voting `PublicKey`, if all are true:
@@ -443,30 +556,79 @@ impl InitializedValidators {
     pub async fn delete_definition_and_keystore(
         &mut self,
         pubkey: &PublicKey,
-    ) -> Result<DeleteKeystoreStatus, Error> {
+        is_local_keystore: bool,
+    ) -> Result<Option<KeystoreAndPassword>, Error> {
         // 1. Disable the validator definition.
         //
         // We disable before removing so that in case of a crash the auto-discovery mechanism
         // won't re-activate the keystore.
-        if let Some(def) = self
+        let mut uuid_opt = None;
+        let mut password_path_opt = None;
+        let keystore_and_password = if let Some(def) = self
             .definitions
             .as_mut_slice()
             .iter_mut()
             .find(|def| &def.voting_public_key == pubkey)
         {
-            if def.signing_definition.is_local_keystore() {
-                def.enabled = false;
-                self.definitions
-                    .save(&self.validators_dir)
-                    .map_err(Error::UnableToSaveDefinitions)?;
-            } else {
-                return Err(Error::InvalidActionOnRemoteValidator);
+            match &def.signing_definition {
+                SigningDefinition::LocalKeystore {
+                    voting_keystore_path,
+                    voting_keystore_password,
+                    voting_keystore_password_path,
+                    ..
+                } if is_local_keystore => {
+                    let password = match (voting_keystore_password, voting_keystore_password_path) {
+                        (Some(password), _) => Some(password.clone()),
+                        (_, Some(path)) => {
+                            password_path_opt = Some(path.clone());
+                            read_password_string(path)
+                                .map(Option::Some)
+                                .map_err(Error::UnableToReadValidatorPassword)?
+                        }
+                        (None, None) => None,
+                    };
+                    let keystore = Keystore::from_json_file(voting_keystore_path)
+                        .map_err(Error::UnableToReadKeystoreFile)?;
+                    uuid_opt = Some(*keystore.uuid());
+
+                    def.enabled = false;
+                    self.definitions
+                        .save(&self.validators_dir)
+                        .map_err(Error::UnableToSaveDefinitions)?;
+
+                    Some(KeystoreAndPassword { keystore, password })
+                }
+                SigningDefinition::Web3Signer(_) if !is_local_keystore => {
+                    def.enabled = false;
+                    None
+                }
+                _ => return Err(Error::InvalidActionOnValidator),
             }
         } else {
-            return Ok(DeleteKeystoreStatus::NotFound);
+            return Err(Error::ValidatorNotInitialized(pubkey.clone()));
+        };
+
+        // 2. Remove the validator from the key cache. This ensures the key
+        // cache is consistent next time the VC starts.
+        //
+        // It's not a big deal if this succeeds and something fails later in
+        // this function because the VC will self-heal from a corrupt key cache.
+        //
+        // Do this before modifying `self.validators` or deleting anything from
+        // the filesystem.
+        if let Some(uuid) = uuid_opt {
+            let key_cache = KeyCache::open_or_create(&self.validators_dir)
+                .map_err(Error::UnableToOpenKeyCache)?;
+            let mut decrypted_key_cache = self
+                .decrypt_key_cache(key_cache, &mut <_>::default(), OnDecryptFailure::CreateNew)
+                .await?;
+            decrypted_key_cache.remove(&uuid);
+            decrypted_key_cache
+                .save(&self.validators_dir)
+                .map_err(Error::UnableToSaveKeyCache)?;
         }
 
-        // 2. Delete from `self.validators`, which holds the signing method.
+        // 3. Delete from `self.validators`, which holds the signing method.
         //    Delete the keystore files.
         if let Some(initialized_validator) = self.validators.remove(&pubkey.compress()) {
             if let SigningMethod::LocalKeystore {
@@ -484,14 +646,28 @@ impl InitializedValidators {
             }
         }
 
-        // 3. Delete from validator definitions entirely.
+        // 4. Delete from validator definitions entirely.
         self.definitions
             .retain(|def| &def.voting_public_key != pubkey);
         self.definitions
             .save(&self.validators_dir)
             .map_err(Error::UnableToSaveDefinitions)?;
 
-        Ok(DeleteKeystoreStatus::Deleted)
+        // 5. Delete the keystore password if it's not being used by any definition.
+        if let Some(password_path) = password_path_opt.and_then(|p| p.canonicalize().ok()) {
+            if self
+                .definitions
+                .iter_voting_keystore_password_paths()
+                // Require canonicalized paths so we can do a true equality check.
+                .filter_map(|existing| existing.canonicalize().ok())
+                .all(|existing| existing != password_path)
+            {
+                fs::remove_file(&password_path)
+                    .map_err(|e| Error::UnableToDeletePasswordFile(password_path, e))?;
+            }
+        }
+
+        Ok(keystore_and_password)
     }
 
     /// Attempt to delete the voting keystore file, or its entire validator directory.
@@ -540,6 +716,15 @@ impl InitializedValidators {
         self.validators.get(public_key).and_then(|v| v.graffiti)
     }
 
+    /// Returns a `HashMap` of `public_key` -> `graffiti` for all initialized validators.
+    pub fn get_all_validators_graffiti(&self) -> HashMap<&PublicKeyBytes, Option<Graffiti>> {
+        let mut result = HashMap::new();
+        for public_key in self.validators.keys() {
+            result.insert(public_key, self.graffiti(public_key));
+        }
+        result
+    }
+
     /// Returns the `suggested_fee_recipient` for a given public key specified in the
     /// `ValidatorDefinitions`.
     pub fn suggested_fee_recipient(&self, public_key: &PublicKeyBytes) -> Option<Address> {
@@ -548,7 +733,28 @@ impl InitializedValidators {
             .and_then(|v| v.suggested_fee_recipient)
     }
 
-    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.
+    /// Returns the `gas_limit` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn gas_limit(&self, public_key: &PublicKeyBytes) -> Option<u64> {
+        self.validators.get(public_key).and_then(|v| v.gas_limit)
+    }
+
+    /// Returns the `builder_proposals` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn builder_proposals(&self, public_key: &PublicKeyBytes) -> Option<bool> {
+        self.validators
+            .get(public_key)
+            .and_then(|v| v.builder_proposals)
+    }
+
+    /// Returns an `Option` of a reference to an `InitializedValidator` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn validator(&self, public_key: &PublicKeyBytes) -> Option<&InitializedValidator> {
+        self.validators.get(public_key)
+    }
+
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled`, `gas_limit`,
+    /// `builder_proposals`, and `graffiti` values.
     ///
     /// ## Notes
     ///
@@ -556,11 +762,18 @@ impl InitializedValidators {
     /// disk. A newly enabled validator will be added to `self.validators`, whilst a newly disabled
     /// validator will be removed from `self.validators`.
     ///
+    /// If a `gas_limit` is included in the call to this function, it will also be updated and saved
+    /// to disk. If `gas_limit` is `None` the `gas_limit` *will not* be unset in `ValidatorDefinition`
+    /// or `InitializedValidator`. The same logic applies to `builder_proposals` and `graffiti`.
+    ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
-    pub async fn set_validator_status(
+    pub async fn set_validator_definition_fields(
         &mut self,
         voting_public_key: &PublicKey,
-        enabled: bool,
+        enabled: Option<bool>,
+        gas_limit: Option<u64>,
+        builder_proposals: Option<bool>,
+        graffiti: Option<GraffitiString>,
     ) -> Result<(), Error> {
         if let Some(def) = self
             .definitions
@@ -568,10 +781,182 @@ impl InitializedValidators {
             .iter_mut()
             .find(|def| def.voting_public_key == *voting_public_key)
         {
-            def.enabled = enabled;
+            // Don't overwrite fields if they are not set in this request.
+            if let Some(enabled) = enabled {
+                def.enabled = enabled;
+            }
+            if let Some(gas_limit) = gas_limit {
+                def.gas_limit = Some(gas_limit);
+            }
+            if let Some(builder_proposals) = builder_proposals {
+                def.builder_proposals = Some(builder_proposals);
+            }
+            if let Some(graffiti) = graffiti.clone() {
+                def.graffiti = Some(graffiti);
+            }
         }
 
         self.update_validators().await?;
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            // Don't overwrite fields if they are not set in this request.
+            if let Some(gas_limit) = gas_limit {
+                val.gas_limit = Some(gas_limit);
+            }
+            if let Some(builder_proposals) = builder_proposals {
+                val.builder_proposals = Some(builder_proposals);
+            }
+            if let Some(graffiti) = graffiti {
+                val.graffiti = Some(graffiti.into());
+            }
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `suggested_fee_recipient` values.
+    ///
+    /// ## Notes
+    ///
+    /// Setting a validator `fee_recipient` will cause `self.definitions` to be updated and saved to
+    /// disk.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn set_validator_fee_recipient(
+        &mut self,
+        voting_public_key: &PublicKey,
+        fee_recipient: Address,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.suggested_fee_recipient = Some(fee_recipient);
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.suggested_fee_recipient = Some(fee_recipient);
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
+    /// Removes the `InitializedValidator` and `ValidatorDefinition` `suggested_fee_recipient` values.
+    ///
+    /// ## Notes
+    ///
+    /// Removing a validator `fee_recipient` will cause `self.definitions` to be updated and saved to
+    /// disk. The fee_recipient for the validator will then fall back to the process level default if
+    /// it is set.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn delete_validator_fee_recipient(
+        &mut self,
+        voting_public_key: &PublicKey,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.suggested_fee_recipient = None;
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.suggested_fee_recipient = None;
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `gas_limit` values.
+    ///
+    /// ## Notes
+    ///
+    /// Setting a validator `gas_limit` will cause `self.definitions` to be updated and saved to
+    /// disk.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn set_validator_gas_limit(
+        &mut self,
+        voting_public_key: &PublicKey,
+        gas_limit: u64,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.gas_limit = Some(gas_limit);
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.gas_limit = Some(gas_limit);
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
+    /// Removes the `InitializedValidator` and `ValidatorDefinition` `gas_limit` values.
+    ///
+    /// ## Notes
+    ///
+    /// Removing a validator `gas_limit` will cause `self.definitions` to be updated and saved to
+    /// disk. The gas_limit for the validator will then fall back to the process level default if
+    /// it is set.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn delete_validator_gas_limit(
+        &mut self,
+        voting_public_key: &PublicKey,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.gas_limit = None;
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.gas_limit = None;
+        }
 
         self.definitions
             .save(&self.validators_dir)
@@ -592,10 +977,11 @@ impl InitializedValidators {
     /// filesystem accesses for keystores that are already known. In the case that a keystore
     /// from the validator definitions is not yet in this map, it will be loaded from disk and
     /// inserted into the map.
-    async fn decrypt_key_cache(
+    pub async fn decrypt_key_cache(
         &self,
         mut cache: KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
+        on_failure: OnDecryptFailure,
     ) -> Result<KeyCache, Error> {
         // Read relevant key stores from the filesystem.
         let mut definitions_map = HashMap::new();
@@ -663,11 +1049,13 @@ impl InitializedValidators {
 
         //decrypt
         tokio::task::spawn_blocking(move || match cache.decrypt(passwords, public_keys) {
-            Ok(_) | Err(key_cache::Error::AlreadyDecrypted) => cache,
-            _ => KeyCache::new(),
+            Ok(_) | Err(key_cache::Error::AlreadyDecrypted) => Ok(cache),
+            _ if matches!(on_failure, OnDecryptFailure::CreateNew) => Ok(KeyCache::new()),
+            Err(e) => Err(e),
         })
         .await
-        .map_err(Error::TokioJoin)
+        .map_err(Error::TokioJoin)?
+        .map_err(Error::UnableToDecryptKeyCache)
     }
 
     /// Scans `self.definitions` and attempts to initialize and validators which are not already
@@ -693,22 +1081,39 @@ impl InitializedValidators {
 
         let cache =
             KeyCache::open_or_create(&self.validators_dir).map_err(Error::UnableToOpenKeyCache)?;
-        let mut key_cache = self.decrypt_key_cache(cache, &mut key_stores).await?;
+
+        // Check if there is at least one local definition.
+        let has_local_definitions = self.definitions.as_slice().iter().any(|def| {
+            matches!(
+                def.signing_definition,
+                SigningDefinition::LocalKeystore { .. }
+            )
+        });
+
+        // Only decrypt cache when there is at least one local definition.
+        // Decrypting cache is a very expensive operation which is never used for web3signer.
+        let mut key_cache = if has_local_definitions {
+            self.decrypt_key_cache(cache, &mut key_stores, OnDecryptFailure::CreateNew)
+                .await?
+        } else {
+            // Assign an empty KeyCache if all definitions are of the Web3Signer type.
+            KeyCache::new()
+        };
 
         let mut disabled_uuids = HashSet::new();
         for def in self.definitions.as_slice() {
             if def.enabled {
+                let pubkey_bytes = def.voting_public_key.compress();
+
+                if self.validators.contains_key(&pubkey_bytes) {
+                    continue;
+                }
+
                 match &def.signing_definition {
                     SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         ..
                     } => {
-                        let pubkey_bytes = def.voting_public_key.compress();
-
-                        if self.validators.contains_key(&pubkey_bytes) {
-                            continue;
-                        }
-
                         if let Some(key_store) = key_stores.get(voting_keystore_path) {
                             disabled_uuids.remove(key_store.uuid());
                         }
@@ -717,6 +1122,7 @@ impl InitializedValidators {
                             def.clone(),
                             &mut key_cache,
                             &mut key_stores,
+                            &mut None,
                         )
                         .await
                         {
@@ -761,11 +1167,12 @@ impl InitializedValidators {
                             }
                         }
                     }
-                    SigningDefinition::Web3Signer { .. } => {
+                    SigningDefinition::Web3Signer(Web3SignerDefinition { .. }) => {
                         match InitializedValidator::from_definition(
                             def.clone(),
                             &mut key_cache,
                             &mut key_stores,
+                            &mut self.web3_signer_client_map,
                         )
                         .await
                         {
@@ -817,13 +1224,16 @@ impl InitializedValidators {
                 );
             }
         }
-        for uuid in disabled_uuids {
-            key_cache.remove(&uuid);
+
+        if has_local_definitions {
+            for uuid in disabled_uuids {
+                key_cache.remove(&uuid);
+            }
         }
 
         let validators_dir = self.validators_dir.clone();
         let log = self.log.clone();
-        if key_cache.is_modified() {
+        if has_local_definitions && key_cache.is_modified() {
             tokio::task::spawn_blocking(move || {
                 match key_cache.save(validators_dir) {
                     Err(e) => warn!(
@@ -861,5 +1271,42 @@ impl InitializedValidators {
         if let Some(val) = self.validators.get_mut(pubkey) {
             val.index = Some(index);
         }
+    }
+
+    /// Deletes any passwords stored in the validator definitions file and
+    /// returns a map of pubkey to deleted password.
+    ///
+    /// This should only be used for testing, it's rather destructive.
+    pub fn delete_passwords_from_validator_definitions(
+        &mut self,
+    ) -> Result<HashMap<PublicKey, ZeroizeString>, Error> {
+        let mut passwords = HashMap::default();
+
+        for def in self.definitions.as_mut_slice() {
+            match &mut def.signing_definition {
+                SigningDefinition::LocalKeystore {
+                    ref mut voting_keystore_password,
+                    ..
+                } => {
+                    if let Some(password) = voting_keystore_password.take() {
+                        passwords.insert(def.voting_public_key.clone(), password);
+                    }
+                }
+                // Remote signers don't have passwords.
+                SigningDefinition::Web3Signer { .. } => (),
+            };
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(passwords)
+    }
+
+    /// Prefer other methods in production. Arbitrarily modifying a validator
+    /// definition manually may result in inconsistencies.
+    pub fn as_mut_slice_testing_only(&mut self) -> &mut [ValidatorDefinition] {
+        self.definitions.as_mut_slice()
     }
 }

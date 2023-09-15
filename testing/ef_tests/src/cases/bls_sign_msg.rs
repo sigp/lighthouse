@@ -1,6 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::cases::common::BlsCase;
+use crate::impl_bls_load_case;
 use bls::SecretKey;
 use serde_derive::Deserialize;
 use types::Hash256;
@@ -17,13 +17,9 @@ pub struct BlsSign {
     pub output: Option<String>,
 }
 
-impl BlsCase for BlsSign {}
+impl_bls_load_case!(BlsSign);
 
 impl Case for BlsSign {
-    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name == ForkName::Base
-    }
-
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         // Convert private_key and message to required types
         let sk = hex::decode(&self.input.privkey[2..])

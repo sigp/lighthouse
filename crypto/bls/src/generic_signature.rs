@@ -2,9 +2,9 @@ use crate::{
     generic_public_key::{GenericPublicKey, TPublicKey},
     Error, Hash256,
 };
-use eth2_serde_utils::hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+use serde_utils::hex::encode as hex_encode;
 use ssz::{Decode, Encode};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -78,6 +78,18 @@ where
     /// E.g., `Self::empty().is_empty() == true`
     pub fn is_empty(&self) -> bool {
         self.point.is_none()
+    }
+
+    /// Initialize self to the point-at-infinity.
+    ///
+    /// In general `AggregateSignature::infinity` should be used in favour of this function.
+    pub fn infinity() -> Result<Self, Error> {
+        Self::deserialize(&INFINITY_SIGNATURE)
+    }
+
+    /// Returns `true` if `self` is equal to the point at infinity.
+    pub fn is_infinity(&self) -> bool {
+        self.is_infinity
     }
 
     /// Returns a reference to the underlying BLS point.

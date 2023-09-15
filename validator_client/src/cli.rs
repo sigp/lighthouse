@@ -26,6 +26,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("proposer-nodes")
+                .long("proposer-nodes")
+                .value_name("NETWORK_ADDRESSES")
+                .help("Comma-separated addresses to one or more beacon node HTTP APIs. \
+                These specify nodes that are used to send beacon block proposals. A failure will revert back to the standard beacon nodes specified in --beacon-nodes."
+                )
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("disable-run-on-all")
+                .long("disable-run-on-all")
+                .value_name("DISABLE_RUN_ON_ALL")
+                .help("By default, Lighthouse publishes attestation, sync committee subscriptions \
+                       and proposer preparation messages to all beacon nodes provided in the \
+                       `--beacon-nodes flag`. This option changes that behaviour such that these \
+                       api calls only go out to the first available and synced beacon node")
+                .takes_value(false)
+        )
         // This argument is deprecated, use `--beacon-nodes` instead.
         .arg(
             Arg::with_name("server")
@@ -90,10 +109,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("allow-unsynced")
                 .long("allow-unsynced")
-                .help(
-                    "If present, the validator client will still poll for duties if the beacon
-                      node is not synced.",
-                ),
+                .help("DEPRECATED: this flag does nothing"),
         )
         .arg(
             Arg::with_name("use-long-timeouts")
@@ -108,7 +124,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("CERTIFICATE-FILES")
                 .takes_value(true)
                 .help("Comma-separated paths to custom TLS certificates to use when connecting \
-                        to a beacon node. These certificates must be in PEM format and are used \
+                        to a beacon node (and/or proposer node). These certificates must be in PEM format and are used \
                         in addition to the OS trust store. Commas must only be used as a \
                         delimiter, and must not be part of the certificate path.")
         )
@@ -131,17 +147,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("suggested-fee-recipient")
                 .long("suggested-fee-recipient")
-                .help("The fallback address provided to the BN if nothing suitable is found \
-                           in the validator definitions or fee recipient file.")
+                .help("Once the merge has happened, this address will receive transaction fees \
+                       from blocks proposed by this validator client. If a fee recipient is \
+                       configured in the validator definitions it takes priority over this value.")
                 .value_name("FEE-RECIPIENT")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("suggested-fee-recipient-file")
-                .long("suggested-fee-recipient-file")
-                .help("The fallback address provided to the BN if nothing suitable is found \
-                           in the validator definitions.")
-                .value_name("FEE-RECIPIENT-FILE")
                 .takes_value(true)
         )
         /* REST API related arguments */
@@ -195,6 +204,26 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     address of this server (e.g., http://localhost:5062).")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("http-allow-keystore-export")
+                .long("http-allow-keystore-export")
+                .help("If present, allow access to the DELETE /lighthouse/keystores HTTP \
+                    API method, which allows exporting keystores and passwords to HTTP API \
+                    consumers who have access to the API token. This method is useful for \
+                    exporting validators, however it should be used with caution since it \
+                    exposes private key data to authorized users.")
+                .required(false)
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("http-store-passwords-in-secrets-dir")
+                .long("http-store-passwords-in-secrets-dir")
+                .help("If present, any validators created via the HTTP will have keystore \
+                    passwords stored in the secrets-dir rather than the validator \
+                    definitions file.")
+                .required(false)
+                .takes_value(false),
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")
@@ -228,6 +257,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     address of this server (e.g., http://localhost:5064).")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("enable-high-validator-count-metrics")
+                .long("enable-high-validator-count-metrics")
+                .help("Enable per validator metrics for > 64 validators. \
+                    Note: This flag is automatically enabled for <= 64 validators. \
+                    Enabling this metric for higher validator counts will lead to higher volume \
+                    of prometheus metrics being collected.")
+                .takes_value(false),
+        )
         /*
          * Explorer metrics
          */
@@ -244,6 +282,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("monitoring-endpoint-period")
+                .long("monitoring-endpoint-period")
+                .value_name("SECONDS")
+                .help("Defines how many seconds to wait between each message sent to \
+                       the monitoring-endpoint. Default: 60s")
+                .requires("monitoring-endpoint")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("enable-doppelganger-protection")
                 .long("enable-doppelganger-protection")
                 .value_name("ENABLE_DOPPELGANGER_PROTECTION")
@@ -257,5 +304,75 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     ENABLE this functionality, without this flag Lighthouse will begin attesting \
                     immediately.")
                 .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("builder-proposals")
+                .long("builder-proposals")
+                .alias("private-tx-proposals")
+                .help("If this flag is set, Lighthouse will query the Beacon Node for only block \
+                    headers during proposals and will sign over headers. Useful for outsourcing \
+                    execution payload construction during proposals.")
+                .takes_value(false),
+        ).arg(
+            Arg::with_name("strict-fee-recipient")
+                .long("strict-fee-recipient")
+                .help("[DEPRECATED] If this flag is set, Lighthouse will refuse to sign any block whose \
+                        `fee_recipient` does not match the `suggested_fee_recipient` sent by this validator. \
+                         This applies to both the normal block proposal flow, as well as block proposals \
+                         through the builder API. Proposals through the builder API are more likely to have a \
+                         discrepancy in `fee_recipient` so you should be aware of how your connected relay \
+                         sends proposer payments before using this flag. If this flag is used, a fee recipient \
+                         mismatch in the builder API flow will result in a fallback to the local execution engine \
+                         for payload construction, where a strict fee recipient check will still be applied.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("builder-registration-timestamp-override")
+                .long("builder-registration-timestamp-override")
+                .alias("builder-registration-timestamp-override")
+                .help("This flag takes a unix timestamp value that will be used to override the \
+                    timestamp used in the builder api registration")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("gas-limit")
+                .long("gas-limit")
+                .value_name("INTEGER")
+                .takes_value(true)
+                .help("The gas limit to be used in all builder proposals for all validators managed \
+                    by this validator client. Note this will not necessarily be used if the gas limit \
+                    set here moves too far from the previous block's gas limit. [default: 30,000,000]")
+                .requires("builder-proposals"),
+        )
+        .arg(
+            Arg::with_name("latency-measurement-service")
+                .long("latency-measurement-service")
+                .value_name("BOOLEAN")
+                .help("Set to 'true' to enable a service that periodically attempts to measure latency to BNs. \
+                    Set to 'false' to disable.")
+                .default_value("true")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("validator-registration-batch-size")
+                .long("validator-registration-batch-size")
+                .value_name("INTEGER")
+                .help("Defines the number of validators per \
+                    validator/register_validator request sent to the BN. This value \
+                    can be reduced to avoid timeouts from builders.")
+                .default_value("500")
+                .takes_value(true),
+        )
+        /*
+         * Experimental/development options.
+         */
+        .arg(
+            Arg::with_name("block-delay-ms")
+                .long("block-delay-ms")
+                .value_name("MILLIS")
+                .hidden(true)
+                .help("Time to delay block production from the start of the slot. Should only be \
+                       used for testing.")
+                .takes_value(true),
         )
 }

@@ -1,5 +1,6 @@
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
+use std::str::FromStr;
 use url::Url;
 
 #[derive(Debug)]
@@ -7,6 +8,12 @@ pub enum SensitiveError {
     InvalidUrl(String),
     ParseError(url::ParseError),
     RedactError(String),
+}
+
+impl fmt::Display for SensitiveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 // Wrapper around Url which provides a custom `Display` implementation to protect user secrets.
@@ -39,7 +46,7 @@ impl Serialize for SensitiveUrl {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.full.to_string())
+        serializer.serialize_str(self.full.as_ref())
     }
 }
 
@@ -54,13 +61,21 @@ impl<'de> Deserialize<'de> for SensitiveUrl {
     }
 }
 
+impl FromStr for SensitiveUrl {
+    type Err = SensitiveError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
 impl SensitiveUrl {
     pub fn parse(url: &str) -> Result<Self, SensitiveError> {
         let surl = Url::parse(url).map_err(SensitiveError::ParseError)?;
         SensitiveUrl::new(surl)
     }
 
-    fn new(full: Url) -> Result<Self, SensitiveError> {
+    pub fn new(full: Url) -> Result<Self, SensitiveError> {
         let mut redacted = full.clone();
         redacted
             .path_segments_mut()

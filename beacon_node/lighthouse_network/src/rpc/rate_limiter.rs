@@ -1,6 +1,8 @@
-use crate::rpc::{InboundRequest, Protocol};
+use super::config::RateLimiterConfig;
+use crate::rpc::Protocol;
 use fnv::FnvHashMap;
 use libp2p::PeerId;
+use serde_derive::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::future::Future;
 use std::hash::Hash;
@@ -47,12 +49,31 @@ type Nanosecs = u64;
 /// n*`replenish_all_every`/`max_tokens` units of time since their last request.
 ///
 /// To produce hard limits, set `max_tokens` to 1.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quota {
     /// How often are `max_tokens` fully replenished.
-    replenish_all_every: Duration,
+    pub(super) replenish_all_every: Duration,
     /// Token limit. This translates on how large can an instantaneous batch of
     /// tokens be.
-    max_tokens: u64,
+    pub(super) max_tokens: u64,
+}
+
+impl Quota {
+    /// A hard limit of one token every `seconds`.
+    pub const fn one_every(seconds: u64) -> Self {
+        Quota {
+            replenish_all_every: Duration::from_secs(seconds),
+            max_tokens: 1,
+        }
+    }
+
+    /// Allow `n` tokens to be use used every `seconds`.
+    pub const fn n_every(n: u64, seconds: u64) -> Self {
+        Quota {
+            replenish_all_every: Duration::from_secs(seconds),
+            max_tokens: n,
+        }
+    }
 }
 
 /// Manages rate limiting of requests per peer, with differentiated rates per protocol.
@@ -73,9 +94,12 @@ pub struct RPCRateLimiter {
     bbrange_rl: Limiter<PeerId>,
     /// BlocksByRoot rate limiter.
     bbroots_rl: Limiter<PeerId>,
+    /// LightClientBootstrap rate limiter.
+    lcbootstrap_rl: Limiter<PeerId>,
 }
 
 /// Error type for non conformant requests
+#[derive(Debug)]
 pub enum RateLimitedErr {
     /// Required tokens for this request exceed the maximum
     TooLarge,
@@ -84,7 +108,7 @@ pub enum RateLimitedErr {
 }
 
 /// User-friendly builder of a `RPCRateLimiter`
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RPCRateLimiterBuilder {
     /// Quota for the Goodbye protocol.
     goodbye_quota: Option<Quota>,
@@ -98,16 +122,13 @@ pub struct RPCRateLimiterBuilder {
     bbrange_quota: Option<Quota>,
     /// Quota for the BlocksByRoot protocol.
     bbroots_quota: Option<Quota>,
+    /// Quota for the LightClientBootstrap protocol.
+    lcbootstrap_quota: Option<Quota>,
 }
 
 impl RPCRateLimiterBuilder {
-    /// Get an empty `RPCRateLimiterBuilder`.
-    pub fn new() -> Self {
-        Default::default()
-    }
-
     /// Set a quota for a protocol.
-    fn set_quota(mut self, protocol: Protocol, quota: Quota) -> Self {
+    pub fn set_quota(mut self, protocol: Protocol, quota: Quota) -> Self {
         let q = Some(quota);
         match protocol {
             Protocol::Ping => self.ping_quota = q,
@@ -116,31 +137,9 @@ impl RPCRateLimiterBuilder {
             Protocol::Goodbye => self.goodbye_quota = q,
             Protocol::BlocksByRange => self.bbrange_quota = q,
             Protocol::BlocksByRoot => self.bbroots_quota = q,
+            Protocol::LightClientBootstrap => self.lcbootstrap_quota = q,
         }
         self
-    }
-
-    /// Allow one token every `time_period` to be used for this `protocol`.
-    /// This produces a hard limit.
-    pub fn one_every(self, protocol: Protocol, time_period: Duration) -> Self {
-        self.set_quota(
-            protocol,
-            Quota {
-                replenish_all_every: time_period,
-                max_tokens: 1,
-            },
-        )
-    }
-
-    /// Allow `n` tokens to be use used every `time_period` for this `protocol`.
-    pub fn n_every(self, protocol: Protocol, n: u64, time_period: Duration) -> Self {
-        self.set_quota(
-            protocol,
-            Quota {
-                max_tokens: n,
-                replenish_all_every: time_period,
-            },
-        )
     }
 
     pub fn build(self) -> Result<RPCRateLimiter, &'static str> {
@@ -155,6 +154,9 @@ impl RPCRateLimiterBuilder {
         let bbrange_quota = self
             .bbrange_quota
             .ok_or("BlocksByRange quota not specified")?;
+        let lcbootstrap_quote = self
+            .lcbootstrap_quota
+            .ok_or("LightClientBootstrap quota not specified")?;
 
         // create the rate limiters
         let ping_rl = Limiter::from_quota(ping_quota)?;
@@ -163,6 +165,7 @@ impl RPCRateLimiterBuilder {
         let goodbye_rl = Limiter::from_quota(goodbye_quota)?;
         let bbroots_rl = Limiter::from_quota(bbroots_quota)?;
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
+        let lcbootstrap_rl = Limiter::from_quota(lcbootstrap_quote)?;
 
         // check for peers to prune every 30 seconds, starting in 30 seconds
         let prune_every = tokio::time::Duration::from_secs(30);
@@ -176,41 +179,72 @@ impl RPCRateLimiterBuilder {
             goodbye_rl,
             bbroots_rl,
             bbrange_rl,
+            lcbootstrap_rl,
             init_time: Instant::now(),
         })
     }
 }
 
+pub trait RateLimiterItem {
+    fn protocol(&self) -> Protocol;
+    fn expected_responses(&self) -> u64;
+}
+
+impl<T: EthSpec> RateLimiterItem for super::InboundRequest<T> {
+    fn protocol(&self) -> Protocol {
+        self.versioned_protocol().protocol()
+    }
+
+    fn expected_responses(&self) -> u64 {
+        self.expected_responses()
+    }
+}
+
+impl<T: EthSpec> RateLimiterItem for super::OutboundRequest<T> {
+    fn protocol(&self) -> Protocol {
+        self.versioned_protocol().protocol()
+    }
+
+    fn expected_responses(&self) -> u64 {
+        self.expected_responses()
+    }
+}
 impl RPCRateLimiter {
-    pub fn allows<T: EthSpec>(
+    pub fn new_with_config(config: RateLimiterConfig) -> Result<Self, &'static str> {
+        // Destructure to make sure every configuration value is used.
+        let RateLimiterConfig {
+            ping_quota,
+            meta_data_quota,
+            status_quota,
+            goodbye_quota,
+            blocks_by_range_quota,
+            blocks_by_root_quota,
+            light_client_bootstrap_quota,
+        } = config;
+
+        Self::builder()
+            .set_quota(Protocol::Ping, ping_quota)
+            .set_quota(Protocol::MetaData, meta_data_quota)
+            .set_quota(Protocol::Status, status_quota)
+            .set_quota(Protocol::Goodbye, goodbye_quota)
+            .set_quota(Protocol::BlocksByRange, blocks_by_range_quota)
+            .set_quota(Protocol::BlocksByRoot, blocks_by_root_quota)
+            .set_quota(Protocol::LightClientBootstrap, light_client_bootstrap_quota)
+            .build()
+    }
+
+    /// Get a builder instance.
+    pub fn builder() -> RPCRateLimiterBuilder {
+        RPCRateLimiterBuilder::default()
+    }
+
+    pub fn allows<Item: RateLimiterItem>(
         &mut self,
         peer_id: &PeerId,
-        request: &InboundRequest<T>,
+        request: &Item,
     ) -> Result<(), RateLimitedErr> {
         let time_since_start = self.init_time.elapsed();
-        let mut tokens = request.expected_responses().max(1);
-
-        // Increase the rate limit for blocks by range requests with large step counts.
-        // We count to tokens as a quadratic increase with step size.
-        // Using (step_size/5)^2 + 1 as penalty factor allows step sizes of 1-4 to have no penalty
-        // but step sizes higher than this add a quadratic penalty.
-        // Penalty's go:
-        // Step size | Penalty Factor
-        //     1     |   1
-        //     2     |   1
-        //     3     |   1
-        //     4     |   1
-        //     5     |   2
-        //     6     |   2
-        //     7     |   2
-        //     8     |   3
-        //     9     |   4
-        //     10    |   5
-
-        if let InboundRequest::BlocksByRange(bbr_req) = request {
-            let penalty_factor = (bbr_req.step as f64 / 5.0).powi(2) as u64 + 1;
-            tokens *= penalty_factor;
-        }
+        let tokens = request.expected_responses().max(1);
 
         let check =
             |limiter: &mut Limiter<PeerId>| limiter.allows(time_since_start, peer_id, tokens);
@@ -221,6 +255,7 @@ impl RPCRateLimiter {
             Protocol::Goodbye => &mut self.goodbye_rl,
             Protocol::BlocksByRange => &mut self.bbrange_rl,
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
+            Protocol::LightClientBootstrap => &mut self.lcbootstrap_rl,
         };
         check(limiter)
     }
