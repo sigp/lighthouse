@@ -544,7 +544,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
         let mut errors: Vec<(usize, AttnError)> = Vec::new();
-        let mut to_process: Vec<(&GossipAggregatePackage<_>, SignedAggregateAndProof<_>)> = 
+        let mut to_process: Vec<(&GossipAggregatePackage<_>, SignedAggregateAndProof<_>)> =
             Vec::with_capacity(packages.len());
 
         for (idx, package) in packages.iter().enumerate() {
@@ -552,14 +552,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 &package.aggregate.message.aggregate,
                 package.aggregate.message.aggregate.data.tree_hash_root(),
             ) {
-                Ok(None) => {
-                    match package.aggregate.clone().not_lazy() {
-                        Ok(agg) => {
-                            to_process.push((package, agg));
-                        }
-                        Err(e) => errors.push((idx, e.into())),
+                Ok(None) => match package.aggregate.clone().not_lazy() {
+                    Ok(agg) => {
+                        to_process.push((package, agg));
                     }
-                }
+                    Err(e) => errors.push((idx, e.into())),
+                },
                 Ok(Some(root)) => {
                     errors.push((idx, AttnError::AttestationSupersetKnown(root)));
                 }
@@ -651,7 +649,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let dummy_aggregate = Box::new(LazySignedAggregateAndProof {
             message: LazyAggregateAndProof {
                 aggregator_index: 0,
-                aggregate: LazyAttestation::<T::EthSpec> { 
+                aggregate: LazyAttestation::<T::EthSpec> {
                     aggregation_bits: BitList::with_capacity(<<T as BeaconChainTypes>::EthSpec as types::EthSpec>::MaxValidatorsPerCommittee::to_usize()).unwrap(),
                     data: AttestationData {
                         slot: Slot::new(0),
@@ -665,8 +663,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             epoch: Epoch::new(0),
                             root: Hash256::zero(),
                         },
-                    }, 
-                    signature: SignatureBytes::empty(), 
+                    },
+                    signature: SignatureBytes::empty(),
                 },
                 selection_proof: Signature::empty().into(),
             },
@@ -676,7 +674,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         for (idx, attestation_error) in errors {
             let skipped_package = &mut packages[idx];
             let rejected_aggregate = RejectedAggregate {
-                signed_aggregate: LazyOrNotSignedAggregateAndProof::Lazy(std::mem::replace(&mut skipped_package.aggregate, dummy_aggregate.clone())),
+                signed_aggregate: LazyOrNotSignedAggregateAndProof::Lazy(std::mem::replace(
+                    &mut skipped_package.aggregate,
+                    dummy_aggregate.clone(),
+                )),
                 error: attestation_error,
             };
             self.process_gossip_aggregate_result(
