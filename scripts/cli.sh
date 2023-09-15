@@ -83,7 +83,7 @@ check ${old_files[3]} ${new_files[3]}
 check ${old_files[4]} ${new_files[4]}
 
 # remove help files
-rm -f help_general.md help_bn.md help_vc.md help_am.md
+rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md
 
 # only exit at the very end
 if [[ $changes == true ]]; then
