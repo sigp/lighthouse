@@ -124,7 +124,6 @@ The command will create two files:
 The VC which will receive the validators needs to have the following flags at a minimum:
 
 - `--http`
-- `--http-port 5062`
 - `--enable-doppelganger-protection`
 
 Therefore, the VC command might look like:
@@ -133,7 +132,6 @@ Therefore, the VC command might look like:
 lighthouse \
     vc \
     --http \
-    --http-port 5062 \
     --enable-doppelganger-protection
 ```
 

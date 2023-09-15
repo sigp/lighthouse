@@ -58,12 +58,12 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         set_network_config(&mut network_config, matches, &data_dir, &logger)?;
 
-        // Set the Enr UDP ports to the listening ports if not present.
+        // Set the Enr Discovery ports to the listening ports if not present.
         if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
             network_config.enr_udp4_port = Some(
                 network_config
                     .enr_udp4_port
-                    .unwrap_or(listening_addr_v4.udp_port),
+                    .unwrap_or(listening_addr_v4.disc_port),
             )
         };
 
@@ -71,7 +71,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
             network_config.enr_udp6_port = Some(
                 network_config
                     .enr_udp6_port
-                    .unwrap_or(listening_addr_v6.udp_port),
+                    .unwrap_or(listening_addr_v6.disc_port),
             )
         };
 

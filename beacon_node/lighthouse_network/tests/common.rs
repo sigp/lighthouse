@@ -13,7 +13,6 @@ use tokio::runtime::Runtime;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Slot,
 };
-use unused_port::unused_tcp4_port;
 
 type E = MinimalEthSpec;
 type ReqId = usize;
@@ -68,15 +67,19 @@ pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
     }
 }
 
-pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
+pub fn build_config(mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     let mut config = NetworkConfig::default();
+
+    // Find unused ports by using the 0 port.
+    let port = 0;
+
+    let random_path: u16 = rand::random();
     let path = TempBuilder::new()
-        .prefix(&format!("libp2p_test{}", port))
+        .prefix(&format!("libp2p_test_{}", random_path))
         .tempdir()
         .unwrap();
 
-    config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, port, port);
-    config.enr_udp4_port = Some(port);
+    config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, port, port, port);
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
@@ -96,8 +99,7 @@ pub async fn build_libp2p_instance(
     fork_name: ForkName,
     spec: &ChainSpec,
 ) -> Libp2pInstance {
-    let port = unused_tcp4_port().unwrap();
-    let config = build_config(port, boot_nodes);
+    let config = build_config(boot_nodes);
     // launch libp2p service
 
     let (signal, exit) = exit_future::signal();
@@ -124,6 +126,12 @@ pub fn get_enr(node: &LibP2PService<ReqId, E>) -> Enr {
     node.local_enr()
 }
 
+// Protocol for the node pair connection.
+pub enum Protocol {
+    Tcp,
+    Quic,
+}
+
 // Constructs a pair of nodes with separate loggers. The sender dials the receiver.
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]
@@ -132,6 +140,7 @@ pub async fn build_node_pair(
     log: &slog::Logger,
     fork_name: ForkName,
     spec: &ChainSpec,
+    protocol: Protocol,
 ) -> (Libp2pInstance, Libp2pInstance) {
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
@@ -139,33 +148,57 @@ pub async fn build_node_pair(
     let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log, fork_name, spec).await;
     let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name, spec).await;
 
-    let receiver_multiaddr = receiver.local_enr().multiaddr()[1].clone();
-
     // let the two nodes set up listeners
     let sender_fut = async {
         loop {
-            if let NetworkEvent::NewListenAddr(_) = sender.next_event().await {
-                return;
+            if let NetworkEvent::NewListenAddr(addr) = sender.next_event().await {
+                // Only end once we've listened on the protocol we care about
+                match protocol {
+                    Protocol::Tcp => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::Tcp(_))
+                        }) {
+                            return addr;
+                        }
+                    }
+                    Protocol::Quic => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::QuicV1)
+                        }) {
+                            return addr;
+                        }
+                    }
+                }
             }
         }
     };
     let receiver_fut = async {
         loop {
-            if let NetworkEvent::NewListenAddr(_) = receiver.next_event().await {
-                return;
+            if let NetworkEvent::NewListenAddr(addr) = receiver.next_event().await {
+                match protocol {
+                    Protocol::Tcp => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::Tcp(_))
+                        }) {
+                            return addr;
+                        }
+                    }
+                    Protocol::Quic => {
+                        if addr.iter().any(|multiaddr_proto| {
+                            matches!(multiaddr_proto, libp2p::multiaddr::Protocol::QuicV1)
+                        }) {
+                            return addr;
+                        }
+                    }
+                }
             }
         }
     };
 
     let joined = futures::future::join(sender_fut, receiver_fut);
 
-    // wait for either both nodes to listen or a timeout
-    tokio::select! {
-        _  = tokio::time::sleep(Duration::from_millis(500)) => {}
-        _ = joined => {}
-    }
+    let receiver_multiaddr = joined.await.1;
 
-    // sender.dial_peer(peer_id);
     match sender.testing_dial(receiver_multiaddr.clone()) {
         Ok(()) => {
             debug!(log, "Sender dialed receiver"; "address" => format!("{:?}", receiver_multiaddr))

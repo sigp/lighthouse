@@ -8,6 +8,7 @@ use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
+use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
@@ -659,8 +660,8 @@ fn run<E: EthSpec>(
                 executor.clone().spawn(
                     async move {
                         if let Err(e) = ProductionValidatorClient::new(context, config)
+                            .and_then(|mut vc| async move { vc.start_service().await })
                             .await
-                            .and_then(|mut vc| vc.start_service())
                         {
                             crit!(log, "Failed to start validator client"; "reason" => e);
                             // Ignore the error since it always occurs during normal operation when
