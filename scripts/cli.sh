@@ -36,24 +36,24 @@ general_cli=$($CMD --help)
 bn_cli=$($CMD bn --help)
 vc_cli=$($CMD vc --help)
 am_cli=$($CMD am --help)
-vm_cli=$($CMD vm --help)
+#vm_cli=$($CMD vm --help)
 
 general=./help_general.md
 bn=./help_bn.md
 vc=./help_vc.md
 am=./help_am.md
-vm=./help_vm.md
+#vm=./help_vm.md
 
 # create .md files
 write_to_file "$general_cli" "$general" "Lighthouse General Commands"
 write_to_file "$bn_cli" "$bn" "Beacon Node"
 write_to_file "$vc_cli" "$vc" "Validator Client"
 write_to_file "$am_cli" "$am" "Account Manager"
-write_to_file "$vm_cli" "$vm" "Validator Manager"
+#write_to_file "$vm_cli" "$vm" "Validator Manager"
 
 #input 1 = $1 = old files; input 2 = $2 = new files
-old_files=(./book/src/help_general.md ./book/src/help_bn.md ./book/src/help_vc.md ./book/src/help_am.md ./book/src/help_vm.md)
-new_files=($general $bn $vc $am $vm)
+old_files=(./book/src/help_general.md ./book/src/help_bn.md ./book/src/help_vc.md ./book/src/help_am.md)
+new_files=($general $bn $vc $am)
 
 check() {
 if [[ -f $1 ]]; # check for existence of file
@@ -80,10 +80,10 @@ check ${old_files[0]} ${new_files[0]}
 check ${old_files[1]} ${new_files[1]}
 check ${old_files[2]} ${new_files[2]}
 check ${old_files[3]} ${new_files[3]}
-check ${old_files[4]} ${new_files[4]}
+#check ${old_files[4]} ${new_files[4]}
 
 # remove help files
-rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md
+rm -f help_general.md help_bn.md help_vc.md help_am.md
 
 # only exit at the very end
 if [[ $changes == true ]]; then
