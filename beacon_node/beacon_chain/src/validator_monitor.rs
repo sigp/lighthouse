@@ -3,7 +3,7 @@
 //! This component should not affect consensus.
 
 use crate::metrics;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use slog::{crit, debug, info, Logger};
 use slot_clock::SlotClock;
 use state_processing::per_epoch_processing::{
@@ -14,6 +14,7 @@ use std::convert::TryFrom;
 use std::io;
 use std::marker::PhantomData;
 use std::str::Utf8Error;
+use std::sync::{Arc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::AbstractExecPayload;
 use types::{AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit};
@@ -345,10 +346,9 @@ pub struct ValidatorMonitor<T> {
     individual_tracking_threshold: usize,
     /// A Map representing the (non-finalized) missed blocks by epoch, validator_index(state.validators) and slot
     missed_blocks: HashSet<(Epoch, u64, Slot)>,
-    /// The last finalized checkpoint the is used to detect missed (finalized) blocks
-    last_finalized_checkpoint: Checkpoint,
+    // A beacon proposer cache
+    beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
     log: Logger,
-    beacon_proposer_cache: BeaconProposerCache,
     _phantom: PhantomData<T>,
 }
 
@@ -357,7 +357,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         pubkeys: Vec<PublicKeyBytes>,
         auto_register: bool,
         individual_tracking_threshold: usize,
-        beacon_proposer_cache: BeaconProposerCache,
+        beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
         log: Logger,
     ) -> Self {
         let mut s = Self {
@@ -366,8 +366,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             auto_register,
             individual_tracking_threshold,
             missed_blocks: <_>::default(),
-            log,
             beacon_proposer_cache,
+            log,
             _phantom: PhantomData,
         };
         for pubkey in pubkeys {
@@ -530,9 +530,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 if block_root == prev_block_root {
                     let epoch = slot.epoch(T::slots_per_epoch());
                     if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root(epoch, *block_root) {
-                        // TODO: AI(Joel) Ask the team if we can use the beacon proposer cache without the mutex
-                        // mutex is implemented in the caller (BeaconChain), not in the cache implementation
-                        if let Some(proposer) = self.beacon_proposer_cache.get_slot::<T>(shuffling_decision_block, slot) {
+                        if let Some(proposer) = self.beacon_proposer_cache
+                            .lock()
+                            .get_slot::<T>(shuffling_decision_block, slot) {
                             // only add missed blocks for the proposer if it's in the list of monitored validators
                             if self.validators
                                 .values()

@@ -516,6 +516,7 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
+        let beacon_proposer_cache = Arc::new(Mutex::new(<_>::default()));
         let chain_config = self.chain_config.unwrap_or_default();
 
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
@@ -537,7 +538,8 @@ where
                 log.clone(),
                 5,
             )))
-            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log);
+            .beacon_proposer_cache(beacon_proposer_cache.clone())
+            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, beacon_proposer_cache, log);
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)

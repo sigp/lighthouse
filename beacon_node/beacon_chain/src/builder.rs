@@ -21,7 +21,7 @@ use execution_layer::ExecutionLayer;
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
 use slog::{crit, debug, error, info, Logger};
@@ -36,6 +36,7 @@ use types::{
     BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256,
     PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
 };
+use crate::beacon_proposer_cache::BeaconProposerCache;
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
@@ -96,6 +97,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
     task_executor: Option<TaskExecutor>,
+    beacon_proposer_cache: Option<Arc<Mutex<BeaconProposerCache>>>
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
@@ -135,6 +137,7 @@ where
             validator_monitor: None,
             pending_io_batch: vec![],
             task_executor: None,
+            beacon_proposer_cache: None,
         }
     }
 
@@ -606,6 +609,14 @@ where
         self
     }
 
+    pub fn beacon_proposer_cache(
+        mut self,
+        beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
+    ) -> Self {
+        self.beacon_proposer_cache = Some(beacon_proposer_cache);
+        self
+    }
+
     /// Register some validators for additional monitoring.
     ///
     /// `validators` is a comma-separated string of 0x-formatted BLS pubkeys.
@@ -614,12 +625,14 @@ where
         auto_register: bool,
         validators: Vec<PublicKeyBytes>,
         individual_metrics_threshold: usize,
+        beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
         log: Logger,
     ) -> Self {
         self.validator_monitor = Some(ValidatorMonitor::new(
             validators,
             auto_register,
             individual_metrics_threshold,
+            beacon_proposer_cache.clone(),
             log.clone(),
         ));
         self
@@ -882,7 +895,9 @@ where
                 log.clone(),
             )),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
-            beacon_proposer_cache: <_>::default(),
+            beacon_proposer_cache: self
+                .beacon_proposer_cache
+                .ok_or("Cannot build a beacon proposer cache.")?,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),

@@ -33,8 +33,10 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use parking_lot::Mutex;
 use timer::spawn_timer;
 use tokio::sync::oneshot;
+use beacon_chain::beacon_proposer_cache::BeaconProposerCache;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -178,6 +180,9 @@ where
             None
         };
 
+        // Required for monitor_validators
+        let beacon_proposer_cache = Arc::new(Mutex::new(BeaconProposerCache::default()));
+
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
             .store(store)
@@ -190,10 +195,12 @@ where
             .graffiti(graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
+            .beacon_proposer_cache(beacon_proposer_cache.clone())
             .monitor_validators(
                 config.validator_monitor_auto,
                 config.validator_monitor_pubkeys.clone(),
                 config.validator_monitor_individual_tracking_threshold,
+                beacon_proposer_cache,
                 runtime_context
                     .service_context("val_mon".to_string())
                     .log()
