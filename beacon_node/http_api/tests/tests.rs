@@ -4964,18 +4964,24 @@ async fn block_production_verify_randao_invalid() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn blinded_block_production_full_payload_premerge() {
+async fn block_production_ssz_full_payload() {
+    ApiTester::new().await.test_block_production_ssz().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_ssz_with_skip_slots() {
     ApiTester::new()
         .await
-        .test_blinded_block_production::<FullPayload<_>>()
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_block_production_ssz()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn block_production_ssz_full_payload_premerge() {
+async fn blinded_block_production_full_payload_premerge() {
     ApiTester::new()
         .await
-        .test_block_production_ssz()
+        .test_blinded_block_production::<FullPayload<_>>()
         .await;
 }
 
