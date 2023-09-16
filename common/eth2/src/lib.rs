@@ -1795,7 +1795,7 @@ impl BeaconNodeHttpClient {
             )
             .await?;
 
-        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block_ssz)
             .await
     }
 

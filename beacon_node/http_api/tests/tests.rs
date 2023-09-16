@@ -2501,6 +2501,70 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_block_production_ssz(self) -> Self {
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+
+            let proposer_pubkey_bytes = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|duty| duty.slot == slot)
+                .map(|duty| duty.pubkey)
+                .unwrap();
+            let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+            let sk = self
+                .validator_keypairs()
+                .iter()
+                .find(|kp| kp.pk == proposer_pubkey)
+                .map(|kp| kp.sk.clone())
+                .unwrap();
+
+            let randao_reveal = {
+                let domain = self.chain.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = epoch.signing_root(domain);
+                sk.sign(message).into()
+            };
+
+            let block_bytes = self
+                .client
+                .get_validator_blocks_ssz::<E, FullPayload<E>>(slot, &randao_reveal, None)
+                .await
+                .unwrap()
+                .expect("block bytes");
+
+            let block =
+                BeaconBlock::<E, FullPayload<E>>::from_ssz_bytes(&block_bytes, &self.chain.spec)
+                    .expect("block bytes can be decoded");
+
+            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+
+            self.client
+                .post_beacon_blocks_ssz(&signed_block)
+                .await
+                .unwrap();
+
+            assert_eq!(self.chain.head_beacon_block().as_ref(), &signed_block);
+
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+
+        self
+    }
+
     pub async fn test_block_production_no_verify_randao(self) -> Self {
         for _ in 0..E::slots_per_epoch() {
             let slot = self.chain.slot().unwrap();
@@ -2622,15 +2686,12 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            let block_bytes = self
+            let block = self
                 .client
-                .get_validator_blinded_blocks_ssz::<E, Payload>(slot, &randao_reveal, None)
+                .get_validator_blinded_blocks::<E, Payload>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
-                .expect("block bytes");
-
-            let block = BeaconBlock::<E, Payload>::from_ssz_bytes(&block_bytes, &self.chain.spec)
-                .expect("block bytes can be decoded");
+                .data;
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
@@ -2685,12 +2746,15 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            let block = self
+            let block_bytes = self
                 .client
-                .get_validator_blinded_blocks::<E, Payload>(slot, &randao_reveal, None)
+                .get_validator_blinded_blocks_ssz::<E, Payload>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
-                .data;
+                .expect("block bytes");
+
+            let block = BeaconBlock::<E, Payload>::from_ssz_bytes(&block_bytes, &self.chain.spec)
+                .expect("block bytes can be decoded");
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
@@ -4904,6 +4968,14 @@ async fn blinded_block_production_full_payload_premerge() {
     ApiTester::new()
         .await
         .test_blinded_block_production::<FullPayload<_>>()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_ssz_full_payload_premerge() {
+    ApiTester::new()
+        .await
+        .test_block_production_ssz()
         .await;
 }
 
