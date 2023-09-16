@@ -524,8 +524,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 continue;
             }
 
-            // condition for missed_block is defined such as block_root == block_root - n
-            // where the proposer who missed the block is the proposer of the block at block_root - n
+            // condition for missed_block is defined such as block_root(slot) == block_root(slot - 1)
+            // where the proposer who missed the block is the proposer of the block at block_root(slot)
             if let (Ok(block_root), Ok(prev_block_root)) = (state.get_block_root(slot), state.get_block_root(prev_slot)) {
                 if block_root == prev_block_root {
                     let epoch = slot.epoch(T::slots_per_epoch());
