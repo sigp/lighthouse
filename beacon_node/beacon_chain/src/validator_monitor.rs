@@ -16,11 +16,7 @@ use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::AbstractExecPayload;
-use types::{
-    AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
-    IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
-    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
-};
+use types::{AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit};
 use crate::beacon_proposer_cache::BeaconProposerCache;
 
 /// Used for Prometheus labels.
@@ -347,8 +343,10 @@ pub struct ValidatorMonitor<T> {
     /// large validator counts causing infeasibly high cardinailty for
     /// Prometheus and high log volumes.
     individual_tracking_threshold: usize,
-    /// A Map representing the missed blocks by epoch, validator_index(state.validators) and slot
+    /// A Map representing the (non-finalized) missed blocks by epoch, validator_index(state.validators) and slot
     missed_blocks: HashSet<(Epoch, u64, Slot)>,
+    /// The last finalized checkpoint the is used to detect missed (finalized) blocks
+    last_finalized_checkpoint: Checkpoint,
     log: Logger,
     beacon_proposer_cache: BeaconProposerCache,
     _phantom: PhantomData<T>,
@@ -521,9 +519,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             let slot = state.slot() - Slot::new(n as u64);
             let prev_slot = slot - 1;
 
-            // safeguard if we are on a new chain, the slot - 1 can be negative
-            if prev_slot < 0 {
-                break;
+            // if the slot is 0, we have reached genesis
+            if slot == 0 {
+                continue;
             }
 
             // condition for missed_block is defined such as block_root == block_root - n
