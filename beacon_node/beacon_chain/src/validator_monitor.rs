@@ -16,6 +16,7 @@ use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::sync::{Arc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use execution_layer::deposit_methods::BlockQuery::Hash;
 use store::AbstractExecPayload;
 use types::{AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit};
 use crate::beacon_proposer_cache::BeaconProposerCache;
@@ -519,7 +520,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             let slot = state.slot() - Slot::new(n as u64);
             let prev_slot = slot - 1;
 
-            // if the slot is 0, we have reached genesis
+            // we want to skip the genesis slot as it is not possible to miss a block in the genesis slot
             if slot == 0 {
                 continue;
             }
@@ -529,7 +530,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             if let (Ok(block_root), Ok(prev_block_root)) = (state.get_block_root(slot), state.get_block_root(prev_slot)) {
                 if block_root == prev_block_root {
                     let epoch = slot.epoch(T::slots_per_epoch());
-                    if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root(epoch, *block_root) {
+                    // As we are skipping the genesis slot, we can simply pass Hash256::zero() as we are skipping the genesis slot
+                    if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root(epoch, Hash256::zero()) {
                         if let Some(proposer) = self.beacon_proposer_cache
                             .lock()
                             .get_slot::<T>(shuffling_decision_block, slot) {
