@@ -546,10 +546,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         } else {
                             debug!(
                                 self.log,
-                                "Could not find proposer for a missed non-finalized block in beacon proposer cache";
-                                "slot" => slot,
-                                "block_root" => format!("{}", block_root),
-                                "shuffling_decision_block" => format!("{}", shuffling_decision_block),
+                                "Could not find proposer for a missed non-finalized block in beacon proposer cache, slot {slot:?}, block_root {block_root:?}, shuffling_decision_block {shuffling_decision_block:?}",
                             );
                         }
                     }
