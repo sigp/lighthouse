@@ -7,6 +7,7 @@ on:
       - staging
       - trying
       - 'pr/*'
+      - runners-sccache
   pull_request:
   merge_group:
 
@@ -58,7 +59,7 @@ jobs:
   release-tests-ubuntu:
     name: release-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "sccache"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
@@ -71,6 +72,8 @@ jobs:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in release
       run: make test-release
+    - name: show cache stats
+      run: sccache --show-stats
   release-tests-windows:
     name: release-tests-windows
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows"]') || 'windows-2019'  }}
@@ -98,7 +101,7 @@ jobs:
   beacon-chain-tests:
     name: beacon-chain-tests
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "sccache"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
@@ -107,6 +110,8 @@ jobs:
       run: rustup update stable
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
+    - name: show cache stats
+      run: sccache --show-stats
   op-pool-tests:
     name: op-pool-tests
     runs-on: ubuntu-latest
@@ -130,7 +135,7 @@ jobs:
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "sccache"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
@@ -143,6 +148,8 @@ jobs:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in debug
       run: make test-debug
+    - name: show cache stats
+      run: sccache --show-stats
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
     runs-on: ubuntu-latest
