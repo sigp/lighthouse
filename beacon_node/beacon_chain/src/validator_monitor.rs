@@ -16,9 +16,8 @@ use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::sync::{Arc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use execution_layer::deposit_methods::BlockQuery::Hash;
 use store::AbstractExecPayload;
-use types::{AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit};
+use types::{AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit};
 use crate::beacon_proposer_cache::BeaconProposerCache;
 
 /// Used for Prometheus labels.
@@ -518,8 +517,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let range_of_slots = T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS;
         let start_slot = state.slot() - Slot::new(range_of_slots as u64) + 1;
         for n in 0..range_of_slots {
-            let slot =  start_slot + n as u64;
-            let prev_slot =  slot - 1;
+            let slot = start_slot + n as u64;
+            let prev_slot = slot - 1;
 
             // we want to skip the genesis slot as it is not possible to miss a block in the genesis slot
             if slot == 0 {
@@ -533,28 +532,25 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     let epoch = slot.epoch(T::slots_per_epoch());
                     // As we are skipping the genesis slot, we can simply pass Hash256::zero() as we are skipping the genesis slot
                     if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root(epoch, Hash256::zero()) {
-                        if let Some(proposer) = self.beacon_proposer_cache
+                        if let Some(proposers_per_epoch) = self.beacon_proposer_cache
                             .lock()
-                            .get_slot::<T>(shuffling_decision_block, slot) {
+                            .get_epoch::<T>(shuffling_decision_block, epoch) {
                             // only add missed blocks for the proposer if it's in the list of monitored validators
-                            if self.validators
-                                .values()
-                                .into_iter()
-                                .find(|validator| validator.index == Some(proposer.index as u64))
-                                .is_some() {
-                                self.missed_blocks.insert((epoch, proposer.index as u64, slot));
+                            if let Some(proposer_index) = proposers_per_epoch.get(slot.as_usize() % T::slots_per_epoch() as usize) {
+                                if self.validators
+                                    .values()
+                                    .into_iter()
+                                    .filter_map(|v| v.index)
+                                    .find(|i| *i == *proposer_index as u64)
+                                    .is_some() {
+                                    self.missed_blocks.insert((epoch, *proposer_index as u64, slot));
+                                }
                             }
-                        } else {
-                            debug!(
-                                self.log,
-                                "Could not find proposer for a missed non-finalized block in beacon proposer cache, slot {slot:?}, block_root {block_root:?}, shuffling_decision_block {shuffling_decision_block:?}",
-                            );
                         }
                     }
                 }
             }
         }
-
         // Prune missed blocks that are prior to last finalized epoch
         let finalized_epoch = state.finalized_checkpoint().epoch;
         self.missed_blocks.retain(|(epoch, _, _)| *epoch >= finalized_epoch);
