@@ -2482,16 +2482,12 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            let block_bytes = self
+            let block = self
                 .client
-                .get_validator_blocks_ssz::<E, FullPayload<E>>(slot, &randao_reveal, None)
+                .get_validator_blocks::<E, FullPayload<E>>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
-                .expect("block bytes");
-
-            let block =
-                BeaconBlock::<E, FullPayload<E>>::from_ssz_bytes(&block_bytes, &self.chain.spec)
-                    .expect("block bytes can be decoded");
+                .data;
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
