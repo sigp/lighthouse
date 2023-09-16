@@ -420,7 +420,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             });
 
         // Add missed blocks for the monitored validators
-        self.add_validators_missed_blocks(current_epoch, state);
+        self.add_validators_missed_blocks(state);
 
         // Update metrics for individual validators.
         for monitored_validator in self.validators.values() {
@@ -512,7 +512,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
     }
 
-    fn add_validators_missed_blocks(&mut self, current_epoch: Epoch, state: &BeaconState<T>) {
+    fn add_validators_missed_blocks(&mut self, state: &BeaconState<T>) {
         // Determine missed (non-finalized) blocks (can contain false positives)
         let range_of_slot = (T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS) - 1;
         for n in 0..range_of_slot {
@@ -539,7 +539,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                 .into_iter()
                                 .find(|validator| validator.index == Some(proposer.index as u64))
                                 .is_some() {
-                                self.missed_blocks.insert((current_epoch, proposer.index as u64, slot));
+                                self.missed_blocks.insert((epoch, proposer.index as u64, slot));
                             }
                         } else {
                             debug!(
