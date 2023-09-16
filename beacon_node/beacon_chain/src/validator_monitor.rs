@@ -515,10 +515,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
     fn add_validators_missed_blocks(&mut self, state: &BeaconState<T>) {
         // Determine missed (non-finalized) blocks (can contain false positives)
-        let range_of_slot = (T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS) - 1;
-        for n in 0..range_of_slot {
-            let slot = state.slot() - Slot::new(n as u64);
-            let prev_slot = slot - 1;
+        let range_of_slots = T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS;
+        let start_slot = state.slot() - Slot::new(range_of_slots as u64) + 1;
+        for n in 0..range_of_slots {
+            let slot =  start_slot + n as u64;
+            let prev_slot =  slot - 1;
 
             // we want to skip the genesis slot as it is not possible to miss a block in the genesis slot
             if slot == 0 {
