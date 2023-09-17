@@ -20,7 +20,10 @@ use futures::StreamExt;
 use smallvec::SmallVec;
 use store::AbstractExecPayload;
 use types::{AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit};
-use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::beacon_proposer_cache::{
+    BeaconProposerCache,
+    TYPICAL_SLOTS_PER_EPOCH
+};
 
 /// Used for Prometheus labels.
 ///
@@ -529,8 +532,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let start_slot_epoch = start_slot.epoch(T::slots_per_epoch());
 
         // List of proposers per epoch from the cache
-        let mut proposers_per_epoch: Option<SmallVec<[usize; 32]>> = None;
-
+        let mut proposers_per_epoch: Option<SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> = None;
         for n in 0..range_of_slots {
             let slot = start_slot + n as u64;
             let prev_slot = slot - 1;
@@ -580,7 +582,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         self.missed_blocks.retain(|(epoch, _, _)| *epoch >= finalized_epoch);
     }
 
-    fn get_proposers_by_epoch_from_cache(&mut self, epoch: Epoch, shuffling_decision_block: Hash256) -> Option<SmallVec<[usize; 32]>> {
+    fn get_proposers_by_epoch_from_cache(&mut self, epoch: Epoch, shuffling_decision_block: Hash256) -> Option<SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> {
         let mut cache = self.beacon_proposer_cache.lock();
         cache.get_epoch::<T>(shuffling_decision_block, epoch).cloned()
     }
