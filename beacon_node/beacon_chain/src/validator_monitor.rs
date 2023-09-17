@@ -522,13 +522,19 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let range_of_slots = T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS;
         let start_slot = state.slot() - Slot::new(range_of_slots as u64) + 1;
 
-        // As we are skipping the genesis slot, we can simply pass Hash256::zero() as we are not taking genesis slot into account
+        // As we are skipping the genesis slot, we can simply pass Hash256::zero() as the shuffling decision block
+        // cf. state.proposer_shuffling_decision_root implementation
         let shuffling_decision_block = Hash256::zero();
 
-        // We want to avoid looping inside the range loop as there's a lock on the cache which might make other threads wait
-        // Let's request the proposers for the whole epoch and then loop through the range
-        let mut proposers_per_epoch = self.get_proposers_by_epoch_from_cache(start_slot.epoch(T::slots_per_epoch()), shuffling_decision_block);
+        // We want to avoid looping inside the range_of_slots loop as there's a lock on the cache which might make other threads wait
+        // Let's request the proposers for the start_slot and then loop over range_of_slots
+        let start_slot_epoch = start_slot.epoch(T::slots_per_epoch());
+        let mut proposers_per_epoch = self.get_proposers_by_epoch_from_cache(
+            start_slot_epoch,
+            shuffling_decision_block
+        );
         if proposers_per_epoch.is_none() {
+            debug!(self.log, "Could not get proposers for epoch {start_slot_epoch:?} from cache");
             return;
         }
 
@@ -536,7 +542,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             let slot = start_slot + n as u64;
             let prev_slot = slot - 1;
 
-            // We want to skip the genesis slot as it is not possible to miss a block in the genesis slot
+            // We want to skip the genesis slot as it is not possible to miss a block then
             if slot == 0 {
                 continue;
             }
@@ -544,19 +550,19 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             // Condition for missed_block is defined such as block_root(slot) == block_root(slot - 1)
             // where the proposer who missed the block is the proposer of the block at block_root(slot)
             if let (Ok(block_root), Ok(prev_block_root)) = (state.get_block_root(slot), state.get_block_root(prev_slot)) {
+                // Found missed block
                 if block_root == prev_block_root {
                     let slot_epoch = slot.epoch(T::slots_per_epoch());
                     let prev_slot_epoch = prev_slot.epoch(T::slots_per_epoch());
 
-                    // As we are skipping the genesis slot, we can simply pass Hash256::zero() as we are skipping the genesis slot
                     if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root(slot_epoch, shuffling_decision_block) {
-                        // When slot_epoch has changed, we need to refresh the proposers_per_epoch
+                        // When slot_epoch is at the beginning, we need to refresh the list of proposers_per_epoch
                         let slot_in_epoch = slot % T::slots_per_epoch();
                         if slot_epoch != prev_slot_epoch && slot_in_epoch == 0 {
                             proposers_per_epoch = self.get_proposers_by_epoch_from_cache(slot_epoch, shuffling_decision_block);
                         }
 
-                        // only add missed blocks for the proposer if it's in the list of monitored validators
+                        // Only add missed blocks for the proposer if it's in the list of monitored validators
                         if let Some(proposer_index) = proposers_per_epoch
                             .as_ref()
                             .and_then(|proposers| proposers.get(slot_in_epoch.as_usize())) {
@@ -567,11 +573,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                 .is_some() {
                                 self.missed_blocks.insert((slot_epoch, *proposer_index as u64, slot));
                             }
+                        } else {
+                            debug!(self.log, "Could not get proposers for epoch {slot_epoch:?} from cache");
                         }
                     }
                 }
             }
         }
+
         // Prune missed blocks that are prior to last finalized epoch
         let finalized_epoch = state.finalized_checkpoint().epoch;
         self.missed_blocks.retain(|(epoch, _, _)| *epoch >= finalized_epoch);
