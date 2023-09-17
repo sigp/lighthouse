@@ -208,8 +208,8 @@ impl<'env> Cursor<'env> {
         if query_result.id.is_some() {
             let key = Cow::from(query_result.key.unwrap_or_default());
             self.current_id = query_result.id;
-            return Ok(Some(key))
-        }       
+            return Ok(Some(key));
+        }
         Ok(None)
     }
 
@@ -229,8 +229,8 @@ impl<'env> Cursor<'env> {
         if query_result.id.is_some() {
             let key = Cow::from(query_result.key.unwrap_or_default());
             self.current_id = query_result.id;
-            return Ok(Some(key))
-        }       
+            return Ok(Some(key));
+        }
         Ok(None)
     }
 
@@ -257,8 +257,8 @@ impl<'env> Cursor<'env> {
         if query_result.id.is_some() {
             let key = Cow::from(query_result.value.unwrap_or_default());
             self.current_id = query_result.id;
-            return Ok(Some(key))
-        }       
+            return Ok(Some(key));
+        }
         Ok(None)
     }
 
@@ -281,7 +281,10 @@ impl<'env> Cursor<'env> {
                 .optional()?;
 
             if let Some(result) = query_result {
-                return Ok(Some((Cow::from(result.key.unwrap_or_default()), Cow::from(result.value.unwrap_or_default()))));
+                return Ok(Some((
+                    Cow::from(result.key.unwrap_or_default()),
+                    Cow::from(result.value.unwrap_or_default()),
+                )));
             }
         }
         Ok(None)
