@@ -19,12 +19,12 @@ const BASE_DB: &str = "slasher_db";
 impl<'env> Database<'env> {}
 
 struct QueryResult {
-    id: Option<u8>,
+    id: Option<u32>,
     value: Option<Vec<u8>>,
 }
 
 struct FullQueryResult {
-    id: Option<u8>,
+    id: Option<u32>,
     key: Option<Vec<u8>>,
     value: Option<Vec<u8>>,
 }
@@ -57,7 +57,7 @@ impl<'env> Drop for RwTransaction<'env> {
 #[derive(Debug)]
 pub struct Cursor<'env> {
     db: &'env Database<'env>,
-    current_id: Option<u8>,
+    current_id: Option<u32>,
 }
 
 impl Environment {
@@ -103,7 +103,7 @@ impl Environment {
         table_name: &'env str,
     ) -> Result<crate::Database<'env>, Error> {
         let create_table_command = format!(
-            "CREATE TABLE {} (
+            "CREATE TABLE IF NOT EXISTS {} (
                 id    INTEGER PRIMARY KEY AUTOINCREMENT,
                 key   BLOB UNIQUE,
                 value BLOB
