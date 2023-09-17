@@ -155,6 +155,9 @@ pub fn get_config<E: EthSpec>(
     client_config.http_api.enable_beacon_processor =
         parse_required(cli_args, "http-enable-beacon-processor")?;
 
+    client_config.http_api.duplicate_block_status_code =
+        parse_required(cli_args, "http-duplicate-block-status")?;
+
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
     }
@@ -468,9 +471,30 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.checkpoint_sync_url_timeout =
         clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
-    client_config.genesis = if let Some(genesis_state_bytes) =
-        eth2_network_config.genesis_state_bytes.clone()
-    {
+    client_config.genesis_state_url_timeout =
+        clap_utils::parse_required(cli_args, "genesis-state-url-timeout")
+            .map(Duration::from_secs)?;
+
+    let genesis_state_url_opt =
+        clap_utils::parse_optional::<String>(cli_args, "genesis-state-url")?;
+    let checkpoint_sync_url_opt =
+        clap_utils::parse_optional::<String>(cli_args, "checkpoint-sync-url")?;
+
+    // If the `--genesis-state-url` is defined, use that to download the
+    // genesis state bytes. If it's not defined, try `--checkpoint-sync-url`.
+    client_config.genesis_state_url = if let Some(genesis_state_url) = genesis_state_url_opt {
+        Some(genesis_state_url)
+    } else if let Some(checkpoint_sync_url) = checkpoint_sync_url_opt {
+        // If the checkpoint sync URL is going to be used to download the
+        // genesis state, adopt the timeout from the checkpoint sync URL too.
+        client_config.genesis_state_url_timeout =
+            Duration::from_secs(client_config.chain.checkpoint_sync_url_timeout);
+        Some(checkpoint_sync_url)
+    } else {
+        None
+    };
+
+    client_config.genesis = if eth2_network_config.genesis_state_is_known() {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
         if let (Some(initial_state_path), Some(initial_block_path)) = (
             cli_args.value_of("checkpoint-state"),
@@ -492,7 +516,6 @@ pub fn get_config<E: EthSpec>(
             let anchor_block_bytes = read(initial_block_path)?;
 
             ClientGenesis::WeakSubjSszBytes {
-                genesis_state_bytes,
                 anchor_state_bytes,
                 anchor_block_bytes,
             }
@@ -500,17 +523,9 @@ pub fn get_config<E: EthSpec>(
             let url = SensitiveUrl::parse(remote_bn_url)
                 .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
 
-            ClientGenesis::CheckpointSyncUrl {
-                genesis_state_bytes,
-                url,
-            }
+            ClientGenesis::CheckpointSyncUrl { url }
         } else {
-            // Note: re-serializing the genesis state is not so efficient, however it avoids adding
-            // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
-            // effects.
-            ClientGenesis::SszBytes {
-                genesis_state_bytes,
-            }
+            ClientGenesis::GenesisState
         }
     } else {
         if cli_args.is_present("checkpoint-state") || cli_args.is_present("checkpoint-sync-url") {
@@ -899,20 +914,38 @@ pub fn parse_listening_addresses(
         .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?
         .unwrap_or(9090);
 
-    // parse the possible udp ports
-    let maybe_udp_port = cli_args
+    // parse the possible discovery ports.
+    let maybe_disc_port = cli_args
         .value_of("discovery-port")
         .map(str::parse::<u16>)
         .transpose()
         .map_err(|parse_error| {
             format!("Failed to parse --discovery-port as an integer: {parse_error}")
         })?;
-    let maybe_udp6_port = cli_args
+    let maybe_disc6_port = cli_args
         .value_of("discovery-port6")
         .map(str::parse::<u16>)
         .transpose()
         .map_err(|parse_error| {
             format!("Failed to parse --discovery-port6 as an integer: {parse_error}")
+        })?;
+
+    // parse the possible quic port.
+    let maybe_quic_port = cli_args
+        .value_of("quic-port")
+        .map(str::parse::<u16>)
+        .transpose()
+        .map_err(|parse_error| {
+            format!("Failed to parse --quic-port as an integer: {parse_error}")
+        })?;
+
+    // parse the possible quic port.
+    let maybe_quic6_port = cli_args
+        .value_of("quic-port6")
+        .map(str::parse::<u16>)
+        .transpose()
+        .map_err(|parse_error| {
+            format!("Failed to parse --quic6-port as an integer: {parse_error}")
         })?;
 
     // Now put everything together
@@ -925,7 +958,7 @@ pub fn parse_listening_addresses(
             // A single ipv6 address was provided. Set the ports
 
             if cli_args.is_present("port6") {
-                warn!(log, "When listening only over IpV6, use the --port flag. The value of --port6 will be ignored.")
+                warn!(log, "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.")
             }
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
@@ -933,20 +966,32 @@ pub fn parse_listening_addresses(
                 .transpose()?
                 .unwrap_or(port);
 
-            if maybe_udp6_port.is_some() {
-                warn!(log, "When listening only over IpV6, use the --discovery-port flag. The value of --discovery-port6 will be ignored.")
+            if maybe_disc6_port.is_some() {
+                warn!(log, "When listening only over IPv6, use the --discovery-port flag. The value of --discovery-port6 will be ignored.")
             }
+
+            if maybe_quic6_port.is_some() {
+                warn!(log, "When listening only over IPv6, use the --quic-port flag. The value of --quic-port6 will be ignored.")
+            }
+
             // use zero ports if required. If not, use the specific udp port. If none given, use
             // the tcp port.
-            let udp_port = use_zero_ports
+            let disc_port = use_zero_ports
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
-                .or(maybe_udp_port)
+                .or(maybe_disc_port)
                 .unwrap_or(port);
+
+            let quic_port = use_zero_ports
+                .then(unused_port::unused_udp6_port)
+                .transpose()?
+                .or(maybe_quic_port)
+                .unwrap_or(port + 1);
 
             ListenAddress::V6(lighthouse_network::ListenAddr {
                 addr: ipv6,
-                udp_port,
+                quic_port,
+                disc_port,
                 tcp_port,
             })
         }
@@ -958,16 +1003,25 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
-            // use zero ports if required. If not, use the specific udp port. If none given, use
+            // use zero ports if required. If not, use the specific discovery port. If none given, use
             // the tcp port.
-            let udp_port = use_zero_ports
+            let disc_port = use_zero_ports
                 .then(unused_port::unused_udp4_port)
                 .transpose()?
-                .or(maybe_udp_port)
+                .or(maybe_disc_port)
                 .unwrap_or(port);
+            // use zero ports if required. If not, use the specific quic port. If none given, use
+            // the tcp port + 1.
+            let quic_port = use_zero_ports
+                .then(unused_port::unused_udp4_port)
+                .transpose()?
+                .or(maybe_quic_port)
+                .unwrap_or(port + 1);
+
             ListenAddress::V4(lighthouse_network::ListenAddr {
                 addr: ipv4,
-                udp_port,
+                disc_port,
+                quic_port,
                 tcp_port,
             })
         }
@@ -976,31 +1030,44 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
-            let ipv4_udp_port = use_zero_ports
+            let ipv4_disc_port = use_zero_ports
                 .then(unused_port::unused_udp4_port)
                 .transpose()?
-                .or(maybe_udp_port)
+                .or(maybe_disc_port)
                 .unwrap_or(ipv4_tcp_port);
+            let ipv4_quic_port = use_zero_ports
+                .then(unused_port::unused_udp4_port)
+                .transpose()?
+                .or(maybe_quic_port)
+                .unwrap_or(port + 1);
 
             // Defaults to 9090 when required
             let ipv6_tcp_port = use_zero_ports
                 .then(unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port6);
-            let ipv6_udp_port = use_zero_ports
+            let ipv6_disc_port = use_zero_ports
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
-                .or(maybe_udp6_port)
+                .or(maybe_disc6_port)
                 .unwrap_or(ipv6_tcp_port);
+            let ipv6_quic_port = use_zero_ports
+                .then(unused_port::unused_udp6_port)
+                .transpose()?
+                .or(maybe_quic6_port)
+                .unwrap_or(ipv6_tcp_port + 1);
+
             ListenAddress::DualStack(
                 lighthouse_network::ListenAddr {
                     addr: ipv4,
-                    udp_port: ipv4_udp_port,
+                    disc_port: ipv4_disc_port,
+                    quic_port: ipv4_quic_port,
                     tcp_port: ipv4_tcp_port,
                 },
                 lighthouse_network::ListenAddr {
                     addr: ipv6,
-                    udp_port: ipv6_udp_port,
+                    disc_port: ipv6_disc_port,
+                    quic_port: ipv6_quic_port,
                     tcp_port: ipv6_tcp_port,
                 },
             )
@@ -1116,6 +1183,14 @@ pub fn set_network_config(
         );
     }
 
+    if let Some(enr_quic_port_str) = cli_args.value_of("enr-quic-port") {
+        config.enr_quic4_port = Some(
+            enr_quic_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid quic port: {}", enr_quic_port_str))?,
+        );
+    }
+
     if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
         config.enr_tcp4_port = Some(
             enr_tcp_port_str
@@ -1132,6 +1207,14 @@ pub fn set_network_config(
         );
     }
 
+    if let Some(enr_quic_port_str) = cli_args.value_of("enr-quic6-port") {
+        config.enr_quic6_port = Some(
+            enr_quic_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid quic port: {}", enr_quic_port_str))?,
+        );
+    }
+
     if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp6-port") {
         config.enr_tcp6_port = Some(
             enr_tcp_port_str
@@ -1141,9 +1224,9 @@ pub fn set_network_config(
     }
 
     if cli_args.is_present("enr-match") {
-        // Match the Ip and UDP port in the enr.
+        // Match the IP and UDP port in the ENR.
 
-        // set the enr address to localhost if the address is unspecified
+        // Set the ENR address to localhost if the address is unspecified.
         if let Some(ipv4_addr) = config.listen_addrs().v4().cloned() {
             let ipv4_enr_addr = if ipv4_addr.addr == Ipv4Addr::UNSPECIFIED {
                 Ipv4Addr::LOCALHOST
@@ -1151,7 +1234,7 @@ pub fn set_network_config(
                 ipv4_addr.addr
             };
             config.enr_address.0 = Some(ipv4_enr_addr);
-            config.enr_udp4_port = Some(ipv4_addr.udp_port);
+            config.enr_udp4_port = Some(ipv4_addr.disc_port);
         }
 
         if let Some(ipv6_addr) = config.listen_addrs().v6().cloned() {
@@ -1161,7 +1244,7 @@ pub fn set_network_config(
                 ipv6_addr.addr
             };
             config.enr_address.1 = Some(ipv6_enr_addr);
-            config.enr_udp6_port = Some(ipv6_addr.udp_port);
+            config.enr_udp6_port = Some(ipv6_addr.disc_port);
         }
     }
 
@@ -1194,11 +1277,11 @@ pub fn set_network_config(
                     // actually matters. Just use the udp port.
 
                     let port = match config.listen_addrs() {
-                        ListenAddress::V4(v4_addr) => v4_addr.udp_port,
-                        ListenAddress::V6(v6_addr) => v6_addr.udp_port,
+                        ListenAddress::V4(v4_addr) => v4_addr.disc_port,
+                        ListenAddress::V6(v6_addr) => v6_addr.disc_port,
                         ListenAddress::DualStack(v4_addr, _v6_addr) => {
                             // NOTE: slight preference for ipv4 that I don't think is of importance.
-                            v4_addr.udp_port
+                            v4_addr.disc_port
                         }
                     };
 
@@ -1255,6 +1338,10 @@ pub fn set_network_config(
     if cli_args.is_present("disable-discovery") {
         config.disable_discovery = true;
         warn!(log, "Discovery is disabled. New peers will not be found");
+    }
+
+    if cli_args.is_present("disable-quic") {
+        config.disable_quic_support = true;
     }
 
     if cli_args.is_present("disable-upnp") {

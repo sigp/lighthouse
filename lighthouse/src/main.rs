@@ -8,6 +8,7 @@ use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
+use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
@@ -324,6 +325,30 @@ fn main() {
                 .takes_value(true)
                 .global(true)
         )
+        .arg(
+            Arg::with_name("genesis-state-url")
+                .long("genesis-state-url")
+                .value_name("URL")
+                .help(
+                    "A URL of a beacon-API compatible server from which to download the genesis state. \
+                    Checkpoint sync server URLs can generally be used with this flag. \
+                    If not supplied, a default URL or the --checkpoint-sync-url may be used. \
+                    If the genesis state is already included in this binary then this value will be ignored.",
+                )
+                .takes_value(true)
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("genesis-state-url-timeout")
+                .long("genesis-state-url-timeout")
+                .value_name("SECONDS")
+                .help(
+                    "The timeout in seconds for the request to --genesis-state-url.",
+                )
+                .takes_value(true)
+                .default_value("180")
+                .global(true),
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
@@ -635,8 +660,8 @@ fn run<E: EthSpec>(
                 executor.clone().spawn(
                     async move {
                         if let Err(e) = ProductionValidatorClient::new(context, config)
+                            .and_then(|mut vc| async move { vc.start_service().await })
                             .await
-                            .and_then(|mut vc| vc.start_service())
                         {
                             crit!(log, "Failed to start validator client"; "reason" => e);
                             // Ignore the error since it always occurs during normal operation when

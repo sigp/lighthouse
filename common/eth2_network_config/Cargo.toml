@@ -7,15 +7,22 @@ edition = "2021"
 build = "build.rs"
 
 [build-dependencies]
-zip = "0.5.8"
-eth2_config = { path = "../eth2_config"}
+zip = "0.6"
+eth2_config = { path = "../eth2_config" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
 
 [dependencies]
 serde_yaml = "0.8.13"
-types = { path = "../../consensus/types"}
+types = { path = "../../consensus/types" }
 ethereum_ssz = "0.5.0"
-eth2_config = { path = "../eth2_config"}
+eth2_config = { path = "../eth2_config" }
 discv5 = "0.3.1"
+reqwest = { version = "0.11.0", features = ["blocking"] }
+pretty_reqwest_error = { path = "../pretty_reqwest_error" }
+sha2 = "0.10"
+url = "2.2.2"
+sensitive_url = { path = "../sensitive_url" }
+slog = "2.5.2"
+logging = { path = "../logging" }

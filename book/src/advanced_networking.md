@@ -121,13 +121,13 @@ nodes that do not run directly on a public network.
 To listen over only IPv6 use the same parameters as done when listening over
 IPv4 only:
 
-- `--listen-addresses :: --port 9909` will listen over IPv6 using port `9909` for
+- `--listen-address :: --port 9909` will listen over IPv6 using port `9909` for
 TCP and UDP.
-- `--listen-addresses :: --port 9909 --discovery-port 9999` will listen over
+- `--listen-address :: --port 9909 --discovery-port 9999` will listen over
   IPv6 using port `9909` for TCP and port `9999` for UDP.
 
 To listen over both IPv4 and IPv6:
-- Set two listening addresses using the `--listen-addresses` flag twice ensuring
+- Set two listening addresses using the `--listen-address` flag twice ensuring
   the two addresses are one IPv4, and the other IPv6. When doing so, the
   `--port` and `--discovery-port` flags will apply exclusively to IPv4. Note
   that this behaviour differs from the Ipv6 only case described above.
@@ -139,16 +139,16 @@ To listen over both IPv4 and IPv6:
 
 ##### Configuration Examples
 
-- `--listen-addresses :: --listen-addresses 0.0.0.0 --port 9909` will listen
+- `--listen-address :: --listen-address 0.0.0.0 --port 9909` will listen
   over IPv4 using port `9909` for TCP and UDP. It will also listen over IPv6 but
   using the default value for `--port6` for UDP and TCP (`9090`).
-- `--listen-addresses :: --listen-addresses --port 9909 --discovery-port6 9999`
+- `--listen-address :: --listen-address --port 9909 --discovery-port6 9999`
   will have the same configuration as before except for the IPv6 UDP socket,
   which will use port `9999`.
 
 #### Configuring Lighthouse to advertise IPv6 reachable addresses
 Lighthouse supports IPv6 to connect to other nodes both over IPv6 exclusively,
-and dual stack using one socket for IPv6 and another socket for IPv6. In both
+and dual stack using one socket for IPv4 and another socket for IPv6. In both
 scenarios, the previous sections still apply. In summary:
 
 > Beacon nodes must advertise their publicly reachable socket address

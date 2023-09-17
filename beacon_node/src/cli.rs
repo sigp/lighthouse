@@ -75,11 +75,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("The address lighthouse will listen for UDP and TCP connections. To listen \
                       over IpV4 and IpV6 set this flag twice with the different values.\n\
                       Examples:\n\
-                      - --listen-address '0.0.0.0' will listen over Ipv4.\n\
-                      - --listen-address '::' will listen over Ipv6.\n\
+                      - --listen-address '0.0.0.0' will listen over IPv4.\n\
+                      - --listen-address '::' will listen over IPv6.\n\
                       - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
-                      Ipv4 and Ipv6. The order of the given addresses is not relevant. However, \
-                      multiple Ipv4, or multiple Ipv6 addresses will not be accepted.")
+                      IPv4 and IPv6. The order of the given addresses is not relevant. However, \
+                      multiple IPv4, or multiple IPv6 addresses will not be accepted.")
                 .multiple(true)
                 .max_values(2)
                 .default_value("0.0.0.0")
@@ -89,9 +89,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("port")
                 .long("port")
                 .value_name("PORT")
-                .help("The TCP/UDP port to listen on. The UDP port can be modified by the \
-                      --discovery-port flag. If listening over both Ipv4 and Ipv6 the --port flag \
-                      will apply to the Ipv4 address and --port6 to the Ipv6 address.")
+                .help("The TCP/UDP ports to listen on. There are two UDP ports. \
+                      The discovery UDP port will be set to this value and the Quic UDP port will be set to this value + 1. The discovery port can be modified by the \
+                      --discovery-port flag and the quic port can be modified by the --quic-port flag. If listening over both IPv4 and IPv6 the --port flag \
+                      will apply to the IPv4 address and --port6 to the IPv6 address.")
                 .default_value("9000")
                 .takes_value(true),
         )
@@ -99,8 +100,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("port6")
                 .long("port6")
                 .value_name("PORT")
-                .help("The TCP/UDP port to listen on over IpV6 when listening over both Ipv4 and \
-                      Ipv6. Defaults to 9090 when required.")
+                .help("The TCP/UDP ports to listen on over IPv6 when listening over both IPv4 and \
+                      IPv6. Defaults to 9090 when required. The Quic UDP port will be set to this value + 1.")
                 .default_value("9090")
                 .takes_value(true),
         )
@@ -112,11 +113,26 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("quic-port")
+                .long("quic-port")
+                .value_name("PORT")
+                .help("The UDP port that quic will listen on. Defaults to `port` + 1")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("discovery-port6")
                 .long("discovery-port6")
                 .value_name("PORT")
-                .help("The UDP port that discovery will listen on over IpV6 if listening over \
-                      both Ipv4 and IpV6. Defaults to `port6`")
+                .help("The UDP port that discovery will listen on over IPv6 if listening over \
+                      both IPv4 and IPv6. Defaults to `port6`")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("quic-port6")
+                .long("quic-port6")
+                .value_name("PORT")
+                .help("The UDP port that quic will listen on over IPv6 if listening over \
+                      both IPv4 and IPv6. Defaults to `port6` + 1")
                 .takes_value(true),
         )
         .arg(
@@ -159,7 +175,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-udp-port")
                 .value_name("PORT")
                 .help("The UDP4 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV4.")
+                      can connect to your local node on this port over IPv4.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-quic-port")
+                .long("enr-quic-port")
+                .value_name("PORT")
+                .help("The quic UDP4 port that will be set on the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IPv4.")
                 .takes_value(true),
         )
         .arg(
@@ -167,7 +191,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-udp6-port")
                 .value_name("PORT")
                 .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV6.")
+                      can connect to your local node on this port over IPv6.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-quic6-port")
+                .long("enr-quic6-port")
+                .value_name("PORT")
+                .help("The quic UDP6 port that will be set on the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IPv6.")
                 .takes_value(true),
         )
         .arg(
@@ -175,7 +207,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-tcp-port")
                 .value_name("PORT")
                 .help("The TCP4 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV4. The --port flag is \
+                      can connect to your local node on this port over IPv4. The --port flag is \
                       used if this is not set.")
                 .takes_value(true),
         )
@@ -184,7 +216,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-tcp6-port")
                 .value_name("PORT")
                 .help("The TCP6 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV6. The --port6 flag is \
+                      can connect to your local node on this port over IPv6. The --port6 flag is \
                       used if this is not set.")
                 .takes_value(true),
         )
@@ -225,11 +257,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        without an ENR.")
                 .takes_value(true),
         )
+        // NOTE: This is hidden because it is primarily a developer feature for testnets and
+        // debugging. We remove it from the list to avoid clutter.
         .arg(
             Arg::with_name("disable-discovery")
                 .long("disable-discovery")
                 .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
-                .takes_value(false),
+                .hidden(true)
+        )
+        .arg(
+            Arg::with_name("disable-quic")
+                .long("disable-quic")
+                .help("Disables the quic transport. The node will rely solely on the TCP transport for libp2p connections.")
         )
         .arg(
             Arg::with_name("disable-peer-scoring")
@@ -390,6 +429,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("N")
                 .help("Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. \
                        Increasing this value can prevent messages from being dropped.")
+        )
+        .arg(
+            Arg::with_name("http-duplicate-block-status")
+                .long("http-duplicate-block-status")
+                .takes_value(true)
+                .default_value("202")
+                .value_name("STATUS_CODE")
+                .help("Status code to send when a block that is already known is POSTed to the \
+                       HTTP API.")
         )
         .arg(
             Arg::with_name("http-enable-beacon-processor")
@@ -1125,7 +1173,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("gui")
                 .long("gui")
-                .hidden(true)
                 .help("Enable the graphical user interface and all its requirements. \
                       This enables --http and --validator-monitor-auto and enables SSE logging.")
                 .takes_value(false)
