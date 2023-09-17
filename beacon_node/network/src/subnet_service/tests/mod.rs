@@ -14,6 +14,7 @@ use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use parking_lot::Mutex;
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
 use task_executor::test_utils::TestRuntime;
@@ -51,6 +52,7 @@ impl TestBeaconChain {
 
         let test_runtime = TestRuntime::default();
 
+        let beacon_proposer_cache = Arc::new(Mutex::new(<_>::default()));
         let chain = Arc::new(
             BeaconChainBuilder::new(MainnetEthSpec)
                 .logger(log.clone())
@@ -76,7 +78,8 @@ impl TestBeaconChain {
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
                 .shutdown_sender(shutdown_tx)
-                .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
+                .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, beacon_proposer_cache.clone(), log)
+                .beacon_proposer_cache(beacon_proposer_cache)
                 .build()
                 .expect("should build"),
         );
