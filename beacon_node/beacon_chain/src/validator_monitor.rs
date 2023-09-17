@@ -17,12 +17,10 @@ use std::str::Utf8Error;
 use std::sync::{Arc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures::StreamExt;
-use itertools::any;
 use smallvec::SmallVec;
 use store::AbstractExecPayload;
 use types::{AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit};
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::NotifyExecutionLayer::No;
 
 /// Used for Prometheus labels.
 ///
@@ -507,7 +505,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 let current_slot = state.slot();
                 self.missed_blocks.contains(&(current_epoch, i as u64, current_slot))
                     .then(|| {
-                        metrics::inc_counter_vec(
+                        metrics::set_int_gauge(
                             &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
                             &[current_epoch.to_string().as_str(), current_slot.to_string().as_str(), id],
                         );
@@ -529,14 +527,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         // We want to avoid looping inside the range_of_slots loop as there's a lock on the cache which might make other threads wait
         // Let's request the proposers for the start_slot and then loop over range_of_slots
         let start_slot_epoch = start_slot.epoch(T::slots_per_epoch());
-        let mut proposers_per_epoch = self.get_proposers_by_epoch_from_cache(
-            start_slot_epoch,
-            shuffling_decision_block
-        );
-        if proposers_per_epoch.is_none() {
-            debug!(self.log, "Could not get proposers for epoch {start_slot_epoch:?} from cache");
-            return;
-        }
+
+        // List of proposers per epoch from the cache
+        let mut proposers_per_epoch: Option<SmallVec<[usize; 32]>> = None;
 
         for n in 0..range_of_slots {
             let slot = start_slot + n as u64;
@@ -556,9 +549,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     let prev_slot_epoch = prev_slot.epoch(T::slots_per_epoch());
 
                     if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root(slot_epoch, shuffling_decision_block) {
-                        // When slot_epoch is at the beginning, we need to refresh the list of proposers_per_epoch
+                        // When slot_epoch is at the fist slot of the epoch, we need to refresh the list of proposers_per_epoch
+                        // or if it's the first iteration of the loop where we need to initialize the list of proposers_per_epoch
                         let slot_in_epoch = slot % T::slots_per_epoch();
-                        if slot_epoch != prev_slot_epoch && slot_in_epoch == 0 {
+                        if (slot_epoch != prev_slot_epoch && slot_in_epoch == 0) || slot == start_slot {
                             proposers_per_epoch = self.get_proposers_by_epoch_from_cache(slot_epoch, shuffling_decision_block);
                         }
 
