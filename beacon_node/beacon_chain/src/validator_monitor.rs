@@ -17,6 +17,7 @@ use std::str::Utf8Error;
 use std::sync::{Arc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures::StreamExt;
+use itertools::Itertools;
 use smallvec::SmallVec;
 use store::AbstractExecPayload;
 use types::{AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit};
@@ -503,18 +504,22 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         u64_to_i64(validator.withdrawable_epoch),
                     );
                 }
-
-                // Add non finalized missed blocks for the monitored validators for the current slot of the current epoch
-                let current_slot = state.slot();
-                self.missed_blocks.contains(&(current_epoch, i as u64, current_slot))
-                    .then(|| {
-                        metrics::set_int_gauge(
-                            &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
-                            &[current_epoch.to_string().as_str(), current_slot.to_string().as_str(), id],
-                        );
-                    });
             }
         }
+
+        // count the amount of times a validator missed a non-finalized block
+        self.missed_blocks
+            .iter()
+            .group_by(|(_, validator_index, _)| *validator_index)
+            .into_iter()
+            .for_each(|(validator_index, group)| {
+                let missed_blocks_count = group.count();
+                metrics::set_int_gauge(
+                    &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
+                    &[validator_index.to_string().as_str()],
+                    u64_to_i64(missed_blocks_count as u64),
+                );
+            });
     }
 
     /// Add missed non-finalized blocks for the monitored validators
