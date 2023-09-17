@@ -18,18 +18,12 @@ fn empty_pruning() {
 
 #[test]
 fn block_pruning() {
-    println!("START");
     let slots_per_epoch = E::slots_per_epoch();
-
     let tempdir = tempdir().unwrap();
-    println!("....whty");
     let mut config = Config::new(tempdir.path().into());
-    println!("....whty2");
     config.chunk_size = 2;
     config.history_length = 2;
-    println!("....whty3");
     let slasher = Slasher::<E>::open(config.clone(), test_logger()).unwrap();
-    println!("....whty4");
     let current_epoch = Epoch::from(2 * config.history_length);
 
     // Pruning the empty database should be safe.

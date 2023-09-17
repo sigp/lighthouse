@@ -19,14 +19,14 @@ const BASE_DB: &str = "slasher_db";
 impl<'env> Database<'env> {}
 
 struct QueryResult {
-    id: u8,
-    value: Vec<u8>,
+    id: Option<u8>,
+    value: Option<Vec<u8>>,
 }
 
 struct FullQueryResult {
-    id: u8,
-    key: Vec<u8>,
-    value: Vec<u8>,
+    id: Option<u8>,
+    key: Option<Vec<u8>>,
+    value: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -153,7 +153,7 @@ impl<'env> RwTransaction<'env> {
             .optional()?;
 
         match query_result {
-            Some(result) => Ok(Some(Cow::from(result.value))),
+            Some(result) => Ok(Some(Cow::from(result.value.unwrap_or_default()))),
             None => Ok(None),
         }
     }
@@ -194,33 +194,10 @@ impl<'env> RwTransaction<'env> {
 
 impl<'env> Cursor<'env> {
     pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
-        let query_statement = format!("SELECT id, key FROM {} ORDER BY id ASC", self.db.table_name);
+        let query_statement = format!("SELECT MIN(id), key, value FROM {}", self.db.table_name);
         let database = rusqlite::Connection::open(&self.db.env.db_path)?;
         let mut stmt = database.prepare(&query_statement)?;
-        let mut query_result = stmt.query_map([], |row| {
-            Ok(QueryResult {
-                id: row.get(0)?,
-                value: row.get(1)?,
-            })
-        })?;
-
-        match query_result.next() {
-            Some(result) => {
-                let r: QueryResult = result?;
-                let key = Cow::from(r.value);
-                self.current_id = Some(r.id);
-                Ok(Some(key))
-            }
-            None => Ok(None),
-        }
-    }
-
-    pub fn last_key(&mut self) -> Result<Option<Key<'env>>, Error> {
-        let query_statement = format!("SELECT * FROM {} ORDER BY id ASC", self.db.table_name);
-        let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-        let mut stmt = database.prepare(&query_statement)?;
-
-        let mut query_result = stmt.query_map([], |row| {
+        let mut query_result = stmt.query_row([], |row| {
             Ok(FullQueryResult {
                 id: row.get(0)?,
                 key: row.get(1)?,
@@ -228,46 +205,61 @@ impl<'env> Cursor<'env> {
             })
         })?;
 
-        match query_result.last() {
-            Some(result) => {
-                let r: FullQueryResult = result?;
-                let key = Cow::from(r.key);
-                self.current_id = Some(r.id);
-                Ok(Some(key))
-            }
-            None => Ok(None),
-        }
+        if query_result.id.is_some() {
+            let key = Cow::from(query_result.key.unwrap_or_default());
+            self.current_id = query_result.id;
+            return Ok(Some(key))
+        }       
+        Ok(None)
+    }
+
+    pub fn last_key(&mut self) -> Result<Option<Key<'env>>, Error> {
+        let query_statement = format!("SELECT MAX(id), key, value FROM {}", self.db.table_name);
+        let database = rusqlite::Connection::open(&self.db.env.db_path)?;
+        let mut stmt = database.prepare(&query_statement)?;
+
+        let mut query_result = stmt.query_row([], |row| {
+            Ok(FullQueryResult {
+                id: row.get(0)?,
+                key: row.get(1)?,
+                value: row.get(2)?,
+            })
+        })?;
+
+        if query_result.id.is_some() {
+            let key = Cow::from(query_result.key.unwrap_or_default());
+            self.current_id = query_result.id;
+            return Ok(Some(key))
+        }       
+        Ok(None)
     }
 
     pub fn next_key(&mut self) -> Result<Option<Key<'env>>, Error> {
         let mut query_statement = "".to_string();
         if let Some(current_id) = &self.current_id {
             query_statement = format!(
-                "SELECT id, key FROM {} where id > {} ORDER BY id ASC",
+                "SELECT MIN(id), key FROM {} where id > {}",
                 self.db.table_name, current_id
             );
         } else {
-            query_statement = format!("SELECT id, key FROM {} ORDER BY id ASC", self.db.table_name);
+            query_statement = format!("SELECT MIN(id), key FROM {}", self.db.table_name);
         }
         let database = rusqlite::Connection::open(&self.db.env.db_path)?;
         let mut stmt = database.prepare(&query_statement)?;
 
-        let mut query_result = stmt.query_map([], |row| {
+        let mut query_result = stmt.query_row([], |row| {
             Ok(QueryResult {
                 id: row.get(0)?,
                 value: row.get(1)?,
             })
         })?;
 
-        match query_result.next() {
-            Some(result) => {
-                let r: QueryResult = result?;
-                let key = Cow::from(r.value);
-                self.current_id = Some(r.id);
-                Ok(Some(key))
-            }
-            None => Ok(None),
-        }
+        if query_result.id.is_some() {
+            let key = Cow::from(query_result.value.unwrap_or_default());
+            self.current_id = query_result.id;
+            return Ok(Some(key))
+        }       
+        Ok(None)
     }
 
     pub fn get_current(&mut self) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
@@ -289,7 +281,7 @@ impl<'env> Cursor<'env> {
                 .optional()?;
 
             if let Some(result) = query_result {
-                return Ok(Some((Cow::from(result.key), Cow::from(result.value))));
+                return Ok(Some((Cow::from(result.key.unwrap_or_default()), Cow::from(result.value.unwrap_or_default()))));
             }
         }
         Ok(None)
