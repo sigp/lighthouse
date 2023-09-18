@@ -29,6 +29,8 @@ env:
   SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
   # Self-hosted runners need to reference a different host for `./watch` tests.
   WATCH_HOST: ${{ github.repository == 'sigp/lighthouse' && 'host.docker.internal' || 'localhost' }}
+  # Disable incremental compilation
+  CARGO_INCREMENTAL: 0
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -107,9 +109,9 @@ jobs:
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Install nexttest for windows
-      run: curl -LsSf https://get.nexte.st/latest/windows-tar | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+      run: curl -LsSf https://get.nexte.st/latest/windows-tar && tar zxf windows-tar.tar -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run tests in release
-      run: make test-release
+      run: make nextest-release
   beacon-chain-tests:
     name: beacon-chain-tests
     # Use self-hosted runners only on the sigp repo.
@@ -408,7 +410,8 @@ jobs:
       with:
           toolchain: nightly
           override: true
-          components: udeps
+    - name: Install cargo-udeps
+      run: cargo install cargo-udeps --locked --force
     - name: Create Cargo config dir
       run: mkdir -p .cargo
     - name: Install custom Cargo config

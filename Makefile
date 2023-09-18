@@ -110,8 +110,8 @@ test-release:
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors, using nextest.
-test-release:
-	cargo nextest --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher
+nextest-release:
+	cargo nextest run --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
@@ -121,7 +121,7 @@ test-debug:
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors, using nextest.
 nextest-debug:
-	cargo nextest --workspace --exclude ef_tests --exclude beacon_chain
+	cargo nextest run --workspace --exclude ef_tests --exclude beacon_chain
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -137,6 +137,14 @@ run-ef-tests:
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
+	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
+
+# Runs EF test vectors with nextest
+nexttest-run-ef-tests:
+	rm -rf $(EF_TESTS)/.accessed_file_log.txt
+	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
+	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
+	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.
@@ -165,6 +173,9 @@ run-state-transition-tests:
 
 # Downloads and runs the EF test vectors.
 test-ef: make-ef-tests run-ef-tests
+
+# Downloads and runs the EF test vectors with nextest.
+nexttest-ef: make-ef-tests nexttest-run-ef-tests
 
 # Runs tests checking interop between Lighthouse and execution clients.
 test-exec-engine:
