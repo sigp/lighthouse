@@ -129,9 +129,8 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     test_runtime: &TestRuntime,
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
-    // Get a random unused port.
-    let port = unused_port::unused_tcp4_port().unwrap();
-    create_api_server_on_port(chain, test_runtime, log, port).await
+    // Use port 0 to allocate a new unused port.
+    create_api_server_on_port(chain, test_runtime, log, 0).await
 }
 
 pub async fn create_api_server_on_port<T: BeaconChainTypes>(
