@@ -122,20 +122,22 @@ jobs:
         startsWith(env.RUNNER_NAME, 'runner-small-') != 'true' &&
         startsWith(env.RUNNER_NAME, 'runner-large-') != 'true'
       run: choco install -y make
-    - uses: KyleMayes/install-llvm-action@v1
-      if: |
-        startsWith(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        startsWith(env.RUNNER_NAME, 'runner-large-') != 'true'
-      with:
-        version: "15.0"
-        directory: ${{ runner.temp }}/llvm
+#    - uses: KyleMayes/install-llvm-action@v1
+#      if: |
+#        startsWith(env.RUNNER_NAME, 'runner-small-') != 'true' &&
+#        startsWith(env.RUNNER_NAME, 'runner-large-') != 'true'
+#      with:
+#        version: "15.0"
+#        directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Install nextest for windows
       if: |
         startsWith(env.RUNNER_NAME, 'runner-small-') != 'true' &&
         startsWith(env.RUNNER_NAME, 'runner-large-') != 'true'
-      run: curl -LsSf https://get.nexte.st/latest/windows-tar > windows-tar.tar && tar zxf windows-tar.tar -C ${CARGO_HOME:-~/.cargo}/bin
+      run: |
+        powershell Invoke-WebRequest -Uri https://get.nexte.st/latest/windows -OutFile nextest-windows.zip &&
+        powershell Expand-Archive -Path 'nextest-windows.zip' -DestinationPath 'C:\Users\ContainerAdministrator\.cargo\bin\'
     - name: Run tests in release
       run: make nextest-release
   beacon-chain-tests:
