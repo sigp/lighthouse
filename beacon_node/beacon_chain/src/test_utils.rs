@@ -17,8 +17,8 @@ use bls::get_withdrawal_credentials;
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
-        ExecutionBlockGenerator, MockExecutionLayer, TestingBuilder, DEFAULT_JWT_SECRET,
-        DEFAULT_TERMINAL_BLOCK,
+        ExecutionBlockGenerator, MockBuilder, MockBuilderServer, MockExecutionLayer,
+        DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK,
     },
     ExecutionLayer,
 };
@@ -167,7 +167,7 @@ pub struct Builder<T: BeaconChainTypes> {
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
-    mock_builder: Option<TestingBuilder<T::EthSpec>>,
+    mock_builder: Option<Arc<MockBuilder<T::EthSpec>>>,
     testing_slot_clock: Option<TestingSlotClock>,
     runtime: TestRuntime,
     log: Logger,
@@ -445,7 +445,6 @@ where
             None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
-            None,
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
@@ -456,39 +455,49 @@ where
         mut self,
         beacon_url: SensitiveUrl,
         builder_threshold: Option<u128>,
-    ) -> Self {
-        // Get a random unused port
-        let port = unused_port::unused_tcp4_port().unwrap();
-        let builder_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
-
+    ) -> (Self, MockBuilderServer) {
         let spec = self.spec.clone().expect("cannot build without spec");
         let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
-        let mock_el = MockExecutionLayer::new(
+
+        // Create the EL initially without any builder. We need to tie a self-referential knot.
+        let mut mock_el = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
             DEFAULT_TERMINAL_BLOCK,
             shanghai_time,
             builder_threshold,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec.clone(),
-            Some(builder_url.clone()),
         )
         .move_to_terminal_block();
 
         let mock_el_url = SensitiveUrl::parse(mock_el.server.url().as_str()).unwrap();
 
-        self.mock_builder = Some(TestingBuilder::new(
+        // Create the builder, listening on a free port.
+        let (mock_builder, mock_builder_server) = MockBuilder::new_for_testing(
             mock_el_url,
-            builder_url,
             beacon_url,
             spec,
             self.runtime.task_executor.clone(),
-        ));
+        );
+
+        // Set the builder URL in the execution layer now that its port is known.
+        let builder_listen_addr = mock_builder_server.local_addr();
+        let port = builder_listen_addr.port();
+        mock_el
+            .el
+            .set_builder_url(
+                SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap(),
+                None,
+            )
+            .unwrap();
+
+        self.mock_builder = Some(Arc::new(mock_builder));
         self.execution_layer = Some(mock_el.el.clone());
         self.mock_execution_layer = Some(mock_el);
 
-        self
+        (self, mock_builder_server)
     }
 
     /// Instruct the mock execution engine to always return a "valid" response to any payload it is
@@ -572,7 +581,7 @@ where
             shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
             runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
-            mock_builder: self.mock_builder.map(Arc::new),
+            mock_builder: self.mock_builder,
             rng: make_rng(),
         }
     }
@@ -597,7 +606,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub runtime: TestRuntime,
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
-    pub mock_builder: Option<Arc<TestingBuilder<T::EthSpec>>>,
+    pub mock_builder: Option<Arc<MockBuilder<T::EthSpec>>>,
 
     pub rng: Mutex<StdRng>,
 }

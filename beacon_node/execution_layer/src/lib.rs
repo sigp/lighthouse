@@ -209,7 +209,6 @@ pub enum FailedCondition {
 
 struct Inner<E: EthSpec> {
     engine: Arc<Engine>,
-    builder: Option<BuilderHttpClient>,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
@@ -257,6 +256,7 @@ pub struct Config {
 #[derive(Clone)]
 pub struct ExecutionLayer<T: EthSpec> {
     inner: Arc<Inner<T>>,
+    builder: Option<Arc<BuilderHttpClient>>,
 }
 
 impl<T: EthSpec> ExecutionLayer<T> {
@@ -324,25 +324,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
             Engine::new(api, executor.clone(), &log)
         };
 
-        let builder = builder_url
-            .map(|url| {
-                let builder_client = BuilderHttpClient::new(url.clone(), builder_user_agent)
-                    .map_err(Error::Builder)?;
-
-                info!(
-                    log,
-                    "Using external block builder";
-                    "builder_url" => ?url,
-                    "builder_profit_threshold" => builder_profit_threshold,
-                    "local_user_agent" => builder_client.get_user_agent(),
-                );
-                Ok::<_, Error>(builder_client)
-            })
-            .transpose()?;
-
         let inner = Inner {
             engine: Arc::new(engine),
-            builder,
             execution_engine_forkchoice_lock: <_>::default(),
             suggested_fee_recipient,
             proposer_preparation_data: Mutex::new(HashMap::new()),
@@ -356,19 +339,46 @@ impl<T: EthSpec> ExecutionLayer<T> {
             last_new_payload_errored: RwLock::new(false),
         };
 
-        Ok(Self {
+        let mut el = Self {
             inner: Arc::new(inner),
-        })
-    }
-}
+            builder: None,
+        };
 
-impl<T: EthSpec> ExecutionLayer<T> {
+        if let Some(builder_url) = builder_url {
+            el.set_builder_url(builder_url, builder_user_agent)?;
+        }
+
+        Ok(el)
+    }
+
     fn engine(&self) -> &Arc<Engine> {
         &self.inner.engine
     }
 
-    pub fn builder(&self) -> &Option<BuilderHttpClient> {
-        &self.inner.builder
+    pub fn builder(&self) -> &Option<Arc<BuilderHttpClient>> {
+        &self.builder
+    }
+
+    /// Set the builder URL after initialization.
+    ///
+    /// This is useful for breaking circular dependencies between mock ELs and mock builders in
+    /// tests.
+    pub fn set_builder_url(
+        &mut self,
+        builder_url: SensitiveUrl,
+        builder_user_agent: Option<String>,
+    ) -> Result<(), Error> {
+        let builder_client = BuilderHttpClient::new(builder_url.clone(), builder_user_agent)
+            .map_err(Error::Builder)?;
+        info!(
+            self.log(),
+            "Using external block builder";
+            "builder_url" => ?builder_url,
+            "builder_profit_threshold" => self.inner.builder_profit_threshold.as_u128(),
+            "local_user_agent" => builder_client.get_user_agent(),
+        );
+        self.builder = Some(Arc::new(builder_client));
+        Ok(())
     }
 
     /// Cache a full payload, keyed on the `tree_hash_root` of the payload

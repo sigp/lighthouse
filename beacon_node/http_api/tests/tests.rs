@@ -10,10 +10,9 @@ use eth2::{
     types::{BlockId as CoreBlockId, ForkChoiceNode, StateId as CoreStateId, *},
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
-use execution_layer::test_utils::TestingBuilder;
-use execution_layer::test_utils::DEFAULT_BUILDER_THRESHOLD_WEI;
 use execution_layer::test_utils::{
-    Operation, DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
+    MockBuilder, Operation, DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_BUILDER_THRESHOLD_WEI,
+    DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
@@ -73,7 +72,7 @@ struct ApiTester {
     network_rx: NetworkReceivers<E>,
     local_enr: Enr,
     external_peer_id: PeerId,
-    mock_builder: Option<Arc<TestingBuilder<E>>>,
+    mock_builder: Option<Arc<MockBuilder<E>>>,
 }
 
 struct ApiTesterConfig {
@@ -125,21 +124,29 @@ impl ApiTester {
         let port = unused_port::unused_tcp4_port().unwrap();
         let beacon_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
 
-        let harness = Arc::new(
-            BeaconChainHarness::builder(MainnetEthSpec)
-                .spec(spec.clone())
-                .chain_config(ChainConfig {
-                    reconstruct_historic_states: config.retain_historic_states,
-                    ..ChainConfig::default()
-                })
-                .logger(logging::test_logger())
-                .deterministic_keypairs(VALIDATOR_COUNT)
-                .fresh_ephemeral_store()
-                .mock_execution_layer_with_builder(beacon_url.clone(), config.builder_threshold)
-                .build(),
-        );
+        let (harness_builder, mock_builder_server) = BeaconChainHarness::builder(MainnetEthSpec)
+            .spec(spec.clone())
+            .chain_config(ChainConfig {
+                reconstruct_historic_states: config.retain_historic_states,
+                ..ChainConfig::default()
+            })
+            .logger(logging::test_logger())
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .mock_execution_layer_with_builder(beacon_url.clone(), config.builder_threshold);
+        let harness = Arc::new(harness_builder.build());
 
         harness.advance_slot();
+
+        // Start the mock builder service prior to building the chain out.
+        harness.runtime.task_executor.spawn(
+            async move {
+                if let Err(e) = mock_builder_server.await {
+                    panic!("error in mock builder server: {e:?}");
+                }
+            },
+            "mock_builder_server",
+        );
 
         for _ in 0..CHAIN_LENGTH {
             let slot = harness.chain.slot().unwrap().as_u64();
@@ -258,12 +265,6 @@ impl ApiTester {
             Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
         );
 
-        let builder_ref = harness.mock_builder.as_ref().unwrap().clone();
-        harness.runtime.task_executor.spawn(
-            async move { builder_ref.run().await },
-            "mock_builder_server",
-        );
-
         let mock_builder = harness.mock_builder.clone();
 
         Self {
@@ -379,7 +380,6 @@ impl ApiTester {
             .mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_BUILDER_THRESHOLD_WEI,
             )));
@@ -402,7 +402,6 @@ impl ApiTester {
             .mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_BUILDER_PAYLOAD_VALUE_WEI,
             )));
@@ -3283,7 +3282,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::GasLimit(30_000_000));
 
         let slot = self.chain.slot().unwrap();
@@ -3326,7 +3324,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::FeeRecipient(test_fee_recipient));
 
         let slot = self.chain.slot().unwrap();
@@ -3368,7 +3365,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::ParentHash(invalid_parent_hash));
 
         let slot = self.chain.slot().unwrap();
@@ -3417,7 +3413,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::PrevRandao(invalid_prev_randao));
 
         let slot = self.chain.slot().unwrap();
@@ -3462,7 +3457,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::BlockNumber(invalid_block_number));
 
         let slot = self.chain.slot().unwrap();
@@ -3509,7 +3503,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Timestamp(invalid_timestamp));
 
         let slot = self.chain.slot().unwrap();
@@ -3549,11 +3542,7 @@ impl ApiTester {
     }
 
     pub async fn test_payload_rejects_invalid_signature(self) -> Self {
-        self.mock_builder
-            .as_ref()
-            .unwrap()
-            .builder
-            .invalid_signatures();
+        self.mock_builder.as_ref().unwrap().invalid_signatures();
 
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
@@ -3831,7 +3820,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_BUILDER_THRESHOLD_WEI - 1,
             )));
@@ -3868,7 +3856,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
             )));
@@ -3905,7 +3892,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
             )));
@@ -3942,7 +3928,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI - 1,
             )));
@@ -3979,7 +3964,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
             )));
@@ -3996,7 +3980,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::WithdrawalsRoot(withdrawals_root));
 
         let epoch = self.chain.epoch().unwrap();
@@ -4029,7 +4012,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
             )));
@@ -4037,7 +4019,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::WithdrawalsRoot(Hash256::repeat_byte(0x42)));
 
         let slot = self.chain.slot().unwrap();

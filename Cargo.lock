@@ -2584,6 +2584,7 @@ name = "execution_layer"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
  "builder_client",
  "bytes",
  "environment",
@@ -2598,6 +2599,7 @@ dependencies = [
  "hash-db",
  "hash256-std-hasher",
  "hex",
+ "hyper",
  "jsonwebtoken",
  "keccak-hash",
  "lazy_static",
