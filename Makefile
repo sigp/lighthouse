@@ -108,10 +108,20 @@ build-release-tarballs:
 test-release:
 	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher
 
+# Runs the full workspace tests in **release**, without downloading any additional
+# test vectors, using nextest.
+test-release:
+	cargo nextest --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher
+
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
 	cargo test --workspace --exclude ef_tests --exclude beacon_chain
+
+# Runs the full workspace tests in **debug**, without downloading any additional test
+# vectors, using nextest.
+nextest-debug:
+	cargo nextest --workspace --exclude ef_tests --exclude beacon_chain
 
 # Runs cargo-fmt (linter).
 cargo-fmt:

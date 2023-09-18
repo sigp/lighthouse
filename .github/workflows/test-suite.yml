@@ -7,6 +7,9 @@ on:
       - staging
       - trying
       - 'pr/*'
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
   pull_request:
   merge_group:
 
@@ -52,34 +55,44 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
   release-tests-ubuntu:
     name: release-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
+    - name: Install nexttest for linux
+      run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run tests in release
-      run: make test-release
+      run: make nextest-release
   release-tests-windows:
     name: release-tests-windows
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows"]') || 'windows-2019'  }}
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
       with:
@@ -93,86 +106,110 @@ jobs:
         directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
+    - name: Install nexttest for windows
+      run: curl -LsSf https://get.nexte.st/latest/windows-tar | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run tests in release
       run: make test-release
   beacon-chain-tests:
     name: beacon-chain-tests
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
   op-pool-tests:
     name: op-pool-tests
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Run operation_pool tests for all known forks
       run: make test-op-pool
   slasher-tests:
     name: slasher-tests
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Run slasher tests for all supported backends
       run: make test-slasher
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
+    - name: Install nexttest for linux
+      run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run tests in debug
-      run: make test-debug
+      run: make nextest-debug
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Run state_transition_vectors in release.
       run: make run-state-transition-tests
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "small"]') || 'ubuntu-latest'  }}
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
+    - name: Install nexttest for linux
+      run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
-      run: make test-ef
+      run: make nextest-ef
   dockerfile-ubuntu:
     name: dockerfile-ubuntu
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Build the root Dockerfile
       run: docker build --build-arg FEATURES=portable -t lighthouse:local .
     - name: Test the built image
@@ -180,11 +217,14 @@ jobs:
   eth1-simulator-ubuntu:
     name: eth1-simulator-ubuntu
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
       with:
@@ -194,11 +234,14 @@ jobs:
   merge-transition-ubuntu:
     name: merge-transition-ubuntu
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
       with:
@@ -208,21 +251,27 @@ jobs:
   no-eth1-simulator-ubuntu:
     name: no-eth1-simulator-ubuntu
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Run the beacon chain sim without an eth1 connection
       run: cargo run --release --bin simulator no-eth1-sim
   syncing-simulator-ubuntu:
     name: syncing-simulator-ubuntu
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
       with:
@@ -232,11 +281,14 @@ jobs:
   doppelganger-protection-test:
     name: doppelganger-protection-test
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Install geth
       run: |
           sudo add-apt-repository -y ppa:ethereum/ethereum
@@ -257,7 +309,6 @@ jobs:
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - uses: actions/setup-go@v3
@@ -267,29 +318,44 @@ jobs:
       with:
         dotnet-version: '6.0.201'
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Run exec engine integration tests in release
       run: make test-exec-engine
   check-benchmarks:
     name: check-benchmarks
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt
     - name: Typecheck benchmark code without running it
       run: make check-benches
   clippy:
     name: clippy
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
     - name: Lint code for quality and style with Clippy
-      run: make lint
+      uses: actions-rs/clippy-check@v1
+      with:
+         token: $${{ secrets.GITHUB_TOKEN }}
+         args: --workspace --tests \
+             -D clippy::fn_to_numeric_cast_any \
+             -D warnings \
+             -A clippy::derive_partial_eq_without_eq \
+             -A clippy::from-over-into \
+             -A clippy::upper-case-acronyms \
+             -A clippy::vec-init-then-push \
+             -A clippy::question-mark \
+             -A clippy::uninlined-format-args
     - name: Certify Cargo.lock freshness
       run: git diff --exit-code Cargo.lock
   check-msrv:
@@ -305,23 +371,25 @@ jobs:
   arbitrary-check:
     name: arbitrary-check
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
     - name: Validate state_processing feature arbitrary-fuzz
       run:  make arbitrary-fuzz
   cargo-audit:
     name: cargo-audit
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Run cargo audit to identify known security vulnerabilities reported to the RustSec Advisory Database
-      run:  make audit
+    - uses: actions-rs/audit-check@1.4.1
+      with:
+          token: $${{ secrets.GITHUB_TOKEN }}
+          ignore: RUSTSEC-2023-0052
   cargo-vendor:
     name: cargo-vendor
     runs-on: ubuntu-latest
@@ -333,13 +401,14 @@ jobs:
   cargo-udeps:
     name: cargo-udeps
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Install Rust (${{ env.PINNED_NIGHTLY }})
-      run: rustup toolchain install $PINNED_NIGHTLY
-    - name: Install cargo-udeps
-      run: cargo install cargo-udeps --locked --force
+    - name: Get latest version of stable Rust
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: nightly
+          override: true
+          components: udeps
     - name: Create Cargo config dir
       run: mkdir -p .cargo
     - name: Install custom Cargo config
