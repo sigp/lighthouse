@@ -140,7 +140,7 @@ run-ef-tests:
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Runs EF test vectors with nextest
-nexttest-run-ef-tests:
+nextest-run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
@@ -175,7 +175,7 @@ run-state-transition-tests:
 test-ef: make-ef-tests run-ef-tests
 
 # Downloads and runs the EF test vectors with nextest.
-nexttest-ef: make-ef-tests nexttest-run-ef-tests
+nextest-ef: make-ef-tests nextest-run-ef-tests
 
 # Runs tests checking interop between Lighthouse and execution clients.
 test-exec-engine:
