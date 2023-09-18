@@ -6,6 +6,7 @@ use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStat
 use mediatype::{names, MediaType, MediaTypeList};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+use ssz::{Decode, DecodeError};
 use ssz_derive::Encode;
 use std::convert::TryFrom;
 use std::fmt::{self, Display};
@@ -1356,6 +1357,8 @@ pub mod serde_status_code {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ssz::Encode;
+    use std::sync::Arc;
 
     #[test]
     fn query_vec() {
@@ -1389,6 +1392,85 @@ mod tests {
             Accept::from_str("application/json;message=\"Hello, world!\";q=0.3,*/*;q=0.6").unwrap(),
             Accept::Any
         );
+    }
+
+    #[test]
+    fn ssz_signed_block_contents_pre_deneb() {
+        type E = MainnetEthSpec;
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(0));
+
+        let block: SignedBlockContents<E, FullPayload<E>> = SignedBeaconBlock::from_block(
+            BeaconBlock::<E>::Capella(BeaconBlockCapella::empty(&spec)),
+            Signature::empty(),
+        )
+        .try_into()
+        .expect("should convert into signed block contents");
+
+        let decoded: SignedBlockContents<E> =
+            SignedBlockContents::from_ssz_bytes(&block.as_ssz_bytes(), &spec)
+                .expect("should decode Block");
+        assert!(matches!(decoded, SignedBlockContents::Block(_)));
+    }
+
+    #[test]
+    fn ssz_signed_block_contents_with_blobs() {
+        type E = MainnetEthSpec;
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(0));
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+
+        let block = SignedBeaconBlock::from_block(
+            BeaconBlock::<E>::Deneb(BeaconBlockDeneb::empty(&spec)),
+            Signature::empty(),
+        );
+        let blobs = SignedSidecarList::from(vec![SignedSidecar {
+            message: Arc::new(BlobSidecar::empty()),
+            signature: Signature::empty(),
+            _phantom: Default::default(),
+        }]);
+        let signed_block_contents = SignedBlockContents::new(block, Some(blobs));
+
+        let decoded: SignedBlockContents<E, FullPayload<E>> =
+            SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
+                .expect("should decode BlockAndBlobSidecars");
+        assert!(matches!(
+            decoded,
+            SignedBlockContents::BlockAndBlobSidecars(_)
+        ));
+    }
+
+    #[test]
+    fn ssz_signed_blinded_block_contents_with_blobs() {
+        type E = MainnetEthSpec;
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(0));
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+
+        let blinded_block = SignedBeaconBlock::from_block(
+            BeaconBlock::<E, BlindedPayload<E>>::Deneb(BeaconBlockDeneb::empty(&spec)),
+            Signature::empty(),
+        );
+        let blinded_blobs = SignedSidecarList::from(vec![SignedSidecar {
+            message: Arc::new(BlindedBlobSidecar::empty()),
+            signature: Signature::empty(),
+            _phantom: Default::default(),
+        }]);
+        let signed_block_contents = SignedBlockContents::new(blinded_block, Some(blinded_blobs));
+
+        let decoded: SignedBlockContents<E, BlindedPayload<E>> =
+            SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
+                .expect("should decode BlindedBlockAndBlobSidecars");
+        assert!(matches!(
+            decoded,
+            SignedBlockContents::BlindedBlockAndBlobSidecars(_)
+        ));
     }
 }
 
@@ -1524,13 +1606,13 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
         blobs: Option<SignedSidecarList<T, Payload::Sidecar>>,
     ) -> Self {
         match (Payload::block_type(), blobs) {
-            (BlockType::Blinded, Some(blobs)) => {
+            (BlockType::Full, Some(blobs)) => {
                 Self::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
                     signed_block: block,
                     signed_blob_sidecars: blobs,
                 })
             }
-            (BlockType::Full, Some(blobs)) => {
+            (BlockType::Blinded, Some(blobs)) => {
                 Self::BlindedBlockAndBlobSidecars(SignedBlindedBeaconBlockAndBlobSidecars {
                     signed_blinded_block: block,
                     signed_blinded_blob_sidecars: blobs,
@@ -1542,9 +1624,34 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
 
     /// SSZ decode with fork variant determined by slot.
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
-        // FIXME(jimmy): SSZ decode not implemented for `SignedBeaconBlockAndBlobSidecars`
-        SignedBeaconBlock::from_ssz_bytes(bytes, spec)
-            .map(|block| SignedBlockContents::Block(block))
+        let slot_len = <Slot as Decode>::ssz_fixed_len();
+        let slot_bytes = bytes
+            .get(0..slot_len)
+            .ok_or(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_len,
+            })?;
+
+        let slot = Slot::from_ssz_bytes(slot_bytes)?;
+        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
+
+        match fork_at_slot {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                SignedBeaconBlock::from_ssz_bytes(bytes, spec)
+                    .map(|block| SignedBlockContents::Block(block))
+            }
+            ForkName::Deneb => {
+                let mut builder = ssz::SszDecoderBuilder::new(bytes);
+                builder.register_anonymous_variable_length_item()?;
+                builder.register_type::<SignedSidecarList<T, Payload::Sidecar>>()?;
+
+                let mut decoder = builder.build()?;
+                let block = decoder
+                    .decode_next_with(|bytes| SignedBeaconBlock::from_ssz_bytes(bytes, spec))?;
+                let blobs = decoder.decode_next()?;
+                Ok(SignedBlockContents::new(block, Some(blobs)))
+            }
+        }
     }
 
     pub fn signed_block(&self) -> &SignedBeaconBlock<T, Payload> {
@@ -1669,23 +1776,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBlockContentsTuple<
     for SignedBlockContents<T, Payload>
 {
     fn from(block_contents_tuple: SignedBlockContentsTuple<T, Payload>) -> Self {
-        match block_contents_tuple {
-            (signed_block, None) => SignedBlockContents::Block(signed_block),
-            (signed_block, Some(signed_blob_sidecars)) => match Payload::block_type() {
-                BlockType::Blinded => SignedBlockContents::BlindedBlockAndBlobSidecars(
-                    SignedBlindedBeaconBlockAndBlobSidecars {
-                        signed_blinded_block: signed_block,
-                        signed_blinded_blob_sidecars: signed_blob_sidecars,
-                    },
-                ),
-                BlockType::Full => {
-                    SignedBlockContents::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
-                        signed_block,
-                        signed_blob_sidecars,
-                    })
-                }
-            },
-        }
+        SignedBlockContents::new(block_contents_tuple.0, block_contents_tuple.1)
     }
 }
 
