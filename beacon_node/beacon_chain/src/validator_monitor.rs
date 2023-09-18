@@ -507,7 +507,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             }
         }
 
-        // count the amount of times a validator missed a non-finalized block
+        // count the amount of times a monitored validator missed a non-finalized block
         self.missed_blocks
             .iter()
             .group_by(|(_, validator_index, _)| *validator_index)
@@ -531,10 +531,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         // As we are skipping the genesis slot, we can simply pass Hash256::zero() as the shuffling decision block
         // cf. state.proposer_shuffling_decision_root implementation
         let shuffling_decision_block = Hash256::zero();
-
-        // We want to avoid looping inside the range_of_slots loop as there's a lock on the cache which might make other threads wait
-        // Let's request the proposers for the start_slot and then loop over range_of_slots
-        let start_slot_epoch = start_slot.epoch(T::slots_per_epoch());
 
         // List of proposers per epoch from the cache
         let mut proposers_per_epoch: Option<SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> = None;
