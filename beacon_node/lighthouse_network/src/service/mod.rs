@@ -156,8 +156,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let meta_data = utils::load_or_build_metadata(&config.network_dir, &log);
             let globals = NetworkGlobals::new(
                 enr,
-                config.listen_addrs().v4().map(|v4_addr| v4_addr.tcp_port),
-                config.listen_addrs().v6().map(|v6_addr| v6_addr.tcp_port),
                 meta_data,
                 config
                     .trusted_peers
@@ -352,8 +350,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         let (swarm, bandwidth) = {
             // Set up the transport - tcp/ws with noise and mplex
-            let (transport, bandwidth) = build_transport(local_keypair.clone())
-                .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+            let (transport, bandwidth) =
+                build_transport(local_keypair.clone(), !config.disable_quic_support)
+                    .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
             // use the executor for libp2p
             struct Executor(task_executor::TaskExecutor);
@@ -408,9 +407,16 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     async fn start(&mut self, config: &crate::NetworkConfig) -> error::Result<()> {
         let enr = self.network_globals.local_enr();
         info!(self.log, "Libp2p Starting"; "peer_id" => %enr.peer_id(), "bandwidth_config" => format!("{}-{}", config.network_load, NetworkLoad::from(config.network_load).name));
-        debug!(self.log, "Attempting to open listening ports"; config.listen_addrs(), "discovery_enabled" => !config.disable_discovery);
+        debug!(self.log, "Attempting to open listening ports"; config.listen_addrs(), "discovery_enabled" => !config.disable_discovery, "quic_enabled" => !config.disable_quic_support);
 
-        for listen_multiaddr in config.listen_addrs().tcp_addresses() {
+        for listen_multiaddr in config.listen_addrs().libp2p_addresses() {
+            // If QUIC is disabled, ignore listening on QUIC ports
+            if config.disable_quic_support
+                && listen_multiaddr.iter().any(|v| v == MProtocol::QuicV1)
+            {
+                continue;
+            }
+
             match self.swarm.listen_on(listen_multiaddr.clone()) {
                 Ok(_) => {
                     let mut log_address = listen_multiaddr;
@@ -451,6 +457,20 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         boot_nodes.dedup();
 
         for bootnode_enr in boot_nodes {
+            // If QUIC is enabled, attempt QUIC connections first
+            if !config.disable_quic_support {
+                for quic_multiaddr in &bootnode_enr.multiaddr_quic() {
+                    if !self
+                        .network_globals
+                        .peers
+                        .read()
+                        .is_connected_or_dialing(&bootnode_enr.peer_id())
+                    {
+                        dial(quic_multiaddr.clone());
+                    }
+                }
+            }
+
             for multiaddr in &bootnode_enr.multiaddr() {
                 // ignore udp multiaddr if it exists
                 let components = multiaddr.iter().collect::<Vec<_>>();
@@ -1033,30 +1053,27 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
-    /// Dial cached enrs in discovery service that are in the given `subnet_id` and aren't
+    /// Dial cached Enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
     fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet) {
         let predicate = subnet_predicate::<TSpec>(vec![subnet], &self.log);
-        let peers_to_dial: Vec<PeerId> = self
+        let peers_to_dial: Vec<Enr> = self
             .discovery()
             .cached_enrs()
-            .filter_map(|(peer_id, enr)| {
-                let peers = self.network_globals.peers.read();
-                if predicate(enr) && peers.should_dial(peer_id) {
-                    Some(*peer_id)
+            .filter_map(|(_peer_id, enr)| {
+                if predicate(enr) {
+                    Some(enr.clone())
                 } else {
                     None
                 }
             })
             .collect();
-        for peer_id in peers_to_dial {
-            debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
-            // Remove the ENR from the cache to prevent continual re-dialing on disconnects
 
-            self.discovery_mut().remove_cached_enr(&peer_id);
-            // For any dial event, inform the peer manager
-            let enr = self.discovery_mut().enr_of_peer(&peer_id);
-            self.peer_manager_mut().dial_peer(&peer_id, enr);
+        // Remove the ENR from the cache to prevent continual re-dialing on disconnects
+        for enr in peers_to_dial {
+            debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %enr.peer_id());
+            self.discovery_mut().remove_cached_enr(&enr.peer_id());
+            self.peer_manager_mut().dial_peer(enr);
         }
     }
 
@@ -1342,22 +1359,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
-    /// Handle a discovery event.
-    fn inject_discovery_event(
-        &mut self,
-        event: DiscoveredPeers,
-    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
-        let DiscoveredPeers { peers } = event;
-        let to_dial_peers = self.peer_manager_mut().peers_discovered(peers);
-        for peer_id in to_dial_peers {
-            debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
-            // For any dial event, inform the peer manager
-            let enr = self.discovery_mut().enr_of_peer(&peer_id);
-            self.peer_manager_mut().dial_peer(&peer_id, enr);
-        }
-        None
-    }
-
     /// Handle an identify event.
     fn inject_identify_event(
         &mut self,
@@ -1452,7 +1453,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     // Handle sub-behaviour events.
                     BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
                     BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
-                    BehaviourEvent::Discovery(de) => self.inject_discovery_event(de),
+                    // Inform the peer manager about discovered peers.
+                    //
+                    // The peer manager will subsequently decide which peers need to be dialed and then dial
+                    // them.
+                    BehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
+                        self.peer_manager_mut().peers_discovered(peers);
+                        None
+                    }
                     BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
                     BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
                     BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
@@ -1484,7 +1492,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                             format!("Dialing local peer id {endpoint:?}")
                         }
                         libp2p::swarm::ListenError::Denied { cause } => {
-                            format!("Connection was denied with cause {cause}")
+                            format!("Connection was denied with cause: {cause:?}")
                         }
                         libp2p::swarm::ListenError::Transport(t) => match t {
                             libp2p::TransportError::MultiaddrNotSupported(m) => {
@@ -1534,13 +1542,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         None
                     }
                 }
-                SwarmEvent::Dialing {
-                    peer_id,
-                    connection_id: _,
-                } => {
-                    debug!(self.log, "Swarm Dialing"; "peer_id" => ?peer_id);
-                    None
-                }
+                SwarmEvent::Dialing { .. } => None,
             };
 
             if let Some(ev) = maybe_event {
