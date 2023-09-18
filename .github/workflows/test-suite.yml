@@ -109,7 +109,7 @@ jobs:
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Install nexttest for windows
-      run: curl -LsSf https://get.nexte.st/latest/windows-tar && tar zxf windows-tar.tar -C ${CARGO_HOME:-~/.cargo}/bin
+      run: curl -LsSf https://get.nexte.st/latest/windows-tar > windows-tar.tar && tar zxf windows-tar.tar -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run tests in release
       run: make nextest-release
   beacon-chain-tests:
@@ -348,7 +348,6 @@ jobs:
     - name: Lint code for quality and style with Clippy
       uses: actions-rs/clippy-check@v1
       with:
-         token: $${{ secrets.GITHUB_TOKEN }}
          args: --workspace --tests \
              -D clippy::fn_to_numeric_cast_any \
              -D warnings \
@@ -388,9 +387,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: actions-rs/audit-check@1.4.1
+    - uses: actions-rs/audit-check@v1
       with:
-          token: $${{ secrets.GITHUB_TOKEN }}
           ignore: RUSTSEC-2023-0052
   cargo-vendor:
     name: cargo-vendor
