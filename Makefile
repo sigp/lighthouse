@@ -226,8 +226,12 @@ arbitrary-fuzz:
 	cargo check -p slashing_protection --features arbitrary-fuzz
 
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
-audit:
+audit: install-audit audit-CI
+
+install-audit:
 	cargo install --force cargo-audit
+
+audit-CI:
 	cargo audit --ignore RUSTSEC-2023-0052
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
