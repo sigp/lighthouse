@@ -67,6 +67,8 @@ jobs:
       run: rustup update stable
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in release
       run: make test-release
   release-tests-windows:
@@ -78,16 +80,10 @@ jobs:
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
-    - name: Use Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '14'
-    - name: Install windows build tools
-      run: |
-        choco install python visualstudio2019-workload-vctools -y
-        npm config set msvs_version 2019
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Install make
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1
@@ -143,6 +139,8 @@ jobs:
       run: rustup update stable
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:
@@ -189,6 +187,8 @@ jobs:
       run: rustup update stable
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run the beacon chain sim that starts from an eth1 contract
       run: cargo run --release --bin simulator eth1-sim
   merge-transition-ubuntu:
@@ -201,6 +201,8 @@ jobs:
       run: rustup update stable
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run the beacon chain sim and go through the merge transition
       run: cargo run --release --bin simulator eth1-sim --post-merge
   no-eth1-simulator-ubuntu:
@@ -223,6 +225,8 @@ jobs:
       run: rustup update stable
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run the syncing simulator
       run: cargo run --release --bin simulator syncing-sim
   doppelganger-protection-test:

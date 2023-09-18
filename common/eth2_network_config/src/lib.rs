@@ -482,10 +482,10 @@ mod tests {
     fn hard_coded_nets_work() {
         for net in HARDCODED_NETS {
             let config = Eth2NetworkConfig::from_hardcoded_net(net)
-                .unwrap_or_else(|_| panic!("{:?}", net.name));
+                .unwrap_or_else(|e| panic!("{:?}: {:?}", net.name, e));
 
             // Ensure we can parse the YAML config to a chain spec.
-            if net.name == types::GNOSIS {
+            if config.config.preset_base == types::GNOSIS {
                 config.chain_spec::<GnosisEthSpec>().unwrap();
             } else {
                 config.chain_spec::<MainnetEthSpec>().unwrap();

@@ -58,7 +58,8 @@ Notable flags:
   - `lighthouse --network mainnet`: Mainnet.
   - `lighthouse --network goerli`: Goerli (testnet).
   - `lighthouse --network sepolia`: Sepolia (testnet).
-  - `lighthouse --network gnosis`: Gnosis chain
+  - `lighthouse --network chiado`: Chiado (testnet).
+  - `lighthouse --network gnosis`: Gnosis chain.
 
     > Note:  Using the correct `--network` flag is very important; using the wrong flag can
 result in penalties, slashings or lost deposits. As a rule of thumb, *always*

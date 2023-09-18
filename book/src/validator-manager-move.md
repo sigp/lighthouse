@@ -69,7 +69,6 @@ In reality, many host configurations are possible. For example:
 The source VC needs to have the following flags at a minimum:
 
 - `--http`
-- `--http-port 5062`
 - `--http-allow-keystore-export`
 
 Therefore, the source VC command might look like:
@@ -78,7 +77,6 @@ Therefore, the source VC command might look like:
 lighthouse \
     vc \
     --http \
-    --http-port 5062 \
     --http-allow-keystore-export
 ```
 
@@ -87,7 +85,6 @@ lighthouse \
 The destination VC needs to have the following flags at a minimum:
 
 - `--http`
-- `--http-port 5062`
 - `--enable-doppelganger-protection`
 
 Therefore, the destination VC command might look like:
@@ -96,7 +93,6 @@ Therefore, the destination VC command might look like:
 lighthouse \
     vc \
     --http \
-    --http-port 5062 \
     --enable-doppelganger-protection
 ```
 
@@ -167,6 +163,8 @@ At the same time, `lighthouse vc` will log:
 INFO Importing keystores via standard HTTP API, count: 1
 INFO Enabled validator                       voting_pubkey: 0xab6e29f1b98fedfca878edce2b471f1b5ee58ee4c3bd216201f98254ef6f6eac40a53d74c8b7da54f51d3e85cacae92f, signing_method: local_keystore
 INFO Modified key_cache saved successfully
+```
+
 Once the operation completes successfully, there is nothing else to be done. The
 validators have been removed from the `src-host` and enabled at the `dest-host`.
 If the `--enable-doppelganger-protection` flag was used it may take 2-3 epochs
@@ -183,6 +181,7 @@ lighthouse \
 	--dest-vc-token ~/.lighthouse/mainnet/validators/api-token.txt \
 	--validators 0x9096aab771e44da149bd7c9926d6f7bb96ef465c0eeb4918be5178cd23a1deb4aec232c61d85ff329b54ed4a3bdfff3a,0x90fc4f72d898a8f01ab71242e36f4545aaf87e3887be81632bb8ba4b2ae8fb70753a62f866344d7905e9a07f5a9cdda1
 ```
+
 Any errors encountered during the operation should include information on how to
 proceed. Assistance is also available on our
 [Discord](https://discord.gg/cyAszAh).
