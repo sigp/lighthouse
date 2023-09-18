@@ -169,6 +169,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     pub fn to_blob(self) -> Arc<BlobSidecar<T::EthSpec>> {
         self.blob.message
     }
+    pub fn as_blob(&self) -> &BlobSidecar<T::EthSpec> {
+        &self.blob.message
+    }
     pub fn signed_blob(&self) -> SignedBlobSidecar<T::EthSpec> {
         self.blob.clone()
     }

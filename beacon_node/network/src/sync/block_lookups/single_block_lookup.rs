@@ -3,12 +3,14 @@ use crate::sync::block_lookups::common::{Lookup, RequestState};
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
+use beacon_chain::data_availability_checker::{
+    AvailabilityCheckError, AvailabilityView, DataAvailabilityChecker, ProcessingInfo,
+};
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::rpc::methods::MaxRequestBlobSidecars;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{trace, Logger};
-use ssz_types::VariableList;
+use ssz_types::{FixedVector, VariableList};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -16,7 +18,7 @@ use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
-use types::{EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, KzgCommitment, SignedBeaconBlock};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum State {
@@ -267,18 +269,14 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// availability cache, so we don't check it. In either case we use the data availability
     /// checker to get a picture of outstanding blob requirements for the block root.
     pub(crate) fn missing_blob_ids(&self) -> Vec<BlobIdentifier> {
+        let block_root = self.block_root();
         if let Some(components) = self.cached_child_components.as_ref() {
-            let blobs = components.downloaded_indices();
             self.da_checker
-                .get_missing_blob_ids(
-                    self.block_root(),
-                    components.downloaded_block.as_ref(),
-                    Some(blobs),
-                )
+                .get_missing_blob_ids(block_root, &components.processing_info())
                 .unwrap_or_default()
         } else {
             self.da_checker
-                .get_missing_blob_ids_checking_cache(self.block_root())
+                .get_missing_blob_ids_checking_cache(block_root)
                 .unwrap_or_default()
         }
     }
@@ -445,33 +443,59 @@ impl<E: EthSpec> CachedChildComponents<E> {
     }
 
     pub fn add_cached_child_block(&mut self, block: Arc<SignedBeaconBlock<E>>) {
-        self.downloaded_block = Some(block);
+        self.merge_block(block)
     }
 
     pub fn add_cached_child_blobs(&mut self, blobs: FixedBlobSidecarList<E>) {
-        for (index, blob_opt) in self.downloaded_blobs.iter_mut().enumerate() {
-            if let Some(Some(downloaded_blob)) = blobs.get(index) {
-                *blob_opt = Some(downloaded_blob.clone());
-            }
-        }
+        self.merge_blobs(blobs)
     }
 
-    pub fn downloaded_indices(&self) -> HashSet<usize> {
-        self.downloaded_blobs
-            .iter()
-            .enumerate()
-            .filter_map(|(i, blob_opt)| blob_opt.as_ref().map(|_| i))
-            .collect::<HashSet<_>>()
+    pub fn processing_info(&self) -> ProcessingInfo<E> {
+        ProcessingInfo::from_parts(self.downloaded_block.as_ref(), &self.downloaded_blobs)
+            .unwrap_or_default()
+    }
+}
+
+impl<E: EthSpec> AvailabilityView<E> for CachedChildComponents<E> {
+    type BlockType = Arc<SignedBeaconBlock<E>>;
+    type BlobType = Arc<BlobSidecar<E>>;
+
+    fn block_exists(&self) -> bool {
+        todo!()
     }
 
-    pub fn is_missing_components(&self) -> bool {
-        self.downloaded_block
-            .as_ref()
-            .map(|block| {
-                block.num_expected_blobs()
-                    != self.downloaded_blobs.iter().filter(|b| b.is_some()).count()
-            })
-            .unwrap_or(true)
+    fn blob_exists(&self, blob_index: u64) -> bool {
+        todo!()
+    }
+
+    fn num_expected_blobs(&self) -> usize {
+        todo!()
+    }
+
+    fn num_received_blobs(&self) -> usize {
+        todo!()
+    }
+
+    fn insert_block(&mut self, block: Self::BlockType) {
+        todo!()
+    }
+
+    fn insert_blob_at_index(&mut self, blob_index: u64, blob: &Self::BlobType) {
+        todo!()
+    }
+
+    fn blob_to_commitment(blob: &Self::BlobType) -> KzgCommitment {
+        todo!()
+    }
+
+    fn get_cached_blob_commitments_mut(
+        &mut self,
+    ) -> &mut FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock> {
+        todo!()
+    }
+
+    fn get_block_commitment_at_index(&self, blob_index: u64) -> Option<KzgCommitment> {
+        todo!()
     }
 }
 

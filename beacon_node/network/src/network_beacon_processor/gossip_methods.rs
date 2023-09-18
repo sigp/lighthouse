@@ -1223,6 +1223,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(BlockError::AvailabilityCheck(err)) => {
                 match err {
                     AvailabilityCheckError::KzgNotInitialized
+                    | AvailabilityCheckError::Unexpected
                     | AvailabilityCheckError::SszTypes(_)
                     | AvailabilityCheckError::MissingBlobs
                     | AvailabilityCheckError::StoreError(_)
@@ -1235,12 +1236,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                     AvailabilityCheckError::Kzg(_)
                     | AvailabilityCheckError::KzgVerificationFailed
-                    | AvailabilityCheckError::NumBlobsMismatch { .. }
                     | AvailabilityCheckError::BlobIndexInvalid(_)
-                    | AvailabilityCheckError::UnorderedBlobs { .. }
-                    | AvailabilityCheckError::BlockBlobRootMismatch { .. }
-                    | AvailabilityCheckError::BlockBlobSlotMismatch { .. }
-                    | AvailabilityCheckError::KzgCommitmentMismatch { .. } => {
+                    | AvailabilityCheckError::InconsistentBlobBlockRoots { .. } => {
                         // Note: we cannot penalize the peer that sent us the block
                         // over gossip here because these errors imply either an issue
                         // with:

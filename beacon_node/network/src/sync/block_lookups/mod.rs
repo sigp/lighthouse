@@ -12,7 +12,9 @@ use crate::sync::block_lookups::single_block_lookup::{
 };
 use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
-use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
+use beacon_chain::data_availability_checker::{
+    AvailabilityCheckError, AvailabilityView, DataAvailabilityChecker,
+};
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::Current;
@@ -127,28 +129,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) {
         let lookup = self.new_current_lookup(block_root, None, &[peer_source], cx);
 
+        // TODO: can get rid of some of this
         if let Some(lookup) = lookup {
             let msg = "Searching for block";
             lookup_creation_logging(msg, &lookup, peer_source, &self.log);
             self.trigger_single_lookup(lookup, cx);
-        }
-    }
-
-    /// Creates a lookup for the block with the given `block_root`.
-    ///
-    /// The request is not immediately triggered, and should be triggered by a call to
-    /// `trigger_lookup_by_root`.
-    pub fn search_block_delayed(
-        &mut self,
-        block_root: Hash256,
-        peer_source: PeerShouldHave,
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        let lookup = self.new_current_lookup(block_root, None, &[peer_source], cx);
-        if let Some(lookup) = lookup {
-            let msg = "Initialized delayed lookup for block";
-            lookup_creation_logging(msg, &lookup, peer_source, &self.log);
-            self.add_single_lookup(lookup)
         }
     }
 
@@ -165,38 +150,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_source: PeerShouldHave,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        if child_components.is_missing_components() {
+        if !child_components.is_available() {
             let lookup =
                 self.new_current_lookup(block_root, Some(child_components), &[peer_source], cx);
             if let Some(lookup) = lookup {
                 let msg = "Searching for components of a block with unknown parent";
                 lookup_creation_logging(msg, &lookup, peer_source, &self.log);
                 self.trigger_single_lookup(lookup, cx);
-            }
-        }
-    }
-
-    /// Creates a lookup for the block with the given `block_root`, while caching other block
-    /// components we've already received. The block components are cached here because we haven't
-    /// imported it's parent and therefore can't fully validate it and store it in the data
-    /// availability cache.
-    ///
-    /// The request is not immediately triggered, and should be triggered by a call to
-    /// `trigger_lookup_by_root`.
-    pub fn search_child_delayed(
-        &mut self,
-        block_root: Hash256,
-        child_components: CachedChildComponents<T::EthSpec>,
-        peer_source: PeerShouldHave,
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        if child_components.is_missing_components() {
-            let lookup =
-                self.new_current_lookup(block_root, Some(child_components), &[peer_source], cx);
-            if let Some(lookup) = lookup {
-                let msg = "Initialized delayed lookup for block with unknown parent";
-                lookup_creation_logging(msg, &lookup, peer_source, &self.log);
-                self.add_single_lookup(lookup)
             }
         }
     }
@@ -943,9 +903,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     AvailabilityCheckError::KzgNotInitialized
                     | AvailabilityCheckError::SszTypes(_)
                     | AvailabilityCheckError::MissingBlobs
-                    | AvailabilityCheckError::UnorderedBlobs { .. }
                     | AvailabilityCheckError::StoreError(_)
-                    | AvailabilityCheckError::DecodeError(_) => {
+                    | AvailabilityCheckError::DecodeError(_)
+                    | AvailabilityCheckError::Unexpected => {
                         warn!(self.log, "Internal availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
                         lookup
                             .block_request_state
@@ -958,20 +918,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         lookup.request_block_and_blobs(cx)?
                     }
 
-                    // Invalid block and blob comparison.
-                    AvailabilityCheckError::NumBlobsMismatch { .. }
-                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
-                    | AvailabilityCheckError::BlockBlobRootMismatch { .. }
-                    | AvailabilityCheckError::BlockBlobSlotMismatch { .. } => {
-                        warn!(self.log, "Availability check failure in consistency"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
-                        lookup.handle_consistency_failure(cx);
-                        lookup.request_block_and_blobs(cx)?
-                    }
-
                     // Malicious errors.
                     AvailabilityCheckError::Kzg(_)
                     | AvailabilityCheckError::BlobIndexInvalid(_)
-                    | AvailabilityCheckError::KzgVerificationFailed => {
+                    | AvailabilityCheckError::KzgVerificationFailed
+                    | AvailabilityCheckError::InconsistentBlobBlockRoots { .. } => {
                         warn!(self.log, "Availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
                         lookup.handle_availability_check_failure(cx);
                         lookup.request_block_and_blobs(cx)?

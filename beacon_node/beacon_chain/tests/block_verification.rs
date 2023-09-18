@@ -868,7 +868,7 @@ async fn block_gossip_verification() {
             .await
             .expect("should import valid gossip verified block");
         if let Some(blobs) = blobs_opt {
-            for blob in blobs {
+            for blob in &blobs {
                 let blob_index = blob.message.index;
                 let gossip_verified = harness
                     .chain

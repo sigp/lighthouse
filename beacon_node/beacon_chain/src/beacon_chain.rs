@@ -118,6 +118,7 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
+use types::beacon_block_body::KzgCommitmentOpts;
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
 use types::sidecar::BlobItems;
@@ -2795,13 +2796,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        self.data_availability_checker.notify_blob();
-        self.check_gossip_blob_availability_and_import(blob)
-            .await
-            .map_err(|e| {
-                self.data_availability_checker.remove_notified_blob();
-                e
-            })
+        let block_root = blob.block_root();
+        let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
+        commitments
+            .get_mut(blob.as_blob().index as usize)
+            .map(|b| *b = Some(blob.as_blob().kzg_commitment));
+        self.data_availability_checker
+            .notify_blob_commitments(block_root, commitments);
+        let r = self.check_gossip_blob_availability_and_import(blob).await;
+        self.remove_notified(&block_root, r)
     }
 
     pub async fn process_rpc_blobs(
@@ -2810,14 +2813,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        self.data_availability_checker.notify_blob();
-        self.check_rpc_blob_availability_and_import(slot, block_root, blobs)
-            .await
-            .map_err(|e| {
-                self.data_availability_checker
-                    .remove_notified_blob(block_root);
-                e
-            })
+        let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
+        for blob in &blobs {
+            if let Some(blob) = blob {
+                commitments
+                    .get_mut(blob.index as usize)
+                    .map(|b| *b = Some(blob.kzg_commitment));
+            }
+        }
+        self.data_availability_checker
+            .notify_blob_commitments(block_root, commitments);
+        let r = self
+            .check_rpc_blob_availability_and_import(slot, block_root, blobs)
+            .await;
+        self.remove_notified(&block_root, r)
+    }
+
+    fn remove_notified(
+        &self,
+        block_root: &Hash256,
+        r: Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        let has_missing_components =
+            matches!(r, Ok(AvailabilityProcessingStatus::MissingComponents(_, _)));
+        if !has_missing_components {
+            self.data_availability_checker.remove_notified(&block_root);
+        }
+        r
     }
 
     pub async fn process_block_with_early_caching<B: IntoExecutionPendingBlock<T>>(
@@ -2826,14 +2848,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        self.data_availability_checker.notify_block();
-        self.process_block(block_root, unverified_block, notify_execution_layer)
-            .await
-            .map_err(|e| {
-                self.data_availability_checker.remove_notified_block();
-                e
+        if let Ok(commitments) = unverified_block
+            .block()
+            .message()
+            .body()
+            .blob_kzg_commitments()
+        {
+            self.data_availability_checker
+                .notify_block_commitments(block_root, commitments.clone());
+        };
+        let r = self
+            .process_block(block_root, unverified_block, notify_execution_layer, || {
+                Ok(())
             })
+            .await;
+        self.remove_notified(&block_root, r)
     }
+
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
     /// imported into the chain.
     ///
@@ -5286,7 +5317,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        // Fetch payoad attributes from the execution layer's cache, or compute them from scratch
+        // Fetch payload attributes from the execution layer's cache, or compute them from scratch
         // if no matching entry is found. This saves recomputing the withdrawals which can take
         // considerable time to compute if a state load is required.
         let head_root = forkchoice_update_params.head_root;

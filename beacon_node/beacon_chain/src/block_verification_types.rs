@@ -242,20 +242,6 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
             .blob_kzg_commitments()
             .map_or(0, |commitments| commitments.len())
     }
-
-    pub fn get_all_blob_ids(&self) -> Vec<BlobIdentifier> {
-        let block_root = self.import_data.block_root;
-        self.block
-            .get_filtered_blob_ids(Some(block_root), |_, _| true)
-    }
-
-    pub fn get_filtered_blob_ids(
-        &self,
-        filter: impl Fn(usize, Hash256) -> bool,
-    ) -> Vec<BlobIdentifier> {
-        self.block
-            .get_filtered_blob_ids(Some(self.import_data.block_root), filter)
-    }
 }
 
 #[derive(Debug, PartialEq, Encode, Decode, Clone)]

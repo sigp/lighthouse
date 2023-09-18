@@ -1,3 +1,4 @@
+use crate::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
 use crate::blob_sidecar::BlobIdentifier;
 use crate::*;
 use bls::Signature;
@@ -257,29 +258,38 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             .map(|c| c.len())
             .unwrap_or(0)
     }
+}
 
-    pub fn get_expected_blob_ids(&self, block_root: Option<Hash256>) -> Vec<BlobIdentifier> {
-        self.get_filtered_blob_ids(block_root, |_, _| true)
-    }
+pub fn get_missing_blob_ids<E: EthSpec>(
+    block_root: Hash256,
+    required_commitments: Option<&KzgCommitments<E>>,
+    buffered_commitments: &KzgCommitmentOpts<E>,
+) -> Vec<BlobIdentifier> {
+    match required_commitments {
+        Some(required_commitments) => {
+            let num_blobs_expected = required_commitments.len();
+            let mut blob_ids = Vec::with_capacity(num_blobs_expected);
 
-    /// If the filter returns `true` the id for the corresponding index and root will be included.
-    pub fn get_filtered_blob_ids(
-        &self,
-        block_root: Option<Hash256>,
-        filter: impl Fn(usize, Hash256) -> bool,
-    ) -> Vec<BlobIdentifier> {
-        let block_root = block_root.unwrap_or_else(|| self.canonical_root());
-        let num_blobs_expected = self.num_expected_blobs();
-        let mut blob_ids = Vec::with_capacity(num_blobs_expected);
-        for i in 0..num_blobs_expected {
-            if filter(i, block_root) {
-                blob_ids.push(BlobIdentifier {
-                    block_root,
-                    index: i as u64,
-                });
+            // Zip here will always limit the number of iterations to the size of
+            // `required_commitments` because `buffered_commitments` will always be populated
+            // with `Option` values up to `MAX_BLOBS_PER_BLOCK`.
+            for (index, (req_commitment, buffered_commitment_opt)) in required_commitments
+                .into_iter()
+                .zip(buffered_commitments.iter())
+                .enumerate()
+            {
+                if buffered_commitment_opt.map_or(true, |buffered_commitment| {
+                    buffered_commitment != *req_commitment
+                }) {
+                    blob_ids.push(BlobIdentifier {
+                        block_root,
+                        index: index as u64,
+                    });
+                }
             }
+            blob_ids
         }
-        blob_ids
+        None => BlobIdentifier::get_all_blob_ids::<E>(block_root),
     }
 }
 
