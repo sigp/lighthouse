@@ -145,20 +145,12 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     ///
     /// This is used to determine if we should accept incoming connections or not.
     pub fn ban_status(&self, peer_id: &PeerId) -> Option<BanResult> {
-        if let Some(peer) = self.peers.get(peer_id) {
-            match peer.score_state() {
+        self.peers
+            .get(peer_id)
+            .and_then(|peer| match peer.score_state() {
                 ScoreState::Banned => Some(BanResult::BadScore),
-                _ => {
-                    if let Some(ip) = self.ip_is_banned(peer) {
-                        Some(BanResult::BannedIp(ip))
-                    } else {
-                        None
-                    }
-                }
-            }
-        } else {
-            None
-        }
+                _ => self.ip_is_banned(peer).map(BanResult::BannedIp),
+            })
     }
 
     /// Checks if the peer's known addresses are currently banned.
@@ -1859,9 +1851,9 @@ mod tests {
         //check that ip1 and ip2 are banned but ip3-5 not
         assert!(pdb.ban_status(&p1).is_some());
         assert!(pdb.ban_status(&p2).is_some());
-        assert!(!pdb.ban_status(&p3).is_some());
-        assert!(!pdb.ban_status(&p4).is_some());
-        assert!(!pdb.ban_status(&p5).is_some());
+        assert!(pdb.ban_status(&p3).is_none());
+        assert!(pdb.ban_status(&p4).is_none());
+        assert!(pdb.ban_status(&p5).is_none());
 
         //ban also the last peer in peers
         let _ = pdb.report_peer(
@@ -1877,7 +1869,7 @@ mod tests {
         assert!(pdb.ban_status(&p2).is_some());
         assert!(pdb.ban_status(&p3).is_some());
         assert!(pdb.ban_status(&p4).is_some());
-        assert!(!pdb.ban_status(&p5).is_some());
+        assert!(pdb.ban_status(&p5).is_none());
 
         //peers[0] gets unbanned
         reset_score(&mut pdb, &peers[0]);
@@ -1889,7 +1881,7 @@ mod tests {
         assert!(pdb.ban_status(&p2).is_some());
         assert!(pdb.ban_status(&p3).is_some());
         assert!(pdb.ban_status(&p4).is_some());
-        assert!(!pdb.ban_status(&p5).is_some());
+        assert!(pdb.ban_status(&p5).is_none());
 
         //peers[1] gets unbanned
         reset_score(&mut pdb, &peers[1]);
@@ -1897,11 +1889,11 @@ mod tests {
         let _ = pdb.shrink_to_fit();
 
         //all ips are unbanned
-        assert!(!pdb.ban_status(&p1).is_some());
-        assert!(!pdb.ban_status(&p2).is_some());
-        assert!(!pdb.ban_status(&p3).is_some());
-        assert!(!pdb.ban_status(&p4).is_some());
-        assert!(!pdb.ban_status(&p5).is_some());
+        assert!(pdb.ban_status(&p1).is_none());
+        assert!(pdb.ban_status(&p2).is_none());
+        assert!(pdb.ban_status(&p3).is_none());
+        assert!(pdb.ban_status(&p4).is_none());
+        assert!(pdb.ban_status(&p5).is_none());
     }
 
     #[test]
@@ -1927,7 +1919,7 @@ mod tests {
 
         // check ip is banned
         assert!(pdb.ban_status(&p1).is_some());
-        assert!(!pdb.ban_status(&p2).is_some());
+        assert!(pdb.ban_status(&p2).is_none());
 
         // unban a peer
         reset_score(&mut pdb, &peers[0]);
@@ -1935,8 +1927,8 @@ mod tests {
         let _ = pdb.shrink_to_fit();
 
         // check not banned anymore
-        assert!(!pdb.ban_status(&p1).is_some());
-        assert!(!pdb.ban_status(&p2).is_some());
+        assert!(pdb.ban_status(&p1).is_none());
+        assert!(pdb.ban_status(&p2).is_none());
 
         // unban all peers
         for p in &peers {
@@ -1972,8 +1964,8 @@ mod tests {
         }
 
         // nothing is banned
-        assert!(!pdb.ban_status(&p1).is_some());
-        assert!(!pdb.ban_status(&p2).is_some());
+        assert!(pdb.ban_status(&p1).is_none());
+        assert!(pdb.ban_status(&p2).is_none());
 
         // reban last peer
         let _ = pdb.report_peer(&peers[0], PeerAction::Fatal, ReportSource::PeerManager, "");
