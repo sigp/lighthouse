@@ -1285,6 +1285,30 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             );
         }
     }
+
+    /// Checks if the peer is banned, if so
+    /// disconnects and queues `PeerManagement::Banned` so that discovert also bans it.
+    fn check_ban_peer(&mut self, peer_id: PeerId) -> Option<BanResult> {
+        match self.ban_status(&peer_id) {
+            Some(cause @ BanResult::BadScore) => {
+                // This is a faulty state
+                error!(self.log, "Connection attempt with a banned peer. Re-banning"; "peer_id" => %peer_id);
+                // Disconnect the peer.
+                self.goodbye_peer(&peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
+                // Re-ban the peer to prevent repeated errors.
+                self.events.push(PeerManagerEvent::Banned(peer_id, vec![]));
+                Some(cause)
+            }
+            Some(cause @ BanResult::BannedIp(ip_addr)) => {
+                // A good peer has connected to us via a banned IP address. We ban the peer and
+                // prevent future connections.
+                debug!(self.log, "Connection attempt via banned IP. Banning peer"; "peer_id" => %peer_id, "banned_ip" => %ip_addr);
+                self.goodbye_peer(&peer_id, GoodbyeReason::BannedIP, ReportSource::PeerManager);
+                Some(cause)
+            }
+            None => None,
+        }
+    }
 }
 
 enum ConnectingType {
