@@ -58,8 +58,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -75,8 +75,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -84,15 +84,15 @@ jobs:
           components: rustfmt
     - name: Install Foundry (anvil)
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Install nexttest for linux
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run tests in release
       run: make nextest-release
@@ -101,14 +101,9 @@ jobs:
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows"]') || 'windows-2019'  }}
     steps:
     - uses: actions/checkout@v3
-    - name: Test cat output, prob wont work
-      run: echo env.RUNNER_NAME && echo "1"
-    - name: Test cat output, prob wont work2
-      run: echo $env:RUNNER_NAME && echo "2"
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'builder-win') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -116,20 +111,18 @@ jobs:
           components: rustfmt
     - name: Install Foundry (anvil)
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'builder-win') != 'true'
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Install make
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'builder-win') != 'true'
       run: choco install -y make
 #    - uses: KyleMayes/install-llvm-action@v1
 #      if: |
-#        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-#        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+#        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+#        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
 #      with:
 #        version: "15.0"
 #        directory: ${{ runner.temp }}/llvm
@@ -137,8 +130,7 @@ jobs:
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Install nextest for windows
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'builder-win') != 'true'
       run: |
         powershell Invoke-WebRequest -Uri https://get.nexte.st/latest/windows -OutFile nextest-windows.zip &&
         powershell Expand-Archive -Path 'nextest-windows.zip' -DestinationPath 'C:\Users\ContainerAdministrator\.cargo\bin\'
@@ -152,8 +144,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -168,8 +160,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -184,8 +176,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -201,8 +193,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -210,15 +202,15 @@ jobs:
           components: rustfmt
     - name: Install Foundry (anvil)
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Install nextest for linux
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run tests in debug
       run: make nextest-debug
@@ -229,8 +221,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -246,8 +238,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -255,8 +247,8 @@ jobs:
           components: rustfmt
     - name: Install nextest for linux
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
       run: make nextest-ef
@@ -267,8 +259,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -285,8 +277,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -294,8 +286,8 @@ jobs:
           components: rustfmt
     - name: Install Foundry (anvil)
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
@@ -308,8 +300,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -317,8 +309,8 @@ jobs:
           components: rustfmt
     - name: Install Foundry (anvil)
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
@@ -331,8 +323,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -347,8 +339,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -356,8 +348,8 @@ jobs:
           components: rustfmt
     - name: Install Foundry (anvil)
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
@@ -370,8 +362,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -379,8 +371,8 @@ jobs:
           components: rustfmt
     - name: Install geth
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       run: |
           sudo add-apt-repository -y ppa:ethereum/ethereum
           sudo apt-get update
@@ -410,8 +402,8 @@ jobs:
         dotnet-version: '6.0.201'
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -426,8 +418,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -442,8 +434,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -470,8 +462,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
@@ -486,16 +478,16 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
           override: true
     - name: Install cargo audit
       if: |
-        contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
-        contains(env.RUNNER_NAME, 'runner-large-') != 'true'
+        contains($env:RUNNER_NAME, 'runner-small-') != 'true' &&
+        contains($env:RUNNER_NAME, 'runner-large-') != 'true'
       run: cargo install cargo-audit --force
     - name: Run cargo audit
       run: make audit-CI
