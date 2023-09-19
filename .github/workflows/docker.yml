@@ -76,9 +76,11 @@ jobs:
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
+            - uses: cargo-bins/cargo-binstall@main
+            - name: Install cross
+              run: cargo binstall --no-confirm cross
             - name: Cross build Lighthouse binary
               run: |
-                  cargo install cross
                   env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ matrix.features.env }} make build-${{ matrix.binary }}
             - name: Move cross-built binary into Docker scope (if ARM)
               if: startsWith(matrix.binary, 'aarch64')

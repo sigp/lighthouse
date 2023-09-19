@@ -69,6 +69,9 @@ jobs:
               uses: actions/checkout@v3
             - name: Get latest version of stable Rust
               run: rustup update stable
+            - uses: cargo-bins/cargo-binstall@main
+            - name: Install cross
+              run: cargo binstall --no-confirm cross
 
             # ==============================
             # Windows dependencies
@@ -90,25 +93,21 @@ jobs:
             - name: Build Lighthouse for aarch64-unknown-linux-gnu-portable
               if:   matrix.arch == 'aarch64-unknown-linux-gnu-portable'
               run:  |
-                cargo install cross
                 env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64-portable
 
             - name: Build Lighthouse for aarch64-unknown-linux-gnu
               if:   matrix.arch == 'aarch64-unknown-linux-gnu'
               run:  |
-                cargo install cross
                 env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64
 
             - name: Build Lighthouse for x86_64-unknown-linux-gnu-portable
               if:   matrix.arch == 'x86_64-unknown-linux-gnu-portable'
               run:  |
-                cargo install cross
                 env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64-portable
 
             - name: Build Lighthouse for x86_64-unknown-linux-gnu
               if:   matrix.arch == 'x86_64-unknown-linux-gnu'
               run:  |
-                cargo install cross
                 env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64
 
             - name: Move cross-compiled binary
