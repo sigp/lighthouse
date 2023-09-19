@@ -151,21 +151,21 @@ nextest-run-ef-tests:
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo test --release --features fork_from_env,slasher/lmdb -p beacon_chain
+	env FORK_NAME=$* cargo nextest run --release --features fork_from_env,slasher/lmdb -p beacon_chain
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
 
 test-op-pool-%:
-	env FORK_NAME=$* cargo test --release \
+	env FORK_NAME=$* cargo nextest run --release \
 		--features 'beacon_chain/fork_from_env'\
 		-p operation_pool
 
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
-	cargo test --release -p slasher --features lmdb
-	cargo test --release -p slasher --no-default-features --features mdbx
-	cargo test --release -p slasher --features lmdb,mdbx # both backends enabled
+	cargo nextest --release -p slasher --features lmdb
+	cargo nextest --release -p slasher --no-default-features --features mdbx
+	cargo nextest --release -p slasher --features lmdb,mdbx # both backends enabled
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:

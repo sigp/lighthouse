@@ -55,10 +55,9 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == false
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
@@ -70,19 +69,16 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == false
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
+          bins: cargo-nextest
     - name: Install Foundry (anvil)
       if: env.SELF_HOSTED_RUNNERS == false
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Install nexttest for linux
-      if: env.SELF_HOSTED_RUNNERS == false
-      run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run tests in release
       run: make nextest-release
     - name: Show cache stats
@@ -95,11 +91,11 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == false
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
+          bins: cargo-nextest
     - name: Install Foundry (anvil)
       if: env.SELF_HOSTED_RUNNERS == false
       uses: foundry-rs/foundry-toolchain@v1
@@ -130,11 +126,11 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == false
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
+          bins: cargo-nextest
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
     - name: Show cache stats
@@ -146,12 +142,11 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
+          bins: cargo-nextest
     - name: Run operation_pool tests for all known forks
       run: make test-op-pool
   slasher-tests:
@@ -160,12 +155,11 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
+          bins: cargo-nextest
     - name: Run slasher tests for all supported backends
       run: make test-slasher
   debug-tests-ubuntu:
@@ -176,19 +170,16 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == false
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
+          bins: cargo-nextest
     - name: Install Foundry (anvil)
       if: env.SELF_HOSTED_RUNNERS == false
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Install nextest for linux
-      if: env.SELF_HOSTED_RUNNERS == false
-      run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run tests in debug
       run: make nextest-debug
     - name: Show cache stats
@@ -200,10 +191,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
     - name: Run state_transition_vectors in release.
       run: make run-state-transition-tests
@@ -215,14 +205,11 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == false
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
-    - name: Install nextest for linux
-      if: env.SELF_HOSTED_RUNNERS == false
-      run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+          bins: cargo-nextest
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
       run: make nextest-ef
     - name: Show cache stats
@@ -234,10 +221,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
     - name: Build the root Dockerfile
       run: docker build --build-arg FEATURES=portable -t lighthouse:local .
@@ -249,10 +235,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
@@ -266,10 +251,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
@@ -283,10 +267,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
     - name: Run the beacon chain sim without an eth1 connection
       run: cargo run --release --bin simulator no-eth1-sim
@@ -297,10 +280,9 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == false
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
     - name: Install Foundry (anvil)
       if: env.SELF_HOSTED_RUNNERS == false
@@ -318,10 +300,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
     - name: Install geth
       run: |
@@ -352,10 +333,9 @@ jobs:
       with:
         dotnet-version: '6.0.201'
     - name: Get latest version of stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
           components: rustfmt
     - name: Run exec engine integration tests in release
       run: make test-exec-engine
@@ -378,11 +358,10 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
-          components: clippy
+          channel: stable
+          components: rustfmt
     - name: Lint code for quality and style with Clippy
       run: make lint
     - name: Certify Cargo.lock freshness
@@ -403,11 +382,10 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
-          components: rustfmt, clippy
+          channel: stable
+          components: rustfmt
     - name: Validate state_processing feature arbitrary-fuzz
       run:  make arbitrary-fuzz
   cargo-audit:
@@ -416,12 +394,11 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
-    - name: Install cargo audit
-      run: cargo install cargo-audit --force
+          channel: stable
+          components: rustfmt
+          bins: cargo-audit
     - name: Run cargo audit
       run: make audit-CI
   cargo-vendor:
