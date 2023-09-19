@@ -17,7 +17,7 @@ use execution_layer::test_utils::{
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{
-    test_utils::{create_api_server, create_api_server_on_port, ApiServer},
+    test_utils::{create_api_server, ApiServer},
     BlockId, StateId,
 };
 use lighthouse_network::{Enr, EnrExt, PeerId};
@@ -119,12 +119,9 @@ impl ApiTester {
     }
 
     pub async fn new_from_config(config: ApiTesterConfig) -> Self {
-        // Get a random unused port
         let spec = config.spec;
-        let port = unused_port::unused_tcp4_port().unwrap();
-        let beacon_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
 
-        let (harness_builder, mock_builder_server) = BeaconChainHarness::builder(MainnetEthSpec)
+        let mut harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
             .chain_config(ChainConfig {
                 reconstruct_historic_states: config.retain_historic_states,
@@ -133,20 +130,19 @@ impl ApiTester {
             .logger(logging::test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
-            .mock_execution_layer_with_builder(beacon_url.clone(), config.builder_threshold);
-        let harness = Arc::new(harness_builder.build());
+            .mock_execution_layer_with_config(config.builder_threshold)
+            .build();
+
+        harness
+            .mock_execution_layer
+            .as_ref()
+            .unwrap()
+            .server
+            .execution_block_generator()
+            .move_to_terminal_block()
+            .unwrap();
 
         harness.advance_slot();
-
-        // Start the mock builder service prior to building the chain out.
-        harness.runtime.task_executor.spawn(
-            async move {
-                if let Err(e) = mock_builder_server.await {
-                    panic!("error in mock builder server: {e:?}");
-                }
-            },
-            "mock_builder_server",
-        );
 
         for _ in 0..CHAIN_LENGTH {
             let slot = harness.chain.slot().unwrap().as_u64();
@@ -252,23 +248,40 @@ impl ApiTester {
 
         let ApiServer {
             server,
-            listening_socket: _,
+            listening_socket,
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server_on_port(chain.clone(), &harness.runtime, log, port).await;
+        } = create_api_server(chain.clone(), &harness.runtime, log).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
+
+        // Late-initalize the mock builder now that the mock execution node and beacon API ports
+        // have been allocated.
+        let beacon_api_port = listening_socket.port();
+        let beacon_url =
+            SensitiveUrl::parse(format!("http://127.0.0.1:{beacon_api_port}").as_str()).unwrap();
+        let mock_builder_server = harness.set_mock_builder(beacon_url.clone());
+
+        // Start the mock builder service prior to building the chain out.
+        harness.runtime.task_executor.spawn(
+            async move {
+                if let Err(e) = mock_builder_server.await {
+                    panic!("error in mock builder server: {e:?}");
+                }
+            },
+            "mock_builder_server",
+        );
+
+        let mock_builder = harness.mock_builder.clone();
 
         let client = BeaconNodeHttpClient::new(
             beacon_url,
             Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
         );
 
-        let mock_builder = harness.mock_builder.clone();
-
         Self {
-            harness,
+            harness: Arc::new(harness),
             chain,
             client,
             next_block,
@@ -3274,6 +3287,7 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
+
         self
     }
 

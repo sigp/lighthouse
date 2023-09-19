@@ -167,7 +167,6 @@ pub struct Builder<T: BeaconChainTypes> {
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
-    mock_builder: Option<Arc<MockBuilder<T::EthSpec>>>,
     testing_slot_clock: Option<TestingSlotClock>,
     runtime: TestRuntime,
     log: Logger,
@@ -301,7 +300,6 @@ where
             store_mutator: None,
             execution_layer: None,
             mock_execution_layer: None,
-            mock_builder: None,
             testing_slot_clock: None,
             runtime,
             log,
@@ -433,7 +431,11 @@ where
         self
     }
 
-    pub fn mock_execution_layer(mut self) -> Self {
+    pub fn mock_execution_layer(self) -> Self {
+        self.mock_execution_layer_with_config(None)
+    }
+
+    pub fn mock_execution_layer_with_config(mut self, builder_threshold: Option<u128>) -> Self {
         let spec = self.spec.clone().expect("cannot build without spec");
         let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
@@ -442,62 +444,13 @@ where
             self.runtime.task_executor.clone(),
             DEFAULT_TERMINAL_BLOCK,
             shanghai_time,
-            None,
+            builder_threshold,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
         self
-    }
-
-    pub fn mock_execution_layer_with_builder(
-        mut self,
-        beacon_url: SensitiveUrl,
-        builder_threshold: Option<u128>,
-    ) -> (Self, MockBuilderServer) {
-        let spec = self.spec.clone().expect("cannot build without spec");
-        let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
-            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
-        });
-
-        // Create the EL initially without any builder. We need to tie a self-referential knot.
-        let mut mock_el = MockExecutionLayer::new(
-            self.runtime.task_executor.clone(),
-            DEFAULT_TERMINAL_BLOCK,
-            shanghai_time,
-            builder_threshold,
-            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
-            spec.clone(),
-        )
-        .move_to_terminal_block();
-
-        let mock_el_url = SensitiveUrl::parse(mock_el.server.url().as_str()).unwrap();
-
-        // Create the builder, listening on a free port.
-        let (mock_builder, mock_builder_server) = MockBuilder::new_for_testing(
-            mock_el_url,
-            beacon_url,
-            spec,
-            self.runtime.task_executor.clone(),
-        );
-
-        // Set the builder URL in the execution layer now that its port is known.
-        let builder_listen_addr = mock_builder_server.local_addr();
-        let port = builder_listen_addr.port();
-        mock_el
-            .el
-            .set_builder_url(
-                SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap(),
-                None,
-            )
-            .unwrap();
-
-        self.mock_builder = Some(Arc::new(mock_builder));
-        self.execution_layer = Some(mock_el.el.clone());
-        self.mock_execution_layer = Some(mock_el);
-
-        (self, mock_builder_server)
     }
 
     /// Instruct the mock execution engine to always return a "valid" response to any payload it is
@@ -581,7 +534,7 @@ where
             shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
             runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
-            mock_builder: self.mock_builder,
+            mock_builder: None,
             rng: make_rng(),
         }
     }
@@ -640,6 +593,49 @@ where
             .expect("harness was not built with mock execution layer")
             .server
             .execution_block_generator()
+    }
+
+    pub fn set_mock_builder(&mut self, beacon_url: SensitiveUrl) -> MockBuilderServer {
+        let mock_el = self
+            .mock_execution_layer
+            .as_ref()
+            .expect("harness was not built with mock execution layer");
+
+        let mock_el_url = SensitiveUrl::parse(mock_el.server.url().as_str()).unwrap();
+
+        // Create the builder, listening on a free port.
+        let (mock_builder, mock_builder_server) = MockBuilder::new_for_testing(
+            mock_el_url,
+            beacon_url,
+            self.spec.clone(),
+            self.runtime.task_executor.clone(),
+        );
+
+        // Set the builder URL in the execution layer now that its port is known.
+        let builder_listen_addr = mock_builder_server.local_addr();
+        let port = builder_listen_addr.port();
+        mock_el
+            .el
+            .set_builder_url(
+                SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap(),
+                None,
+            )
+            .unwrap();
+
+        self.mock_builder = Some(Arc::new(mock_builder));
+
+        // Sanity check.
+        let el_builder = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .builder()
+            .unwrap();
+        let mock_el_builder = mock_el.el.builder().unwrap();
+        assert!(Arc::ptr_eq(&el_builder, &mock_el_builder));
+
+        mock_builder_server
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {

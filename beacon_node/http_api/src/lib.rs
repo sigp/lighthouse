@@ -3635,12 +3635,13 @@ pub fn serve<T: BeaconChainTypes>(
                         // send the response back to our original HTTP request
                         // task via a channel.
                         let builder_future = async move {
-                            let builder = chain
+                            let arc_builder = chain
                                 .execution_layer
                                 .as_ref()
                                 .ok_or(BeaconChainError::ExecutionLayerMissing)
                                 .map_err(warp_utils::reject::beacon_chain_error)?
-                                .builder()
+                                .builder();
+                            let builder = arc_builder
                                 .as_ref()
                                 .ok_or(BeaconChainError::BuilderMissing)
                                 .map_err(warp_utils::reject::beacon_chain_error)?;

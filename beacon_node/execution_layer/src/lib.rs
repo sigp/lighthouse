@@ -5,6 +5,7 @@
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
 use crate::payload_cache::PayloadCache;
+use arc_swap::ArcSwapOption;
 use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
 pub use engine_api::EngineCapabilities;
@@ -256,7 +257,7 @@ pub struct Config {
 #[derive(Clone)]
 pub struct ExecutionLayer<T: EthSpec> {
     inner: Arc<Inner<T>>,
-    builder: Option<Arc<BuilderHttpClient>>,
+    builder: Arc<ArcSwapOption<BuilderHttpClient>>,
 }
 
 impl<T: EthSpec> ExecutionLayer<T> {
@@ -339,9 +340,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
             last_new_payload_errored: RwLock::new(false),
         };
 
-        let mut el = Self {
+        let el = Self {
             inner: Arc::new(inner),
-            builder: None,
+            builder: Arc::new(ArcSwapOption::empty()),
         };
 
         if let Some(builder_url) = builder_url {
@@ -355,8 +356,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self.inner.engine
     }
 
-    pub fn builder(&self) -> &Option<Arc<BuilderHttpClient>> {
-        &self.builder
+    pub fn builder(&self) -> Option<Arc<BuilderHttpClient>> {
+        self.builder.load_full()
     }
 
     /// Set the builder URL after initialization.
@@ -364,7 +365,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// This is useful for breaking circular dependencies between mock ELs and mock builders in
     /// tests.
     pub fn set_builder_url(
-        &mut self,
+        &self,
         builder_url: SensitiveUrl,
         builder_user_agent: Option<String>,
     ) -> Result<(), Error> {
@@ -377,7 +378,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "builder_profit_threshold" => self.inner.builder_profit_threshold.as_u128(),
             "local_user_agent" => builder_client.get_user_agent(),
         );
-        self.builder = Some(Arc::new(builder_client));
+        self.builder.swap(Some(Arc::new(builder_client)));
         Ok(())
     }
 

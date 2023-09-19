@@ -2583,6 +2583,7 @@ dependencies = [
 name = "execution_layer"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "axum",
  "builder_client",
