@@ -21,10 +21,11 @@ pub use libp2p::identity::{Keypair, PublicKey};
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
+use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 use libp2p::swarm::THandlerInEvent;
 pub use libp2p::{
-    core::{ConnectedPoint, Multiaddr},
+    core::{transport::ListenerId, ConnectedPoint, Multiaddr},
     identity::PeerId,
     swarm::{
         dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour, NotifyHandler,
@@ -34,6 +35,7 @@ pub use libp2p::{
 use lru::LruCache;
 use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
+use std::net::Ipv4Addr;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -1036,12 +1038,106 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
             FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
                 self.on_dial_failure(peer_id, error)
             }
+            FromSwarm::NewListenAddr(ev) => {
+                /* TODO(jmcph4): plumb user override status into config somehow */
+                let addr: &Multiaddr = ev.addr;
+                let listener_id: ListenerId = ev.listener_id;
+
+                trace!(self.log, "Received NewListenAddr event from swarm"; "listener_id" => ?listener_id, "addr" => ?addr);
+
+                let ip: IpAddr = match addr.iter().next() {
+                    Some(Protocol::Ip4(ip)) => IpAddr::V4(ip),
+                    Some(Protocol::Ip6(ip)) => IpAddr::V6(ip),
+                    _ => {
+                        debug!(self.log, "Encountered unacceptable multiaddr for listening (no IP)"; "addr" => ?addr);
+                        return;
+                    }
+                };
+
+                let update_enr = |ip: IpAddr, transport: Protocol| {
+                    /* this closure shouldn't exist but `Ipv4Addr::is_global` is Nightly at the moment */
+                    let is_global = |ip: Ipv4Addr| {
+                        !(ip.is_broadcast()
+                            || ip.is_documentation()
+                            || ip.is_link_local()
+                            || ip.is_loopback()
+                            || ip.is_multicast()
+                            || ip.is_private()
+                            || ip.is_unspecified())
+                    };
+
+                    let insert_into_enr = |key: &str, port: &u16| {
+                        if let Err(e) = self.discv5.enr_insert(key, port) {
+                            warn!(self.log, "Failed to write to ENR"; "error" => ?e);
+                        }
+                    };
+
+                    let mut should_update_ip: bool = true;
+
+                    /* we cannot violate the ENR invariant */
+                    if let IpAddr::V4(ip4) = ip {
+                        if !is_global(ip4) {
+                            debug!(self.log, "Refusing to update ENR IP (unreachable)"; "ip" => ?ip);
+                            should_update_ip = false;
+                        }
+                    }
+
+                    let port: u16 = match transport {
+                        Protocol::Tcp(port) => port,
+                        Protocol::Udp(port) => port,
+                        _ => {
+                            crit!(self.log, "Attempt to update discovery with unsupported transport (this should never occur)"; "transport" => ?transport);
+                            return;
+                        }
+                    };
+
+                    let transport_is_tcp: bool = matches!(transport, Protocol::Tcp(_));
+
+                    if should_update_ip {
+                        let sock: SocketAddr = SocketAddr::new(ip, port);
+
+                        self.discv5.update_local_enr_socket(sock, transport_is_tcp);
+                        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+                    } else {
+                        match ip {
+                            IpAddr::V4(_) => {
+                                if transport_is_tcp {
+                                    insert_into_enr("tcp4", &port);
+                                } else {
+                                    insert_into_enr("udp4", &port);
+                                }
+                            }
+                            IpAddr::V6(_) => {
+                                if transport_is_tcp {
+                                    insert_into_enr("tcp6", &port);
+                                } else {
+                                    insert_into_enr("udp6", &port);
+                                }
+                            }
+                        }
+
+                        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+                    }
+
+                    let local_enr: Enr = self.discv5.local_enr();
+                    info!(self.log, "Updated local ENR"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
+                        "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6());
+                };
+
+                match addr.iter().nth(1) {
+                    Some(Protocol::Tcp(port)) => update_enr(ip, Protocol::Tcp(port)),
+                    Some(Protocol::Udp(port)) => update_enr(ip, Protocol::Udp(port)),
+                    Some(Protocol::Quic) => update_enr(ip, Protocol::Quic),
+                    _ => {
+                        debug!(self.log, "Encountered unacceptable multiaddr for listening (invalid transport)"; "addr" => ?addr);
+                    }
+                };
+            }
             FromSwarm::ConnectionEstablished(_)
             | FromSwarm::ConnectionClosed(_)
             | FromSwarm::AddressChange(_)
             | FromSwarm::ListenFailure(_)
             | FromSwarm::NewListener(_)
-            | FromSwarm::NewListenAddr(_)
             | FromSwarm::ExpiredListenAddr(_)
             | FromSwarm::ListenerError(_)
             | FromSwarm::ListenerClosed(_)
