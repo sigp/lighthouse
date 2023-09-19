@@ -2798,9 +2798,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let block_root = blob.block_root();
         let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
-        commitments
-            .get_mut(blob.as_blob().index as usize)
-            .map(|b| *b = Some(blob.as_blob().kzg_commitment));
+        if let Some(commitment_opt) = commitments.get_mut(blob.as_blob().index as usize) {
+            *commitment_opt = Some(blob.as_blob().kzg_commitment);
+        }
         self.data_availability_checker
             .notify_blob_commitments(block_root, commitments);
         let r = self.check_gossip_blob_availability_and_import(blob).await;
@@ -2814,11 +2814,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
-        for blob in &blobs {
-            if let Some(blob) = blob {
-                commitments
-                    .get_mut(blob.index as usize)
-                    .map(|b| *b = Some(blob.kzg_commitment));
+        for blob in blobs.iter().flatten() {
+            if let Some(commitment) = commitments.get_mut(blob.index as usize) {
+                *commitment = Some(blob.kzg_commitment);
             }
         }
         self.data_availability_checker
@@ -2837,7 +2835,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let has_missing_components =
             matches!(r, Ok(AvailabilityProcessingStatus::MissingComponents(_, _)));
         if !has_missing_components {
-            self.data_availability_checker.remove_notified(&block_root);
+            self.data_availability_checker.remove_notified(block_root);
         }
         r
     }

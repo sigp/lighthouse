@@ -406,9 +406,9 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                     blob_block_root,
                 });
             }
-            fixed_blobs
-                .get_mut(blob.blob_index() as usize)
-                .map(|blob_opt| *blob_opt = Some(blob.clone()));
+            if let Some(blob_opt) = fixed_blobs.get_mut(blob.blob_index() as usize) {
+                *blob_opt = Some(blob.clone());
+            }
         }
 
         let mut write_lock = self.critical.write();

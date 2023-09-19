@@ -80,10 +80,8 @@ pub trait AvailabilityView<E: EthSpec> {
                 if block_commitment == commitment {
                     self.insert_blob_at_index(index, blob)
                 }
-            } else {
-                if !self.blob_exists(index) {
-                    self.insert_blob_at_index(index, blob)
-                }
+            } else if !self.blob_exists(index) {
+                self.insert_blob_at_index(index, blob)
             }
         }
     }
@@ -97,9 +95,9 @@ pub trait AvailabilityView<E: EthSpec> {
         let mut reinsert = FixedVector::default();
         for (index, cached_blob) in cached.iter_mut().enumerate() {
             // Take the existing blobs and re-insert them.
-            reinsert
-                .get_mut(index)
-                .map(|blob| *blob = cached_blob.take());
+            if let Some(blob) = reinsert.get_mut(index) {
+                *blob = cached_blob.take()
+            }
         }
 
         self.merge_blobs(reinsert)
@@ -143,7 +141,7 @@ impl<E: EthSpec> AvailabilityView<E> for ProcessingInfo<E> {
 
     fn insert_blob_at_index(&mut self, blob_index: u64, blob: &Self::BlobType) {
         if let Some(b) = self.processing_blobs.get_mut(blob_index as usize) {
-            *b = Some(blob.clone());
+            *b = Some(*blob);
         }
     }
 
@@ -160,7 +158,7 @@ impl<E: EthSpec> AvailabilityView<E> for ProcessingInfo<E> {
     fn get_block_commitment_at_index(&self, blob_index: u64) -> Option<KzgCommitment> {
         self.processing_blobs
             .get(blob_index as usize)
-            .and_then(|b| b.clone())
+            .and_then(|b| *b)
     }
 }
 

@@ -35,10 +35,8 @@ impl<E: EthSpec> ProcessingCache<E> {
     pub fn blocks_with_missing_components(&self, slot: Slot) -> Vec<Hash256> {
         let mut roots_missing_components = vec![];
         for (&block_root, info) in self.processing_cache.iter() {
-            if info.slot == slot {
-                if !info.is_available() {
-                    roots_missing_components.push(block_root);
-                }
+            if info.slot == slot && !info.is_available() {
+                roots_missing_components.push(block_root);
             }
         }
         roots_missing_components
