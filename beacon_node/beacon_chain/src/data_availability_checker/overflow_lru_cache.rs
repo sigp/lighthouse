@@ -86,8 +86,6 @@ impl<T: EthSpec> PendingComponents<T> {
             payload_verification_outcome,
         } = executed_block;
 
-        // Run consistency checks on the total
-        //TODO: move the full block consistency checks to `is_complete`
         let available_block = AvailableBlock {
             block,
             blobs: Some(verified_blobs),
@@ -424,7 +422,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         pending_components.merge_blobs(fixed_blobs);
 
         if pending_components.is_available() {
-            //TODO: add the constructor to make available?
             pending_components.make_available()
         } else {
             write_lock.put_pending_components(
@@ -455,7 +452,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         // Check if we have all components and entire set is consistent.
         if pending_components.is_available() {
-            //TODO: add the constructor to make available?
             pending_components.make_available()
         } else {
             write_lock.put_pending_components(

@@ -3,7 +3,7 @@ use crate::block_verification::BlockError;
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
-use crate::{data_availability_checker, GossipVerifiedBlock, PayloadVerificationOutcome};
+use crate::{GossipVerifiedBlock, PayloadVerificationOutcome};
 use derivative::Derivative;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
@@ -65,8 +65,22 @@ impl<E: EthSpec> RpcBlock<E> {
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
     ) -> Result<Self, AvailabilityCheckError> {
-        if let Some(blobs) = blobs.as_ref() {
-            data_availability_checker::consistency_checks(&block, blobs)?;
+        if let (Some(blobs), Ok(block_commitments)) = (
+            blobs.as_ref(),
+            block.message().body().blob_kzg_commitments(),
+        ) {
+            if blobs.len() != block_commitments.len() {
+                return Err(AvailabilityCheckError::MissingBlobs);
+            }
+            for (blob, &block_commitment) in blobs.iter().zip(block_commitments.iter()) {
+                let blob_commitment = blob.kzg_commitment;
+                if blob_commitment != block_commitment {
+                    return Err(AvailabilityCheckError::KzgCommitmentMismatch {
+                        block_commitment,
+                        blob_commitment,
+                    });
+                }
+            }
         }
         let inner = match blobs {
             Some(blobs) => RpcBlockInner::BlockAndBlobs(block, blobs),

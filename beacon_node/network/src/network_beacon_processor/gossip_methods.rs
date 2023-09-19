@@ -1236,6 +1236,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                     AvailabilityCheckError::Kzg(_)
                     | AvailabilityCheckError::KzgVerificationFailed
+                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
                     | AvailabilityCheckError::BlobIndexInvalid(_)
                     | AvailabilityCheckError::InconsistentBlobBlockRoots { .. } => {
                         // Note: we cannot penalize the peer that sent us the block

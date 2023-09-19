@@ -1,3 +1,4 @@
+use crate::data_availability_checker::AvailabilityView;
 use ssz_types::FixedVector;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -7,16 +8,10 @@ use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::signed_beacon_block::get_missing_blob_ids;
 use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
-/// This cache is used only for gossip and single lookups, to give req/resp a view of what we have
-/// and what we require. This cache serves a slightly different purpose than gossip caches. It
-/// tracks all unique messages we're currently processing, or have already processed. This should
-/// be used in conjunction with the `data_availability_cache` to have a full view of processing
-/// statuses.
-///
-/// Components should be atomically removed when being added to the data availability cache.
-///
-/// Components should be atomically inserted into the `processed_cache` when removed from the
-/// `data_availability_cache` for import (removed as `Available`).
+/// This cache is used only for gossip blocks/blobs and single block/blob lookups, to give req/resp
+/// a view of what we have and what we require. This cache serves a slightly different purpose than
+/// gossip caches because it allows us to process duplicate blobs that are valid in gossip.
+/// See `AvailabilityView`'s trait definition.
 #[derive(Default)]
 pub struct ProcessingCache<E: EthSpec> {
     processing_cache: HashMap<Hash256, ProcessingInfo<E>>,
@@ -37,20 +32,16 @@ impl<E: EthSpec> ProcessingCache<E> {
             .get(block_root)
             .map_or(false, |b| b.kzg_commitments.is_some())
     }
-    pub fn incomplete_lookups_for_slot(&self, slot: Slot) -> Vec<Hash256> {
-        let mut incomplete_lookups = vec![];
+    pub fn blocks_with_missing_components(&self, slot: Slot) -> Vec<Hash256> {
+        let mut roots_missing_components = vec![];
         for (&block_root, info) in self.processing_cache.iter() {
             if info.slot == slot {
-                if info.kzg_commitments.is_none() {
-                    incomplete_lookups.push(block_root);
-                }
-                let missing_blob_ids = info.get_missing_blob_ids(block_root);
-                if !missing_blob_ids.is_empty() {
-                    incomplete_lookups.push(block_root);
+                if !info.is_available() {
+                    roots_missing_components.push(block_root);
                 }
             }
         }
-        incomplete_lookups
+        roots_missing_components
     }
 }
 
@@ -58,11 +49,10 @@ impl<E: EthSpec> ProcessingCache<E> {
 pub struct ProcessingInfo<E: EthSpec> {
     slot: Slot,
     /// Blobs required for a block can only be known if we have seen the block. So `Some` here
-    /// means we've seen it, a `None` means we haven't. The `kzg_commitments` value is also
-    /// necessary to verify the .
+    /// means we've seen it, a `None` means we haven't. The `kzg_commitments` value helps us figure
+    /// out whether incoming blobs actually match the block.
     pub kzg_commitments: Option<KzgCommitments<E>>,
-    /// This is an array of optional blob tree hash roots, each index in the array corresponding
-    /// to the blob index. On insertion, a collision at an index here when `required_blobs` is
+    /// On insertion, a collision at an index here when `required_blobs` is
     /// `None` means we need to construct an entirely new `Data` entry. This is because we have
     /// no way of knowing which blob is the correct one until we see the block.
     pub processing_blobs: KzgCommitmentOpts<E>,

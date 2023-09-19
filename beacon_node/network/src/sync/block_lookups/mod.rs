@@ -921,6 +921,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // Malicious errors.
                     AvailabilityCheckError::Kzg(_)
                     | AvailabilityCheckError::BlobIndexInvalid(_)
+                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
                     | AvailabilityCheckError::KzgVerificationFailed
                     | AvailabilityCheckError::InconsistentBlobBlockRoots { .. } => {
                         warn!(self.log, "Availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);

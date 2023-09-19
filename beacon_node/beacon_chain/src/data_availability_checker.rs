@@ -6,8 +6,8 @@ pub use crate::data_availability_checker::availability_view::AvailabilityView;
 use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
 use crate::data_availability_checker::processing_cache::ProcessingCache;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
-use kzg::Error as KzgError;
 use kzg::Kzg;
+use kzg::{Error as KzgError, KzgCommitment};
 use parking_lot::RwLock;
 pub use processing_cache::ProcessingInfo;
 use slog::{debug, error};
@@ -39,6 +39,10 @@ pub enum AvailabilityCheckError {
     Kzg(KzgError),
     KzgNotInitialized,
     KzgVerificationFailed,
+    KzgCommitmentMismatch {
+        blob_commitment: KzgCommitment,
+        block_commitment: KzgCommitment,
+    },
     Unexpected,
     SszTypes(ssz_types::Error),
     MissingBlobs,
@@ -248,12 +252,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// blobs?".
     fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
         let block_within_da_period = self.da_check_required_for_epoch(block.epoch());
-        let block_has_kzg_commitments = block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .map_or(false, |commitments| !commitments.is_empty());
-        block_within_da_period && block_has_kzg_commitments
+        block.num_expected_blobs() > 0 && block_within_da_period
     }
 
     pub fn notify_block_commitments(
@@ -287,7 +286,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn get_delayed_lookups(&self, slot: Slot) -> Vec<Hash256> {
         self.processing_cache
             .read()
-            .incomplete_lookups_for_slot(slot)
+            .blocks_with_missing_components(slot)
     }
 
     pub fn should_delay_lookup(&self, slot: Slot) -> bool {
@@ -352,32 +351,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn persist_all(&self) -> Result<(), AvailabilityCheckError> {
         self.availability_cache.write_all_to_disk()
     }
-}
-
-/// Makes the following checks to ensure that the list of blobs correspond block:
-///
-/// * Check that a block is post-deneb
-/// * Checks that the number of blobs is equal to the length of kzg commitments in the list
-/// * Checks that the index, slot, root and kzg_commitment in the block match the blobs in the correct order
-///
-/// Returns `Ok(())` if all consistency checks pass and an error otherwise.
-pub fn consistency_checks<E: EthSpec>(
-    block: &SignedBeaconBlock<E>,
-    blobs: &[Arc<BlobSidecar<E>>],
-) -> Result<(), AvailabilityCheckError> {
-    let Ok(block_kzg_commitments) = block.message().body().blob_kzg_commitments() else {
-        return Ok(());
-    };
-
-    if block_kzg_commitments.is_empty() {
-        return Ok(());
-    }
-
-    if blobs.len() != block_kzg_commitments.len() {
-        return Err(AvailabilityCheckError::MissingBlobs);
-    }
-
-    Ok(())
 }
 
 pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
