@@ -601,7 +601,6 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "types",
- "unused_port",
 ]
 
 [[package]]
@@ -3384,7 +3383,6 @@ dependencies = [
  "tokio-stream",
  "tree_hash",
  "types",
- "unused_port",
  "warp",
  "warp_utils",
 ]
