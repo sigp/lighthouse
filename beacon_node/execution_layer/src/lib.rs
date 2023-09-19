@@ -210,6 +210,7 @@ pub enum FailedCondition {
 
 struct Inner<E: EthSpec> {
     engine: Arc<Engine>,
+    builder: ArcSwapOption<BuilderHttpClient>,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
@@ -257,7 +258,6 @@ pub struct Config {
 #[derive(Clone)]
 pub struct ExecutionLayer<T: EthSpec> {
     inner: Arc<Inner<T>>,
-    builder: Arc<ArcSwapOption<BuilderHttpClient>>,
 }
 
 impl<T: EthSpec> ExecutionLayer<T> {
@@ -327,6 +327,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         let inner = Inner {
             engine: Arc::new(engine),
+            builder: ArcSwapOption::empty(),
             execution_engine_forkchoice_lock: <_>::default(),
             suggested_fee_recipient,
             proposer_preparation_data: Mutex::new(HashMap::new()),
@@ -342,7 +343,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         let el = Self {
             inner: Arc::new(inner),
-            builder: Arc::new(ArcSwapOption::empty()),
         };
 
         if let Some(builder_url) = builder_url {
@@ -357,7 +357,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     pub fn builder(&self) -> Option<Arc<BuilderHttpClient>> {
-        self.builder.load_full()
+        self.inner.builder.load_full()
     }
 
     /// Set the builder URL after initialization.
@@ -378,7 +378,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "builder_profit_threshold" => self.inner.builder_profit_threshold.as_u128(),
             "local_user_agent" => builder_client.get_user_agent(),
         );
-        self.builder.swap(Some(Arc::new(builder_client)));
+        self.inner.builder.swap(Some(Arc::new(builder_client)));
         Ok(())
     }
 
