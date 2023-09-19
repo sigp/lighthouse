@@ -16,6 +16,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{ForkContext, ForkName};
 
+pub const DEFAULT_IPV4_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
+pub const DEFAULT_TCP_PORT: u16 = 9000u16;
+pub const DEFAULT_DISC_PORT: u16 = 9000u16;
+pub const DEFAULT_QUIC_PORT: u16 = 9001u16;
+
 /// The cache time is set to accommodate the circulation time of an attestation.
 ///
 /// The p2p spec declares that we accept attestations within the following range:
@@ -304,10 +309,10 @@ impl Default for Config {
                 .expect("The total rate limit has been specified"),
         );
         let listen_addresses = ListenAddress::V4(ListenAddr {
-            addr: Ipv4Addr::UNSPECIFIED,
-            disc_port: 9000,
-            quic_port: 9001,
-            tcp_port: 9000,
+            addr: DEFAULT_IPV4_ADDRESS,
+            disc_port: DEFAULT_DISC_PORT,
+            quic_port: DEFAULT_QUIC_PORT,
+            tcp_port: DEFAULT_TCP_PORT,
         });
 
         let discv5_listen_config =
