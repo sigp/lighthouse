@@ -85,6 +85,9 @@ jobs:
       run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run tests in release
       run: make nextest-release
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == false
+      run: sccache --show-stats
   release-tests-windows:
     name: release-tests-windows
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows"]') || 'windows-2019'  }}
@@ -134,6 +137,9 @@ jobs:
           components: rustfmt
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == false
+      run: sccache --show-stats
   op-pool-tests:
     name: op-pool-tests
     runs-on: ubuntu-latest
@@ -185,6 +191,9 @@ jobs:
       run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run tests in debug
       run: make nextest-debug
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == false
+      run: sccache --show-stats
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
     runs-on: ubuntu-latest
@@ -216,6 +225,9 @@ jobs:
       run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
       run: make nextest-ef
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == false
+      run: sccache --show-stats
   dockerfile-ubuntu:
     name: dockerfile-ubuntu
     runs-on: ubuntu-latest
@@ -297,6 +309,9 @@ jobs:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run the syncing simulator
       run: cargo run --release --bin simulator syncing-sim
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == false
+      run: sccache --show-stats
   doppelganger-protection-test:
     name: doppelganger-protection-test
     runs-on: ubuntu-latest
