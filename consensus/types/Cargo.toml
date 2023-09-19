@@ -22,7 +22,7 @@ log = "0.4.11"
 rayon = "1.4.1"
 rand = "0.8.5"
 safe_arith = { path = "../safe_arith" }
-serde = {version = "1.0.116" , features = ["rc"] }
+serde = { version = "1.0.116", features = ["rc"] }
 serde_derive = "1.0.116"
 slog = "2.5.2"
 ethereum_ssz = { version = "0.5.0", features = ["arbitrary"] }
