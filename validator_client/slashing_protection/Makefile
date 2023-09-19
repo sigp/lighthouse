@@ -8,18 +8,21 @@ ifeq ($(OS),Windows_NT)
 ifeq (, $(shell where rm))
 	rmfile = if exist $(1) (del /F /Q $(1))
 	rmdir  = if exist $(1) (rmdir /Q /S $(1))
+	mkdir  = if not exist $(1) (mkdir $(1))
 else
 	rmfile = rm -f $(1)
 	rmdir  = rm -rf $(1)
+	mkdir  = mkdir -p $(1)
 endif
 else
 	rmfile = rm -f $(1)
 	rmdir  = rm -rf $(1)
+	mkdir  = mkdir -p $(1)
 endif
 
 $(OUTPUT_DIR): $(TARBALL)
 	$(call rmdir,$@)
-	mkdir $@
+	$(call mkdir,$@)
 	tar --strip-components=1 -xzf $^ -C $@
 
 $(TARBALL):
