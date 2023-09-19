@@ -5,55 +5,99 @@ This setup can be useful for testing and development.
 
 ## Requirements
 
-The scripts require `lcli`, `lighthouse`, `geth`, `bootnode` to be installed on `PATH`.
+The scripts require `lcli`, `lighthouse`, `geth`, `bootnode` to be installed on `PATH` (run `echo $PATH` to view all `PATH` directories).
 
 
 MacOS users need to install GNU `sed` and GNU `grep`, and add them both to `PATH` as well.
 
-From the
-root of this repository, run:
+The first step is to install Rust and dependencies. Refer to the [Lighthouse Book](https://lighthouse-book.sigmaprime.io/installation-source.html#dependencies) for installation. We will also need [jq](https://jqlang.github.io/jq/), which can be installed with `sudo apt install jq`.
+
+Then, we clone the Lighthouse repository:
+```bash
+cd ~
+https://github.com/sigp/lighthouse.git
+cd lighthouse
+```
+We are now ready to build Lighthouse. Run the command:
 
 ```bash
 make
 make install-lcli
 ```
 
+This will build `lighthouse` and `lcli`. For `geth` and `bootnode`, go to [geth website](https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-amd64-1.13.1-3f40e65c.tar.gz) and download the `Geth & Tools`. For example, to download and extract `Geth & Tools 1.13.1`:
+
+```bash
+cd ~
+curl -LO https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-amd64-1.13.1-3f40e65c.tar.gz
+tar -xvf eth-alltools-linux-amd64-1.13.1-3f40e65c.tar.gz
+```
+
+After extraction, copy `geth` and `bootnode` to the `PATH`. A typical directory is `/usr/local/bin`, so we run the command`sudo cp geth bootnode /usr/local/bin`.
+
+
+We are now ready to start a local testnet.
+
+
 ## Starting the testnet
 
-Modify `vars.env` as desired.
+To start a testnet using the default settings:
+
+```bash
+cd ~
+cd /lighthouse/scripts/local_testnet
+./start_local_testnet.sh genesis.json
+```
+
+This will execute the script and if the testnet setup is successful, you will see "Started!" at the end. Congratulations, you have successfully run a local testnet!
 
 The testnet starts with a post-merge genesis state. 
-Start a consensus layer and execution layer boot node along with `BN_COUNT`
-number of beacon nodes each connected to a geth execution client and `VC_COUNT` validator clients.
+The testnet starts a consensus layer and execution layer boot node along with `BN_COUNT`
+(the number of beacon nodes) each connected to a geth execution client and `VC_COUNT` (the number of validator clients). By default, `BN_COUNT=4`, `VC_COUNT=4`. 
 
 The `start_local_testnet.sh` script takes four options `-v VC_COUNT`, `-d DEBUG_LEVEL`, `-p` to enable builder proposals and `-h` for help. It also takes a mandatory `GENESIS_FILE` for initialising geth's state.
 A sample `genesis.json` is provided in this directory.
-
-The `ETH1_BLOCK_HASH` environment variable is set to the block_hash of the genesis execution layer block which depends on the contents of `genesis.json`. Users of these scripts need to ensure that the `ETH1_BLOCK_HASH` variable is updated if genesis file is modified.
 
 The options may be in any order or absent in which case they take the default value specified.
 - VC_COUNT: the number of validator clients to create, default: `BN_COUNT`
 - DEBUG_LEVEL: one of { error, warn, info, debug, trace }, default: `info`
 
+The `ETH1_BLOCK_HASH` environment variable is set to the block_hash of the genesis execution layer block which depends on the contents of `genesis.json`. Users of these scripts need to ensure that the `ETH1_BLOCK_HASH` variable is updated if genesis file is modified.
 
+To view the beacon, validator client and geth logs:
 
 ```bash
-./start_local_testnet.sh genesis.json
+tail -f ~/.lighthouse/local-testnet/testnet/beacon_node_1.log
+taif -f ~/.lighthouse/local-testnet/testnet/validator_node_1.log
+tail -f ~/.lighthouse/local-testnet/testnet/geth_1.log
 ```
+
+where `beacon_node_1` can be changed to `beacon_node_2`, `beacon_node_3` or `beacon_node_4` to view logs for different beacon nodes. The same applies to validator clients and geth nodes. 
+
+The view the debug logs for beacon nodes and validator clients:
+```
+tail -f ~/.lighthouse/local-testnet/node_1/beacon/logs/beacon.log
+tail -f ~/.lighthouse/local-testnet/node_1/validators/logs/validator.log
+```
+
+Once again, the `node_1` can be modified to view the debug logs for different nodes.
 
 ## Stopping the testnet
 
-This is not necessary before `start_local_testnet.sh` as it invokes `stop_local_testnet.sh` automatically.
+To stop the testnet, navigate to the directory `cd /lighthouse/scripts/local_testnet`, then run the command:
+
 ```bash
 ./stop_local_testnet.sh
 ```
 
+Once a testnet is stopped, it cannot be continued from where it left off. When the start local testnet command is run, it will start a new local testnet.
+
 ## Manual creation of local testnet
 
-These scripts are used by ./start_local_testnet.sh and may be used to manually
+This section describes some modifications of the local testnet settings. 
 
-Assuming you are happy with the configuration in `vars.env`,
-create the testnet directory, genesis state with embedded validators and validator keys with:
+
+Assuming you are happy with the configuration in vars.env, create the testnet directory, genesis state with embedded validators and validator keys with:
 
 ```bash
 ./setup.sh
@@ -109,7 +153,7 @@ instances using the `--datadir` parameter.
 
 ### Starting fresh
 
-Delete the current testnet and all related files using. Generally not necessary as `start_local_test.sh` does this each time it starts.
+You may delete the current testnet and all related files using the following command. This is generally not necessary as `start_local_test.sh` does this each time it starts.
 
 ```bash
 ./clean.sh
