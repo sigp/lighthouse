@@ -1228,7 +1228,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | AvailabilityCheckError::MissingBlobs
                     | AvailabilityCheckError::StoreError(_)
                     | AvailabilityCheckError::DecodeError(_) => {
-                        crit!(
+                        warn!(
                             self.log,
                             "Internal availability check error";
                             "error" => ?err,

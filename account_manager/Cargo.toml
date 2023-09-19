@@ -1,7 +1,10 @@
 [package]
 name = "account_manager"
 version = "0.3.5"
-authors = ["Paul Hauner <paul@paulhauner.com>", "Luke Anderson <luke@sigmaprime.io>"]
+authors = [
+    "Paul Hauner <paul@paulhauner.com>",
+    "Luke Anderson <luke@sigmaprime.io>",
+]
 edition = "2021"
 
 [dependencies]
@@ -19,13 +22,14 @@ tokio = { version = "1.14.0", features = ["full"] }
 eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }
 slashing_protection = { path = "../validator_client/slashing_protection" }
-eth2 = {path = "../common/eth2"}
-safe_arith = {path = "../consensus/safe_arith"}
+eth2 = { path = "../common/eth2" }
+safe_arith = { path = "../consensus/safe_arith" }
 slot_clock = { path = "../common/slot_clock" }
 filesystem = { path = "../common/filesystem" }
 sensitive_url = { path = "../common/sensitive_url" }
 serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.58"
+slog = { version = "2.5.2" }
 
 [dev-dependencies]
 tempfile = "3.1.0"

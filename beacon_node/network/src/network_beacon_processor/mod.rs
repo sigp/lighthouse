@@ -566,9 +566,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: BlobsByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move |send_idle_on_drop| {
-            processor.handle_blobs_by_range_request(send_idle_on_drop, peer_id, request_id, request)
-        };
+        let process_fn =
+            move || processor.handle_blobs_by_range_request(peer_id, request_id, request);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -584,9 +583,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: BlobsByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move |send_idle_on_drop| {
-            processor.handle_blobs_by_root_request(send_idle_on_drop, peer_id, request_id, request)
-        };
+        let process_fn =
+            move || processor.handle_blobs_by_root_request(peer_id, request_id, request);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,

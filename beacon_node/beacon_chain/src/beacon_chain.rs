@@ -649,7 +649,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    pub fn persist_data_availabilty_checker(&self) -> Result<(), Error> {
+    pub fn persist_data_availability_checker(&self) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::PERSIST_DATA_AVAILABILITY_CHECKER);
         self.data_availability_checker.persist_all()?;
 
@@ -6363,7 +6363,7 @@ impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
         let drop = || -> Result<(), Error> {
             self.persist_head_and_fork_choice()?;
             self.persist_op_pool()?;
-            self.persist_data_availabilty_checker()?;
+            self.persist_data_availability_checker()?;
             self.persist_eth1_cache()
         };
 

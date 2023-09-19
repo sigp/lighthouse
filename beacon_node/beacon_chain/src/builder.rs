@@ -485,6 +485,21 @@ where
         let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
         self = updated_builder;
 
+        // Fill in the linear block roots between the checkpoint block's slot and the aligned
+        // state's slot. All slots less than the block's slot will be handled by block backfill,
+        // while states greater or equal to the checkpoint state will be handled by `migrate_db`.
+        let block_root_batch = store
+            .store_frozen_block_root_at_skip_slots(
+                weak_subj_block.slot(),
+                weak_subj_state.slot(),
+                weak_subj_block_root,
+            )
+            .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
+        store
+            .cold_db
+            .do_atomically(block_root_batch)
+            .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
+
         // Write the state and block non-atomically, it doesn't matter if they're forgotten
         // about on a crash restart.
         store

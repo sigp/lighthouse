@@ -90,6 +90,7 @@ use state_processing::{
     StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::borrow::Cow;
+use std::fmt::Debug;
 use std::fs;
 use std::io::Write;
 use std::sync::Arc;
@@ -575,7 +576,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         .map(|(_, block)| block.slot())
         .unwrap_or_else(|| slot);
 
-    let state = cheap_state_advance_to_obtain_committees(
+    let state = cheap_state_advance_to_obtain_committees::<_, BlockError<T::EthSpec>>(
         &mut parent.pre_state,
         parent.beacon_state_root,
         highest_slot,
@@ -887,7 +888,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             );
 
             // The state produced is only valid for determining proposer/attester shuffling indices.
-            let state = cheap_state_advance_to_obtain_committees(
+            let state = cheap_state_advance_to_obtain_committees::<_, BlockError<T::EthSpec>>(
                 &mut parent.pre_state,
                 parent.beacon_state_root,
                 block.slot(),
@@ -1017,7 +1018,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let (mut parent, block) = load_parent(block_root, block, chain)?;
 
-        let state = cheap_state_advance_to_obtain_committees(
+        let state = cheap_state_advance_to_obtain_committees::<_, BlockError<T::EthSpec>>(
             &mut parent.pre_state,
             parent.beacon_state_root,
             block.slot(),
@@ -1067,7 +1068,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             load_parent(from.block_root, from.block, chain)?
         };
 
-        let state = cheap_state_advance_to_obtain_committees(
+        let state = cheap_state_advance_to_obtain_committees::<_, BlockError<T::EthSpec>>(
             &mut parent.pre_state,
             parent.beacon_state_root,
             block.slot(),
@@ -1900,6 +1901,30 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
     result
 }
 
+/// This trait is used to unify `BlockError` and `BlobError` so
+/// `cheap_state_advance_to_obtain_committees` can be re-used in gossip blob validation.
+pub trait CheapStateAdvanceError: From<BeaconStateError> + From<BeaconChainError> + Debug {
+    fn not_later_than_parent_error(block_slot: Slot, state_slot: Slot) -> Self;
+}
+
+impl<E: EthSpec> CheapStateAdvanceError for BlockError<E> {
+    fn not_later_than_parent_error(block_slot: Slot, parent_slot: Slot) -> Self {
+        BlockError::BlockIsNotLaterThanParent {
+            block_slot,
+            parent_slot,
+        }
+    }
+}
+
+impl<E: EthSpec> CheapStateAdvanceError for GossipBlobError<E> {
+    fn not_later_than_parent_error(blob_slot: Slot, parent_slot: Slot) -> Self {
+        GossipBlobError::BlobIsNotLaterThanParent {
+            blob_slot,
+            parent_slot,
+        }
+    }
+}
+
 /// Performs a cheap (time-efficient) state advancement so the committees and proposer shuffling for
 /// `slot` can be obtained from `state`.
 ///
@@ -1911,12 +1936,12 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
 /// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
 /// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
 /// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
-fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
+pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: CheapStateAdvanceError>(
     state: &'a mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
     block_slot: Slot,
     spec: &ChainSpec,
-) -> Result<Cow<'a, BeaconState<E>>, BlockError<E>> {
+) -> Result<Cow<'a, BeaconState<E>>, Err> {
     let block_epoch = block_slot.epoch(E::slots_per_epoch());
 
     if state.current_epoch() == block_epoch {
@@ -1927,10 +1952,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
 
         Ok(Cow::Borrowed(state))
     } else if state.slot() > block_slot {
-        Err(BlockError::BlockIsNotLaterThanParent {
-            block_slot,
-            parent_slot: state.slot(),
-        })
+        Err(Err::not_later_than_parent_error(block_slot, state.slot()))
     } else {
         let mut state = state.clone_with(CloneConfig::committee_caches_only());
         let target_slot = block_epoch.start_slot(E::slots_per_epoch());
@@ -1938,7 +1960,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
         // Advance the state into the same epoch as the block. Use the "partial" method since state
         // roots are not important for proposer/attester shuffling.
         partial_state_advance(&mut state, state_root_opt, target_slot, spec)
-            .map_err(|e| BlockError::BeaconChainError(BeaconChainError::from(e)))?;
+            .map_err(BeaconChainError::from)?;
 
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;

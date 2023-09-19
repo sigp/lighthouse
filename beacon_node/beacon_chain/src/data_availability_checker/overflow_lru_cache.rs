@@ -542,9 +542,9 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                     // it is still LRU entry -> delete it from memory & record that it's on disk
                     write_lock.in_memory.pop_entry(&lru_root);
                     write_lock.store_keys.insert(lru_root);
-                    stored = write_lock.in_memory.len();
                 }
             }
+            stored = write_lock.in_memory.len();
             drop(write_lock);
         }
 

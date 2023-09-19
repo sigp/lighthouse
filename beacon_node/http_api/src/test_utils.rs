@@ -21,7 +21,7 @@ use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
@@ -217,15 +217,9 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let ctx = Arc::new(Context {
         config: Config {
             enabled: true,
-            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: port,
-            allow_origin: None,
-            tls_config: None,
-            allow_sync_stalled: false,
             data_dir: std::path::PathBuf::from(DEFAULT_ROOT_DIR),
-            spec_fork_name: None,
-            sse_capacity_multiplier: 1,
-            enable_beacon_processor: true,
+            ..Config::default()
         },
         chain: Some(chain),
         network_senders: Some(network_senders),

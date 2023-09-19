@@ -618,8 +618,8 @@ pub enum Work<E: EthSpec> {
     Status(BlockingFn),
     BlocksByRangeRequest(BlockingFnWithManualSendOnIdle),
     BlocksByRootsRequest(BlockingFnWithManualSendOnIdle),
-    BlobsByRangeRequest(BlockingFnWithManualSendOnIdle),
-    BlobsByRootsRequest(BlockingFnWithManualSendOnIdle),
+    BlobsByRangeRequest(BlockingFn),
+    BlobsByRootsRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
     ApiRequestP0(BlockingOrAsync),
@@ -1461,10 +1461,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 .spawn_async(async move {
                     work.await;
                 }),
-            Work::BlobsByRangeRequest(work)
-            | Work::BlobsByRootsRequest(work)
-            | Work::BlocksByRangeRequest(work)
-            | Work::BlocksByRootsRequest(work) => {
+            Work::BlobsByRangeRequest(process_fn) | Work::BlobsByRootsRequest(process_fn) => {
+                task_spawner.spawn_blocking(process_fn)
+            }
+            Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
                 task_spawner.spawn_blocking_with_manual_send_idle(work)
             }
             Work::ChainSegmentBackfill(process_fn) => task_spawner.spawn_async(process_fn),
