@@ -197,6 +197,21 @@ pub struct BlindedBlobSidecar {
     pub kzg_proof: KzgProof,
 }
 
+impl BlindedBlobSidecar {
+    pub fn empty() -> Self {
+        Self {
+            block_root: Hash256::zero(),
+            index: 0,
+            slot: Slot::new(0),
+            block_parent_root: Hash256::zero(),
+            proposer_index: 0,
+            blob_root: Hash256::zero(),
+            kzg_commitment: KzgCommitment::empty_for_testing(),
+            kzg_proof: KzgProof::empty(),
+        }
+    }
+}
+
 impl SignedRoot for BlindedBlobSidecar {}
 
 pub type SidecarList<T, Sidecar> = VariableList<Arc<Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
