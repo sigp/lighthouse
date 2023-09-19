@@ -1122,6 +1122,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     let local_enr: Enr = self.discv5.local_enr();
                     info!(self.log, "Updated local ENR"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
                         "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6());
+                    enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
                 };
 
                 match addr.iter().nth(1) {
