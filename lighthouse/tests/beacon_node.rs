@@ -1039,7 +1039,7 @@ fn network_port_flag_over_ipv6() {
 #[test]
 fn network_port_and_discovery_port_flags_over_ipv4() {
     let tcp4_port = 0;
-    let disc4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let disc4_port = 0;
     CommandLineTest::new()
         .flag("port", Some(tcp4_port.to_string().as_str()))
         .flag("discovery-port", Some(disc4_port.to_string().as_str()))
@@ -1078,7 +1078,7 @@ fn network_port_and_discovery_port_flags_over_ipv6() {
 #[test]
 fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
     let tcp4_port = 0;
-    let disc4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let disc4_port = 0;
     let tcp6_port = 0;
     let disc6_port = 0;
     CommandLineTest::new()
@@ -1113,8 +1113,8 @@ fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
 #[test]
 fn network_port_discovery_quic_port_flags_over_ipv4_and_ipv6() {
     let tcp4_port = 0;
-    let disc4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let quic4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let disc4_port = 0;
+    let quic4_port = 0;
     let tcp6_port = 0;
     let disc6_port = 0;
     let quic6_port = 0;
@@ -1263,7 +1263,7 @@ fn network_load_flag() {
 // Tests for ENR flags.
 #[test]
 fn enr_udp_port_flag() {
-    let port = unused_udp4_port().expect("Unable to find unused port.");
+    let port = 0;
     CommandLineTest::new()
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1271,7 +1271,7 @@ fn enr_udp_port_flag() {
 }
 #[test]
 fn enr_quic_port_flag() {
-    let port = unused_udp4_port().expect("Unable to find unused port.");
+    let port = 0;
     CommandLineTest::new()
         .flag("enr-quic-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1312,7 +1312,7 @@ fn enr_tcp6_port_flag() {
 #[test]
 fn enr_match_flag_over_ipv4() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
-    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let udp4_port = 0;
     let tcp4_port = 0;
     CommandLineTest::new()
         .flag("enr-match", None)
@@ -1366,7 +1366,7 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
     let tcp6_port = 0;
     const IPV4_ADDR: &str = "127.0.0.1";
     let ipv4_addr = IPV4_ADDR.parse::<Ipv4Addr>().unwrap();
-    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let udp4_port = 0;
     let tcp4_port = 0;
     CommandLineTest::new()
         .flag("enr-match", None)
@@ -1405,7 +1405,7 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
 #[test]
 fn enr_address_flag_with_ipv4() {
     let addr = "192.167.1.1".parse::<Ipv4Addr>().unwrap();
-    let port = unused_udp4_port().expect("Unable to find unused port.");
+    let port = 0;
     CommandLineTest::new()
         .flag("enr-address", Some("192.167.1.1"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
@@ -1418,7 +1418,7 @@ fn enr_address_flag_with_ipv4() {
 #[test]
 fn enr_address_flag_with_ipv6() {
     let addr = "192.167.1.1".parse::<Ipv4Addr>().unwrap();
-    let port = unused_udp4_port().expect("Unable to find unused port.");
+    let port = 0;
     CommandLineTest::new()
         .flag("enr-address", Some("192.167.1.1"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
@@ -1432,7 +1432,7 @@ fn enr_address_flag_with_ipv6() {
 fn enr_address_dns_flag() {
     let addr = Ipv4Addr::LOCALHOST;
     let ipv6addr = Ipv6Addr::LOCALHOST;
-    let port = unused_udp4_port().expect("Unable to find unused port.");
+    let port = 0;
     CommandLineTest::new()
         .flag("enr-address", Some("localhost"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
