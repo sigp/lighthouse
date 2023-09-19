@@ -130,15 +130,8 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
     // Use port 0 to allocate a new unused port.
-    create_api_server_on_port(chain, test_runtime, log, 0).await
-}
+    let port = 0;
 
-pub async fn create_api_server_on_port<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
-    test_runtime: &TestRuntime,
-    log: Logger,
-    port: u16,
-) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
     let (network_senders, network_receivers) = NetworkSenders::new();
 
     // Default metadata
