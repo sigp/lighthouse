@@ -73,10 +73,6 @@ jobs:
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
     steps:
     - uses: actions/checkout@v3
-    - name: Test cat output, prob wont work
-      run: echo env.RUNNER_NAME && echo "1"
-    - name: Test cat output, prob wont work2
-      run: echo $env:RUNNER_NAME && echo "2"
     - name: Get latest version of stable Rust
       if: |
         contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
@@ -105,6 +101,10 @@ jobs:
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows"]') || 'windows-2019'  }}
     steps:
     - uses: actions/checkout@v3
+    - name: Test cat output, prob wont work
+      run: echo env.RUNNER_NAME && echo "1"
+    - name: Test cat output, prob wont work2
+      run: echo $env:RUNNER_NAME && echo "2"
     - name: Get latest version of stable Rust
       if: |
         contains(env.RUNNER_NAME, 'runner-small-') != 'true' &&
