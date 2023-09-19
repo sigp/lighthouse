@@ -1397,7 +1397,7 @@ mod tests {
     #[test]
     fn ssz_signed_block_contents_pre_deneb() {
         type E = MainnetEthSpec;
-        let spec = ForkName::Capella.make_genesis_spec(E::default_spec())
+        let spec = ForkName::Capella.make_genesis_spec(E::default_spec());
 
         let block: SignedBlockContents<E, FullPayload<E>> = SignedBeaconBlock::from_block(
             BeaconBlock::<E>::Capella(BeaconBlockCapella::empty(&spec)),
@@ -1415,7 +1415,7 @@ mod tests {
     #[test]
     fn ssz_signed_block_contents_with_blobs() {
         type E = MainnetEthSpec;
-        let spec = ForkName::Deneb.make_genesis_spec(E::default_spec())
+        let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
 
         let block = SignedBeaconBlock::from_block(
             BeaconBlock::<E>::Deneb(BeaconBlockDeneb::empty(&spec)),
