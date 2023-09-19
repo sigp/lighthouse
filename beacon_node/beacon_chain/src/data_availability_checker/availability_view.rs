@@ -4,33 +4,71 @@ use crate::data_availability_checker::ProcessingInfo;
 use crate::AvailabilityPendingExecutedBlock;
 use kzg::KzgCommitment;
 use ssz_types::FixedVector;
-use types::beacon_block_body::{ KzgCommitments};
+use types::beacon_block_body::KzgCommitments;
 use types::EthSpec;
 
-/// This trait is meant to ensure we maintain the following invariants across caches used in
-/// availability checking:
+/// Defines an interface for managing data availability with two key invariants:
+/// 1. Blobs won't be clobbered if we've yet to see the corresponding block.
+/// 2. On block insertion, any non-matching blob commitments are evicted.
 ///
-/// 1. Never clobber blobs when adding new blobs.
-/// 2. When adding a block, evict all blobs whose KZG commitments do not match the block's.
+/// Types implementing this trait can be used for validating and managing availability
+/// of blocks and blobs in a cache-like data structure.
 pub trait AvailabilityView<E: EthSpec> {
+    /// The type representing a block in the implementation.
     type BlockType;
+
+    /// The type representing a blob in the implementation. Must implement `Clone`.
     type BlobType: Clone;
 
+    /// Checks if a block exists in the cache.
+    ///
+    /// Returns:
+    /// - `true` if a block exists.
+    /// - `false` otherwise.
     fn block_exists(&self) -> bool;
+
+    /// Checks if a blob exists at the given index in the cache.
+    ///
+    /// Returns:
+    /// - `true` if a blob exists at the given index.
+    /// - `false` otherwise.
     fn blob_exists(&self, blob_index: u64) -> bool;
+
+    /// Returns the number of blobs that are expected to be present. Returns 0 if we don't have a
+    /// block.
+    ///
+    /// This corresponds to the number of commitments that are present in a block.
     fn num_expected_blobs(&self) -> usize;
+
+    /// Returns the number of blobs that have been received and are stored in the cache.
     fn num_received_blobs(&self) -> usize;
+
+    /// Inserts a block into the cache.
     fn insert_block(&mut self, block: Self::BlockType);
+
+    /// Inserts a blob at a specific index in the cache.
+    ///
+    /// Existing blob at the index will be replaced.
     fn insert_blob_at_index(&mut self, blob_index: u64, blob: &Self::BlobType);
+
+    /// Converts a blob to its KZG commitment.
     fn blob_to_commitment(blob: &Self::BlobType) -> KzgCommitment;
+
+    /// Provides mutable access to the underlying blob commitments cache.
     fn get_cached_blob_commitments_mut(
         &mut self,
     ) -> &mut FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock>;
+
+    /// Retrieves the KZG commitment of the blob stored at the given index in the block.
+    ///
+    /// Returns `None` if no blob is present at the index.
     fn get_block_commitment_at_index(&self, blob_index: u64) -> Option<KzgCommitment>;
-    /// validate the index
-    /// only insert if:
-    /// 1. the blob entry is empty and there is no block
-    /// 2. the block exists and the commitment matches
+
+    /// Merges a given set of blobs into the cache.
+    ///
+    /// Blobs are only inserted if:
+    /// 1. The blob entry at the index is empty and no block exists.
+    /// 2. The block exists and its commitment matches the blob's commitment.
     fn merge_blobs(&mut self, blobs: FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock>) {
         for (index, blob) in blobs.into_iter().enumerate() {
             let Some(blob) = blob else { continue };
@@ -49,6 +87,10 @@ pub trait AvailabilityView<E: EthSpec> {
             }
         }
     }
+
+    /// Inserts a new block and revalidates the existing blobs against it.
+    ///
+    /// Blobs that don't match the new block's commitments are evicted.
     fn merge_block(&mut self, block: Self::BlockType) {
         self.insert_block(block);
         let cached = self.get_cached_blob_commitments_mut();
@@ -62,6 +104,11 @@ pub trait AvailabilityView<E: EthSpec> {
 
         self.merge_blobs(reinsert)
     }
+
+    /// Checks if the block and all of its expected blobs are available in the cache.
+    ///
+    /// Returns `true` if both the block exists and the number of received blobs matches the number
+    /// of expected blobs.
     fn is_available(&self) -> bool {
         self.block_exists() && self.num_expected_blobs() == self.num_received_blobs()
     }

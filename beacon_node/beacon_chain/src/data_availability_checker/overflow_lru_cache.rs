@@ -37,12 +37,12 @@ use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
-use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard, };
+use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use std::{collections::HashSet, sync::Arc};
-use types::blob_sidecar::{BlobIdentifier, };
+use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, Epoch, EthSpec, Hash256};
 
 /// This represents the components of a partially available block
