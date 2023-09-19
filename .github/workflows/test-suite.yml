@@ -7,7 +7,6 @@ on:
       - staging
       - trying
       - 'pr/*'
-      - '*'
   pull_request:
   merge_group:
 
