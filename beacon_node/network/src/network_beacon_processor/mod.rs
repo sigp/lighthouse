@@ -22,7 +22,6 @@ use lru::LruCache;
 use parking_lot::Mutex;
 use slog::{debug, Logger};
 use slot_clock::ManualSlotClock;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

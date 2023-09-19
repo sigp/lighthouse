@@ -752,7 +752,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 self.chain.recompute_head_at_current_slot().await;
             }
-            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
+            Ok(AvailabilityProcessingStatus::MissingComponents(_slot, block_root)) => {
                 if delay_lookup {
                     let mut guard = self.delayed_lookup_peers.lock();
                     if let Some(peers) = guard.get_mut(&block_root) {

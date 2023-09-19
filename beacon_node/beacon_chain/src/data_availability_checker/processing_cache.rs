@@ -1,4 +1,3 @@
-use crate::data_availability_checker::AvailabilityView;
 use ssz_types::FixedVector;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;

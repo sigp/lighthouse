@@ -3,10 +3,8 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use slog::{crit, error, trace};
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tokio::time::interval_at;
 use tokio::time::Instant;
-use types::Hash256;
 
 /// This service is responsible for collecting lookup messages and sending them back to sync
 /// for processing after a short delay.

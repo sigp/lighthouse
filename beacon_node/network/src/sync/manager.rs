@@ -57,7 +57,6 @@ use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
-use slot_clock::SlotClock;
 use std::boxed::Box;
 use std::ops::IndexMut;
 use std::ops::Sub;

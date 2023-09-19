@@ -148,7 +148,6 @@ pub type GossipVerifiedBlobList<T> = VariableList<
 /// the p2p network.
 #[derive(Debug)]
 pub struct GossipVerifiedBlob<T: BeaconChainTypes> {
-    blob_root: Hash256,
     blob: SignedBlobSidecar<T::EthSpec>,
 }
 
@@ -431,7 +430,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     }
 
     Ok(GossipVerifiedBlob {
-        blob_root,
         blob: signed_blob_sidecar,
     })
 }

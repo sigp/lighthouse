@@ -1,12 +1,10 @@
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
-use crate::data_availability_checker::processing_cache::ProcessingCache;
 use crate::data_availability_checker::ProcessingInfo;
 use crate::AvailabilityPendingExecutedBlock;
-use bls::Hash256;
 use kzg::KzgCommitment;
 use ssz_types::FixedVector;
-use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
+use types::beacon_block_body::{ KzgCommitments};
 use types::EthSpec;
 
 /// This trait is meant to ensure we maintain the following invariants across caches used in
@@ -53,7 +51,7 @@ pub trait AvailabilityView<E: EthSpec> {
     }
     fn merge_block(&mut self, block: Self::BlockType) {
         self.insert_block(block);
-        let mut cached = self.get_cached_blob_commitments_mut();
+        let cached = self.get_cached_blob_commitments_mut();
         let mut reinsert = FixedVector::default();
         for (index, cached_blob) in cached.iter_mut().enumerate() {
             // Take the existing blobs and re-insert them.
@@ -97,23 +95,25 @@ impl<E: EthSpec> AvailabilityView<E> for ProcessingInfo<E> {
     }
 
     fn insert_blob_at_index(&mut self, blob_index: u64, blob: &Self::BlobType) {
-        self.processing_blobs
-            .get_mut(blob_index as usize)
-            .map(|blob| *blob = blob.clone());
+        if let Some(b) = self.processing_blobs.get_mut(blob_index as usize) {
+            *b = Some(blob.clone());
+        }
     }
 
     fn blob_to_commitment(blob: &Self::BlobType) -> KzgCommitment {
-        todo!()
+        *blob
     }
 
     fn get_cached_blob_commitments_mut(
         &mut self,
     ) -> &mut FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock> {
-        todo!()
+        &mut self.processing_blobs
     }
 
     fn get_block_commitment_at_index(&self, blob_index: u64) -> Option<KzgCommitment> {
-        todo!()
+        self.processing_blobs
+            .get(blob_index as usize)
+            .and_then(|b| b.clone())
     }
 }
 
@@ -122,40 +122,54 @@ impl<E: EthSpec> AvailabilityView<E> for PendingComponents<E> {
     type BlobType = KzgVerifiedBlob<E>;
 
     fn block_exists(&self) -> bool {
-        todo!()
+        self.executed_block.is_some()
     }
 
     fn blob_exists(&self, blob_index: u64) -> bool {
-        todo!()
+        self.verified_blobs
+            .get(blob_index as usize)
+            .map(|b| b.is_some())
+            .unwrap_or(false)
     }
 
     fn num_expected_blobs(&self) -> usize {
-        todo!()
+        self.executed_block
+            .as_ref()
+            .map_or(0, |b| b.num_blobs_expected())
     }
 
     fn num_received_blobs(&self) -> usize {
-        todo!()
+        self.verified_blobs.iter().flatten().count()
     }
 
     fn insert_block(&mut self, block: Self::BlockType) {
-        todo!()
+        self.executed_block = Some(block);
     }
 
     fn insert_blob_at_index(&mut self, blob_index: u64, blob: &Self::BlobType) {
-        todo!()
+        if let Some(b) = self.verified_blobs.get_mut(blob_index as usize) {
+            *b = Some(blob.clone());
+        }
     }
 
     fn blob_to_commitment(blob: &Self::BlobType) -> KzgCommitment {
-        todo!()
+        blob.as_blob().kzg_commitment
     }
 
     fn get_cached_blob_commitments_mut(
         &mut self,
     ) -> &mut FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock> {
-        todo!()
+        &mut self.verified_blobs
     }
 
     fn get_block_commitment_at_index(&self, blob_index: u64) -> Option<KzgCommitment> {
-        todo!()
+        self.executed_block.as_ref().and_then(|b| {
+            b.block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .ok()
+                .and_then(|c| c.get(blob_index as usize).cloned())
+        })
     }
 }

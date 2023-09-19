@@ -36,16 +36,13 @@ use crate::data_availability_checker::availability_view::AvailabilityView;
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
-use kzg::KzgCommitment;
 use lru::LruCache;
-use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard, };
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
-use std::collections::HashMap;
 use std::{collections::HashSet, sync::Arc};
-use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
+use types::blob_sidecar::{BlobIdentifier, };
 use types::{BlobSidecar, Epoch, EthSpec, Hash256};
 
 /// This represents the components of a partially available block
@@ -54,8 +51,8 @@ use types::{BlobSidecar, Epoch, EthSpec, Hash256};
 /// The block has completed all verifications except the availability check.
 #[derive(Encode, Decode, Clone, Default)]
 pub struct PendingComponents<T: EthSpec> {
-    verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
-    executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
+    pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
+    pub executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
 }
 
 impl<T: EthSpec> PendingComponents<T> {
@@ -235,23 +232,6 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
             disk_keys.insert(*OverflowKey::from_ssz_bytes(&key_bytes)?.root());
         }
         Ok(disk_keys)
-    }
-
-    /// Load a single block from the database (ignoring blobs)
-    pub fn load_block(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<AvailabilityPendingExecutedBlock<T::EthSpec>>, AvailabilityCheckError> {
-        let key = OverflowKey::from_block_root(*block_root);
-
-        self.0
-            .hot_db
-            .get_bytes(DBColumn::OverflowLRUCache.as_str(), &key.as_ssz_bytes())?
-            .map(|block_bytes| {
-                AvailabilityPendingExecutedBlock::from_ssz_bytes(block_bytes.as_slice())
-            })
-            .transpose()
-            .map_err(|e| e.into())
     }
 
     /// Load a single blob from the database
