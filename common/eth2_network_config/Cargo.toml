@@ -12,6 +12,7 @@ eth2_config = { path = "../eth2_config" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
+tokio = "1.14.0"
 
 [dependencies]
 serde_yaml = "0.8.13"
@@ -26,3 +27,5 @@ url = "2.2.2"
 sensitive_url = { path = "../sensitive_url" }
 slog = "2.5.2"
 logging = { path = "../logging" }
+futures = "0.3.7"
+bytes = "1.1.0"
