@@ -25,7 +25,7 @@ make
 make install-lcli
 ```
 
-This will build `lighthouse` and `lcli`. For `geth` and `bootnode`, go to [geth website](https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-amd64-1.13.1-3f40e65c.tar.gz) and download the `Geth & Tools`. For example, to download and extract `Geth & Tools 1.13.1`:
+This will build `lighthouse` and `lcli`. For `geth` and `bootnode`, go to [geth website](https://geth.ethereum.org/downloads) and download the `Geth & Tools`. For example, to download and extract `Geth & Tools 1.13.1`:
 
 ```bash
 cd ~
