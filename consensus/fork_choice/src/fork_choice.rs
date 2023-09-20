@@ -723,7 +723,8 @@ where
         // Add proposer score boost if the block is timely.
         let is_before_attesting_interval =
             block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);
-        if current_slot == block.slot() && is_before_attesting_interval {
+        let is_first_block = self.fc_store.proposer_boost_root().is_zero();
+        if current_slot == block.slot() && is_before_attesting_interval && is_first_block {
             self.fc_store.set_proposer_boost_root(block_root);
         }
 
