@@ -28,7 +28,7 @@ pub async fn run<T: EthSpec>(
         &eth2_network_config.chain_spec::<T>()?,
     )?;
 
-    if !lh_matches.is_present("immediate-shutdown") {
+    if lh_matches.is_present("immediate-shutdown") {
         return Ok(());
     }
 
