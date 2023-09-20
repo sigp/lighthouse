@@ -72,6 +72,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
           bins: cargo-nextest
     - name: Install Foundry (anvil)
@@ -95,6 +96,7 @@ jobs:
       with:
           channel: stable
           components: rustfmt
+          cache-target: release
           bins: cargo-nextest
     - name: Install Foundry (anvil)
       if: env.SELF_HOSTED_RUNNERS == false
@@ -129,6 +131,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
           bins: cargo-nextest
     - name: Run beacon_chain tests for all known forks
@@ -145,6 +148,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
           bins: cargo-nextest
     - name: Run operation_pool tests for all known forks
@@ -158,6 +162,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
           bins: cargo-nextest
     - name: Run slasher tests for all supported backends
@@ -194,6 +199,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
     - name: Run state_transition_vectors in release.
       run: make run-state-transition-tests
@@ -208,6 +214,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
           bins: cargo-nextest
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
@@ -224,6 +231,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
     - name: Build the root Dockerfile
       run: docker build --build-arg FEATURES=portable -t lighthouse:local .
@@ -238,6 +246,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
@@ -254,6 +263,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
@@ -270,6 +280,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
     - name: Run the beacon chain sim without an eth1 connection
       run: cargo run --release --bin simulator no-eth1-sim
@@ -283,6 +294,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
     - name: Install Foundry (anvil)
       if: env.SELF_HOSTED_RUNNERS == false
@@ -303,6 +315,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
     - name: Install geth
       run: |
@@ -310,6 +323,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install ethereum
     - name: Install lighthouse and lcli
+      if: env.SELF_HOSTED_RUNNERS == false
       run: |
           make
           make install-lcli
@@ -336,6 +350,7 @@ jobs:
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
+          cache-target: release
           components: rustfmt
     - name: Run exec engine integration tests in release
       run: make test-exec-engine
@@ -345,10 +360,10 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: moonrepo/setup-rust@v1
       with:
-          toolchain: stable
-          override: true
+          channel: stable
+          cache-target: release
           components: rustfmt
     - name: Typecheck benchmark code without running it
       run: make check-benches
