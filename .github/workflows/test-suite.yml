@@ -118,6 +118,9 @@ jobs:
         powershell Expand-Archive -Path 'nextest-windows.zip' -DestinationPath 'C:\Users\ContainerAdministrator\.cargo\bin\'
     - name: Run tests in release
       run: make nextest-release
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      run: sccache --show-stats
   beacon-chain-tests:
     name: beacon-chain-tests
     # Use self-hosted runners only on the sigp repo.
