@@ -402,20 +402,15 @@ fn context_bytes<T: EthSpec>(
                     // NOTE: If you are adding another fork type here, be sure to modify the
                     //       `fork_context.to_context_bytes()` function to support it as well!
                     SignedBeaconBlock::Deneb { .. } => {
-                        // Deneb context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Deneb)
                     }
                     SignedBeaconBlock::Capella { .. } => {
-                        // Capella context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Capella)
                     }
                     SignedBeaconBlock::Merge { .. } => {
-                        // Merge context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Merge)
                     }
                     SignedBeaconBlock::Altair { .. } => {
-                        // Altair context being `None` implies that "altair never happened".
-                        // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
                         fork_context.to_context_bytes(ForkName::Altair)
                     }
                     SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
