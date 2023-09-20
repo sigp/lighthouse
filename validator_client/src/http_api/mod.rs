@@ -1176,7 +1176,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_fee_recipient)
                         .or(get_gas_limit)
                         .or(get_std_keystores)
-                        .or(get_std_remotekeys),
+                        .or(get_std_remotekeys)
+                        .recover(warp_utils::reject::handle_rejection),
                 )
                 .or(warp::post().and(
                     post_validators
@@ -1187,15 +1188,18 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(post_fee_recipient)
                         .or(post_gas_limit)
                         .or(post_std_keystores)
-                        .or(post_std_remotekeys),
+                        .or(post_std_remotekeys)
+                        .recover(warp_utils::reject::handle_rejection),
                 ))
-                .or(warp::patch().and(patch_validators))
+                .or(warp::patch()
+                    .and(patch_validators.recover(warp_utils::reject::handle_rejection)))
                 .or(warp::delete().and(
                     delete_lighthouse_keystores
                         .or(delete_fee_recipient)
                         .or(delete_gas_limit)
                         .or(delete_std_keystores)
-                        .or(delete_std_remotekeys),
+                        .or(delete_std_remotekeys)
+                        .recover(warp_utils::reject::handle_rejection),
                 )),
         )
         // The auth route and logs  are the only routes that are allowed to be accessed without the API token.
