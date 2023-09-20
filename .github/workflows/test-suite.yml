@@ -305,21 +305,24 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
+      if: env.SELF_HOSTED_RUNNERS == false
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
           components: rustfmt
     - name: Install geth
+      if: env.SELF_HOSTED_RUNNERS == false
       run: |
           sudo add-apt-repository -y ppa:ethereum/ethereum
           sudo apt-get update
           sudo apt-get install ethereum
-    - name: Install lighthouse and lcli
-      if: env.SELF_HOSTED_RUNNERS == false
+    - name: Install lighthouse
       run: |
           make
-          make install-lcli
+    - name: Install lcli
+      if: env.SELF_HOSTED_RUNNERS == false
+      run: make install-lcli
     - name: Run the doppelganger protection failure test script
       run: |
           cd scripts/tests
