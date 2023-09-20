@@ -249,6 +249,10 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
         }
     }
 
+    pub fn as_block(&self) -> &SignedBeaconBlock<E> {
+        &self.block
+    }
+
     pub fn num_blobs_expected(&self) -> usize {
         self.block
             .message()

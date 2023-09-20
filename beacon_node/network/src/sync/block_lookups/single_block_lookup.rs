@@ -6,7 +6,7 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityView, DataAvailabilityChecker, ProcessingInfo,
 };
-use beacon_chain::BeaconChainTypes;
+use beacon_chain::{impl_availability_view, BeaconChainTypes};
 use lighthouse_network::rpc::methods::MaxRequestBlobSidecars;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{trace, Logger};
@@ -456,57 +456,13 @@ impl<E: EthSpec> CachedChildComponents<E> {
     }
 }
 
-impl<E: EthSpec> AvailabilityView<E> for CachedChildComponents<E> {
-    type BlockType = Arc<SignedBeaconBlock<E>>;
-    type BlobType = Arc<BlobSidecar<E>>;
-
-    fn block_exists(&self) -> bool {
-        self.downloaded_block.is_some()
-    }
-
-    fn blob_exists(&self, blob_index: u64) -> bool {
-        self.downloaded_blobs
-            .get(blob_index as usize)
-            .map(|b| b.is_some())
-            .unwrap_or(false)
-    }
-
-    fn num_expected_blobs(&self) -> usize {
-        self.downloaded_block
-            .as_ref()
-            .map_or(0, |b| b.num_expected_blobs())
-    }
-
-    fn num_received_blobs(&self) -> usize {
-        self.downloaded_blobs.iter().flatten().count()
-    }
-
-    fn insert_block(&mut self, block: Self::BlockType) {
-        self.downloaded_block = Some(block);
-    }
-
-    fn insert_blob_at_index(&mut self, blob_index: u64, blob: &Self::BlobType) {
-        if let Some(b) = self.downloaded_blobs.get_mut(blob_index as usize) {
-            *b = Some(blob.clone());
-        }
-    }
-
-    fn blob_to_commitment(blob: &Self::BlobType) -> KzgCommitment {
-        blob.kzg_commitment
-    }
-
-    fn get_cached_blob_commitments_mut(
-        &mut self,
-    ) -> &mut FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock> {
-        &mut self.downloaded_blobs
-    }
-
-    fn get_block_commitment_at_index(&self, blob_index: u64) -> Option<KzgCommitment> {
-        self.downloaded_blobs
-            .get(blob_index as usize)
-            .and_then(|b| b.as_ref().map(|b| b.kzg_commitment))
-    }
-}
+impl_availability_view!(
+    CachedChildComponents<E>,
+    Arc<SignedBeaconBlock<E>>,
+    Arc<BlobSidecar<E>>,
+    downloaded_block,
+    downloaded_blobs
+);
 
 /// Object representing the state of a single block or blob lookup request.
 #[derive(PartialEq, Eq, Debug)]

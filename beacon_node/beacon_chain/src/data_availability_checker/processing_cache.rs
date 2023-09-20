@@ -43,7 +43,7 @@ impl<E: EthSpec> ProcessingCache<E> {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct ProcessingInfo<E: EthSpec> {
     slot: Slot,
     /// Blobs required for a block can only be known if we have seen the block. So `Some` here

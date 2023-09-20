@@ -10,7 +10,9 @@ use super::*;
 use crate::sync::block_lookups::common::ResponseType;
 use beacon_chain::builder::Witness;
 use beacon_chain::eth1_chain::CachingEth1Backend;
-use beacon_chain::test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType};
+use beacon_chain::test_utils::{
+    build_log, generate_rand_block_and_blobs, BeaconChainHarness, EphemeralHarnessType, NumBlobs,
+};
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RPCResponseErrorCode;
 use lighthouse_network::{NetworkGlobals, Request};
@@ -20,8 +22,8 @@ use tokio::sync::mpsc;
 use types::{
     map_fork_name, map_fork_name_with,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconBlock, BlobSidecar, EthSpec, ForkName, FullPayloadDeneb, MinimalEthSpec as E,
-    SignedBeaconBlock,
+    BeaconBlock, BlobSidecar, EthSpec, ForkName, FullPayload, FullPayloadDeneb,
+    MinimalEthSpec as E, MinimalEthSpec, SignedBeaconBlock,
 };
 
 type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
@@ -34,11 +36,6 @@ struct TestRig {
 }
 
 const D: Duration = Duration::new(0, 0);
-
-enum NumBlobs {
-    Random,
-    None,
-}
 
 impl TestRig {
     fn test_setup(enable_log: bool) -> (BlockLookups<T>, SyncNetworkContext<T>, Self) {
@@ -96,63 +93,10 @@ impl TestRig {
         fork_name: ForkName,
         num_blobs: NumBlobs,
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
-        let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(&mut self.rng));
-        let mut block =
-            SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(&mut self.rng));
-        let mut blob_sidecars = vec![];
-        if let Ok(message) = block.message_deneb_mut() {
-            // get random number between 0 and Max Blobs
-            let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
-            let num_blobs = match num_blobs {
-                NumBlobs::Random => {
-                    let mut num_blobs = rand::random::<usize>() % E::max_blobs_per_block();
-                    if num_blobs == 0 {
-                        num_blobs += 1;
-                    }
-                    num_blobs
-                }
-                NumBlobs::None => 0,
-            };
-            let (bundle, transactions) = execution_layer::test_utils::generate_random_blobs::<E>(
-                num_blobs,
-                self.harness.chain.kzg.as_ref().unwrap(),
-            )
-            .unwrap();
+        let kzg = self.harness.chain.kzg.as_ref().unwrap();
+        let rng = &mut self.rng;
 
-            payload.execution_payload.transactions = <_>::default();
-            for tx in Vec::from(transactions) {
-                payload.execution_payload.transactions.push(tx).unwrap();
-            }
-            message.body.blob_kzg_commitments = bundle.commitments.clone();
-
-            let eth2::types::BlobsBundle {
-                commitments,
-                proofs,
-                blobs,
-            } = bundle;
-
-            let block_root = block.canonical_root();
-
-            for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
-                .into_iter()
-                .zip(commitments.into_iter())
-                .zip(proofs.into_iter())
-                .enumerate()
-            {
-                blob_sidecars.push(BlobSidecar {
-                    block_root,
-                    index: index as u64,
-                    slot: block.slot(),
-                    block_parent_root: block.parent_root(),
-                    proposer_index: block.message().proposer_index(),
-                    blob: blob.clone(),
-                    kzg_commitment,
-                    kzg_proof,
-                });
-            }
-        }
-
-        (block, blob_sidecars)
+        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, kzg.as_ref(), rng)
     }
 
     #[track_caller]
@@ -1226,6 +1170,7 @@ mod deneb_only {
     use super::*;
     use crate::sync::block_lookups::common::ResponseType;
     use beacon_chain::data_availability_checker::AvailabilityCheckError;
+    use beacon_chain::test_utils::NumBlobs;
     use std::ops::IndexMut;
     use std::str::FromStr;
 

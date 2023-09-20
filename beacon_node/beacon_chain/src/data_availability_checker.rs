@@ -5,6 +5,7 @@ use crate::block_verification_types::{
 pub use crate::data_availability_checker::availability_view::AvailabilityView;
 use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
 use crate::data_availability_checker::processing_cache::ProcessingCache;
+pub use crate::impl_availability_view;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
 use kzg::{Error as KzgError, KzgCommitment};

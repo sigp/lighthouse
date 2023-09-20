@@ -28,7 +28,7 @@ use execution_layer::{
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
-use kzg::{Kzg, TrustedSetup};
+use kzg::{Kzg, KzgPreset, TrustedSetup};
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLockWriteGuard;
@@ -38,6 +38,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
+use slasher::test_utils::E;
 use slog::{o, Drain, Logger};
 use slog_async::Async;
 use slog_term::{FullFormat, TermDecorator};
@@ -60,6 +61,7 @@ use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
+use types::test_utils::{TestRandom, XorShiftRng};
 use types::{typenum::U4294967296, *};
 
 // 4th September 2019
@@ -2502,4 +2504,71 @@ pub fn build_log(level: slog::Level, enabled: bool) -> Logger {
     } else {
         Logger::root(drain.filter(|_| false).fuse(), o!())
     }
+}
+
+pub enum NumBlobs {
+    Random,
+    None,
+}
+
+//TODO: port michael's changes to Rng from store updates
+pub fn generate_rand_block_and_blobs<E: EthSpec>(
+    fork_name: ForkName,
+    num_blobs: NumBlobs,
+    kzg: &Kzg<E::Kzg>,
+    rng: &mut impl Rng,
+) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
+    let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
+    let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
+    let mut blob_sidecars = vec![];
+    if let Ok(message) = block.message_deneb_mut() {
+        // get random number between 0 and Max Blobs
+        let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
+        let num_blobs = match num_blobs {
+            NumBlobs::Random => {
+                let mut num_blobs = rand::random::<usize>() % E::max_blobs_per_block();
+                if num_blobs == 0 {
+                    num_blobs += 1;
+                }
+                num_blobs
+            }
+            NumBlobs::None => 0,
+        };
+        let (bundle, transactions) =
+            execution_layer::test_utils::generate_random_blobs::<E>(num_blobs, kzg).unwrap();
+
+        payload.execution_payload.transactions = <_>::default();
+        for tx in Vec::from(transactions) {
+            payload.execution_payload.transactions.push(tx).unwrap();
+        }
+        message.body.blob_kzg_commitments = bundle.commitments.clone();
+
+        let eth2::types::BlobsBundle {
+            commitments,
+            proofs,
+            blobs,
+        } = bundle;
+
+        let block_root = block.canonical_root();
+
+        for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
+            .into_iter()
+            .zip(commitments.into_iter())
+            .zip(proofs.into_iter())
+            .enumerate()
+        {
+            blob_sidecars.push(BlobSidecar {
+                block_root,
+                index: index as u64,
+                slot: block.slot(),
+                block_parent_root: block.parent_root(),
+                proposer_index: block.message().proposer_index(),
+                blob: blob.clone(),
+                kzg_commitment,
+                kzg_proof,
+            });
+        }
+    }
+
+    (block, blob_sidecars)
 }
