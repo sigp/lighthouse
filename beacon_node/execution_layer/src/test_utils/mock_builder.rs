@@ -40,6 +40,11 @@ use types::{
     Uint256,
 };
 
+pub type MockBuilderServer = axum::Server<
+    hyper::server::conn::AddrIncoming,
+    axum::routing::IntoMakeService<axum::routing::Router>,
+>;
+
 #[derive(Clone)]
 pub enum Operation {
     FeeRecipient(Address),
@@ -170,19 +175,25 @@ impl BidStuff for BuilderBid {
     }
 }
 
-pub struct TestingBuilder<E: EthSpec> {
-    server: BlindedBlockProviderServer<MockBuilder<E>>,
-    pub builder: MockBuilder<E>,
+#[derive(Clone)]
+pub struct MockBuilder<E: EthSpec> {
+    el: ExecutionLayer<E>,
+    beacon_client: BeaconNodeHttpClient,
+    spec: ChainSpec,
+    context: Arc<Context>,
+    val_registration_cache: Arc<RwLock<HashMap<BlsPublicKey, SignedValidatorRegistration>>>,
+    builder_sk: SecretKey,
+    operations: Arc<RwLock<Vec<Operation>>>,
+    invalidate_signatures: Arc<RwLock<bool>>,
 }
 
-impl<E: EthSpec> TestingBuilder<E> {
-    pub fn new(
+impl<E: EthSpec> MockBuilder<E> {
+    pub fn new_for_testing(
         mock_el_url: SensitiveUrl,
-        builder_url: SensitiveUrl,
         beacon_url: SensitiveUrl,
         spec: ChainSpec,
         executor: TaskExecutor,
-    ) -> Self {
+    ) -> (Self, MockBuilderServer) {
         let file = NamedTempFile::new().unwrap();
         let path = file.path().into();
         std::fs::write(&path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
@@ -211,39 +222,13 @@ impl<E: EthSpec> TestingBuilder<E> {
             spec,
             context,
         );
-        let port = builder_url.full.port().unwrap();
-        let host: Ipv4Addr = builder_url
-            .full
-            .host_str()
-            .unwrap()
-            .to_string()
-            .parse()
-            .unwrap();
-        let server = BlindedBlockProviderServer::new(host, port, builder.clone());
-        Self { server, builder }
+        let host: Ipv4Addr = Ipv4Addr::LOCALHOST;
+        let port = 0;
+        let provider = BlindedBlockProviderServer::new(host, port, builder.clone());
+        let server = provider.serve();
+        (builder, server)
     }
 
-    pub async fn run(&self) {
-        let server = self.server.serve();
-        if let Err(err) = server.await {
-            println!("error while listening for incoming: {err}")
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct MockBuilder<E: EthSpec> {
-    el: ExecutionLayer<E>,
-    beacon_client: BeaconNodeHttpClient,
-    spec: ChainSpec,
-    context: Arc<Context>,
-    val_registration_cache: Arc<RwLock<HashMap<BlsPublicKey, SignedValidatorRegistration>>>,
-    builder_sk: SecretKey,
-    operations: Arc<RwLock<Vec<Operation>>>,
-    invalidate_signatures: Arc<RwLock<bool>>,
-}
-
-impl<E: EthSpec> MockBuilder<E> {
     pub fn new(
         el: ExecutionLayer<E>,
         beacon_client: BeaconNodeHttpClient,
