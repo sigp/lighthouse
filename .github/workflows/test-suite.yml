@@ -81,7 +81,7 @@ jobs:
     - name: Run tests in release
       run: make nextest-release
     - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == true
+      if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
   release-tests-windows:
     name: release-tests-windows
@@ -135,7 +135,7 @@ jobs:
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
     - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == true
+      if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
   op-pool-tests:
     name: op-pool-tests
@@ -186,7 +186,7 @@ jobs:
     - name: Run tests in debug
       run: make nextest-debug
     - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == true
+      if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
@@ -218,7 +218,7 @@ jobs:
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
       run: make nextest-ef
     - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == true
+      if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
   dockerfile-ubuntu:
     name: dockerfile-ubuntu
