@@ -1053,39 +1053,43 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     }
                 };
 
-                let update_enr = |ip: IpAddr, transport: Protocol| {
+                let (proto, port): (Protocol, u16) = match (addr.iter().nth(1), addr.iter().nth(2))
+                {
+                    (Some(Protocol::Tcp(port)), None) => (Protocol::Tcp(port), port),
+                    (Some(Protocol::Udp(port)), None) => (Protocol::Udp(port), port),
+                    (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => (Protocol::QuicV1, port),
+                    _ => {
+                        debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
+                        return;
+                    }
+                };
+
+                let update_enr = |ip: IpAddr, transport: Protocol, port: u16| {
                     let insert_into_enr = |key: &str, port: &u16| {
                         if let Err(e) = self.discv5.enr_insert(key, port) {
                             warn!(self.log, "Failed to write to ENR"; "error" => ?e);
                         }
                     };
 
-                    let port: u16 = match transport {
-                        Protocol::Tcp(port) => port,
-                        Protocol::Udp(port) => port,
-                        _ => {
-                            crit!(self.log, "Attempt to update discovery with unsupported transport (this should never occur)"; "transport" => ?transport);
-                            return;
-                        }
-                    };
-
-                    let transport_is_tcp: bool = matches!(transport, Protocol::Tcp(_));
-
                     match ip {
-                        IpAddr::V4(_) => {
-                            if transport_is_tcp {
-                                insert_into_enr("tcp4", &port);
-                            } else {
-                                insert_into_enr("udp4", &port);
+                        IpAddr::V4(_) => match proto {
+                            Protocol::Tcp(port) => insert_into_enr("tcp4", &port),
+                            Protocol::Udp(port) => insert_into_enr("udp4", &port),
+                            Protocol::QuicV1 => insert_into_enr("quic4", &port),
+                            _ => {
+                                crit!(self.log, "Attempt to update discovery with unsupported transport (this should never occur)"; "transport" => ?transport);
+                                return;
                             }
-                        }
-                        IpAddr::V6(_) => {
-                            if transport_is_tcp {
-                                insert_into_enr("tcp6", &port);
-                            } else {
-                                insert_into_enr("udp6", &port);
+                        },
+                        IpAddr::V6(_) => match proto {
+                            Protocol::Tcp(port) => insert_into_enr("tcp6", &port),
+                            Protocol::Udp(port) => insert_into_enr("udp6", &port),
+                            Protocol::QuicV1 => insert_into_enr("quic6", &port),
+                            _ => {
+                                crit!(self.log, "Attempt to update discovery with unsupported transport (this should never occur)"; "transport" => ?transport);
+                                return;
                             }
-                        }
+                        },
                     }
 
                     *self.network_globals.local_enr.write() = self.discv5.local_enr();
@@ -1096,14 +1100,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
                 };
 
-                match addr.iter().nth(1) {
-                    Some(Protocol::Tcp(port)) => update_enr(ip, Protocol::Tcp(port)),
-                    Some(Protocol::Udp(port)) => update_enr(ip, Protocol::Udp(port)),
-                    Some(Protocol::Quic) => update_enr(ip, Protocol::Quic),
-                    _ => {
-                        debug!(self.log, "Encountered unacceptable multiaddr for listening (invalid transport)"; "addr" => ?addr);
-                    }
-                };
+                update_enr(ip, proto.clone(), port);
             }
             FromSwarm::ConnectionEstablished(_)
             | FromSwarm::ConnectionClosed(_)
