@@ -4682,6 +4682,7 @@ name = "lru_cache"
 version = "0.1.0"
 dependencies = [
  "fnv",
+ "mock_instant",
 ]
 
 [[package]]
@@ -4924,6 +4925,12 @@ dependencies = [
  "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys 0.48.0",
 ]
+
+[[package]]
+name = "mock_instant"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c1a54de846c4006b88b1516731cc1f6026eb5dc4bcb186aa071ef66d40524ec"
 
 [[package]]
 name = "monitoring_api"

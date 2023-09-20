@@ -6,3 +6,6 @@ edition = "2021"
 
 [dependencies]
 fnv = "1.0.7"
+
+[dev-dependencies]
+mock_instant = "0.3"
