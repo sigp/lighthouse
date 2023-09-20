@@ -35,7 +35,6 @@ pub use libp2p::{
 use lru::LruCache;
 use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
-use std::net::Ipv4Addr;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -1055,32 +1054,11 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                 };
 
                 let update_enr = |ip: IpAddr, transport: Protocol| {
-                    /* this closure shouldn't exist but `Ipv4Addr::is_global` is Nightly at the moment */
-                    let is_global = |ip: Ipv4Addr| {
-                        !(ip.is_broadcast()
-                            || ip.is_documentation()
-                            || ip.is_link_local()
-                            || ip.is_loopback()
-                            || ip.is_multicast()
-                            || ip.is_private()
-                            || ip.is_unspecified())
-                    };
-
                     let insert_into_enr = |key: &str, port: &u16| {
                         if let Err(e) = self.discv5.enr_insert(key, port) {
                             warn!(self.log, "Failed to write to ENR"; "error" => ?e);
                         }
                     };
-
-                    let mut should_update_ip: bool = true;
-
-                    /* we cannot violate the ENR invariant */
-                    if let IpAddr::V4(ip4) = ip {
-                        if !is_global(ip4) {
-                            debug!(self.log, "Refusing to update ENR IP (unreachable)"; "ip" => ?ip);
-                            should_update_ip = false;
-                        }
-                    }
 
                     let port: u16 = match transport {
                         Protocol::Tcp(port) => port,
@@ -1093,31 +1071,24 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
 
                     let transport_is_tcp: bool = matches!(transport, Protocol::Tcp(_));
 
-                    if should_update_ip {
-                        let sock: SocketAddr = SocketAddr::new(ip, port);
-
-                        self.discv5.update_local_enr_socket(sock, transport_is_tcp);
-                        *self.network_globals.local_enr.write() = self.discv5.local_enr();
-                    } else {
-                        match ip {
-                            IpAddr::V4(_) => {
-                                if transport_is_tcp {
-                                    insert_into_enr("tcp4", &port);
-                                } else {
-                                    insert_into_enr("udp4", &port);
-                                }
-                            }
-                            IpAddr::V6(_) => {
-                                if transport_is_tcp {
-                                    insert_into_enr("tcp6", &port);
-                                } else {
-                                    insert_into_enr("udp6", &port);
-                                }
+                    match ip {
+                        IpAddr::V4(_) => {
+                            if transport_is_tcp {
+                                insert_into_enr("tcp4", &port);
+                            } else {
+                                insert_into_enr("udp4", &port);
                             }
                         }
-
-                        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+                        IpAddr::V6(_) => {
+                            if transport_is_tcp {
+                                insert_into_enr("tcp6", &port);
+                            } else {
+                                insert_into_enr("udp6", &port);
+                            }
+                        }
                     }
+
+                    *self.network_globals.local_enr.write() = self.discv5.local_enr();
 
                     let local_enr: Enr = self.discv5.local_enr();
                     info!(self.log, "Updated local ENR"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
