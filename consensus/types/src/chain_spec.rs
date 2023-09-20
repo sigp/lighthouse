@@ -688,6 +688,8 @@ impl ChainSpec {
             config_name: None,
             max_committees_per_slot: 4,
             target_committee_size: 4,
+            min_per_epoch_churn_limit: 2,
+            max_per_epoch_activation_churn_limit: 4,
             churn_limit_quotient: 32,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
