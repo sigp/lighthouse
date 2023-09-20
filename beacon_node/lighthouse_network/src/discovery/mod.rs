@@ -1064,43 +1064,39 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     }
                 };
 
-                let update_enr = |ip: IpAddr, transport: Protocol, port: u16| {
-                    let insert_into_enr = |key: &str, port: &u16| {
-                        if let Err(e) = self.discv5.enr_insert(key, port) {
-                            warn!(self.log, "Failed to write to ENR"; "error" => ?e);
-                        }
-                    };
-
-                    match ip {
-                        IpAddr::V4(_) => match proto {
-                            Protocol::Tcp(port) => insert_into_enr("tcp4", &port),
-                            Protocol::Udp(port) => insert_into_enr("udp4", &port),
-                            Protocol::QuicV1 => insert_into_enr("quic4", &port),
-                            _ => {
-                                crit!(self.log, "Attempt to update discovery with unsupported transport (this should never occur)"; "transport" => ?transport);
-                                return;
-                            }
-                        },
-                        IpAddr::V6(_) => match proto {
-                            Protocol::Tcp(port) => insert_into_enr("tcp6", &port),
-                            Protocol::Udp(port) => insert_into_enr("udp6", &port),
-                            Protocol::QuicV1 => insert_into_enr("quic6", &port),
-                            _ => {
-                                crit!(self.log, "Attempt to update discovery with unsupported transport (this should never occur)"; "transport" => ?transport);
-                                return;
-                            }
-                        },
+                let insert_into_enr = |key: &str, port: &u16| {
+                    if let Err(e) = self.discv5.enr_insert(key, port) {
+                        warn!(self.log, "Failed to write to ENR"; "error" => ?e);
                     }
-
-                    *self.network_globals.local_enr.write() = self.discv5.local_enr();
-
-                    let local_enr: Enr = self.discv5.local_enr();
-                    info!(self.log, "Updated local ENR"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
-                        "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6());
-                    enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
                 };
 
-                update_enr(ip, proto.clone(), port);
+                match ip {
+                    IpAddr::V4(_) => match proto {
+                        Protocol::Tcp(port) => insert_into_enr("tcp4", &port),
+                        Protocol::Udp(port) => insert_into_enr("udp4", &port),
+                        Protocol::QuicV1 => insert_into_enr("quic4", &port),
+                        _ => {
+                            crit!(self.log, "Attempt to update discovery with unsupported transport (this should never occur)"; "transport" => ?proto);
+                            return;
+                        }
+                    },
+                    IpAddr::V6(_) => match proto {
+                        Protocol::Tcp(port) => insert_into_enr("tcp6", &port),
+                        Protocol::Udp(port) => insert_into_enr("udp6", &port),
+                        Protocol::QuicV1 => insert_into_enr("quic6", &port),
+                        _ => {
+                            crit!(self.log, "Attempt to update discovery with unsupported transport (this should never occur)"; "transport" => ?proto);
+                            return;
+                        }
+                    },
+                }
+
+                *self.network_globals.local_enr.write() = self.discv5.local_enr();
+
+                let local_enr: Enr = self.discv5.local_enr();
+                info!(self.log, "Updated local ENR"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
+                    "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6());
+                enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
             }
             FromSwarm::ConnectionEstablished(_)
             | FromSwarm::ConnectionClosed(_)
