@@ -218,9 +218,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         trace!(self.log, "Inbound connection"; "peer_id" => %peer_id, "multiaddr" => %remote_addr);
         // We already checked if the peer was banned on `handle_pending_inbound_connection`.
         if let Some(BanResult::BadScore) = self.ban_status(&peer_id) {
-            return Err(ConnectionDenied::new(RejectPeer(format!(
-                "peer has a bad score"
-            ))));
+            return Err(ConnectionDenied::new(RejectPeer(
+                "peer has a bad score".into(),
+            )));
         }
         Ok(ConnectionHandler)
     }
