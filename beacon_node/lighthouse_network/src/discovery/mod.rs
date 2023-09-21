@@ -1059,12 +1059,12 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                 if let Err(e) = match addr_iter.next() {
                     Some(Protocol::Ip4(_)) => match (addr_iter.next(), addr_iter.next()) {
                         (Some(Protocol::Tcp(port)), None) => {
-                            if self.update_ports.tcp4 {
-                            self.update_enr_tcp_port(port)
-                            } else {
+                            if !self.update_ports.tcp4 {
                                 debug!(self.log, "Skipping ENR (tcp4) update");
+                                return;
                             }
 
+                            self.update_enr_tcp_port(port)
                         }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
                             if !self.update_ports.quic4 {
