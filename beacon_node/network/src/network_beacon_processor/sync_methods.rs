@@ -302,6 +302,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .incomplete_processing_components(slot);
         for block_root in block_roots {
             if let Some(peer_ids) = self.delayed_lookup_peers.lock().pop(&block_root) {
+                // Let the network layer de-dupe these.
                 for peer_id in peer_ids {
                     self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
                         peer_id, block_root,
