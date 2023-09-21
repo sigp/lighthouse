@@ -29,7 +29,7 @@ const HOLESKY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url
         // more details.
         "https://sigp-public-genesis-states.s3.ap-southeast-2.amazonaws.com/holesky/",
     ],
-    checksum: "0x76631cd0b9ddc5b2c766b496e23f16759ce1181446a4efb40e5540cd15b78a07",
+    checksum: "0xd750639607c337bbb192b15c27f447732267bf72d1650180a0e44c2d93a80741",
     genesis_validators_root: "0x9143aa7c615a7f7115e2b6aac319c03529df8242ae705fba9df39b79c59fa8b1",
 };
 

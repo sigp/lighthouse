@@ -7,7 +7,7 @@ mod cli;
 pub mod config;
 mod server;
 pub use cli::cli_app;
-use config::{BootNodeConfig, BootNodeConfigSerialization};
+use config::BootNodeConfig;
 use types::{EthSpec, EthSpecId};
 
 const LOG_CHANNEL_SIZE: usize = 2048;
@@ -81,20 +81,13 @@ fn main<T: EthSpec>(
         .build()
         .map_err(|e| format!("Failed to build runtime: {}", e))?;
 
-    // parse the CLI args into a useable config
-    let config: BootNodeConfig<T> = BootNodeConfig::new(bn_matches, eth2_network_config)?;
-
-    // Dump configs if `dump-config` or `dump-chain-config` flags are set
-    let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
-    clap_utils::check_dump_configs::<_, T>(
-        lh_matches,
-        &config_sz,
-        &eth2_network_config.chain_spec::<T>()?,
-    )?;
-
     // Run the boot node
-    if !lh_matches.is_present("immediate-shutdown") {
-        runtime.block_on(server::run(config, log));
-    }
+    runtime.block_on(server::run::<T>(
+        lh_matches,
+        bn_matches,
+        eth2_network_config,
+        log,
+    ))?;
+
     Ok(())
 }

@@ -2825,12 +2825,8 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
 
                     if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
-                        let address = if let Some(socket_addr) = peer_info.seen_addresses().next() {
-                            let mut addr = lighthouse_network::Multiaddr::from(socket_addr.ip());
-                            addr.push(lighthouse_network::multiaddr::Protocol::Tcp(
-                                socket_addr.port(),
-                            ));
-                            addr.to_string()
+                        let address = if let Some(multiaddr) = peer_info.seen_multiaddrs().next() {
+                            multiaddr.to_string()
                         } else if let Some(addr) = peer_info.listening_addresses().first() {
                             addr.to_string()
                         } else {
@@ -2878,13 +2874,8 @@ pub fn serve<T: BeaconChainTypes>(
                         .peers()
                         .for_each(|(peer_id, peer_info)| {
                             let address =
-                                if let Some(socket_addr) = peer_info.seen_addresses().next() {
-                                    let mut addr =
-                                        lighthouse_network::Multiaddr::from(socket_addr.ip());
-                                    addr.push(lighthouse_network::multiaddr::Protocol::Tcp(
-                                        socket_addr.port(),
-                                    ));
-                                    addr.to_string()
+                                if let Some(multiaddr) = peer_info.seen_multiaddrs().next() {
+                                    multiaddr.to_string()
                                 } else if let Some(addr) = peer_info.listening_addresses().first() {
                                     addr.to_string()
                                 } else {
@@ -3011,6 +3002,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(log_filter.clone())
@@ -3018,6 +3010,7 @@ pub fn serve<T: BeaconChainTypes>(
             |endpoint_version: EndpointVersion,
              slot: Slot,
              query: api_types::ValidatorBlocksQuery,
+             accept_header: Option<api_types::Accept>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
@@ -3062,9 +3055,24 @@ pub fn serve<T: BeaconChainTypes>(
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
 
-                    fork_versioned_response(endpoint_version, fork_name, block)
-                        .map(|response| warp::reply::json(&response).into_response())
-                        .map(|res| add_consensus_version_header(res, fork_name))
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(block.as_ssz_bytes().into())
+                            .map(|res: Response<Bytes>| {
+                                add_consensus_version_header(res, fork_name)
+                            })
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => fork_versioned_response(endpoint_version, fork_name, block)
+                            .map(|response| warp::reply::json(&response).into_response())
+                            .map(|res| add_consensus_version_header(res, fork_name)),
+                    }
                 })
             },
         );
@@ -3081,11 +3089,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
             |slot: Slot,
              query: api_types::ValidatorBlocksQuery,
+             accept_header: Option<api_types::Accept>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
@@ -3123,10 +3133,25 @@ pub fn serve<T: BeaconChainTypes>(
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
 
-                    // Pose as a V2 endpoint so we return the fork `version`.
-                    fork_versioned_response(V2, fork_name, block)
-                        .map(|response| warp::reply::json(&response).into_response())
-                        .map(|res| add_consensus_version_header(res, fork_name))
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(block.as_ssz_bytes().into())
+                            .map(|res: Response<Bytes>| {
+                                add_consensus_version_header(res, fork_name)
+                            })
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        // Pose as a V2 endpoint so we return the fork `version`.
+                        _ => fork_versioned_response(V2, fork_name, block)
+                            .map(|response| warp::reply::json(&response).into_response())
+                            .map(|res| add_consensus_version_header(res, fork_name)),
+                    }
                 })
             },
         );
@@ -3644,12 +3669,13 @@ pub fn serve<T: BeaconChainTypes>(
                         // send the response back to our original HTTP request
                         // task via a channel.
                         let builder_future = async move {
-                            let builder = chain
+                            let arc_builder = chain
                                 .execution_layer
                                 .as_ref()
                                 .ok_or(BeaconChainError::ExecutionLayerMissing)
                                 .map_err(warp_utils::reject::beacon_chain_error)?
-                                .builder()
+                                .builder();
+                            let builder = arc_builder
                                 .as_ref()
                                 .ok_or(BeaconChainError::BuilderMissing)
                                 .map_err(warp_utils::reject::beacon_chain_error)?;
@@ -4335,7 +4361,8 @@ pub fn serve<T: BeaconChainTypes>(
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P1, async move {
-                    let merge_readiness = chain.check_merge_readiness().await;
+                    let current_slot = chain.slot_clock.now_or_genesis().unwrap_or(Slot::new(0));
+                    let merge_readiness = chain.check_merge_readiness(current_slot).await;
                     Ok::<_, warp::reject::Rejection>(
                         warp::reply::json(&api_types::GenericResponse::from(merge_readiness))
                             .into_response(),

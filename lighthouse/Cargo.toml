@@ -4,7 +4,7 @@ version = "4.4.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 autotests = false
-rust-version = "1.68.2"
+rust-version = "1.69.0"
 
 [features]
 default = ["slasher-lmdb"]
