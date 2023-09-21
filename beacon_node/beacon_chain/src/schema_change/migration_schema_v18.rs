@@ -51,8 +51,8 @@ pub fn upgrade_to_v18<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    // No-op, even if Deneb has already occured. The database is probably borked in this case, but
-    // *maybe* the fork recovery will revert the minority fork and suceed.
+    // No-op, even if Deneb has already occurred. The database is probably borked in this case, but
+    // *maybe* the fork recovery will revert the minority fork and succeed.
     if let Some(deneb_fork_epoch) = db.get_chain_spec().deneb_fork_epoch {
         let current_epoch = get_current_epoch::<T>(&db, &log)?;
         if current_epoch >= deneb_fork_epoch {

@@ -212,15 +212,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut anchor_and_blob_batch = Vec::with_capacity(2);
 
         // Update the blob info.
-        if let Some(oldest_blob_slot) = new_oldest_blob_slot {
-            let new_blob_info = BlobInfo {
-                oldest_blob_slot: Some(oldest_blob_slot),
-                ..blob_info.clone()
-            };
-            anchor_and_blob_batch.push(
-                self.store
-                    .compare_and_set_blob_info(blob_info, new_blob_info)?,
-            );
+        if new_oldest_blob_slot != blob_info.oldest_blob_slot {
+            if let Some(oldest_blob_slot) = new_oldest_blob_slot {
+                let new_blob_info = BlobInfo {
+                    oldest_blob_slot: Some(oldest_blob_slot),
+                    ..blob_info.clone()
+                };
+                anchor_and_blob_batch.push(
+                    self.store
+                        .compare_and_set_blob_info(blob_info, new_blob_info)?,
+                );
+            }
         }
 
         // Update the anchor.

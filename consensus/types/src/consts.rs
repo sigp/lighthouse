@@ -23,16 +23,8 @@ pub mod merge {
     pub const INTERVALS_PER_SLOT: u64 = 3;
 }
 pub mod deneb {
-    use crate::{Epoch, Uint256};
+    use crate::Epoch;
 
-    use lazy_static::lazy_static;
-
-    lazy_static! {
-        pub static ref BLS_MODULUS: Uint256 = Uint256::from_dec_str(
-            "52435875175126190479447740508185965837690552500527637822603658699938581184513"
-        )
-        .expect("should initialize BLS_MODULUS");
-    }
     pub const VERSIONED_HASH_VERSION_KZG: u8 = 1;
     pub const BLOB_SIDECAR_SUBNET_COUNT: u64 = 6;
     pub const MAX_BLOBS_PER_BLOCK: u64 = BLOB_SIDECAR_SUBNET_COUNT;

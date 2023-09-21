@@ -2080,13 +2080,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         force: bool,
         data_availability_boundary: Epoch,
     ) -> Result<(), Error> {
-        let _deneb_fork_epoch = match self.spec.deneb_fork_epoch {
-            Some(epoch) => epoch,
-            None => {
-                debug!(self.log, "Deneb fork is disabled");
-                return Ok(());
-            }
-        };
+        if self.spec.deneb_fork_epoch.is_none() {
+            debug!(self.log, "Deneb fork is disabled");
+            return Ok(());
+        }
 
         let pruning_enabled = self.get_config().prune_blobs;
         let margin_epochs = self.get_config().blob_prune_margin_epochs;
@@ -2190,7 +2187,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             };
 
             if Some(block_root) != last_pruned_block_root && self.blobs_exist(&block_root)? {
-                debug!(
+                trace!(
                     self.log,
                     "Pruning blobs of block";
                     "slot" => slot,
