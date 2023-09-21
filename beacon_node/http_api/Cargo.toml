@@ -40,7 +40,6 @@ logging = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 operation_pool = { workspace = true }
 sensitive_url = { workspace = true }
-unused_port = { workspace = true }
 store = { workspace = true }
 bytes = { workspace = true }
 beacon_processor = { workspace = true }
