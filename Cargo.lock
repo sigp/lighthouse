@@ -601,7 +601,6 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "types",
- "unused_port",
 ]
 
 [[package]]
@@ -2221,9 +2220,11 @@ dependencies = [
 name = "eth2_network_config"
 version = "0.2.0"
 dependencies = [
+ "bytes",
  "discv5",
  "eth2_config",
  "ethereum_ssz",
+ "futures",
  "logging",
  "pretty_reqwest_error",
  "reqwest",
@@ -2232,6 +2233,7 @@ dependencies = [
  "sha2 0.10.7",
  "slog",
  "tempfile",
+ "tokio",
  "types",
  "url",
  "zip",
@@ -2583,7 +2585,9 @@ dependencies = [
 name = "execution_layer"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "async-trait",
+ "axum",
  "builder_client",
  "bytes",
  "environment",
@@ -2598,6 +2602,7 @@ dependencies = [
  "hash-db",
  "hash256-std-hasher",
  "hex",
+ "hyper",
  "jsonwebtoken",
  "keccak-hash",
  "lazy_static",
@@ -3381,7 +3386,6 @@ dependencies = [
  "tokio-stream",
  "tree_hash",
  "types",
- "unused_port",
  "warp",
  "warp_utils",
 ]
