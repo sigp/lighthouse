@@ -3,15 +3,12 @@ use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::AsBlock;
 use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
 use crate::data_availability_checker::ProcessingInfo;
-use crate::test_utils::{generate_rand_block_and_blobs, NumBlobs};
 use crate::AvailabilityPendingExecutedBlock;
-use eth2_network_config::get_trusted_setup;
-use kzg::{KzgCommitment, TrustedSetup};
+use kzg::{KzgCommitment};
 use ssz_types::FixedVector;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
-use types::test_utils::TestRandom;
-use types::{BlobSidecar, EthSpec, ForkName, MainnetEthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 /// Defines an interface for managing data availability with two key invariants:
 /// 1. Blobs won't be clobbered if we've yet to see the corresponding block.
@@ -269,7 +266,7 @@ pub mod tests {
     use rand::SeedableRng;
     use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
-    use types::{BeaconState, ChainSpec, ForkName, Slot};
+    use types::{BeaconState, ChainSpec, ForkName, MainnetEthSpec, Slot};
 
     type E = MainnetEthSpec;
     pub fn pre_setup() -> (

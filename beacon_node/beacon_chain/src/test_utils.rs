@@ -28,7 +28,7 @@ use execution_layer::{
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
-use kzg::{Kzg, KzgPreset, TrustedSetup};
+use kzg::{Kzg, TrustedSetup};
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLockWriteGuard;
@@ -38,7 +38,6 @@ use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
-use slasher::test_utils::E;
 use slog::{o, Drain, Logger};
 use slog_async::Async;
 use slog_term::{FullFormat, TermDecorator};
@@ -61,7 +60,7 @@ use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
-use types::test_utils::{TestRandom, XorShiftRng};
+use types::test_utils::{TestRandom};
 use types::{typenum::U4294967296, *};
 
 // 4th September 2019
