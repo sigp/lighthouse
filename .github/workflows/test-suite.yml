@@ -49,7 +49,7 @@ jobs:
   release-tests-ubuntu:
     name: release-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
@@ -72,7 +72,7 @@ jobs:
       run: sccache --show-stats
   release-tests-windows:
     name: release-tests-windows
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "topaz"]') || 'windows-2019'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "CI"]') || 'windows-2019'  }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
@@ -111,7 +111,7 @@ jobs:
   beacon-chain-tests:
     name: beacon-chain-tests
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
@@ -158,7 +158,7 @@ jobs:
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
@@ -194,7 +194,7 @@ jobs:
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "small"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
@@ -291,7 +291,7 @@ jobs:
       run: cargo run --release --bin simulator syncing-sim
   doppelganger-protection-test:
     name: doppelganger-protection-test
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "small"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
