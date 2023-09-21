@@ -46,19 +46,6 @@ jobs:
       id: extract_msrv
     outputs:
       MSRV: ${{ steps.extract_msrv.outputs.MSRV }}
-  cargo-fmt:
-    name: cargo-fmt
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          components: rustfmt
-    - name: Check formatting with cargo fmt
-      run: make cargo-fmt
   release-tests-ubuntu:
     name: release-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
@@ -353,79 +340,47 @@ jobs:
           components: rustfmt
     - name: Run exec engine integration tests in release
       run: make test-exec-engine
-  check-benchmarks:
-    name: check-benchmarks
+  check-code:
+    name: check-code
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
+      env:
+          CARGO_INCREMENTAL: 1
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
-    - name: Typecheck benchmark code without running it
-      run: make check-benches
-  clippy:
-    name: clippy
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          components: rustfmt
+          components: rustfmt,clippy
+          bins: cargo-audit
+    - name: Check formatting with cargo fmt
+      run: make cargo-fmt
     - name: Lint code for quality and style with Clippy
       run: make lint
     - name: Certify Cargo.lock freshness
       run: git diff --exit-code Cargo.lock
+    - name: Typecheck benchmark code without running it
+      run: make check-benches
+    - name: Validate state_processing feature arbitrary-fuzz
+      run:  make arbitrary-fuzz
+    - name: Run cargo audit
+      run: make audit-CI
+    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
+      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest
-    needs: [cargo-fmt, extract-msrv]
+    needs: [extract-msrv]
     steps:
     - uses: actions/checkout@v3
     - name: Install Rust @ MSRV (${{ needs.extract-msrv.outputs.MSRV }})
       run: rustup override set ${{ needs.extract-msrv.outputs.MSRV }}
     - name: Run cargo check
       run: cargo check --workspace
-  arbitrary-check:
-    name: arbitrary-check
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          components: rustfmt
-    - name: Validate state_processing feature arbitrary-fuzz
-      run:  make arbitrary-fuzz
-  cargo-audit:
-    name: cargo-audit
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          components: rustfmt
-          bins: cargo-audit
-    - name: Run cargo audit
-      run: make audit-CI
-  cargo-vendor:
-    name: cargo-vendor
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
-      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
   cargo-udeps:
     name: cargo-udeps
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of nightly Rust
