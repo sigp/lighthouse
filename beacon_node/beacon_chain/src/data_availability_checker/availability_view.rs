@@ -412,10 +412,9 @@ pub mod tests {
     pub fn assert_cache_consistent<A: AvailabilityView<E>>(cache: A) {
         if let Some(cached_block) = cache.get_cached_block() {
             if let Some(cached_block_commitments) = cached_block.get_commitments() {
-                for (index, (block_commitment, blob_commitment_opt)) in cached_block_commitments
+                for (block_commitment, blob_commitment_opt) in cached_block_commitments
                     .iter()
                     .zip(cache.get_cached_blobs().iter())
-                    .enumerate()
                 {
                     let blob_commitment = blob_commitment_opt
                         .as_ref()

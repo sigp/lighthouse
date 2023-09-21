@@ -582,11 +582,7 @@ mod tests {
     use crate::sync::block_lookups::common::LookupType;
     use crate::sync::block_lookups::common::{Lookup, RequestState};
     use beacon_chain::builder::Witness;
-    use beacon_chain::data_availability_checker::{
-        AvailabilityView, GetCommitment, GetCommitments,
-    };
     use beacon_chain::eth1_chain::CachingEth1Backend;
-    use beacon_chain::generate_tests;
     use sloggers::null::NullLoggerBuilder;
     use sloggers::Build;
     use slot_clock::{SlotClock, TestingSlotClock};
