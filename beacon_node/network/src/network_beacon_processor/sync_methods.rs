@@ -272,6 +272,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Box::pin(process_fn)
     }
 
+    /// Attempt to process a list of blobs received from a direct RPC request.
     pub async fn process_rpc_blobs(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
@@ -295,6 +296,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
+    /// Poll the beacon chain for any delayed lookups that are now available.
     pub fn poll_delayed_lookups(&self, slot: Slot) {
         let block_roots = self
             .chain
