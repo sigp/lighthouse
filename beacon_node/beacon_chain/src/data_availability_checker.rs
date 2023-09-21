@@ -337,7 +337,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .merge_block(commitments);
     }
 
-
     /// Adds blob commitments to the processing cache. These commitments are unverified but caching
     /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
     /// our block and blob download requirements.
@@ -378,25 +377,18 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             return false;
         }
 
-        let maximum_gossip_clock_disparity = self.spec.maximum_gossip_clock_disparity();
-        let earliest_slot = self
+        let current_or_future_slot = self
             .slot_clock
-            .now_with_past_tolerance(maximum_gossip_clock_disparity);
-        let latest_slot = self
+            .now()
+            .map_or(false, |current_slot| current_slot <= slot);
+
+        let delay_threshold_unmet = self
             .slot_clock
-            .now_with_future_tolerance(maximum_gossip_clock_disparity);
-        if let (Some(earliest_slot), Some(latest_slot)) = (earliest_slot, latest_slot) {
-            let msg_for_current_slot = slot >= earliest_slot && slot <= latest_slot;
-            let delay_threshold_unmet = self
-                .slot_clock
-                .millis_from_current_slot_start()
-                .map_or(false, |millis_into_slot| {
-                    millis_into_slot < self.slot_clock.single_lookup_delay()
-                });
-            msg_for_current_slot && delay_threshold_unmet
-        } else {
-            false
-        }
+            .millis_from_current_slot_start()
+            .map_or(false, |millis_into_slot| {
+                millis_into_slot < self.slot_clock.single_lookup_delay()
+            });
+        current_or_future_slot && delay_threshold_unmet
     }
 
     /// The epoch at which we require a data availability check in block processing.
