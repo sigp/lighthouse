@@ -1038,8 +1038,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                 self.on_dial_failure(peer_id, error)
             }
             FromSwarm::NewListenAddr(ev) => {
-                let addr: &Multiaddr = ev.addr;
-                let listener_id: ListenerId = ev.listener_id;
+                let addr = ev.addr;
+                let listener_id = ev.listener_id;
 
                 trace!(self.log, "Received NewListenAddr event from swarm"; "listener_id" => ?listener_id, "addr" => ?addr);
 
@@ -1051,11 +1051,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                 let mut addr_iter = addr.iter();
 
                 if let Err(e) = match addr_iter.next() {
-                    Some(Protocol::Ip4(ip)) => match (addr_iter.next(), addr_iter.next()) {
+                    Some(Protocol::Ip4(_)) => match (addr_iter.next(), addr_iter.next()) {
                         (Some(Protocol::Tcp(port)), None) => self.update_enr_tcp_port(port),
-                        (Some(Protocol::Udp(port)), None) => {
-                            self.update_enr_udp_socket(SocketAddr::new(IpAddr::V4(ip), port))
-                        }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
                             self.update_enr_quic_port(port)
                         }
@@ -1064,11 +1061,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             return;
                         }
                     },
-                    Some(Protocol::Ip6(ip)) => match (addr_iter.next(), addr_iter.next()) {
+                    Some(Protocol::Ip6(_)) => match (addr_iter.next(), addr_iter.next()) {
                         (Some(Protocol::Tcp(port)), None) => self.update_enr_tcp_port(port),
-                        (Some(Protocol::Udp(port)), None) => {
-                            self.update_enr_udp_socket(SocketAddr::new(IpAddr::V6(ip), port))
-                        }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
                             self.update_enr_quic_port(port)
                         }
