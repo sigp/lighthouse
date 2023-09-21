@@ -320,7 +320,7 @@ pub mod tests {
         FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
     );
 
-    pub fn setup_processing_view(
+    pub fn setup_processing_components(
         block: SignedBeaconBlock<E>,
         valid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
         invalid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
@@ -539,11 +539,11 @@ pub mod tests {
     }
 
     generate_tests!(
-        processing_view_tests,
+        processing_components_tests,
         ProcessingComponents::<E>,
         kzg_commitments,
         processing_blobs,
-        setup_processing_view
+        setup_processing_components
     );
     generate_tests!(
         pending_components_tests,

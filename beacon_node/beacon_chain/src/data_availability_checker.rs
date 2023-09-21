@@ -139,7 +139,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 
     /// Get the processing info for a block.
-    pub fn get_processing_view(
+    pub fn get_processing_components(
         &self,
         block_root: Hash256,
     ) -> Option<ProcessingComponents<T::EthSpec>> {

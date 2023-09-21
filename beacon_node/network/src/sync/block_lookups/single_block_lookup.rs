@@ -272,7 +272,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
             self.da_checker.get_missing_blob_ids(block_root, components)
         } else {
             let Some(processing_availability_view) =
-                self.da_checker.get_processing_view(block_root)
+                self.da_checker.get_processing_components(block_root)
             else {
                 return MissingBlobs::new_without_block(block_root, self.da_checker.is_deneb());
             };
