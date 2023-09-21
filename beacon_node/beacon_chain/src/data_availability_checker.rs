@@ -315,12 +315,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
     }
 
-    /// Determines the blob requirements for a block. Answers the question: "Does this block require
-    /// blobs?".
+    /// Determines the blob requirements for a block. If the block is pre-deneb, no blobs are required.
+    /// If the block's epoch is from prior to the data availability boundary, no blobs are required.
     fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
         block.num_expected_blobs() > 0 && self.da_check_required_for_epoch(block.epoch())
     }
 
+    /// Adds block commitments to the processing cache. These commitments are unverified but caching
+    /// them here is useful to avoid duplicate downloads of blocks, as well as understanding
+    /// our blob download requirements.
     pub fn notify_block_commitments(
         &self,
         slot: Slot,
@@ -334,6 +337,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .merge_block(commitments);
     }
 
+
+    /// Adds blob commitments to the processing cache. These commitments are unverified but caching
+    /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
+    /// our block and blob download requirements.
     pub fn notify_blob_commitments(
         &self,
         slot: Slot,
@@ -347,16 +354,25 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .merge_blobs(blobs);
     }
 
+    /// Clears the block and all blobs from the processing cache for a give root if they exist.
     pub fn remove_notified(&self, block_root: &Hash256) {
         self.processing_cache.write().remove(block_root)
     }
 
-    pub fn get_delayed_lookups(&self, slot: Slot) -> Vec<Hash256> {
+    /// Gather all block roots for which we are not currently processing all components for the
+    /// given slot.
+    pub fn incomplete_processing_components(&self, slot: Slot) -> Vec<Hash256> {
         self.processing_cache
             .read()
-            .blocks_with_missing_components(slot)
+            .incomplete_processing_components(slot)
     }
 
+    /// Determines whether we are at least the `single_lookup_delay` duration into the given slot.
+    /// If we are not currently in the Deneb fork, this delay is not considered.
+    ///
+    /// The `single_lookup_delay` is the duration we wait for a blocks or blobs to arrive over
+    /// gossip before making single block or blob requests. This is to minimize the number of
+    /// single lookup requests we end up making.
     pub fn should_delay_lookup(&self, slot: Slot) -> bool {
         if !self.is_deneb() {
             return false;

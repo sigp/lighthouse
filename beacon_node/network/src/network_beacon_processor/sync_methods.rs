@@ -296,11 +296,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     pub fn poll_delayed_lookups(&self, slot: Slot) {
-        let lookups = self
+        let block_roots = self
             .chain
             .data_availability_checker
-            .get_delayed_lookups(slot);
-        for block_root in lookups {
+            .incomplete_processing_components(slot);
+        for block_root in block_roots {
             if let Some(peer_ids) = self.delayed_lookup_peers.lock().pop(&block_root) {
                 for peer_id in peer_ids {
                     self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
