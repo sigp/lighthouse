@@ -11,7 +11,10 @@ use types::beacon_block_body::KzgCommitments;
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 /// Defines an interface for managing data availability with two key invariants:
-/// 1. Blobs won't be clobbered if we've yet to see the corresponding block.
+///
+/// 1. If we haven't seen a block yet, we will insert the first blob for a given (block_root, index)
+///    but we won't insert subsequent blobs for the same (block_root, index) if they have a different
+///    commitment.
 /// 2. On block insertion, any non-matching blob commitments are evicted.
 ///
 /// Types implementing this trait can be used for validating and managing availability
