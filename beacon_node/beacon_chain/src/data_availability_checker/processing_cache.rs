@@ -60,9 +60,12 @@ impl<E: EthSpec> ProcessingComponents<E> {
             processing_blobs: KzgCommitmentOpts::<E>::default(),
         }
     }
+}
 
-    #[cfg(test)]
-    pub fn default() -> Self {
+// Not safe for use outside of tests as this always required a slot.
+#[cfg(test)]
+impl<E: EthSpec> Default for ProcessingComponents<E> {
+    fn default() -> Self {
         Self {
             slot: Slot::new(0),
             kzg_commitments: None,

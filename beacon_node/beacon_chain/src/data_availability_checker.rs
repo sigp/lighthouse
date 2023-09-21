@@ -9,8 +9,6 @@ pub use crate::data_availability_checker::child_components::ChildComponents;
 use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
 use crate::data_availability_checker::processing_cache::ProcessingCache;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
-use futures::StreamExt;
-use itertools::Itertools;
 use kzg::Kzg;
 use kzg::{Error as KzgError, KzgCommitment};
 use parking_lot::RwLock;
@@ -614,8 +612,8 @@ impl MissingBlobs {
     }
     pub fn indices(&self) -> Vec<u64> {
         match self {
-            MissingBlobs::KnownMissing(v) => v.into_iter().map(|id| id.index).collect(),
-            MissingBlobs::PossibleMissing(v) => v.into_iter().map(|id| id.index).collect(),
+            MissingBlobs::KnownMissing(v) => v.iter().map(|id| id.index).collect(),
+            MissingBlobs::PossibleMissing(v) => v.iter().map(|id| id.index).collect(),
             MissingBlobs::BlobsNotRequired => vec![],
         }
     }

@@ -603,8 +603,9 @@ mod tests {
             Duration::from_secs(spec.seconds_per_slot),
         );
         let log = NullLoggerBuilder.build().expect("logger should build");
-        let store = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log)
-            .expect("store");
+        let store =
+            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
+                .expect("store");
         let da_checker = Arc::new(
             DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec)
                 .expect("data availability checker"),
@@ -642,8 +643,9 @@ mod tests {
             Duration::from_secs(spec.seconds_per_slot),
         );
         let log = NullLoggerBuilder.build().expect("logger should build");
-        let store = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log)
-            .expect("store");
+        let store =
+            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
+                .expect("store");
 
         let da_checker = Arc::new(
             DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec)

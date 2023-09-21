@@ -13,9 +13,7 @@ use crate::sync::block_lookups::single_block_lookup::{
 use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 pub use beacon_chain::data_availability_checker::ChildComponents;
-use beacon_chain::data_availability_checker::{
-    AvailabilityCheckError, AvailabilityView, DataAvailabilityChecker,
-};
+use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::Current;

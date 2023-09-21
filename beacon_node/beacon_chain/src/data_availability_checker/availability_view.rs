@@ -96,7 +96,7 @@ pub trait AvailabilityView<E: EthSpec> {
     /// 1. The blob entry at the index is empty and no block exists.
     /// 2. The block exists and its commitment matches the blob's commitment.
     fn merge_blobs(&mut self, blobs: FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock>) {
-        for (index, blob) in blobs.to_vec().into_iter().enumerate() {
+        for (index, blob) in blobs.iter().cloned().enumerate() {
             let Some(blob) = blob else { continue };
             self.merge_single_blob(index, blob);
         }

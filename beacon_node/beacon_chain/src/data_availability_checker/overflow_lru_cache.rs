@@ -1068,7 +1068,7 @@ mod test {
                 .expect("kzg should verify");
             kzg_verified_blobs.push(kzg_verified_blob);
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.as_slice())
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
             if blob_index == blobs_expected - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
@@ -1096,7 +1096,7 @@ mod test {
                 .expect("kzg should verify");
             kzg_verified_blobs.push(kzg_verified_blob);
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.as_slice())
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
             assert_eq!(
                 availability,
@@ -1241,7 +1241,7 @@ mod test {
                 .expect("kzg should verify");
             kzg_verified_blobs.push(kzg_verified_blob);
             let availability = cache
-                .put_kzg_verified_blobs(roots[0], kzg_verified_blobs.as_slice())
+                .put_kzg_verified_blobs(roots[0], kzg_verified_blobs.clone())
                 .expect("should put blob");
             if blob_index == expected_blobs - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
@@ -1348,7 +1348,7 @@ mod test {
                         "should have pending blobs"
                     );
                     let availability = cache
-                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs.as_slice())
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs)
                         .expect("should put blob");
                     assert!(
                         matches!(availability, Availability::MissingComponents(_)),
@@ -1357,7 +1357,7 @@ mod test {
                     );
                 } else {
                     let availability = cache
-                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs.as_slice())
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs)
                         .expect("should put blob");
                     let root = pending_block.block.as_block().canonical_root();
                     assert_eq!(
@@ -1500,7 +1500,7 @@ mod test {
                         "should have pending blobs"
                     );
                     let availability = cache
-                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs.as_slice())
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs)
                         .expect("should put blob");
                     assert!(
                         matches!(availability, Availability::MissingComponents(_)),
@@ -1509,7 +1509,7 @@ mod test {
                     );
                 } else {
                     let availability = cache
-                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs.as_slice())
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs)
                         .expect("should put blob");
                     let root = pending_block.block.as_block().canonical_root();
                     assert_eq!(
@@ -1601,7 +1601,7 @@ mod test {
                     .expect("kzg should verify");
                 kzg_verified_blobs.push(kzg_verified_blob);
                 let availability = recovered_cache
-                    .put_kzg_verified_blobs(root, kzg_verified_blobs.as_slice())
+                    .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                     .expect("should put blob");
                 if i == additional_blobs - 1 {
                     assert!(matches!(availability, Availability::Available(_)))
