@@ -391,9 +391,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// automatically update the external address.
     ///
     /// If the external address needs to be modified, use `update_enr_udp_socket.
-    pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
+    pub fn update_enr_tcp_port(&mut self, ip6: bool, port: u16) -> Result<(), String> {
+        let key = if ip6 { "tcp6" } else { "tcp" };
+
         self.discv5
-            .enr_insert("tcp", &port)
+            .enr_insert(key, &port)
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
@@ -408,9 +410,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     // This currently doesn't support ipv6. All of these functions should be removed and
     // addressed properly in the following issue.
     // https://github.com/sigp/lighthouse/issues/4706
-    pub fn update_enr_quic_port(&mut self, port: u16) -> Result<(), String> {
+    pub fn update_enr_quic_port(&mut self, ip6: bool, port: u16) -> Result<(), String> {
+        let key = if ip6 { "quic6" } else { "quic" };
+
         self.discv5
-            .enr_insert("quic", &port)
+            .enr_insert(key, &port)
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
@@ -1044,32 +1048,37 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
 
                 trace!(self.log, "Received NewListenAddr event from swarm"; "listener_id" => ?listener_id, "addr" => ?addr);
 
-                let ip: IpAddr = match addr.iter().next() {
-                    Some(Protocol::Ip4(ip)) => IpAddr::V4(ip),
-                    Some(Protocol::Ip6(ip)) => IpAddr::V6(ip),
+                let mut addr_iter = addr.iter();
+
+                if let Err(e) = match addr_iter.next() {
+                    Some(Protocol::Ip4(ip)) => match (addr_iter.next(), addr_iter.next()) {
+                        (Some(Protocol::Tcp(port)), None) => self.update_enr_tcp_port(false, port),
+                        (Some(Protocol::Udp(port)), None) => {
+                            self.update_enr_udp_socket(SocketAddr::new(IpAddr::V4(ip), port))
+                        }
+                        (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
+                            self.update_enr_quic_port(false, port)
+                        }
+                        _ => {
+                            debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
+                            return;
+                        }
+                    },
+                    Some(Protocol::Ip6(ip)) => match (addr_iter.next(), addr_iter.next()) {
+                        (Some(Protocol::Tcp(port)), None) => self.update_enr_tcp_port(true, port),
+                        (Some(Protocol::Udp(port)), None) => {
+                            self.update_enr_udp_socket(SocketAddr::new(IpAddr::V6(ip), port))
+                        }
+                        (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
+                            self.update_enr_quic_port(true, port)
+                        }
+                        _ => {
+                            debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
+                            return;
+                        }
+                    },
                     _ => {
                         debug!(self.log, "Encountered unacceptable multiaddr for listening (no IP)"; "addr" => ?addr);
-                        return;
-                    }
-                };
-
-                let (proto, port): (Protocol, u16) = match (addr.iter().nth(1), addr.iter().nth(2))
-                {
-                    (Some(Protocol::Tcp(port)), None) => (Protocol::Tcp(port), port),
-                    (Some(Protocol::Udp(port)), None) => (Protocol::Udp(port), port),
-                    (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => (Protocol::QuicV1, port),
-                    _ => {
-                        debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
-                        return;
-                    }
-                };
-
-                if let Err(e) = match proto {
-                    Protocol::Tcp(port) => self.update_enr_tcp_port(port),
-                    Protocol::Udp(port) => self.update_enr_udp_socket(SocketAddr::new(ip, port)),
-                    Protocol::QuicV1 => self.update_enr_quic_port(port),
-                    _ => {
-                        crit!(self.log, "Attempt to update discovery with unsupported transport (this should never occur)"; "transport" => ?proto);
                         return;
                     }
                 } {
