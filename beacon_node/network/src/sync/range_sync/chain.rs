@@ -434,7 +434,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
                 BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
                     // these are all inconsistent states:
-                    // - Failed -> non recoverable batch. Chain should have beee removed
+                    // - Failed -> non recoverable batch. Chain should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
                     //   re-requested.
                     // - Processing -> `self.current_processing_batch` is None
