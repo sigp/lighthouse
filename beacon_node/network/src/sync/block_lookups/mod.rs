@@ -12,7 +12,7 @@ use crate::sync::block_lookups::single_block_lookup::{
 };
 use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
-pub use beacon_chain::data_availability_checker::ChildComponentCache;
+pub use beacon_chain::data_availability_checker::ChildComponents;
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityView, DataAvailabilityChecker,
 };
@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_child_block(
         &mut self,
         block_root: Hash256,
-        child_components: ChildComponentCache<T::EthSpec>,
+        child_components: ChildComponents<T::EthSpec>,
         peer_source: PeerShouldHave,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -195,7 +195,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new_current_lookup(
         &mut self,
         block_root: Hash256,
-        child_components: Option<ChildComponentCache<T::EthSpec>>,
+        child_components: Option<ChildComponents<T::EthSpec>>,
         peers: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) -> Option<SingleBlockLookup<Current, T>> {

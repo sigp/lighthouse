@@ -5,7 +5,7 @@ use crate::block_verification_types::{
 pub use crate::data_availability_checker::availability_view::{
     AvailabilityView, GetCommitment, GetCommitments,
 };
-pub use crate::data_availability_checker::child_component_cache::ChildComponentCache;
+pub use crate::data_availability_checker::child_components::ChildComponents;
 use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
 use crate::data_availability_checker::processing_cache::ProcessingCache;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
@@ -14,11 +14,11 @@ use itertools::Itertools;
 use kzg::Kzg;
 use kzg::{Error as KzgError, KzgCommitment};
 use parking_lot::RwLock;
-pub use processing_cache::ProcessingView;
+pub use processing_cache::ProcessingComponents;
 use slasher::test_utils::E;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
-use ssz_types::{Error};
+use ssz_types::Error;
 use std::fmt;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -30,7 +30,7 @@ use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 mod availability_view;
-mod child_component_cache;
+mod child_components;
 mod overflow_lru_cache;
 mod processing_cache;
 
@@ -139,7 +139,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 
     /// Get the processing info for a block.
-    pub fn get_processing_view(&self, block_root: Hash256) -> Option<ProcessingView<T::EthSpec>> {
+    pub fn get_processing_view(
+        &self,
+        block_root: Hash256,
+    ) -> Option<ProcessingComponents<T::EthSpec>> {
         self.processing_cache.read().get(&block_root).cloned()
     }
 
@@ -327,7 +330,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.processing_cache
             .write()
             .entry(block_root)
-            .or_insert_with(|| ProcessingView::new(slot))
+            .or_insert_with(|| ProcessingComponents::new(slot))
             .merge_block(commitments);
     }
 
@@ -340,7 +343,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.processing_cache
             .write()
             .entry(block_root)
-            .or_insert_with(|| ProcessingView::new(slot))
+            .or_insert_with(|| ProcessingComponents::new(slot))
             .merge_blobs(blobs);
     }
 

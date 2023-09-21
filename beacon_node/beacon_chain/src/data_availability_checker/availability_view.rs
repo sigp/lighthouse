@@ -1,8 +1,8 @@
-use super::child_component_cache::ChildComponentCache;
+use super::child_components::ChildComponents;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::AsBlock;
 use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
-use crate::data_availability_checker::ProcessingView;
+use crate::data_availability_checker::ProcessingComponents;
 use crate::AvailabilityPendingExecutedBlock;
 use kzg::KzgCommitment;
 use ssz_types::FixedVector;
@@ -174,7 +174,7 @@ macro_rules! impl_availability_view {
 }
 
 impl_availability_view!(
-    ProcessingView,
+    ProcessingComponents,
     KzgCommitments<E>,
     KzgCommitment,
     kzg_commitments,
@@ -190,7 +190,7 @@ impl_availability_view!(
 );
 
 impl_availability_view!(
-    ChildComponentCache,
+    ChildComponents,
     Arc<SignedBeaconBlock<E>>,
     Arc<BlobSidecar<E>>,
     downloaded_block,
@@ -532,7 +532,7 @@ pub mod tests {
 
     generate_tests!(
         processing_view_tests,
-        ProcessingView::<E>,
+        ProcessingComponents::<E>,
         kzg_commitments,
         processing_blobs,
         setup_processing_view
@@ -546,7 +546,7 @@ pub mod tests {
     );
     generate_tests!(
         child_component_tests,
-        ChildComponentCache::<E>,
+        ChildComponents::<E>,
         downloaded_block,
         downloaded_blobs,
         setup_child_components

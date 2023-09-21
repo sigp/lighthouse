@@ -178,7 +178,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .blob_request_state
             .state
             .register_failure_processing();
-        if let Some(components) = self.current_parent_request.child_component_cache.as_mut() {
+        if let Some(components) = self.current_parent_request.child_components.as_mut() {
             components.downloaded_block = None;
             components.downloaded_blobs = <_>::default();
         }

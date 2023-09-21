@@ -10,14 +10,14 @@ use types::{EthSpec, Hash256, Slot};
 /// See `AvailabilityView`'s trait definition.
 #[derive(Default)]
 pub struct ProcessingCache<E: EthSpec> {
-    processing_cache: HashMap<Hash256, ProcessingView<E>>,
+    processing_cache: HashMap<Hash256, ProcessingComponents<E>>,
 }
 
 impl<E: EthSpec> ProcessingCache<E> {
-    pub fn get(&self, block_root: &Hash256) -> Option<&ProcessingView<E>> {
+    pub fn get(&self, block_root: &Hash256) -> Option<&ProcessingComponents<E>> {
         self.processing_cache.get(block_root)
     }
-    pub fn entry(&mut self, block_root: Hash256) -> Entry<'_, Hash256, ProcessingView<E>> {
+    pub fn entry(&mut self, block_root: Hash256) -> Entry<'_, Hash256, ProcessingComponents<E>> {
         self.processing_cache.entry(block_root)
     }
     pub fn remove(&mut self, block_root: &Hash256) {
@@ -40,7 +40,7 @@ impl<E: EthSpec> ProcessingCache<E> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ProcessingView<E: EthSpec> {
+pub struct ProcessingComponents<E: EthSpec> {
     slot: Slot,
     /// Blobs required for a block can only be known if we have seen the block. So `Some` here
     /// means we've seen it, a `None` means we haven't. The `kzg_commitments` value helps us figure
@@ -52,7 +52,7 @@ pub struct ProcessingView<E: EthSpec> {
     pub processing_blobs: KzgCommitmentOpts<E>,
 }
 
-impl<E: EthSpec> ProcessingView<E> {
+impl<E: EthSpec> ProcessingComponents<E> {
     pub fn new(slot: Slot) -> Self {
         Self {
             slot,

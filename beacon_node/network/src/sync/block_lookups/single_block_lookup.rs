@@ -6,7 +6,7 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, DataAvailabilityChecker, MissingBlobs,
 };
-use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponentCache};
+use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponents};
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{trace, Logger};
@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::{FixedBlobSidecarList};
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::EthSpec;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -59,13 +59,13 @@ pub struct SingleBlockLookup<L: Lookup, T: BeaconChainTypes> {
     pub da_checker: Arc<DataAvailabilityChecker<T>>,
     /// Only necessary for requests triggered by an `UnknownBlockParent` or `UnknownBlockParent`
     /// because any blocks or blobs without parents won't hit the data availability cache.
-    pub child_component_cache: Option<ChildComponentCache<T::EthSpec>>,
+    pub child_components: Option<ChildComponents<T::EthSpec>>,
 }
 
 impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     pub fn new(
         requested_block_root: Hash256,
-        child_component_cache: Option<ChildComponentCache<T::EthSpec>>,
+        child_components: Option<ChildComponents<T::EthSpec>>,
         peers: &[PeerShouldHave],
         da_checker: Arc<DataAvailabilityChecker<T>>,
         id: Id,
@@ -76,7 +76,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
             block_request_state: BlockRequestState::new(requested_block_root, peers),
             blob_request_state: BlobRequestState::new(requested_block_root, peers, is_deneb),
             da_checker,
-            child_component_cache,
+            child_components,
         }
     }
 
@@ -96,7 +96,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.block_request_state.requested_block_root = block_root;
         self.block_request_state.state.state = State::AwaitingDownload;
         self.blob_request_state.state.state = State::AwaitingDownload;
-        self.child_component_cache = Some(ChildComponentCache::default());
+        self.child_components = Some(ChildComponents::default());
     }
 
     /// Get all unique peers across block and blob requests.
@@ -136,7 +136,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// 3. `Ok`: The child is required and we have downloaded it.
     /// 4. `Err`: The child is required, but has failed consistency checks.
     pub fn get_cached_child_block(&self) -> CachedChild<T::EthSpec> {
-        if let Some(components) = self.child_component_cache.as_ref() {
+        if let Some(components) = self.child_components.as_ref() {
             let Some(block) = components.downloaded_block.as_ref() else {
                 return CachedChild::DownloadIncomplete;
             };
@@ -161,8 +161,8 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         &mut self,
         verified_response: R::VerifiedResponseType,
     ) -> CachedChild<T::EthSpec> {
-        if let Some(child_component_cache) = self.child_component_cache.as_mut() {
-            R::add_to_child_components(verified_response, child_component_cache);
+        if let Some(child_components) = self.child_components.as_mut() {
+            R::add_to_child_components(verified_response, child_components);
             self.get_cached_child_block()
         } else {
             CachedChild::NotRequired
@@ -170,9 +170,9 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     }
 
     /// Add a child component to the lookup request. Merges with any existing child components.
-    pub fn add_child_components(&mut self, components: ChildComponentCache<T::EthSpec>) {
-        if let Some(ref mut existing_components) = self.child_component_cache {
-            let ChildComponentCache {
+    pub fn add_child_components(&mut self, components: ChildComponents<T::EthSpec>) {
+        if let Some(ref mut existing_components) = self.child_components {
+            let ChildComponents {
                 downloaded_block,
                 downloaded_blobs,
             } = components;
@@ -181,7 +181,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
             }
             existing_components.add_cached_child_blobs(downloaded_blobs);
         } else {
-            self.child_component_cache = Some(components);
+            self.child_components = Some(components);
         }
     }
 
@@ -245,7 +245,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
 
     /// Returns `true` if the block has already been downloaded.
     pub(crate) fn block_already_downloaded(&self) -> bool {
-        if let Some(components) = self.child_component_cache.as_ref() {
+        if let Some(components) = self.child_components.as_ref() {
             components.block_exists()
         } else {
             self.da_checker.has_block(&self.block_root())
@@ -265,12 +265,12 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.blob_request_state.requested_ids = self.missing_blob_ids();
     }
 
-    /// If `child_component_cache` is `Some`, we know block components won't hit the data
-    /// availability cache, so we don't check its processing cache unless `child_component_cache`
+    /// If `child_components` is `Some`, we know block components won't hit the data
+    /// availability cache, so we don't check its processing cache unless `child_components`
     /// is `None`.
     pub(crate) fn missing_blob_ids(&self) -> MissingBlobs {
         let block_root = self.block_root();
-        if let Some(components) = self.child_component_cache.as_ref() {
+        if let Some(components) = self.child_components.as_ref() {
             self.da_checker.get_missing_blob_ids(block_root, components)
         } else {
             let Some(processing_availability_view) =
@@ -305,7 +305,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// necessary and clear the blob cache.
     pub fn handle_consistency_failure(&mut self, cx: &SyncNetworkContext<T>) {
         self.penalize_blob_peer(false, cx);
-        if let Some(cached_child) = self.child_component_cache.as_mut() {
+        if let Some(cached_child) = self.child_components.as_mut() {
             cached_child.clear_blobs();
         }
         self.blob_request_state.state.register_failure_downloading()
@@ -315,7 +315,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// necessary and clear the blob cache.
     pub fn handle_availability_check_failure(&mut self, cx: &SyncNetworkContext<T>) {
         self.penalize_blob_peer(true, cx);
-        if let Some(cached_child) = self.child_component_cache.as_mut() {
+        if let Some(cached_child) = self.child_components.as_mut() {
             cached_child.clear_blobs();
         }
         self.blob_request_state.state.register_failure_processing()
