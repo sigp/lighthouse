@@ -268,10 +268,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // increment prometheus metrics
         if self.metrics_enabled {
-            let remote_addr = match endpoint {
-                ConnectedPoint::Dialer { address, .. } => address,
-                ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
-            };
+            let remote_addr = endpoint.get_remote_address();
             match remote_addr.iter().find(|proto| {
                 matches!(
                     proto,
@@ -357,11 +354,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // reference so that peer manager can track this peer.
         self.inject_disconnect(&peer_id);
 
-        let remote_addr = match endpoint {
-            ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
-            ConnectedPoint::Dialer { address, .. } => address,
-        };
-
+        let remote_addr = endpoint.get_remote_address();
         // Update the prometheus metrics
         if self.metrics_enabled {
             match remote_addr.iter().find(|proto| {
