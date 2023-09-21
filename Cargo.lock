@@ -2220,9 +2220,11 @@ dependencies = [
 name = "eth2_network_config"
 version = "0.2.0"
 dependencies = [
+ "bytes",
  "discv5",
  "eth2_config",
  "ethereum_ssz",
+ "futures",
  "logging",
  "pretty_reqwest_error",
  "reqwest",
@@ -2231,6 +2233,7 @@ dependencies = [
  "sha2 0.10.7",
  "slog",
  "tempfile",
+ "tokio",
  "types",
  "url",
  "zip",
