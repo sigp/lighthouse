@@ -38,7 +38,7 @@ pub fn parse_file_config(
     Ok(data)
 }
 
-/// This converts a givent map of config into a `Vec<OsString>`, for consumption by
+/// This converts a given map of config into a `Vec<OsString>`, for consumption by
 /// `clap::App::get_matches_from`. The provided `cli_flags` are cli flags provided by the user.
 /// These will *NOT* be overridden by config from the map.
 fn to_arguments<V: AsBool, F: Fn(V) -> Result<String, ClapPreprocessingError>>(
@@ -125,8 +125,8 @@ fn yaml_value_to_string(value: YamlValue) -> Result<String, ClapPreprocessingErr
     Ok(string_value)
 }
 
-/// This function and `expand_args_from` are inspired by `argmatches::expand_args_from` and
-/// `argmatches::expand_args_from` respectively, but differ in the following ways:
+/// This function and `expand_args_from` are inspired by `argfile::expand_args_from` and
+/// `argfile::expand_args_from` respectively, but differ in the following ways:
 ///
 /// - This has no recursion.
 /// - `parser` must return a `Result<Vec<OsString>, ClapPreprocessingError>` as opposed to a `Vec<Argument>`.
@@ -135,7 +135,7 @@ fn yaml_value_to_string(value: YamlValue) -> Result<String, ClapPreprocessingErr
 pub fn expand_args<F>(
     parser: F,
     flag_name: &str,
-) -> Result<Vec<std::ffi::OsString>, ClapPreprocessingError>
+) -> Result<Vec<OsString>, ClapPreprocessingError>
 where
     F: Fn(&str, Vec<OsString>) -> Result<Vec<OsString>, ClapPreprocessingError>,
 {
