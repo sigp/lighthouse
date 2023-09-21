@@ -2792,45 +2792,37 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
     }
 
+    /// Cache the blob in the processing cache, process it, then evict it from the cache if it was
+    /// imported or errors.
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        // TODO: fewer places where we initialize this fixed vec
         let block_root = blob.block_root();
-        let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
-        if let Some(commitment_opt) = commitments.get_mut(blob.as_blob().index as usize) {
-            *commitment_opt = Some(blob.as_blob().kzg_commitment);
-        }
-        self.data_availability_checker.notify_blob_commitments(
-            blob.as_blob().slot,
-            block_root,
-            commitments,
-        );
+        self.data_availability_checker
+            .notify_gossip_blob(blob.as_blob().slot, block_root, &blob);
         let r = self.check_gossip_blob_availability_and_import(blob).await;
         self.remove_notified(&block_root, r)
     }
 
+    /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
+    /// imported or errors.
     pub async fn process_rpc_blobs(
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
-        for blob in blobs.iter().flatten() {
-            if let Some(commitment) = commitments.get_mut(blob.index as usize) {
-                *commitment = Some(blob.kzg_commitment);
-            }
-        }
         self.data_availability_checker
-            .notify_blob_commitments(slot, block_root, commitments);
+            .notify_rpc_blobs(slot, block_root, &blobs);
         let r = self
             .check_rpc_blob_availability_and_import(slot, block_root, blobs)
             .await;
         self.remove_notified(&block_root, r)
     }
 
+    /// Remove any block components from the *processing cache* if we no longer require them. If the
+    /// block was imported full or erred, we no longer require them.
     fn remove_notified(
         &self,
         block_root: &Hash256,
@@ -2844,6 +2836,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         r
     }
 
+    /// Wraps `process_block` in logic to cache the block's commitments in the processing cache
+    /// and evict if the block was imported or erred.
     pub async fn process_block_with_early_caching<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
         block_root: Hash256,

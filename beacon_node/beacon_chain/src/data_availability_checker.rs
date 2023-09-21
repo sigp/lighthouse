@@ -337,20 +337,44 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .merge_block(commitments);
     }
 
-    /// Adds blob commitments to the processing cache. These commitments are unverified but caching
+    /// Add a single blob commitment to the processing cache. This commitment is unverified but caching
     /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
     /// our block and blob download requirements.
-    pub fn notify_blob_commitments(
+    pub fn notify_gossip_blob(
         &self,
         slot: Slot,
         block_root: Hash256,
-        blobs: KzgCommitmentOpts<T::EthSpec>,
+        blob: &GossipVerifiedBlob<T>,
     ) {
+        let index = blob.as_blob().index;
+        let commitment = blob.as_blob().kzg_commitment;
         self.processing_cache
             .write()
             .entry(block_root)
             .or_insert_with(|| ProcessingComponents::new(slot))
-            .merge_blobs(blobs);
+            .merge_single_blob(index as usize, commitment);
+    }
+
+    /// Adds blob commitments to the processing cache. These commitments are unverified but caching
+    /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
+    /// our block and blob download requirements.
+    pub fn notify_rpc_blobs(
+        &self,
+        slot: Slot,
+        block_root: Hash256,
+        blobs: &FixedBlobSidecarList<T::EthSpec>,
+    ) {
+        let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
+        for blob in blobs.iter().flatten() {
+            if let Some(commitment) = commitments.get_mut(blob.index as usize) {
+                *commitment = Some(blob.kzg_commitment);
+            }
+        }
+        self.processing_cache
+            .write()
+            .entry(block_root)
+            .or_insert_with(|| ProcessingComponents::new(slot))
+            .merge_blobs(commitments);
     }
 
     /// Clears the block and all blobs from the processing cache for a give root if they exist.

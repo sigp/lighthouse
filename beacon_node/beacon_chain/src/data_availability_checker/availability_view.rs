@@ -98,18 +98,26 @@ pub trait AvailabilityView<E: EthSpec> {
     fn merge_blobs(&mut self, blobs: FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock>) {
         for (index, blob) in blobs.to_vec().into_iter().enumerate() {
             let Some(blob) = blob else { continue };
-            let commitment = *blob.get_commitment();
+            self.merge_single_blob(index, blob);
+        }
+    }
 
-            if let Some(cached_block) = self.get_cached_block() {
-                let block_commitment_opt = cached_block.get_commitments().get(index).copied();
-                if let Some(block_commitment) = block_commitment_opt {
-                    if block_commitment == commitment {
-                        self.insert_blob_at_index(index, blob)
-                    }
+    /// Merges a single into the cache.
+    ///
+    /// Blobs are only inserted if:
+    /// 1. The blob entry at the index is empty and no block exists.
+    /// 2. The block exists and its commitment matches the blob's commitment.
+    fn merge_single_blob(&mut self, index: usize, blob: Self::BlobType) {
+        let commitment = *blob.get_commitment();
+        if let Some(cached_block) = self.get_cached_block() {
+            let block_commitment_opt = cached_block.get_commitments().get(index).copied();
+            if let Some(block_commitment) = block_commitment_opt {
+                if block_commitment == commitment {
+                    self.insert_blob_at_index(index, blob)
                 }
-            } else if !self.blob_exists(index) {
-                self.insert_blob_at_index(index, blob)
             }
+        } else if !self.blob_exists(index) {
+            self.insert_blob_at_index(index, blob)
         }
     }
 
