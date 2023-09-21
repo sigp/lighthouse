@@ -9,7 +9,7 @@ use crate::sync::block_lookups::{
 use crate::sync::manager::{BlockProcessType, Id, SingleLookupReqId};
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_availability_checker::ChildComponents;
+use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponents};
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use lighthouse_network::rpc::BlocksByRootRequest;
@@ -328,7 +328,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
         verified_response: Arc<SignedBeaconBlock<T::EthSpec>>,
         components: &mut ChildComponents<T::EthSpec>,
     ) {
-        components.add_cached_child_block(verified_response);
+        components.merge_block(verified_response);
     }
 
     fn verified_to_reconstructed(
@@ -434,7 +434,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
         verified_response: FixedBlobSidecarList<T::EthSpec>,
         components: &mut ChildComponents<T::EthSpec>,
     ) {
-        components.add_cached_child_blobs(verified_response);
+        components.merge_blobs(verified_response);
     }
 
     fn verified_to_reconstructed(

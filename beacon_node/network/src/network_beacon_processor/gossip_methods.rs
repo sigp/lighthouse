@@ -1276,7 +1276,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         if let Err(e) = &result {
-            //TODO: drop from processing cache
             self.maybe_store_invalid_block(
                 &invalid_block_storage,
                 block_root,

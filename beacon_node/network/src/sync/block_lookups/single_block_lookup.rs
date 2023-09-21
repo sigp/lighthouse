@@ -177,9 +177,9 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
                 downloaded_blobs,
             } = components;
             if let Some(block) = downloaded_block {
-                existing_components.add_cached_child_block(block);
+                existing_components.merge_block(block);
             }
-            existing_components.add_cached_child_blobs(downloaded_blobs);
+            existing_components.merge_blobs(downloaded_blobs);
         } else {
             self.child_components = Some(components);
         }

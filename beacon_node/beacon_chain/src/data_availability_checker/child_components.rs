@@ -42,12 +42,4 @@ impl<E: EthSpec> ChildComponents<E> {
     pub fn clear_blobs(&mut self) {
         self.downloaded_blobs = FixedBlobSidecarList::default();
     }
-
-    pub fn add_cached_child_block(&mut self, block: Arc<SignedBeaconBlock<E>>) {
-        self.merge_block(block)
-    }
-
-    pub fn add_cached_child_blobs(&mut self, blobs: FixedBlobSidecarList<E>) {
-        self.merge_blobs(blobs)
-    }
 }
