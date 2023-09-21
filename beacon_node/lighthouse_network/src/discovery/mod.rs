@@ -78,6 +78,14 @@ pub struct DiscoveredPeers {
     pub peers: HashMap<Enr, Option<Instant>>,
 }
 
+#[derive(Debug)]
+pub struct UpdatePorts {
+    pub tcp4: bool,
+    pub tcp6: bool,
+    pub quic4: bool,
+    pub quic6: bool,
+}
+
 #[derive(Clone, PartialEq)]
 struct SubnetQuery {
     subnet: Subnet,
@@ -178,12 +186,7 @@ pub struct Discovery<TSpec: EthSpec> {
     /// always false.
     pub started: bool,
 
-    /// This keeps track of whether an external UDP port change should also indicate an internal
-    /// TCP port change. As we cannot detect our external TCP port, we assume that the external UDP
-    /// port is also our external TCP port. This assumption only holds if the user has not
-    /// explicitly set their ENR TCP port via the CLI config. The first indicates tcp4 and the
-    /// second indicates tcp6.
-    update_tcp_port: (bool, bool),
+    update_ports: UpdatePorts,
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
@@ -301,10 +304,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
         }
 
-        let update_tcp_port = (
-            config.enr_tcp4_port.is_none(),
-            config.enr_tcp6_port.is_none(),
-        );
+        let update_ports = UpdatePorts {
+            tcp4: config.enr_tcp4_port.is_none(),
+            tcp6: config.enr_tcp6_port.is_none(),
+            quic4: config.enr_quic4_port.is_none(),
+            quic6: config.enr_quic6_port.is_none(),
+        };
 
         Ok(Self {
             cached_enrs: LruCache::new(50),
@@ -315,7 +320,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             discv5,
             event_stream,
             started: !config.disable_discovery,
-            update_tcp_port,
+            update_ports,
             log,
             enr_dir,
         })
@@ -1007,8 +1012,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
 
-                            if (self.update_tcp_port.0 && socket_addr.is_ipv4())
-                                || (self.update_tcp_port.1 && socket_addr.is_ipv6())
+                            if (self.update_ports.tcp4 && socket_addr.is_ipv4())
+                                || (self.update_ports.tcp6 && socket_addr.is_ipv6())
                             {
                                 // Update the TCP port in the ENR
                                 self.discv5.update_local_enr_socket(socket_addr, true);
@@ -1043,17 +1048,24 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
 
                 trace!(self.log, "Received NewListenAddr event from swarm"; "listener_id" => ?listener_id, "addr" => ?addr);
 
-                if !self.update_tcp_port.0 {
-                    debug!(self.log, "Skipping ENR update");
-                    return;
-                }
-
                 let mut addr_iter = addr.iter();
 
                 if let Err(e) = match addr_iter.next() {
                     Some(Protocol::Ip4(_)) => match (addr_iter.next(), addr_iter.next()) {
-                        (Some(Protocol::Tcp(port)), None) => self.update_enr_tcp_port(port),
+                        (Some(Protocol::Tcp(port)), None) => {
+                            if !self.update_ports.tcp4 {
+                                debug!(self.log, "Skipping ENR (tcp4) update");
+                                return;
+                            }
+
+                            self.update_enr_tcp_port(port)
+                        }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
+                            if !self.update_ports.quic4 {
+                                debug!(self.log, "Skipping ENR (quic4) update");
+                                return;
+                            }
+
                             self.update_enr_quic_port(port)
                         }
                         _ => {
@@ -1062,8 +1074,20 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         }
                     },
                     Some(Protocol::Ip6(_)) => match (addr_iter.next(), addr_iter.next()) {
-                        (Some(Protocol::Tcp(port)), None) => self.update_enr_tcp_port(port),
+                        (Some(Protocol::Tcp(port)), None) => {
+                            if !self.update_ports.tcp6 {
+                                debug!(self.log, "Skipping ENR (tcp6) update");
+                                return;
+                            }
+
+                            self.update_enr_tcp_port(port)
+                        }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
+                            if !self.update_ports.quic6 {
+                                debug!(self.log, "Skipping ENR (quic6) update");
+                                return;
+                            }
+
                             self.update_enr_quic_port(port)
                         }
                         _ => {
