@@ -1038,11 +1038,15 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                 self.on_dial_failure(peer_id, error)
             }
             FromSwarm::NewListenAddr(ev) => {
-                /* TODO(jmcph4): plumb user override status into config somehow */
                 let addr: &Multiaddr = ev.addr;
                 let listener_id: ListenerId = ev.listener_id;
 
                 trace!(self.log, "Received NewListenAddr event from swarm"; "listener_id" => ?listener_id, "addr" => ?addr);
+
+                if !self.update_tcp_port.0 {
+                    debug!(self.log, "Skipping ENR update");
+                    return;
+                }
 
                 let mut addr_iter = addr.iter();
 
