@@ -87,7 +87,6 @@ use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, Rece
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
-use slasher::test_utils::block;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;

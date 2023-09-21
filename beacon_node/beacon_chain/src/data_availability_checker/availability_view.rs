@@ -5,8 +5,6 @@ use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
 use crate::data_availability_checker::ProcessingView;
 use crate::AvailabilityPendingExecutedBlock;
 use kzg::KzgCommitment;
-use slasher::test_utils::E;
-use slog::b;
 use ssz_types::FixedVector;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;

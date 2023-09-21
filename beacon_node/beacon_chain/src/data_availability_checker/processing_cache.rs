@@ -1,11 +1,8 @@
 use crate::data_availability_checker::AvailabilityView;
-use ssz_types::FixedVector;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::sync::Arc;
 use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
-use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{EthSpec, Hash256, Slot};
 
 /// This cache is used only for gossip blocks/blobs and single block/blob lookups, to give req/resp
 /// a view of what we have and what we require. This cache serves a slightly different purpose than

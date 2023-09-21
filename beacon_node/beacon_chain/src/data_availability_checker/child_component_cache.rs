@@ -1,5 +1,5 @@
 use crate::block_verification_types::RpcBlock;
-use crate::data_availability_checker::{AvailabilityView, ProcessingView};
+use crate::data_availability_checker::{AvailabilityView};
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{EthSpec, SignedBeaconBlock};

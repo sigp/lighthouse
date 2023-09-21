@@ -1,5 +1,3 @@
-use crate::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
-use crate::blob_sidecar::BlobIdentifier;
 use crate::*;
 use bls::Signature;
 use derivative::Derivative;

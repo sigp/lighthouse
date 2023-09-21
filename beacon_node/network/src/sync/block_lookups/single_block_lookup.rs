@@ -8,17 +8,15 @@ use beacon_chain::data_availability_checker::{
 };
 use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponentCache};
 use beacon_chain::BeaconChainTypes;
-use lighthouse_network::rpc::methods::MaxRequestBlobSidecars;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{trace, Logger};
-use ssz_types::VariableList;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
+use types::blob_sidecar::{FixedBlobSidecarList};
 use types::EthSpec;
 
 #[derive(Debug, PartialEq, Eq)]

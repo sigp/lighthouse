@@ -18,7 +18,7 @@ pub use processing_cache::ProcessingView;
 use slasher::test_utils::E;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
-use ssz_types::{Error, VariableList};
+use ssz_types::{Error};
 use std::fmt;
 use std::fmt::Debug;
 use std::sync::Arc;
