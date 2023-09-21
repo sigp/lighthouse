@@ -573,7 +573,6 @@ dependencies = [
  "safe_arith",
  "sensitive_url",
  "serde",
- "serde_derive",
  "serde_json",
  "slasher",
  "slog",
@@ -2213,6 +2212,7 @@ dependencies = [
 name = "eth2_network_config"
 version = "0.2.0"
 dependencies = [
+ "bytes",
  "discv5",
  "eth2_config",
  "ethereum_ssz",
@@ -2224,6 +2224,7 @@ dependencies = [
  "sha2 0.9.9",
  "slog",
  "tempfile",
+ "tokio",
  "types",
  "url",
  "zip",
@@ -2573,7 +2574,9 @@ dependencies = [
 name = "execution_layer"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "async-trait",
+ "axum",
  "builder_client",
  "bytes",
  "environment",
@@ -2588,6 +2591,7 @@ dependencies = [
  "hash-db",
  "hash256-std-hasher",
  "hex",
+ "hyper",
  "jsonwebtoken",
  "keccak-hash",
  "lazy_static",

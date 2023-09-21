@@ -26,7 +26,6 @@ lighthouse_metrics = { workspace = true }
 operation_pool = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 ethereum_serde_utils = { workspace = true }
 slog = { workspace = true }
 sloggers = { workspace = true }
@@ -66,7 +65,7 @@ superstruct = { workspace = true }
 hex = { workspace = true }
 exit-future = { workspace = true }
 unused_port = { workspace = true }
-oneshot_broadcast = { path = "../../common/oneshot_broadcast" }
+oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 
 [[test]]
 name = "beacon_chain_tests"
