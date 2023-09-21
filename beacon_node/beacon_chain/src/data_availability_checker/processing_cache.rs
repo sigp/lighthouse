@@ -42,7 +42,7 @@ impl<E: EthSpec> ProcessingCache<E> {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct ProcessingView<E: EthSpec> {
     slot: Slot,
     /// Blobs required for a block can only be known if we have seen the block. So `Some` here
@@ -53,4 +53,23 @@ pub struct ProcessingView<E: EthSpec> {
     /// `None` means we need to construct an entirely new `Data` entry. This is because we have
     /// no way of knowing which blob is the correct one until we see the block.
     pub processing_blobs: KzgCommitmentOpts<E>,
+}
+
+impl<E: EthSpec> ProcessingView<E> {
+    pub fn new(slot: Slot) -> Self {
+        Self {
+            slot,
+            kzg_commitments: None,
+            processing_blobs: KzgCommitmentOpts::<E>::default(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn default() -> Self {
+        Self {
+            slot: Slot::new(0),
+            kzg_commitments: None,
+            processing_blobs: KzgCommitmentOpts::<E>::default(),
+        }
+    }
 }

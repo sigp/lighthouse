@@ -95,13 +95,6 @@ impl<T: EthSpec> PendingComponents<T> {
         )))
     }
 
-    pub fn empty() -> Self {
-        Self {
-            verified_blobs: <_>::default(),
-            executed_block: None,
-        }
-    }
-
     pub fn epoch(&self) -> Option<Epoch> {
         self.executed_block
             .as_ref()
@@ -203,14 +196,14 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
             match OverflowKey::from_ssz_bytes(&key_bytes)? {
                 OverflowKey::Block(_) => {
                     maybe_pending_components
-                        .get_or_insert_with(PendingComponents::empty)
+                        .get_or_insert_with(PendingComponents::default)
                         .executed_block = Some(AvailabilityPendingExecutedBlock::from_ssz_bytes(
                         value_bytes.as_slice(),
                     )?);
                 }
                 OverflowKey::Blob(_, index) => {
                     *maybe_pending_components
-                        .get_or_insert_with(PendingComponents::empty)
+                        .get_or_insert_with(PendingComponents::default)
                         .verified_blobs
                         .get_mut(index as usize)
                         .ok_or(AvailabilityCheckError::BlobIndexInvalid(index as u64))? =
@@ -393,7 +386,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     pub fn put_kzg_verified_blobs(
         &self,
         block_root: Hash256,
-        kzg_verified_blobs: &[KzgVerifiedBlob<T::EthSpec>],
+        kzg_verified_blobs: Vec<KzgVerifiedBlob<T::EthSpec>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut fixed_blobs = FixedVector::default();
 
@@ -407,7 +400,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 });
             }
             if let Some(blob_opt) = fixed_blobs.get_mut(blob.blob_index() as usize) {
-                *blob_opt = Some(blob.clone());
+                *blob_opt = Some(blob);
             }
         }
 

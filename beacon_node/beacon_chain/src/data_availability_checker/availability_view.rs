@@ -53,9 +53,9 @@ pub trait AvailabilityView<E: EthSpec> {
     /// Returns:
     /// - `true` if a blob exists at the given index.
     /// - `false` otherwise.
-    fn blob_exists(&self, blob_index: u64) -> bool {
+    fn blob_exists(&self, blob_index: usize) -> bool {
         self.get_cached_blobs()
-            .get(blob_index as usize)
+            .get(blob_index)
             .map(|b| b.is_some())
             .unwrap_or(false)
     }
@@ -83,9 +83,9 @@ pub trait AvailabilityView<E: EthSpec> {
     /// Inserts a blob at a specific index in the cache.
     ///
     /// Existing blob at the index will be replaced.
-    fn insert_blob_at_index(&mut self, blob_index: u64, blob: &Self::BlobType) {
-        if let Some(b) = self.get_cached_blobs_mut().get_mut(blob_index as usize) {
-            *b = Some(blob.clone());
+    fn insert_blob_at_index(&mut self, blob_index: usize, blob: Self::BlobType) {
+        if let Some(b) = self.get_cached_blobs_mut().get_mut(blob_index) {
+            *b = Some(blob);
         }
     }
 
@@ -95,16 +95,14 @@ pub trait AvailabilityView<E: EthSpec> {
     /// 1. The blob entry at the index is empty and no block exists.
     /// 2. The block exists and its commitment matches the blob's commitment.
     fn merge_blobs(&mut self, blobs: FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock>) {
-        for (index, blob) in blobs.into_iter().enumerate() {
+        for (index, blob) in blobs.to_vec().into_iter().enumerate() {
             let Some(blob) = blob else { continue };
             let commitment = *blob.get_commitment();
 
-            let index = index as u64;
-
             if let Some(cached_block) = self.get_cached_block() {
-                let block_commitment = cached_block.get_commitments();
-                if let Some(&bc) = block_commitment.get(index as usize) {
-                    if bc == commitment {
+                let block_commitment_opt = cached_block.get_commitments().get(index).copied();
+                if let Some(block_commitment) = block_commitment_opt {
+                    if block_commitment == commitment {
                         self.insert_blob_at_index(index, blob)
                     }
                 }
@@ -119,18 +117,9 @@ pub trait AvailabilityView<E: EthSpec> {
     /// Blobs that don't match the new block's commitments are evicted.
     fn merge_block(&mut self, block: Self::BlockType) {
         self.insert_block(block);
-        let cached = self.get_cached_blobs_mut();
         let mut reinsert = FixedVector::default();
-        for (index, cached_blob) in cached.iter_mut().enumerate() {
-            // Take the existing blobs and re-insert them.
-            if let Some(blob) = reinsert.get_mut(index) {
-                if let Some(cached_blob) = cached_blob.take() {
-                    *blob = Some(cached_blob);
-                }
-            }
-        }
-
-        self.merge_blobs(reinsert)
+        std::mem::swap(self.get_cached_blobs_mut(), &mut reinsert);
+        self.merge_blobs(reinsert);
     }
 
     /// Checks if the block and all of its expected blobs are available in the cache.
@@ -430,15 +419,11 @@ pub mod tests {
     pub fn assert_cache_consistent<V: AvailabilityView<E>>(cache: V) {
         if let Some(cached_block) = cache.get_cached_block() {
             let cached_block_commitments = cached_block.get_commitments();
-            for (block_commitment, blob_commitment_opt) in cached_block_commitments
-                .iter()
-                .zip(cache.get_cached_blobs().iter())
-            {
-                let blob_commitment = blob_commitment_opt
-                    .as_ref()
-                    .map(|b| *b.get_commitment())
-                    .unwrap();
-                assert_eq!(*block_commitment, blob_commitment);
+            for index in 0..E::max_blobs_per_block() {
+                let block_commitment = cached_block_commitments.get(index).copied();
+                let blob_commitment_opt = cache.get_cached_blobs().get(index).unwrap();
+                let blob_commitment = blob_commitment_opt.as_ref().map(|b| *b.get_commitment());
+                assert_eq!(block_commitment, blob_commitment);
             }
         } else {
             panic!("No cached block")

@@ -10,6 +10,7 @@ use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
 use crate::data_availability_checker::processing_cache::ProcessingCache;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use futures::StreamExt;
+use itertools::Itertools;
 use kzg::Kzg;
 use kzg::{Error as KzgError, KzgCommitment};
 use parking_lot::RwLock;
@@ -240,7 +241,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
         self.availability_cache
-            .put_kzg_verified_blobs(block_root, &verified_blobs)
+            .put_kzg_verified_blobs(block_root, verified_blobs)
     }
 
     /// This first validates the KZG commitments included in the blob sidecar.
@@ -261,7 +262,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         };
 
         self.availability_cache
-            .put_kzg_verified_blobs(kzg_verified_blob.block_root(), &[kzg_verified_blob])
+            .put_kzg_verified_blobs(kzg_verified_blob.block_root(), vec![kzg_verified_blob])
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -314,31 +315,32 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Determines the blob requirements for a block. Answers the question: "Does this block require
     /// blobs?".
     fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
-        let block_within_da_period = self.da_check_required_for_epoch(block.epoch());
-        block.num_expected_blobs() > 0 && block_within_da_period
+        block.num_expected_blobs() > 0 && self.da_check_required_for_epoch(block.epoch())
     }
 
     pub fn notify_block_commitments(
         &self,
+        slot: Slot,
         block_root: Hash256,
         commitments: KzgCommitments<T::EthSpec>,
     ) {
         self.processing_cache
             .write()
             .entry(block_root)
-            .or_insert_with(ProcessingView::default)
+            .or_insert_with(|| ProcessingView::new(slot))
             .merge_block(commitments);
     }
 
     pub fn notify_blob_commitments(
         &self,
+        slot: Slot,
         block_root: Hash256,
         blobs: KzgCommitmentOpts<T::EthSpec>,
     ) {
         self.processing_cache
             .write()
             .entry(block_root)
-            .or_insert_with(ProcessingView::default)
+            .or_insert_with(|| ProcessingView::new(slot))
             .merge_blobs(blobs);
     }
 

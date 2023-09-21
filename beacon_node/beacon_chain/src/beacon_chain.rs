@@ -87,6 +87,7 @@ use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, Rece
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
+use slasher::test_utils::block;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -2802,8 +2803,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(commitment_opt) = commitments.get_mut(blob.as_blob().index as usize) {
             *commitment_opt = Some(blob.as_blob().kzg_commitment);
         }
-        self.data_availability_checker
-            .notify_blob_commitments(block_root, commitments);
+        self.data_availability_checker.notify_blob_commitments(
+            blob.as_blob().slot,
+            block_root,
+            commitments,
+        );
         let r = self.check_gossip_blob_availability_and_import(blob).await;
         self.remove_notified(&block_root, r)
     }
@@ -2821,7 +2825,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
         self.data_availability_checker
-            .notify_blob_commitments(block_root, commitments);
+            .notify_blob_commitments(slot, block_root, commitments);
         let r = self
             .check_rpc_blob_availability_and_import(slot, block_root, blobs)
             .await;
@@ -2853,8 +2857,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .body()
             .blob_kzg_commitments()
         {
-            self.data_availability_checker
-                .notify_block_commitments(block_root, commitments.clone());
+            self.data_availability_checker.notify_block_commitments(
+                unverified_block.block().slot(),
+                block_root,
+                commitments.clone(),
+            );
         };
         let r = self
             .process_block(block_root, unverified_block, notify_execution_layer, || {
