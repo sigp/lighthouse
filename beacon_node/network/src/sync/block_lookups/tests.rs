@@ -20,10 +20,8 @@ use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::{
-    map_fork_name, map_fork_name_with,
-    test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconBlock, BlobSidecar, EthSpec, ForkName, FullPayload, FullPayloadDeneb,
-    MinimalEthSpec as E, MinimalEthSpec, SignedBeaconBlock,
+    test_utils::{SeedableRng, XorShiftRng}, BlobSidecar, EthSpec, ForkName,
+    MinimalEthSpec as E, SignedBeaconBlock,
 };
 
 type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
