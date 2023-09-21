@@ -26,7 +26,7 @@ impl<E: EthSpec> ProcessingCache<E> {
     pub fn has_block(&self, block_root: &Hash256) -> bool {
         self.processing_cache
             .get(block_root)
-            .map_or(false, |b| b.kzg_commitments.is_some())
+            .map_or(false, |b| b.block_exists())
     }
     pub fn blocks_with_missing_components(&self, slot: Slot) -> Vec<Hash256> {
         let mut roots_missing_components = vec![];
