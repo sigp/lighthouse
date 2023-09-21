@@ -4327,7 +4327,8 @@ pub fn serve<T: BeaconChainTypes>(
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P1, async move {
-                    let merge_readiness = chain.check_merge_readiness().await;
+                    let current_slot = chain.slot_clock.now_or_genesis().unwrap_or(Slot::new(0));
+                    let merge_readiness = chain.check_merge_readiness(current_slot).await;
                     Ok::<_, warp::reject::Rejection>(
                         warp::reply::json(&api_types::GenericResponse::from(merge_readiness))
                             .into_response(),
