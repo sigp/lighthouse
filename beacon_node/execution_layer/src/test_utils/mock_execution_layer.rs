@@ -31,7 +31,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
-            None,
         )
     }
 
@@ -43,7 +42,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         builder_threshold: Option<u128>,
         jwt_key: Option<JwtKey>,
         spec: ChainSpec,
-        builder_url: Option<SensitiveUrl>,
     ) -> Self {
         let handle = executor.handle().unwrap();
 
@@ -65,7 +63,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
         let config = Config {
             execution_endpoints: vec![url],
-            builder_url,
             secret_files: vec![path],
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             builder_profit_threshold: builder_threshold.unwrap_or(DEFAULT_BUILDER_THRESHOLD_WEI),
