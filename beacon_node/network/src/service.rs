@@ -615,21 +615,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.upnp_mappings = mappings;
                 // If there is an external TCP port update, modify our local ENR.
                 if let Some(tcp_port) = self.upnp_mappings.tcp_port {
-                    if let Err(e) = self
-                        .libp2p
-                        .discovery_mut()
-                        .update_enr_tcp_port(false, tcp_port)
-                    {
+                    if let Err(e) = self.libp2p.discovery_mut().update_enr_tcp_port(tcp_port) {
                         warn!(self.log, "Failed to update ENR"; "error" => e);
                     }
                 }
                 // If there is an external QUIC port update, modify our local ENR.
                 if let Some(quic_port) = self.upnp_mappings.udp_quic_port {
-                    if let Err(e) = self
-                        .libp2p
-                        .discovery_mut()
-                        .update_enr_quic_port(false, quic_port)
-                    {
+                    if let Err(e) = self.libp2p.discovery_mut().update_enr_quic_port(quic_port) {
                         warn!(self.log, "Failed to update ENR"; "error" => e);
                     }
                 }

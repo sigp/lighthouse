@@ -391,11 +391,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// automatically update the external address.
     ///
     /// If the external address needs to be modified, use `update_enr_udp_socket.
-    pub fn update_enr_tcp_port(&mut self, ip6: bool, port: u16) -> Result<(), String> {
-        let key = if ip6 { "tcp6" } else { "tcp" };
-
+    pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
         self.discv5
-            .enr_insert(key, &port)
+            .enr_insert("tcp", &port)
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
@@ -410,11 +408,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     // This currently doesn't support ipv6. All of these functions should be removed and
     // addressed properly in the following issue.
     // https://github.com/sigp/lighthouse/issues/4706
-    pub fn update_enr_quic_port(&mut self, ip6: bool, port: u16) -> Result<(), String> {
-        let key = if ip6 { "quic6" } else { "quic" };
-
+    pub fn update_enr_quic_port(&mut self, port: u16) -> Result<(), String> {
         self.discv5
-            .enr_insert(key, &port)
+            .enr_insert("quic", &port)
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
@@ -1052,12 +1048,12 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
 
                 if let Err(e) = match addr_iter.next() {
                     Some(Protocol::Ip4(ip)) => match (addr_iter.next(), addr_iter.next()) {
-                        (Some(Protocol::Tcp(port)), None) => self.update_enr_tcp_port(false, port),
+                        (Some(Protocol::Tcp(port)), None) => self.update_enr_tcp_port(port),
                         (Some(Protocol::Udp(port)), None) => {
                             self.update_enr_udp_socket(SocketAddr::new(IpAddr::V4(ip), port))
                         }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
-                            self.update_enr_quic_port(false, port)
+                            self.update_enr_quic_port(port)
                         }
                         _ => {
                             debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
@@ -1065,12 +1061,12 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         }
                     },
                     Some(Protocol::Ip6(ip)) => match (addr_iter.next(), addr_iter.next()) {
-                        (Some(Protocol::Tcp(port)), None) => self.update_enr_tcp_port(true, port),
+                        (Some(Protocol::Tcp(port)), None) => self.update_enr_tcp_port(port),
                         (Some(Protocol::Udp(port)), None) => {
                             self.update_enr_udp_socket(SocketAddr::new(IpAddr::V6(ip), port))
                         }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
-                            self.update_enr_quic_port(true, port)
+                            self.update_enr_quic_port(port)
                         }
                         _ => {
                             debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
