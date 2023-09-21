@@ -8,8 +8,8 @@ use crate::sync::block_lookups::{
 };
 use crate::sync::manager::{BlockProcessType, Id, SingleLookupReqId};
 use crate::sync::network_context::SyncNetworkContext;
-use crate::sync::CachedChildComponents;
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::data_availability_checker::ChildComponentCache;
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use lighthouse_network::rpc::BlocksByRootRequest;
@@ -222,7 +222,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     /// triggered by `UnknownParent` errors.
     fn add_to_child_components(
         verified_response: Self::VerifiedResponseType,
-        components: &mut CachedChildComponents<T::EthSpec>,
+        components: &mut ChildComponentCache<T::EthSpec>,
     );
 
     /// Convert a verified response to the type we send to the beacon processor.
@@ -326,7 +326,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
 
     fn add_to_child_components(
         verified_response: Arc<SignedBeaconBlock<T::EthSpec>>,
-        components: &mut CachedChildComponents<T::EthSpec>,
+        components: &mut ChildComponentCache<T::EthSpec>,
     ) {
         components.add_cached_child_block(verified_response);
     }
@@ -432,7 +432,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
 
     fn add_to_child_components(
         verified_response: FixedBlobSidecarList<T::EthSpec>,
-        components: &mut CachedChildComponents<T::EthSpec>,
+        components: &mut ChildComponentCache<T::EthSpec>,
     ) {
         components.add_cached_child_blobs(verified_response);
     }

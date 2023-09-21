@@ -2,10 +2,12 @@ use crate::blob_verification::{verify_kzg_for_blob, verify_kzg_for_blob_list, Go
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
-pub use crate::data_availability_checker::availability_view::AvailabilityView;
+pub use crate::data_availability_checker::availability_view::{
+    AvailabilityView, GetCommitment, GetCommitments,
+};
+pub use crate::data_availability_checker::child_component_cache::ChildComponentCache;
 use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
 use crate::data_availability_checker::processing_cache::ProcessingCache;
-pub use crate::impl_availability_view;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
 use kzg::{Error as KzgError, KzgCommitment};
@@ -25,6 +27,7 @@ use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 mod availability_view;
+mod child_component_cache;
 mod overflow_lru_cache;
 mod processing_cache;
 

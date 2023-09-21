@@ -473,6 +473,15 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
     }
 }
 
+#[cfg(test)]
+impl<T: EthSpec> KzgVerifiedBlob<T> {
+    pub fn new(blob: BlobSidecar<T>) -> Self {
+        Self {
+            blob: Arc::new(blob),
+        }
+    }
+}
+
 /// Complete kzg verification for a `GossipVerifiedBlob`.
 ///
 /// Returns an error if the kzg verification check fails.

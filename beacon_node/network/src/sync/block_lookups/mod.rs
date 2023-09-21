@@ -12,6 +12,7 @@ use crate::sync::block_lookups::single_block_lookup::{
 };
 use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+pub use beacon_chain::data_availability_checker::ChildComponentCache;
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityView, DataAvailabilityChecker,
 };
@@ -25,7 +26,6 @@ use fnv::FnvHashMap;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-pub use single_block_lookup::CachedChildComponents;
 pub use single_block_lookup::{BlobRequestState, BlockRequestState};
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_child_block(
         &mut self,
         block_root: Hash256,
-        child_components: CachedChildComponents<T::EthSpec>,
+        child_components: ChildComponentCache<T::EthSpec>,
         peer_source: PeerShouldHave,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -195,7 +195,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new_current_lookup(
         &mut self,
         block_root: Hash256,
-        child_components: Option<CachedChildComponents<T::EthSpec>>,
+        child_components: Option<ChildComponentCache<T::EthSpec>>,
         peers: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) -> Option<SingleBlockLookup<Current, T>> {

@@ -3,8 +3,9 @@ use crate::sync::block_lookups::common::{Lookup, RequestState};
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::data_availability_checker::ChildComponentCache;
 use beacon_chain::data_availability_checker::{
-    AvailabilityCheckError, AvailabilityView, DataAvailabilityChecker, ProcessingInfo,
+    AvailabilityCheckError, AvailabilityView, DataAvailabilityChecker,
 };
 use beacon_chain::{impl_availability_view, BeaconChainTypes};
 use lighthouse_network::rpc::methods::MaxRequestBlobSidecars;
@@ -18,7 +19,7 @@ use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
-use types::{BlobSidecar, EthSpec, KzgCommitment, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum State {
@@ -60,13 +61,13 @@ pub struct SingleBlockLookup<L: Lookup, T: BeaconChainTypes> {
     pub da_checker: Arc<DataAvailabilityChecker<T>>,
     /// Only necessary for requests triggered by an `UnknownBlockParent` or `UnknownBlockParent`
     /// because any blocks or blobs without parents won't hit the data availability cache.
-    pub cached_child_components: Option<CachedChildComponents<T::EthSpec>>,
+    pub cached_child_components: Option<ChildComponentCache<T::EthSpec>>,
 }
 
 impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     pub fn new(
         requested_block_root: Hash256,
-        unknown_parent_components: Option<CachedChildComponents<T::EthSpec>>,
+        unknown_parent_components: Option<ChildComponentCache<T::EthSpec>>,
         peers: &[PeerShouldHave],
         da_checker: Arc<DataAvailabilityChecker<T>>,
         id: Id,
@@ -96,7 +97,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.block_request_state.requested_block_root = block_root;
         self.block_request_state.state.state = State::AwaitingDownload;
         self.blob_request_state.state.state = State::AwaitingDownload;
-        self.cached_child_components = Some(CachedChildComponents::default());
+        self.cached_child_components = Some(ChildComponentCache::default());
     }
 
     /// Get all unique peers across block and blob requests.
@@ -170,9 +171,9 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     }
 
     /// Add a child component to the lookup request. Merges with any existing child components.
-    pub fn add_child_components(&mut self, components: CachedChildComponents<T::EthSpec>) {
+    pub fn add_child_components(&mut self, components: ChildComponentCache<T::EthSpec>) {
         if let Some(ref mut existing_components) = self.cached_child_components {
-            let CachedChildComponents {
+            let ChildComponentCache {
                 downloaded_block,
                 downloaded_blobs,
             } = components;
@@ -406,64 +407,6 @@ pub enum CachedChild<E: EthSpec> {
     /// There was an error during consistency checks between block and blobs.
     Err(AvailabilityCheckError),
 }
-
-/// For requests triggered by an `UnknownBlockParent` or `UnknownBlobParent`, this struct
-/// is used to cache components as they are sent to the network service. We can't use the
-/// data availability cache currently because any blocks or blobs without parents
-/// won't pass validation and therefore won't make it into the cache.
-#[derive(Default)]
-pub struct CachedChildComponents<E: EthSpec> {
-    pub downloaded_block: Option<Arc<SignedBeaconBlock<E>>>,
-    pub downloaded_blobs: FixedBlobSidecarList<E>,
-}
-
-impl<E: EthSpec> From<RpcBlock<E>> for CachedChildComponents<E> {
-    fn from(value: RpcBlock<E>) -> Self {
-        let (block, blobs) = value.deconstruct();
-        let fixed_blobs = blobs.map(|blobs| {
-            FixedBlobSidecarList::from(blobs.into_iter().map(Some).collect::<Vec<_>>())
-        });
-        Self::new(Some(block), fixed_blobs)
-    }
-}
-
-impl<E: EthSpec> CachedChildComponents<E> {
-    pub fn new(
-        block: Option<Arc<SignedBeaconBlock<E>>>,
-        blobs: Option<FixedBlobSidecarList<E>>,
-    ) -> Self {
-        Self {
-            downloaded_block: block,
-            downloaded_blobs: blobs.unwrap_or_default(),
-        }
-    }
-
-    pub fn clear_blobs(&mut self) {
-        self.downloaded_blobs = FixedBlobSidecarList::default();
-    }
-
-    pub fn add_cached_child_block(&mut self, block: Arc<SignedBeaconBlock<E>>) {
-        self.merge_block(block)
-    }
-
-    pub fn add_cached_child_blobs(&mut self, blobs: FixedBlobSidecarList<E>) {
-        self.merge_blobs(blobs)
-    }
-
-    pub fn processing_info(&self) -> ProcessingInfo<E> {
-        ProcessingInfo::from_parts(self.downloaded_block.as_ref(), &self.downloaded_blobs)
-            .unwrap_or_default()
-    }
-}
-
-impl_availability_view!(
-    CachedChildComponents<E>,
-    Arc<SignedBeaconBlock<E>>,
-    Arc<BlobSidecar<E>>,
-    downloaded_block,
-    downloaded_blobs
-);
-
 /// Object representing the state of a single block or blob lookup request.
 #[derive(PartialEq, Eq, Debug)]
 pub struct SingleLookupRequestState {
@@ -639,7 +582,11 @@ mod tests {
     use crate::sync::block_lookups::common::LookupType;
     use crate::sync::block_lookups::common::{Lookup, RequestState};
     use beacon_chain::builder::Witness;
+    use beacon_chain::data_availability_checker::{
+        AvailabilityView, GetCommitment, GetCommitments,
+    };
     use beacon_chain::eth1_chain::CachingEth1Backend;
+    use beacon_chain::generate_tests;
     use sloggers::null::NullLoggerBuilder;
     use sloggers::Build;
     use slot_clock::{SlotClock, TestingSlotClock};

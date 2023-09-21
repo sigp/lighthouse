@@ -1,13 +1,12 @@
+use super::child_component_cache::ChildComponentCache;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::AsBlock;
 use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
-use crate::data_availability_checker::processing_cache::ProcessingCache;
 use crate::data_availability_checker::ProcessingInfo;
 use crate::test_utils::{generate_rand_block_and_blobs, NumBlobs};
 use crate::AvailabilityPendingExecutedBlock;
 use eth2_network_config::get_trusted_setup;
 use kzg::{KzgCommitment, TrustedSetup};
-use slasher::test_utils::E;
 use ssz_types::FixedVector;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
@@ -199,6 +198,14 @@ impl_availability_view!(
     verified_blobs
 );
 
+impl_availability_view!(
+    ChildComponentCache,
+    Arc<SignedBeaconBlock<E>>,
+    Arc<BlobSidecar<E>>,
+    downloaded_block,
+    downloaded_blobs
+);
+
 pub trait GetCommitments<E: EthSpec> {
     fn get_commitments(&self) -> Option<KzgCommitments<E>>;
 }
@@ -249,19 +256,23 @@ impl<E: EthSpec> GetCommitment<E> for Arc<BlobSidecar<E>> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
+    use crate::block_verification_types::BlockImportData;
+    use crate::eth1_finalization_cache::Eth1FinalizationData;
     use crate::test_utils::{generate_rand_block_and_blobs, NumBlobs};
+    use crate::PayloadVerificationOutcome;
     use eth2_network_config::get_trusted_setup;
+    use fork_choice::PayloadVerificationStatus;
     use kzg::{Kzg, TrustedSetup};
     use rand::rngs::StdRng;
     use rand::SeedableRng;
-    use slog::b;
+    use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
-    use types::ForkName;
+    use types::{BeaconState, ChainSpec, ForkName, Slot};
 
     type E = MainnetEthSpec;
-    fn pre_setup() -> (
+    pub fn pre_setup() -> (
         SignedBeaconBlock<E>,
         FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
         FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
@@ -296,7 +307,7 @@ mod tests {
         (block, blobs, invalid_blobs)
     }
 
-    fn setup_processing_info(
+    pub fn setup_processing_info(
         block: SignedBeaconBlock<E>,
         valid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
         invalid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
@@ -326,7 +337,7 @@ mod tests {
         (commitments, blobs, invalid_blobs)
     }
 
-    fn setup_pending_components(
+    pub fn setup_pending_components(
         block: SignedBeaconBlock<E>,
         valid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
         invalid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
@@ -335,135 +346,212 @@ mod tests {
         FixedVector<Option<KzgVerifiedBlob<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
         FixedVector<Option<KzgVerifiedBlob<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
     ) {
-        let commitments = block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .unwrap()
-            .clone();
         let blobs = FixedVector::from(
             valid_blobs
                 .iter()
-                .map(|blob_opt| blob_opt.as_ref().map(|blob| blob.kzg_commitment))
+                .map(|blob_opt| {
+                    blob_opt
+                        .as_ref()
+                        .map(|blob| KzgVerifiedBlob::new(blob.clone()))
+                })
                 .collect::<Vec<_>>(),
         );
         let invalid_blobs = FixedVector::from(
             invalid_blobs
                 .iter()
-                .map(|blob_opt| blob_opt.as_ref().map(|blob| blob.kzg_commitment))
+                .map(|blob_opt| {
+                    blob_opt
+                        .as_ref()
+                        .map(|blob| KzgVerifiedBlob::new(blob.clone()))
+                })
                 .collect::<Vec<_>>(),
         );
-        (commitments, blobs, invalid_blobs)
+        let dummy_parent = block.clone_as_blinded();
+        let block = AvailabilityPendingExecutedBlock {
+            block: Arc::new(block),
+            import_data: BlockImportData {
+                block_root: Default::default(),
+                state: BeaconState::new(0, Default::default(), &ChainSpec::minimal()),
+                parent_block: dummy_parent,
+                parent_eth1_finalization_data: Eth1FinalizationData {
+                    eth1_data: Default::default(),
+                    eth1_deposit_index: 0,
+                },
+                confirmed_state_roots: vec![],
+                consensus_context: ConsensusContext::new(Slot::new(0)),
+            },
+            payload_verification_outcome: PayloadVerificationOutcome {
+                payload_verification_status: PayloadVerificationStatus::Verified,
+                is_valid_merge_transition_block: false,
+            },
+        };
+        (block, blobs, invalid_blobs)
     }
 
-    fn assert_cache_consistent(cache: ProcessingInfo<E>) {
-        if let Some(cached_block_commitments) = cache.kzg_commitments {
-            for (index, (block_commitment, blob_commitment)) in cached_block_commitments
-                .iter()
-                .zip(cache.processing_blobs.iter())
-                .enumerate()
-            {
-                assert_eq!(Some(*block_commitment), *blob_commitment);
+    pub fn setup_child_components(
+        block: SignedBeaconBlock<E>,
+        valid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        invalid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
+    ) -> (
+        Arc<SignedBeaconBlock<E>>,
+        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
+    ) {
+        let blobs = FixedVector::from(
+            valid_blobs
+                .into_iter()
+                .map(|blob_opt| blob_opt.clone().map(|blob| Arc::new(blob)))
+                .collect::<Vec<_>>(),
+        );
+        let invalid_blobs = FixedVector::from(
+            invalid_blobs
+                .into_iter()
+                .map(|blob_opt| blob_opt.clone().map(|blob| Arc::new(blob)))
+                .collect::<Vec<_>>(),
+        );
+        (Arc::new(block), blobs, invalid_blobs)
+    }
+
+    pub fn assert_cache_consistent<A: AvailabilityView<E>>(cache: A) {
+        if let Some(cached_block) = cache.get_cached_block() {
+            if let Some(cached_block_commitments) = cached_block.get_commitments() {
+                for (index, (block_commitment, blob_commitment_opt)) in cached_block_commitments
+                    .iter()
+                    .zip(cache.get_cached_blobs().iter())
+                    .enumerate()
+                {
+                    let blob_commitment = blob_commitment_opt
+                        .as_ref()
+                        .map(|b| *b.get_commitment())
+                        .unwrap();
+                    assert_eq!(*block_commitment, blob_commitment);
+                }
+            } else {
+                panic!("Cached block has no commitments")
             }
         } else {
             panic!()
         }
     }
 
-    fn assert_empty_blob_cache(cache: ProcessingInfo<E>) {
-        for blob in cache.processing_blobs.iter() {
+    pub fn assert_empty_blob_cache<A: AvailabilityView<E>>(cache: A) {
+        for blob in cache.get_cached_blobs().iter() {
             assert!(blob.is_none());
         }
     }
 
-    #[test]
-    fn valid_block_invalid_blobs_valid_blobs() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_processing_info(block_commitments, blobs, random_blobs);
+    #[macro_export]
+    macro_rules! generate_tests {
+        ($module_name:ident, $type_name:ty, $block_field:ident, $blob_field:ident, $setup_fn:ident) => {
+            mod $module_name {
+                use super::*;
 
-        let mut cache = ProcessingInfo::<E>::default();
+                #[test]
+                fn valid_block_invalid_blobs_valid_blobs() {
+                    let (block_commitments, blobs, random_blobs) = pre_setup();
+                    let (block_commitments, blobs, random_blobs) =
+                        $setup_fn(block_commitments, blobs, random_blobs);
 
-        cache.merge_block(block_commitments);
-        cache.merge_blobs(random_blobs);
-        cache.merge_blobs(blobs);
+                    let mut cache = <$type_name>::default();
+                    cache.merge_block(block_commitments);
+                    cache.merge_blobs(random_blobs);
+                    cache.merge_blobs(blobs);
 
-        assert_cache_consistent(cache);
+                    assert_cache_consistent(cache);
+                }
+
+                #[test]
+                fn invalid_blobs_block_valid_blobs() {
+                    let (block_commitments, blobs, random_blobs) = pre_setup();
+                    let (block_commitments, blobs, random_blobs) =
+                        $setup_fn(block_commitments, blobs, random_blobs);
+
+                    let mut cache = <$type_name>::default();
+                    cache.merge_blobs(random_blobs);
+                    cache.merge_block(block_commitments);
+                    cache.merge_blobs(blobs);
+
+                    assert_cache_consistent(cache);
+                }
+
+                #[test]
+                fn invalid_blobs_valid_blobs_block() {
+                    let (block_commitments, blobs, random_blobs) = pre_setup();
+                    let (block_commitments, blobs, random_blobs) =
+                        $setup_fn(block_commitments, blobs, random_blobs);
+
+                    let mut cache = <$type_name>::default();
+                    cache.merge_blobs(random_blobs);
+                    cache.merge_blobs(blobs);
+                    cache.merge_block(block_commitments);
+
+                    assert_empty_blob_cache(cache);
+                }
+
+                #[test]
+                fn block_valid_blobs_invalid_blobs() {
+                    let (block_commitments, blobs, random_blobs) = pre_setup();
+                    let (block_commitments, blobs, random_blobs) =
+                        $setup_fn(block_commitments, blobs, random_blobs);
+
+                    let mut cache = <$type_name>::default();
+                    cache.merge_block(block_commitments);
+                    cache.merge_blobs(blobs);
+                    cache.merge_blobs(random_blobs);
+
+                    assert_cache_consistent(cache);
+                }
+
+                #[test]
+                fn valid_blobs_block_invalid_blobs() {
+                    let (block_commitments, blobs, random_blobs) = pre_setup();
+                    let (block_commitments, blobs, random_blobs) =
+                        $setup_fn(block_commitments, blobs, random_blobs);
+
+                    let mut cache = <$type_name>::default();
+                    cache.merge_blobs(blobs);
+                    cache.merge_block(block_commitments);
+                    cache.merge_blobs(random_blobs);
+
+                    assert_cache_consistent(cache);
+                }
+
+                #[test]
+                fn valid_blobs_invalid_blobs_block() {
+                    let (block_commitments, blobs, random_blobs) = pre_setup();
+                    let (block_commitments, blobs, random_blobs) =
+                        $setup_fn(block_commitments, blobs, random_blobs);
+
+                    let mut cache = <$type_name>::default();
+                    cache.merge_blobs(blobs);
+                    cache.merge_blobs(random_blobs);
+                    cache.merge_block(block_commitments);
+
+                    assert_cache_consistent(cache);
+                }
+            }
+        };
     }
 
-    #[test]
-    fn invalid_blobs_block_valid_blobs() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_processing_info(block_commitments, blobs, random_blobs);
-
-        let mut cache = ProcessingInfo::<E>::default();
-
-        cache.merge_blobs(random_blobs);
-        cache.merge_block(block_commitments);
-        cache.merge_blobs(blobs);
-
-        assert_cache_consistent(cache);
-    }
-
-    #[test]
-    fn invalid_blobs_valid_blobs_block() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_processing_info(block_commitments, blobs, random_blobs);
-
-        let mut cache = ProcessingInfo::<E>::default();
-
-        cache.merge_blobs(random_blobs);
-        cache.merge_blobs(blobs);
-        cache.merge_block(block_commitments);
-
-        // The random blobs should be pruned
-        assert_empty_blob_cache(cache);
-    }
-
-    #[test]
-    fn block_valid_blobs_invalid_blobs() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_processing_info(block_commitments, blobs, random_blobs);
-
-        let mut cache = ProcessingInfo::<E>::default();
-
-        cache.merge_block(block_commitments);
-        cache.merge_blobs(blobs);
-        cache.merge_blobs(random_blobs);
-
-        assert_cache_consistent(cache);
-    }
-
-    #[test]
-    fn valid_blobs_block_invalid_blobs() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_processing_info(block_commitments, blobs, random_blobs);
-
-        let mut cache = ProcessingInfo::<E>::default();
-
-        cache.merge_blobs(blobs);
-        cache.merge_block(block_commitments);
-        cache.merge_blobs(random_blobs);
-
-        assert_cache_consistent(cache);
-    }
-
-    #[test]
-    fn valid_blobs_invalid_blobs_block() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_processing_info(block_commitments, blobs, random_blobs);
-
-        let mut cache = ProcessingInfo::<E>::default();
-
-        cache.merge_blobs(blobs);
-        cache.merge_blobs(random_blobs);
-        cache.merge_block(block_commitments);
-
-        assert_cache_consistent(cache);
-    }
+    generate_tests!(
+        processing_info_tests,
+        ProcessingInfo::<E>,
+        kzg_commitments,
+        processing_blobs,
+        setup_processing_info
+    );
+    generate_tests!(
+        pending_components_tests,
+        PendingComponents<E>,
+        executed_block,
+        verified_blobs,
+        setup_pending_components
+    );
+    generate_tests!(
+        child_component_tests,
+        ChildComponentCache::<E>,
+        downloaded_block,
+        downloaded_blobs,
+        setup_child_components
+    );
 }
