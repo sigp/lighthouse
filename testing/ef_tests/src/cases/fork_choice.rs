@@ -6,6 +6,7 @@ use beacon_chain::{
     attestation_verification::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
+    blob_verification::GossipVerifiedBlob,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
 };
@@ -17,9 +18,9 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobsList, Checkpoint, EthSpec,
-    ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof, ProgressiveBalancesMode,
-    SignedBeaconBlock, Slot, Uint256,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
+    EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
+    ProgressiveBalancesMode, Signature, SignedBeaconBlock, SignedBlobSidecar, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -410,16 +411,54 @@ impl<E: EthSpec> Tester<E> {
         kzg_proofs: Option<Vec<KzgProof>>,
         valid: bool,
     ) -> Result<(), Error> {
-        // Convert blobs and kzg_proofs into sidecars?
-        let _blob_sidecars = if let Some(_blobs) = &blobs {
-            let _proofs = kzg_proofs.unwrap();
-            // FIXME(sproul): make this work
-            if valid {
-                return Ok(());
+        let block_root = block.canonical_root();
+
+        // Convert blobs and kzg_proofs into sidecars, then plumb them into the availability tracker
+        if let Some(blobs) = blobs.clone() {
+            let proofs = kzg_proofs.unwrap();
+            let commitments = block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .unwrap()
+                .clone();
+
+            // Zipping will stop when any of the zipped lists runs out, which is what we want. Some
+            // of the tests don't provide enough proofs/blobs, and should fail the availability
+            // check.
+            for (i, ((blob, kzg_proof), kzg_commitment)) in blobs
+                .into_iter()
+                .zip(proofs)
+                .zip(commitments.into_iter())
+                .enumerate()
+            {
+                let signed_sidecar = SignedBlobSidecar {
+                    message: Arc::new(BlobSidecar {
+                        block_root,
+                        index: i as u64,
+                        slot: block.slot(),
+                        block_parent_root: block.parent_root(),
+                        proposer_index: block.message().proposer_index(),
+                        blob,
+                        kzg_commitment,
+                        kzg_proof,
+                    }),
+                    signature: Signature::empty(),
+                    _phantom: Default::default(),
+                };
+                let result = self.block_on_dangerous(
+                    self.harness
+                        .chain
+                        .check_gossip_blob_availability_and_import(
+                            GossipVerifiedBlob::__assumed_valid(signed_sidecar),
+                        ),
+                )?;
+                if valid {
+                    assert!(result.is_ok());
+                }
             }
         };
 
-        let block_root = block.canonical_root();
         let block = Arc::new(block);
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
