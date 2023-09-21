@@ -186,6 +186,7 @@ pub struct Discovery<TSpec: EthSpec> {
     /// always false.
     pub started: bool,
 
+    /// Specifies whether various port numbers should be updated after the discovery service has been started
     update_ports: UpdatePorts,
 
     /// Logger for the discovery behaviour.
