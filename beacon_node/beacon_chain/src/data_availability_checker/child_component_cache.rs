@@ -1,5 +1,5 @@
 use crate::block_verification_types::RpcBlock;
-use crate::data_availability_checker::{AvailabilityView, ProcessingInfo};
+use crate::data_availability_checker::{AvailabilityView, ProcessingView};
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{EthSpec, SignedBeaconBlock};
@@ -29,10 +29,14 @@ impl<E: EthSpec> ChildComponentCache<E> {
         block: Option<Arc<SignedBeaconBlock<E>>>,
         blobs: Option<FixedBlobSidecarList<E>>,
     ) -> Self {
-        Self {
-            downloaded_block: block,
-            downloaded_blobs: blobs.unwrap_or_default(),
+        let mut cache = Self::default();
+        if let Some(block) = block {
+            cache.merge_block(block);
         }
+        if let Some(blobs) = blobs {
+            cache.merge_blobs(blobs);
+        }
+        cache
     }
 
     pub fn clear_blobs(&mut self) {
@@ -45,10 +49,5 @@ impl<E: EthSpec> ChildComponentCache<E> {
 
     pub fn add_cached_child_blobs(&mut self, blobs: FixedBlobSidecarList<E>) {
         self.merge_blobs(blobs)
-    }
-
-    pub fn processing_info(&self) -> ProcessingInfo<E> {
-        ProcessingInfo::from_parts(self.downloaded_block.as_ref(), &self.downloaded_blobs)
-            .unwrap_or_default()
     }
 }

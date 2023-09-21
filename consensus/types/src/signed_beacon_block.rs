@@ -260,39 +260,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     }
 }
 
-pub fn get_missing_blob_ids<E: EthSpec>(
-    block_root: Hash256,
-    required_commitments: Option<&KzgCommitments<E>>,
-    buffered_commitments: &KzgCommitmentOpts<E>,
-) -> Vec<BlobIdentifier> {
-    match required_commitments {
-        Some(required_commitments) => {
-            let num_blobs_expected = required_commitments.len();
-            let mut blob_ids = Vec::with_capacity(num_blobs_expected);
-
-            // Zip here will always limit the number of iterations to the size of
-            // `required_commitments` because `buffered_commitments` will always be populated
-            // with `Option` values up to `MAX_BLOBS_PER_BLOCK`.
-            for (index, (req_commitment, buffered_commitment_opt)) in required_commitments
-                .into_iter()
-                .zip(buffered_commitments.iter())
-                .enumerate()
-            {
-                if buffered_commitment_opt.map_or(true, |buffered_commitment| {
-                    buffered_commitment != *req_commitment
-                }) {
-                    blob_ids.push(BlobIdentifier {
-                        block_root,
-                        index: index as u64,
-                    });
-                }
-            }
-            blob_ids
-        }
-        None => BlobIdentifier::get_all_blob_ids::<E>(block_root),
-    }
-}
-
 // We can convert pre-Bellatrix blocks without payloads into blocks with payloads.
 impl<E: EthSpec> From<SignedBeaconBlockBase<E, BlindedPayload<E>>>
     for SignedBeaconBlockBase<E, FullPayload<E>>

@@ -19,7 +19,7 @@ use ssz_types::VariableList;
 use std::ops::IndexMut;
 use std::sync::Arc;
 use std::time::Duration;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock};
 
 #[derive(Debug, Copy, Clone)]
@@ -375,9 +375,9 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
     type ReconstructedResponseType = FixedBlobSidecarList<T::EthSpec>;
 
     fn new_request(&self) -> BlobsByRootRequest {
-        BlobsByRootRequest {
-            blob_ids: self.requested_ids.clone().into(),
-        }
+        let blob_id_vec: Vec<BlobIdentifier> = self.requested_ids.clone().into();
+        let blob_ids = VariableList::from(blob_id_vec);
+        BlobsByRootRequest { blob_ids }
     }
 
     fn make_request(

@@ -2796,6 +2796,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        // TODO: fewer places where we initialize this fixed vec
         let block_root = blob.block_root();
         let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
         if let Some(commitment_opt) = commitments.get_mut(blob.as_blob().index as usize) {

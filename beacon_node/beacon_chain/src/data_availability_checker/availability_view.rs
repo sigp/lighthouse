@@ -2,9 +2,11 @@ use super::child_component_cache::ChildComponentCache;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::AsBlock;
 use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
-use crate::data_availability_checker::ProcessingInfo;
+use crate::data_availability_checker::ProcessingView;
 use crate::AvailabilityPendingExecutedBlock;
 use kzg::KzgCommitment;
+use slasher::test_utils::E;
+use slog::b;
 use ssz_types::FixedVector;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
@@ -58,15 +60,14 @@ pub trait AvailabilityView<E: EthSpec> {
             .unwrap_or(false)
     }
 
-    /// Returns the number of blobs that are expected to be present. Returns 0 if we don't have a
+    /// Returns the number of blobs that are expected to be present. Returns `None` if we don't have a
     /// block.
     ///
     /// This corresponds to the number of commitments that are present in a block.
-    fn num_expected_blobs(&self) -> usize {
+    fn num_expected_blobs(&self) -> Option<usize> {
         self.get_cached_block()
             .as_ref()
-            .and_then(|b| b.get_commitments())
-            .map_or(0, |c| c.len())
+            .map(|b| b.get_commitments().len())
     }
 
     /// Returns the number of blobs that have been received and are stored in the cache.
@@ -100,12 +101,11 @@ pub trait AvailabilityView<E: EthSpec> {
 
             let index = index as u64;
 
-            if let Some(block_commitments) = self.get_cached_block_mut() {
-                if let Some(block_commitment) = block_commitments.get_commitments() {
-                    if let Some(&bc) = block_commitment.get(index as usize) {
-                        if bc == commitment {
-                            self.insert_blob_at_index(index, blob)
-                        }
+            if let Some(cached_block) = self.get_cached_block() {
+                let block_commitment = cached_block.get_commitments();
+                if let Some(&bc) = block_commitment.get(index as usize) {
+                    if bc == commitment {
+                        self.insert_blob_at_index(index, blob)
                     }
                 }
             } else if !self.blob_exists(index) {
@@ -138,7 +138,11 @@ pub trait AvailabilityView<E: EthSpec> {
     /// Returns `true` if both the block exists and the number of received blobs matches the number
     /// of expected blobs.
     fn is_available(&self) -> bool {
-        self.block_exists() && self.num_expected_blobs() == self.num_received_blobs()
+        if let Some(num_expected_blobs) = self.num_expected_blobs() {
+            num_expected_blobs == self.num_received_blobs()
+        } else {
+            false
+        }
     }
 }
 
@@ -180,7 +184,7 @@ macro_rules! impl_availability_view {
 }
 
 impl_availability_view!(
-    ProcessingInfo,
+    ProcessingView,
     KzgCommitments<E>,
     KzgCommitment,
     kzg_commitments,
@@ -204,17 +208,17 @@ impl_availability_view!(
 );
 
 pub trait GetCommitments<E: EthSpec> {
-    fn get_commitments(&self) -> Option<KzgCommitments<E>>;
+    fn get_commitments(&self) -> KzgCommitments<E>;
 }
 
 pub trait GetCommitment<E: EthSpec> {
     fn get_commitment(&self) -> &KzgCommitment;
 }
 
-// These implementations are required to implement `AvailabilityView` for `ProcessingInfo`.
+// These implementations are required to implement `AvailabilityView` for `ProcessingView`.
 impl<E: EthSpec> GetCommitments<E> for KzgCommitments<E> {
-    fn get_commitments(&self) -> Option<KzgCommitments<E>> {
-        Some(self.clone())
+    fn get_commitments(&self) -> KzgCommitments<E> {
+        self.clone()
     }
 }
 impl<E: EthSpec> GetCommitment<E> for KzgCommitment {
@@ -225,13 +229,13 @@ impl<E: EthSpec> GetCommitment<E> for KzgCommitment {
 
 // These implementations are required to implement `AvailabilityView` for `PendingComponents`.
 impl<E: EthSpec> GetCommitments<E> for AvailabilityPendingExecutedBlock<E> {
-    fn get_commitments(&self) -> Option<KzgCommitments<E>> {
+    fn get_commitments(&self) -> KzgCommitments<E> {
         self.as_block()
             .message()
             .body()
             .blob_kzg_commitments()
-            .ok()
             .cloned()
+            .unwrap_or_default()
     }
 }
 impl<E: EthSpec> GetCommitment<E> for KzgVerifiedBlob<E> {
@@ -242,8 +246,13 @@ impl<E: EthSpec> GetCommitment<E> for KzgVerifiedBlob<E> {
 
 // These implementations are required to implement `AvailabilityView` for `CachedChildComponents`.
 impl<E: EthSpec> GetCommitments<E> for Arc<SignedBeaconBlock<E>> {
-    fn get_commitments(&self) -> Option<KzgCommitments<E>> {
-        self.message().body().blob_kzg_commitments().ok().cloned()
+    fn get_commitments(&self) -> KzgCommitments<E> {
+        self.message()
+            .body()
+            .blob_kzg_commitments()
+            .ok()
+            .cloned()
+            .unwrap_or_default()
     }
 }
 impl<E: EthSpec> GetCommitment<E> for Arc<BlobSidecar<E>> {
@@ -307,17 +316,17 @@ pub mod tests {
         (block, blobs, invalid_blobs)
     }
 
-    type ProcessingInfoSetup<E> = (
+    type ProcessingViewSetup<E> = (
         KzgCommitments<E>,
         FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
         FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
     );
 
-    pub fn setup_processing_info(
+    pub fn setup_processing_view(
         block: SignedBeaconBlock<E>,
         valid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
         invalid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-    ) -> ProcessingInfoSetup<E> {
+    ) -> ProcessingViewSetup<E> {
         let commitments = block
             .message()
             .body()
@@ -418,28 +427,25 @@ pub mod tests {
         (Arc::new(block), blobs, invalid_blobs)
     }
 
-    pub fn assert_cache_consistent<A: AvailabilityView<E>>(cache: A) {
+    pub fn assert_cache_consistent<V: AvailabilityView<E>>(cache: V) {
         if let Some(cached_block) = cache.get_cached_block() {
-            if let Some(cached_block_commitments) = cached_block.get_commitments() {
-                for (block_commitment, blob_commitment_opt) in cached_block_commitments
-                    .iter()
-                    .zip(cache.get_cached_blobs().iter())
-                {
-                    let blob_commitment = blob_commitment_opt
-                        .as_ref()
-                        .map(|b| *b.get_commitment())
-                        .unwrap();
-                    assert_eq!(*block_commitment, blob_commitment);
-                }
-            } else {
-                panic!("Cached block has no commitments")
+            let cached_block_commitments = cached_block.get_commitments();
+            for (block_commitment, blob_commitment_opt) in cached_block_commitments
+                .iter()
+                .zip(cache.get_cached_blobs().iter())
+            {
+                let blob_commitment = blob_commitment_opt
+                    .as_ref()
+                    .map(|b| *b.get_commitment())
+                    .unwrap();
+                assert_eq!(*block_commitment, blob_commitment);
             }
         } else {
             panic!("No cached block")
         }
     }
 
-    pub fn assert_empty_blob_cache<A: AvailabilityView<E>>(cache: A) {
+    pub fn assert_empty_blob_cache<V: AvailabilityView<E>>(cache: V) {
         for blob in cache.get_cached_blobs().iter() {
             assert!(blob.is_none());
         }
@@ -539,11 +545,11 @@ pub mod tests {
     }
 
     generate_tests!(
-        processing_info_tests,
-        ProcessingInfo::<E>,
+        processing_view_tests,
+        ProcessingView::<E>,
         kzg_commitments,
         processing_blobs,
-        setup_processing_info
+        setup_processing_view
     );
     generate_tests!(
         pending_components_tests,
