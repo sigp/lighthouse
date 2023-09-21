@@ -326,18 +326,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-#    - uses: actions/setup-go@v3
-#      with:
-#        go-version: '1.20'
-#    - uses: actions/setup-dotnet@v3
-#      with:
-#        dotnet-version: '6.0.201'
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
           components: rustfmt
+          cache: false
     - name: Run exec engine integration tests in release
       run: make test-exec-engine
   check-code:
