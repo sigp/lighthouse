@@ -4,14 +4,12 @@ use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::ChildComponentCache;
-use beacon_chain::data_availability_checker::{
-    AvailabilityCheckError, DataAvailabilityChecker,
-};
-use beacon_chain::{BeaconChainTypes};
+use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
+use beacon_chain::BeaconChainTypes;
 use lighthouse_network::rpc::methods::MaxRequestBlobSidecars;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{trace, Logger};
-use ssz_types::{VariableList};
+use ssz_types::VariableList;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -19,7 +17,7 @@ use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
-use types::{EthSpec};
+use types::EthSpec;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum State {

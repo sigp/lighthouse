@@ -4,7 +4,7 @@ use crate::block_verification_types::AsBlock;
 use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
 use crate::data_availability_checker::ProcessingInfo;
 use crate::AvailabilityPendingExecutedBlock;
-use kzg::{KzgCommitment};
+use kzg::KzgCommitment;
 use ssz_types::FixedVector;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
@@ -269,11 +269,14 @@ pub mod tests {
     use types::{BeaconState, ChainSpec, ForkName, MainnetEthSpec, Slot};
 
     type E = MainnetEthSpec;
-    pub fn pre_setup() -> (
+
+    type Setup<E> = (
         SignedBeaconBlock<E>,
         FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
         FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-    ) {
+    );
+
+    pub fn pre_setup() -> Setup<E> {
         let trusted_setup: TrustedSetup =
             serde_json::from_reader(get_trusted_setup::<<E as EthSpec>::Kzg>()).unwrap();
         let kzg = Kzg::new_from_trusted_setup(trusted_setup).unwrap();
@@ -304,15 +307,17 @@ pub mod tests {
         (block, blobs, invalid_blobs)
     }
 
+    type ProcessingInfoSetup<E> = (
+        KzgCommitments<E>,
+        FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
+        FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
+    );
+
     pub fn setup_processing_info(
         block: SignedBeaconBlock<E>,
         valid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
         invalid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-    ) -> (
-        KzgCommitments<E>,
-        FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
-        FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
-    ) {
+    ) -> ProcessingInfoSetup<E> {
         let commitments = block
             .message()
             .body()
@@ -334,15 +339,17 @@ pub mod tests {
         (commitments, blobs, invalid_blobs)
     }
 
+    type PendingComponentsSetup<E> = (
+        AvailabilityPendingExecutedBlock<E>,
+        FixedVector<Option<KzgVerifiedBlob<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        FixedVector<Option<KzgVerifiedBlob<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
+    );
+
     pub fn setup_pending_components(
         block: SignedBeaconBlock<E>,
         valid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
         invalid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-    ) -> (
-        AvailabilityPendingExecutedBlock<E>,
-        FixedVector<Option<KzgVerifiedBlob<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        FixedVector<Option<KzgVerifiedBlob<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-    ) {
+    ) -> PendingComponentsSetup<E> {
         let blobs = FixedVector::from(
             valid_blobs
                 .iter()
@@ -385,25 +392,27 @@ pub mod tests {
         (block, blobs, invalid_blobs)
     }
 
+    type ChildComponentsSetup<E> = (
+        Arc<SignedBeaconBlock<E>>,
+        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
+    );
+
     pub fn setup_child_components(
         block: SignedBeaconBlock<E>,
         valid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
         invalid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-    ) -> (
-        Arc<SignedBeaconBlock<E>>,
-        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-    ) {
+    ) -> ChildComponentsSetup<E> {
         let blobs = FixedVector::from(
             valid_blobs
                 .into_iter()
-                .map(|blob_opt| blob_opt.clone().map(|blob| Arc::new(blob)))
+                .map(|blob_opt| blob_opt.clone().map(Arc::new))
                 .collect::<Vec<_>>(),
         );
         let invalid_blobs = FixedVector::from(
             invalid_blobs
                 .into_iter()
-                .map(|blob_opt| blob_opt.clone().map(|blob| Arc::new(blob)))
+                .map(|blob_opt| blob_opt.clone().map(Arc::new))
                 .collect::<Vec<_>>(),
         );
         (Arc::new(block), blobs, invalid_blobs)
@@ -426,7 +435,7 @@ pub mod tests {
                 panic!("Cached block has no commitments")
             }
         } else {
-            panic!()
+            panic!("No cached block")
         }
     }
 
