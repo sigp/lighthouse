@@ -9,6 +9,9 @@ use std::str::FromStr;
 use types::{ChainSpec, Config, EthSpec};
 
 pub mod flags;
+pub mod preprocess;
+
+pub use preprocess::preprocess;
 
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
                                         This happens when Lighthouse is migrating between spec versions \

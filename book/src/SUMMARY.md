@@ -50,6 +50,7 @@
     * [Running a Slasher](./slasher.md)
     * [Redundancy](./redundancy.md)
     * [Release Candidates](./advanced-release-candidates.md)
+    * [File Config](./file-config.md)
     * [MEV](./builders.md)
     * [Merge Migration](./merge-migration.md)
     * [Late Block Re-orgs](./late-block-re-orgs.md)

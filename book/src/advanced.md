@@ -6,6 +6,7 @@ elsewhere?
 This section provides detailed information about configuring Lighthouse for specific use cases, and
 tips about how things work under the hood.
 
+* [File Config](./file-config.md) - load Lighthouse config from a YAML or TOML configuration file.
 * [Checkpoint Sync](./checkpoint-sync.md): quickly sync the beacon chain to perform validator duties.
 * [Custom Data Directories](./advanced-datadir.md): modify the data directory to your preferred location.
 * [Proposer Only Beacon Nodes](./advanced-proposer-only.md): beacon node only for proposer duty for increased anonymity.

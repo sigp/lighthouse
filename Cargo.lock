@@ -1076,6 +1076,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "thiserror",
+ "toml 0.5.11",
  "types",
 ]
 
