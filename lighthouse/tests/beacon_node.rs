@@ -25,6 +25,9 @@ use types::{
 use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
+const DUMMY_ENR_TCP_PORT: u16 = 7777;
+const DUMMY_ENR_UDP_PORT: u16 = 8888;
+const DUMMY_ENR_QUIC_PORT: u16 = 9999;
 
 /// Returns the `lighthouse beacon_node` command.
 fn base_cmd() -> Command {
@@ -1264,7 +1267,8 @@ fn network_load_flag() {
 // Tests for ENR flags.
 #[test]
 fn enr_udp_port_flag() {
-    let port = unused_udp4_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_UDP_PORT;
+    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1272,7 +1276,8 @@ fn enr_udp_port_flag() {
 }
 #[test]
 fn enr_quic_port_flag() {
-    let port = unused_udp4_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_QUIC_PORT;
+    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-quic-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1280,7 +1285,8 @@ fn enr_quic_port_flag() {
 }
 #[test]
 fn enr_tcp_port_flag() {
-    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_TCP_PORT;
+    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-tcp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1288,7 +1294,8 @@ fn enr_tcp_port_flag() {
 }
 #[test]
 fn enr_udp6_port_flag() {
-    let port = unused_udp6_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_UDP_PORT;
+    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-udp6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1296,7 +1303,8 @@ fn enr_udp6_port_flag() {
 }
 #[test]
 fn enr_quic6_port_flag() {
-    let port = unused_udp6_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_QUIC_PORT;
+    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-quic6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1304,7 +1312,8 @@ fn enr_quic6_port_flag() {
 }
 #[test]
 fn enr_tcp6_port_flag() {
-    let port = unused_tcp6_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_TCP_PORT;
+    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-tcp6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
