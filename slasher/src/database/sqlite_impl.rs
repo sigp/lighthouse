@@ -140,7 +140,7 @@ impl<'env> RwTransaction<'env> {
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         let query_statement = format!("SELECT * FROM {} where key =:key;", db.table_name);
         let database = rusqlite::Connection::open(&db.env.db_path)?;
-        let mut stmt = database.prepare(&query_statement)?;
+        let mut stmt = database.prepare_cached(&query_statement)?;
 
         let query_result = stmt
             .query_row([key.as_ref()], |row| {
@@ -169,14 +169,16 @@ impl<'env> RwTransaction<'env> {
             db.table_name
         );
         let database = rusqlite::Connection::open(&db.env.db_path)?;
-        let _ = database.execute(&insert_statement, params![key.as_ref(), value.as_ref()])?;
+        let mut stmt = database.prepare_cached(&insert_statement)?;
+        stmt.execute(params![key.as_ref(), value.as_ref()])?;
         Ok(())
     }
 
     pub fn del<K: AsRef<[u8]>>(&mut self, db: &Database, key: K) -> Result<(), Error> {
         let delete_statement = format!("DELETE FROM {} WHERE key=?1", db.table_name);
         let database = rusqlite::Connection::open(&db.env.db_path)?;
-        let _ = database.execute(&delete_statement, [key.as_ref()])?;
+        let mut stmt = database.prepare_cached(&delete_statement)?;
+        stmt.execute(params![key.as_ref()])?;
         Ok(())
     }
 
@@ -196,7 +198,7 @@ impl<'env> Cursor<'env> {
     pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
         let query_statement = format!("SELECT MIN(id), key, value FROM {}", self.db.table_name);
         let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-        let mut stmt = database.prepare(&query_statement)?;
+        let mut stmt = database.prepare_cached(&query_statement)?;
         let mut query_result = stmt.query_row([], |row| {
             Ok(FullQueryResult {
                 id: row.get(0)?,
@@ -216,7 +218,7 @@ impl<'env> Cursor<'env> {
     pub fn last_key(&mut self) -> Result<Option<Key<'env>>, Error> {
         let query_statement = format!("SELECT MAX(id), key, value FROM {}", self.db.table_name);
         let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-        let mut stmt = database.prepare(&query_statement)?;
+        let mut stmt = database.prepare_cached(&query_statement)?;
 
         let mut query_result = stmt.query_row([], |row| {
             Ok(FullQueryResult {
@@ -245,7 +247,7 @@ impl<'env> Cursor<'env> {
             query_statement = format!("SELECT MIN(id), key FROM {}", self.db.table_name);
         }
         let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-        let mut stmt = database.prepare(&query_statement)?;
+        let mut stmt = database.prepare_cached(&query_statement)?;
 
         let mut query_result = stmt.query_row([], |row| {
             Ok(QueryResult {
@@ -269,7 +271,7 @@ impl<'env> Cursor<'env> {
                 self.db.table_name
             );
             let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-            let mut stmt = database.prepare(&query_statement)?;
+            let mut stmt = database.prepare_cached(&query_statement)?;
             let query_result = stmt
                 .query_row([current_id], |row| {
                     Ok(FullQueryResult {
@@ -306,7 +308,8 @@ impl<'env> Cursor<'env> {
             self.db.table_name
         );
         let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-        let _ = database.execute(&insert_statement, params![key.as_ref(), value.as_ref()])?;
+        let mut stmt = database.prepare_cached(&insert_statement)?;
+        stmt.execute(params![key.as_ref(), value.as_ref()])?;
         Ok(())
     }
 }
