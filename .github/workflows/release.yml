@@ -2,8 +2,6 @@ name:   Release Suite
 
 on:
     push:
-        branches:
-            - fix-release-ci
         tags:
             - v*
 
@@ -24,9 +22,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Extract version
-              # run: echo "VERSION=$(echo ${GITHUB_REF#refs/tags/})" >> $GITHUB_OUTPUT
-              # TODO(paul): remove the line below and uncomment the line above.
-              run: echo "VERSION=test_only" >> $GITHUB_OUTPUT
+              run: echo "VERSION=$(echo ${GITHUB_REF#refs/tags/})" >> $GITHUB_OUTPUT
               id: extract_version
         outputs:
             VERSION: ${{ steps.extract_version.outputs.VERSION }}
