@@ -1010,7 +1010,7 @@ fn network_listen_address_flag_wrong_double_v6_value_config() {
 }
 #[test]
 fn network_port_flag_over_ipv4() {
-    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    let port = 0;
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .run()
@@ -1027,7 +1027,7 @@ fn network_port_flag_over_ipv4() {
 }
 #[test]
 fn network_port_flag_over_ipv6() {
-    let port = unused_tcp6_port().expect("Unable to find unused port.");
+    let port = 0;
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
@@ -1045,8 +1045,8 @@ fn network_port_flag_over_ipv6() {
 }
 #[test]
 fn network_port_and_discovery_port_flags_over_ipv4() {
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
-    let disc4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let tcp4_port = 0;
+    let disc4_port = 0;
     CommandLineTest::new()
         .flag("port", Some(tcp4_port.to_string().as_str()))
         .flag("discovery-port", Some(disc4_port.to_string().as_str()))
@@ -1064,8 +1064,8 @@ fn network_port_and_discovery_port_flags_over_ipv4() {
 }
 #[test]
 fn network_port_and_discovery_port_flags_over_ipv6() {
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
-    let disc6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp6_port = 0;
+    let disc6_port = 0;
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(tcp6_port.to_string().as_str()))
@@ -1084,10 +1084,10 @@ fn network_port_and_discovery_port_flags_over_ipv6() {
 }
 #[test]
 fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
-    let disc4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
-    let disc6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp4_port = 0;
+    let disc4_port = 0;
+    let tcp6_port = 0;
+    let disc6_port = 0;
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("listen-address", Some("127.0.0.1"))
@@ -1119,12 +1119,12 @@ fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
 
 #[test]
 fn network_port_discovery_quic_port_flags_over_ipv4_and_ipv6() {
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
-    let disc4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let quic4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
-    let disc6_port = unused_udp6_port().expect("Unable to find unused port.");
-    let quic6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp4_port = 0;
+    let disc4_port = 0;
+    let quic4_port = 0;
+    let tcp6_port = 0;
+    let disc6_port = 0;
+    let quic6_port = 0;
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("listen-address", Some("127.0.0.1"))
@@ -1498,8 +1498,8 @@ fn http_address_ipv6_flag() {
 }
 #[test]
 fn http_port_flag() {
-    let port1 = unused_tcp4_port().expect("Unable to find unused port.");
-    let port2 = unused_tcp4_port().expect("Unable to find unused port.");
+    let port1 = 0;
+    let port2 = 0;
     CommandLineTest::new()
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
@@ -1654,8 +1654,8 @@ fn metrics_address_ipv6_flag() {
 }
 #[test]
 fn metrics_port_flag() {
-    let port1 = unused_tcp4_port().expect("Unable to find unused port.");
-    let port2 = unused_tcp4_port().expect("Unable to find unused port.");
+    let port1 = 0;
+    let port2 = 0;
     CommandLineTest::new()
         .flag("metrics", None)
         .flag("metrics-port", Some(port1.to_string().as_str()))
