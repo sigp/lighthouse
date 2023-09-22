@@ -29,6 +29,9 @@ const DUMMY_ENR_TCP_PORT: u16 = 7777;
 const DUMMY_ENR_UDP_PORT: u16 = 8888;
 const DUMMY_ENR_QUIC_PORT: u16 = 9999;
 
+const _: () =
+    assert!(DUMMY_ENR_QUIC_PORT != 0 && DUMMY_ENR_TCP_PORT != 0 && DUMMY_ENR_UDP_PORT != 0);
+
 /// Returns the `lighthouse beacon_node` command.
 fn base_cmd() -> Command {
     let lighthouse_bin = env!("CARGO_BIN_EXE_lighthouse");
@@ -1277,7 +1280,6 @@ fn enr_udp_port_flag() {
 #[test]
 fn enr_quic_port_flag() {
     let port = DUMMY_ENR_QUIC_PORT;
-    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-quic-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1286,7 +1288,6 @@ fn enr_quic_port_flag() {
 #[test]
 fn enr_tcp_port_flag() {
     let port = DUMMY_ENR_TCP_PORT;
-    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-tcp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1295,7 +1296,6 @@ fn enr_tcp_port_flag() {
 #[test]
 fn enr_udp6_port_flag() {
     let port = DUMMY_ENR_UDP_PORT;
-    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-udp6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1304,7 +1304,6 @@ fn enr_udp6_port_flag() {
 #[test]
 fn enr_quic6_port_flag() {
     let port = DUMMY_ENR_QUIC_PORT;
-    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-quic6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1313,7 +1312,6 @@ fn enr_quic6_port_flag() {
 #[test]
 fn enr_tcp6_port_flag() {
     let port = DUMMY_ENR_TCP_PORT;
-    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-tcp6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -1322,8 +1320,11 @@ fn enr_tcp6_port_flag() {
 #[test]
 fn enr_match_flag_over_ipv4() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
-    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
+
+    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
+    let udp4_port = DUMMY_ENR_UDP_PORT;
+    let tcp4_port = DUMMY_ENR_TCP_PORT;
+
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some("127.0.0.2"))
@@ -1347,8 +1348,11 @@ fn enr_match_flag_over_ipv4() {
 fn enr_match_flag_over_ipv6() {
     const ADDR: &str = "::1";
     let addr = ADDR.parse::<Ipv6Addr>().unwrap();
-    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
+
+    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
+    let udp6_port = DUMMY_ENR_UDP_PORT;
+    let tcp6_port = DUMMY_ENR_TCP_PORT;
+
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some(ADDR))
@@ -1371,13 +1375,18 @@ fn enr_match_flag_over_ipv6() {
 #[test]
 fn enr_match_flag_over_ipv4_and_ipv6() {
     const IPV6_ADDR: &str = "::1";
+
+    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
+    let udp6_port = DUMMY_ENR_UDP_PORT;
+    let tcp6_port = DUMMY_ENR_TCP_PORT;
     let ipv6_addr = IPV6_ADDR.parse::<Ipv6Addr>().unwrap();
-    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
+
     const IPV4_ADDR: &str = "127.0.0.1";
+    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
+    let udp4_port = DUMMY_ENR_UDP_PORT;
+    let tcp4_port = DUMMY_ENR_TCP_PORT;
     let ipv4_addr = IPV4_ADDR.parse::<Ipv4Addr>().unwrap();
-    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
+
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some(IPV4_ADDR))
