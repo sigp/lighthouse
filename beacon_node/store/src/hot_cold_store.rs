@@ -142,7 +142,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
         spec: ChainSpec,
         log: Logger,
     ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
-        config.verify_compression_level()?;
+        config.verify::<E>()?;
 
         let hierarchy = config.hierarchy_config.to_moduli()?;
 
@@ -189,7 +189,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Arc<Self>, Error> {
-        config.verify_compression_level()?;
+        config.verify::<E>()?;
 
         let hierarchy = config.hierarchy_config.to_moduli()?;
 

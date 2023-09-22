@@ -4,9 +4,11 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::io::Write;
+use types::{EthSpec, Unsigned};
 use zstd::Encoder;
 
-pub const DEFAULT_EPOCHS_PER_STATE_DIFF: u64 = 16;
+// Only used in tests. Mainnet sets a higher default on the CLI.
+pub const DEFAULT_EPOCHS_PER_STATE_DIFF: u64 = 8;
 pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 64;
 pub const DEFAULT_STATE_CACHE_SIZE: usize = 128;
 pub const DEFAULT_COMPRESSION_LEVEL: i32 = 1;
@@ -64,6 +66,10 @@ pub enum StoreConfigError {
         config: OnDiskStoreConfig,
         on_disk: OnDiskStoreConfig,
     },
+    InvalidEpochsPerStateDiff {
+        epochs_per_state_diff: u64,
+        max_supported: u64,
+    },
 }
 
 impl Default for StoreConfig {
@@ -107,13 +113,34 @@ impl StoreConfig {
         Ok(())
     }
 
+    /// Check that the configuration is valid.
+    pub fn verify<E: EthSpec>(&self) -> Result<(), StoreConfigError> {
+        self.verify_compression_level()?;
+        self.verify_epochs_per_state_diff::<E>()
+    }
+
     /// Check that the compression level is valid.
-    pub fn verify_compression_level(&self) -> Result<(), StoreConfigError> {
+    fn verify_compression_level(&self) -> Result<(), StoreConfigError> {
         if zstd::compression_level_range().contains(&self.compression_level) {
             Ok(())
         } else {
             Err(StoreConfigError::InvalidCompressionLevel {
                 level: self.compression_level,
+            })
+        }
+    }
+
+    /// Check that the configuration is valid.
+    pub fn verify_epochs_per_state_diff<E: EthSpec>(&self) -> Result<(), StoreConfigError> {
+        // To build state diffs we need to be able to determine the previous state root from the
+        // state itself, which requires reading back in the state_roots array.
+        let max_supported = E::SlotsPerHistoricalRoot::to_u64() / E::slots_per_epoch();
+        if self.epochs_per_state_diff <= max_supported {
+            Ok(())
+        } else {
+            Err(StoreConfigError::InvalidEpochsPerStateDiff {
+                epochs_per_state_diff: self.epochs_per_state_diff,
+                max_supported,
             })
         }
     }

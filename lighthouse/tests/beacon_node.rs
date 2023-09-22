@@ -1795,12 +1795,7 @@ fn epochs_per_migration_override() {
 fn epochs_per_state_diff_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.store.epochs_per_state_diff,
-                beacon_node::beacon_chain::store::config::DEFAULT_EPOCHS_PER_STATE_DIFF
-            )
-        });
+        .with_config(|config| assert_eq!(config.store.epochs_per_state_diff, 16));
 }
 #[test]
 fn epochs_per_state_diff_override() {
