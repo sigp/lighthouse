@@ -2,7 +2,7 @@
 name = "validator_dir"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [features]
 insecure_keys = []
@@ -10,17 +10,17 @@ insecure_keys = []
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bls = { path = "../../crypto/bls" }
-eth2_keystore = { path = "../../crypto/eth2_keystore" }
-filesystem = { path = "../filesystem" }
-types = { path = "../../consensus/types" }
-rand = "0.8.5"
-deposit_contract = { path = "../deposit_contract" }
-tree_hash = "0.5.0"
-hex = "0.4.2"
-derivative = "2.1.1"
-lockfile = { path = "../lockfile" }
-directory = { path = "../directory" }
+bls = { workspace = true }
+eth2_keystore = { workspace = true }
+filesystem = { workspace = true }
+types = { workspace = true }
+rand = { workspace = true }
+deposit_contract = { workspace = true }
+tree_hash = { workspace = true }
+hex = { workspace = true }
+derivative = { workspace = true }
+lockfile = { workspace = true }
+directory = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.1.0"
+tempfile = { workspace = true }

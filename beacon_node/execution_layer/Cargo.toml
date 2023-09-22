@@ -1,56 +1,56 @@
 [package]
 name = "execution_layer"
 version = "0.1.0"
-edition = "2021"
+edition = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-types = { path = "../../consensus/types"}
-tokio = { version = "1.10.0", features = ["full"] }
+types = { workspace = true }
+tokio = { workspace = true }
 async-trait = "0.1.51"
-slog = "2.5.2"
-futures = "0.3.7"
-sensitive_url = { path = "../../common/sensitive_url" }
-reqwest = { version = "0.11.0", features = ["json","stream"] }
-ethereum_serde_utils = "0.5.0"
-serde_json = "1.0.58"
-serde = { version = "1.0.116", features = ["derive"] }
-warp = { version = "0.3.2", features = ["tls"] }
+slog = { workspace = true }
+futures = { workspace = true }
+sensitive_url = { workspace = true }
+reqwest = { workspace = true }
+ethereum_serde_utils = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+warp = { workspace = true }
 jsonwebtoken = "8"
-environment = { path = "../../lighthouse/environment" }
-bytes = "1.1.0"
-task_executor = { path = "../../common/task_executor" }
-hex = "0.4.2"
-ethereum_ssz = "0.5.0"
-ssz_types = "0.5.3"
-eth2 = { path = "../../common/eth2" }
-state_processing = { path = "../../consensus/state_processing" }
-superstruct = "0.6.0"
-lru = "0.7.1"
-exit-future = "0.2.0"
-tree_hash = "0.5.0"
-tree_hash_derive = "0.5.0"
-parking_lot = "0.12.0"
-slot_clock = { path = "../../common/slot_clock" }
-tempfile = "3.1.0"
-rand = "0.8.5"
-zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
-lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-lazy_static = "1.4.0"
-ethers-core = "1.0.2"
+environment = { workspace = true }
+bytes = { workspace = true }
+task_executor = { workspace = true }
+hex = { workspace = true }
+ethereum_ssz = { workspace = true }
+ssz_types = { workspace = true }
+eth2 = { workspace = true }
+state_processing = { workspace = true }
+superstruct = { workspace = true }
+lru = { workspace = true }
+exit-future = { workspace = true }
+tree_hash = { workspace = true }
+tree_hash_derive = { workspace = true }
+parking_lot = { workspace = true }
+slot_clock = { workspace = true }
+tempfile = { workspace = true }
+rand = { workspace = true }
+zeroize = { workspace = true }
+lighthouse_metrics = { workspace = true }
+lazy_static = { workspace = true }
+ethers-core = { workspace = true }
 builder_client = { path = "../builder_client" }
-fork_choice = { path = "../../consensus/fork_choice" }
+fork_choice = { workspace = true }
 mev-rs = { git = "https://github.com/ralexstokes/mev-rs", rev = "216657016d5c0889b505857c89ae42c7aa2764af" }
 axum = "0.6"
 hyper = "0.14"
 ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "e380108" }
 ssz_rs = "0.9.0"
-tokio-stream = { version = "0.1.9", features = [ "sync" ] }
-strum = "0.24.0"
+tokio-stream = { workspace = true }
+strum = { workspace = true }
 keccak-hash = "0.10.0"
 hash256-std-hasher = "0.15.2"
 triehash = "0.8.4"
 hash-db = "0.15.2"
-pretty_reqwest_error = { path = "../../common/pretty_reqwest_error" }
+pretty_reqwest_error = { workspace = true }
 arc-swap = "1.6.0"

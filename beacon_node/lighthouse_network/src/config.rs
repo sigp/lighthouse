@@ -453,7 +453,7 @@ pub fn gossipsub_config(
     // We use the first 8 bytes of SHA256(topic, data) for content addressing
     let fast_gossip_message_id = |message: &gossipsub::RawMessage| {
         let data = [message.topic.as_str().as_bytes(), &message.data].concat();
-        gossipsub::FastMessageId::from(&Sha256::digest(data)[..8])
+        gossipsub::FastMessageId::from(&Sha256::digest(&data)[..8])
     };
     fn prefix(
         prefix: [u8; 4],

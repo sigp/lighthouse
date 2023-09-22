@@ -2,10 +2,10 @@
 name = "slot_clock"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-types = { path = "../../consensus/types" }
-lazy_static = "1.4.0"
-lighthouse_metrics = { path = "../lighthouse_metrics" }
-parking_lot = "0.12.0"
+types = { workspace = true }
+lazy_static = { workspace = true }
+lighthouse_metrics = { workspace = true }
+parking_lot = { workspace = true }

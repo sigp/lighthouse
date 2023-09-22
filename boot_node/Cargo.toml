@@ -2,26 +2,26 @@
 name = "boot_node"
 version = "4.4.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-beacon_node = { path = "../beacon_node" }
-clap = "2.33.3"
-clap_utils = { path = "../common/clap_utils" }
-lighthouse_network = { path = "../beacon_node/lighthouse_network" }
-types = { path = "../consensus/types" }
-ethereum_ssz = "0.5.0"
-slog = "2.5.2"
-tokio = "1.14.0"
-log = "0.4.11"
-slog-term = "2.6.0"
-logging = { path = "../common/logging" }
-slog-async = "2.5.0"
+beacon_node = { workspace = true }
+clap = { workspace = true }
+clap_utils = { workspace = true }
+lighthouse_network = { workspace = true }
+types = { workspace = true }
+ethereum_ssz = { workspace = true }
+slog = { workspace = true }
+tokio = { workspace = true }
+log = { workspace = true }
+slog-term = { workspace = true }
+logging = { workspace = true }
+slog-async = { workspace = true }
 slog-scope = "4.3.0"
 slog-stdlog = "4.0.0"
-hex = "0.4.2"
-serde = "1.0.116"
+hex = { workspace = true }
+serde = { workspace = true }
 serde_derive = "1.0.116"
-serde_json = "1.0.66"
-serde_yaml = "0.8.13"
-eth2_network_config = { path = "../common/eth2_network_config" }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+eth2_network_config = { workspace = true }
