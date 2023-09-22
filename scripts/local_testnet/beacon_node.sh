@@ -39,10 +39,11 @@ done
 
 # Get positional arguments
 data_dir=${@:$OPTIND+0:1}
-network_port=${@:$OPTIND+1:1}
-http_port=${@:$OPTIND+2:1}
-execution_endpoint=${@:$OPTIND+3:1}
-execution_jwt=${@:$OPTIND+4:1}
+tcp_port=${@:$OPTIND+1:1}
+quic_port=${@:$OPTIND+2:1}
+http_port=${@:$OPTIND+3:1}
+execution_endpoint=${@:$OPTIND+4:1}
+execution_jwt=${@:$OPTIND+5:1}
 
 lighthouse_binary=lighthouse
 
@@ -56,9 +57,11 @@ exec $lighthouse_binary \
   --disable-peer-scoring \
 	--staking \
 	--enr-address 127.0.0.1 \
-	--enr-udp-port $network_port \
-	--enr-tcp-port $network_port \
-	--port $network_port \
+	--enr-udp-port $tcp_port \
+	--enr-tcp-port $tcp_port \
+	--enr-quic-port $quic_port \
+	--port $tcp_port \
+	--quic-port $quic_port \
 	--http-port $http_port \
 	--disable-packet-filter \
 	--target-peers $((BN_COUNT - 1)) \

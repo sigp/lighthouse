@@ -65,7 +65,6 @@ sensitive_url = { path = "../../common/sensitive_url" }
 superstruct = "0.7.0"
 hex = "0.4.2"
 exit-future = "0.2.0"
-unused_port = {path = "../../common/unused_port"}
 oneshot_broadcast = { path = "../../common/oneshot_broadcast" }
 crossbeam-channel = "0.5.5"
 

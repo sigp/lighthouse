@@ -337,7 +337,7 @@ checksum = "cd56dd203fef61ac097dd65721a419ddccb106b2d2b70ba60a6b529f03961a51"
 dependencies = [
  "async-stream-impl",
  "futures-core",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -383,7 +383,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "memchr",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -455,7 +455,7 @@ dependencies = [
  "memchr",
  "mime",
  "percent-encoding",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "rustversion",
  "serde",
  "serde_json",
@@ -611,7 +611,6 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "types",
- "unused_port",
 ]
 
 [[package]]
@@ -2267,9 +2266,11 @@ dependencies = [
 name = "eth2_network_config"
 version = "0.2.0"
 dependencies = [
+ "bytes",
  "discv5",
  "eth2_config",
  "ethereum_ssz",
+ "futures",
  "logging",
  "pretty_reqwest_error",
  "reqwest",
@@ -2278,6 +2279,7 @@ dependencies = [
  "sha2 0.10.7",
  "slog",
  "tempfile",
+ "tokio",
  "types",
  "url",
  "zip",
@@ -2629,7 +2631,9 @@ dependencies = [
 name = "execution_layer"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "async-trait",
+ "axum",
  "builder_client",
  "bytes",
  "environment",
@@ -2644,6 +2648,7 @@ dependencies = [
  "hash-db",
  "hash256-std-hasher",
  "hex",
+ "hyper",
  "jsonwebtoken",
  "keccak-hash",
  "lazy_static",
@@ -2947,7 +2952,7 @@ dependencies = [
  "futures-io",
  "memchr",
  "parking",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "waker-fn",
 ]
 
@@ -3014,7 +3019,7 @@ dependencies = [
  "futures-sink",
  "futures-task",
  "memchr",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "pin-utils",
  "slab",
 ]
@@ -3401,7 +3406,7 @@ checksum = "d5f38f16d184e36f2408a55281cd658ecbd3ca05cce6d6510a176eca393e26d1"
 dependencies = [
  "bytes",
  "http",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -3447,7 +3452,6 @@ dependencies = [
  "tokio-stream",
  "tree_hash",
  "types",
- "unused_port",
  "warp",
  "warp_utils",
 ]
@@ -3507,7 +3511,7 @@ dependencies = [
  "httparse",
  "httpdate",
  "itoa",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "socket2 0.4.9",
  "tokio",
  "tower-service",
@@ -4087,7 +4091,6 @@ dependencies = [
  "libp2p-quic",
  "libp2p-swarm",
  "libp2p-tcp",
- "libp2p-websocket",
  "libp2p-yamux",
  "multiaddr 0.18.0",
  "pin-project",
@@ -4429,26 +4432,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libp2p-websocket"
-version = "0.42.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3facf0691bab65f571bc97c6c65ffa836248ca631d631b7691ac91deb7fceb5f"
-dependencies = [
- "either",
- "futures",
- "futures-rustls",
- "libp2p-core",
- "libp2p-identity",
- "log",
- "parking_lot 0.12.1",
- "quicksink",
- "rw-stream-sink",
- "soketto",
- "url",
- "webpki-roots 0.25.2",
-]
-
-[[package]]
 name = "libp2p-yamux"
 version = "0.44.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4601,6 +4584,7 @@ dependencies = [
  "lazy_static",
  "libp2p",
  "libp2p-mplex",
+ "libp2p-quic",
  "lighthouse_metrics",
  "lighthouse_version",
  "lru 0.7.8",
@@ -5871,12 +5855,6 @@ dependencies = [
 
 [[package]]
 name = "pin-project-lite"
-version = "0.1.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "257b64915a082f7811703966789728173279bdebb956b143dbcd23f6f970a777"
-
-[[package]]
-name = "pin-project-lite"
 version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8afb450f006bf6385ca15ef45d71d2288452bc3683ce2e2cacc0d18e4be60b58"
@@ -5965,7 +5943,7 @@ dependencies = [
  "concurrent-queue",
  "libc",
  "log",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "windows-sys 0.48.0",
 ]
 
@@ -6294,17 +6272,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "quicksink"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77de3c815e5a160b1539c6592796801df2043ae35e123b46d73380cfa57af858"
-dependencies = [
- "futures-core",
- "futures-sink",
- "pin-project-lite 0.1.12",
-]
-
-[[package]]
 name = "quinn"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6312,7 +6279,7 @@ checksum = "8cc2c5017e4b43d5995dcea317bc46c1e09404c0a9664d2908f7f02dfe943d75"
 dependencies = [
  "bytes",
  "futures-io",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "quinn-proto",
  "quinn-udp",
  "rustc-hash",
@@ -6324,9 +6291,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.10.4"
+version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13f81c9a9d574310b8351f8666f5a93ac3b0069c45c28ad52c10291389a7cf9"
+checksum = "2c78e758510582acc40acb90458401172d41f1016f8c9dde89e49677afb7eec1"
 dependencies = [
  "bytes",
  "rand 0.8.5",
@@ -6720,7 +6687,7 @@ dependencies = [
  "native-tls",
  "once_cell",
  "percent-encoding",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "rustls 0.21.7",
  "rustls-pemfile",
  "serde",
@@ -7316,19 +7283,6 @@ dependencies = [
 
 [[package]]
 name = "sha-1"
-version = "0.9.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99cd6713db3cf16b6c84e06321e049a9b9f699826e16096d23bbcc44d15d51a6"
-dependencies = [
- "block-buffer 0.9.0",
- "cfg-if",
- "cpufeatures",
- "digest 0.9.0",
- "opaque-debug",
-]
-
-[[package]]
-name = "sha-1"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5058ada175748e33390e40e872bd0fe59a19f265d0158daa551c5a88a76009c"
@@ -7718,21 +7672,6 @@ checksum = "4031e820eb552adee9295814c0ced9e5cf38ddf1e8b7d566d6de8e2538ea989e"
 dependencies = [
  "libc",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "soketto"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41d1c5305e39e09653383c2c7244f2f78b3bcae37cf50c64cb4789c9f5096ec2"
-dependencies = [
- "base64 0.13.1",
- "bytes",
- "futures",
- "httparse",
- "log",
- "rand 0.8.5",
- "sha-1 0.9.8",
 ]
 
 [[package]]
@@ -8330,7 +8269,7 @@ dependencies = [
  "mio",
  "num_cpus",
  "parking_lot 0.12.1",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.5.4",
  "tokio-macros",
@@ -8343,7 +8282,7 @@ version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30b74022ada614a1b4834de765f9bb43877f910cc8ce4be40e89042c9223a8bf"
 dependencies = [
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "tokio",
 ]
 
@@ -8384,7 +8323,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "percent-encoding",
  "phf",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "postgres-protocol",
  "postgres-types",
  "rand 0.8.5",
@@ -8422,7 +8361,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "397c988d37662c7dda6d2208364a706264bf3d6138b11d436cbac0ad38832842"
 dependencies = [
  "futures-core",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "tokio",
  "tokio-util 0.7.8",
 ]
@@ -8466,7 +8405,7 @@ dependencies = [
  "futures-io",
  "futures-sink",
  "log",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "slab",
  "tokio",
 ]
@@ -8480,7 +8419,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "slab",
  "tokio",
  "tracing",
@@ -8538,7 +8477,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "pin-project",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "tokio",
  "tower-layer",
  "tower-service",
@@ -8565,7 +8504,7 @@ checksum = "8ce8c33a8d48bd45d624a6e523445fd21ec13d3653cd51f681abf67418f54eb8"
 dependencies = [
  "cfg-if",
  "log",
- "pin-project-lite 0.2.13",
+ "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
 ]
@@ -8757,7 +8696,7 @@ dependencies = [
  "log",
  "rand 0.8.5",
  "rustls 0.20.9",
- "sha-1 0.10.1",
+ "sha-1",
  "thiserror",
  "url",
  "utf-8",

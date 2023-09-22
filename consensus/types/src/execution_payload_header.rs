@@ -30,7 +30,10 @@ use ssz_types::{FixedVector, VariableList};
         serde(bound = "T: EthSpec", deny_unknown_fields),
         arbitrary(bound = "T: EthSpec")
     ),
-    ref_attributes(derive(PartialEq, TreeHash), tree_hash(enum_behaviour = "transparent")),
+    ref_attributes(
+        derive(PartialEq, TreeHash, Debug),
+        tree_hash(enum_behaviour = "transparent")
+    ),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     map_ref_into(ExecutionPayloadHeader)
