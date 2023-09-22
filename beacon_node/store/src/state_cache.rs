@@ -2,7 +2,15 @@ use crate::Error;
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
-use types::{BeaconState, EthSpec, Hash256, Slot};
+use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
+
+/// Fraction of the LRU cache to leave intact during culling.
+const CULL_EXEMPT_NUMERATOR: usize = 1;
+const CULL_EXEMPT_DENOMINATOR: usize = 10;
+
+/// States that are less than or equal to this many epochs old *could* become finalized and will not
+/// be culled from the cache.
+const EPOCH_FINALIZATION_LIMIT: u64 = 4;
 
 #[derive(Debug)]
 pub struct FinalizedState<E: EthSpec> {
@@ -27,6 +35,8 @@ pub struct StateCache<E: EthSpec> {
     finalized_state: Option<FinalizedState<E>>,
     states: LruCache<Hash256, BeaconState<E>>,
     block_map: BlockMap,
+    capacity: NonZeroUsize,
+    max_epoch: Epoch,
 }
 
 #[derive(Debug)]
@@ -42,6 +52,8 @@ impl<E: EthSpec> StateCache<E> {
             finalized_state: None,
             states: LruCache::new(capacity),
             block_map: BlockMap::default(),
+            capacity,
+            max_epoch: Epoch::new(0),
         }
     }
 
@@ -115,6 +127,14 @@ impl<E: EthSpec> StateCache<E> {
             });
         }
 
+        // Update the cache's idea of the max epoch.
+        self.max_epoch = std::cmp::max(state.current_epoch(), self.max_epoch);
+
+        // If the cache is full, use the custom cull routine to make room.
+        if let Some(over_capacity) = self.len().checked_sub(self.capacity.get()) {
+            self.cull(over_capacity + 1);
+        }
+
         // Insert the full state into the cache.
         self.states.put(state_root, state.clone());
 
@@ -164,6 +184,60 @@ impl<E: EthSpec> StateCache<E> {
             for state_root in slot_map.slots.values() {
                 self.states.pop(state_root);
             }
+        }
+    }
+
+    /// Cull approximately `count` states from the cache.
+    ///
+    /// States are culled LRU, with the following extra order imposed:
+    ///
+    /// - Advanced states.
+    /// - Mid-epoch unadvanced states.
+    /// - Epoch-boundary states that are too old to be finalized.
+    /// - Epoch-boundary states that could be finalized.
+    pub fn cull(&mut self, count: usize) {
+        let cull_exempt = std::cmp::max(
+            1,
+            self.len() * CULL_EXEMPT_NUMERATOR / CULL_EXEMPT_DENOMINATOR,
+        );
+
+        // Stage 1: gather states to cull.
+        let mut advanced_state_roots = vec![];
+        let mut mid_epoch_state_roots = vec![];
+        let mut old_boundary_state_roots = vec![];
+        let mut good_boundary_state_roots = vec![];
+        for (&state_root, state) in self.states.iter().skip(cull_exempt) {
+            let is_advanced = state.slot() > state.latest_block_header().slot;
+            let is_boundary = state.slot() % E::slots_per_epoch() == 0;
+            let could_finalize =
+                (self.max_epoch - state.current_epoch()) <= EPOCH_FINALIZATION_LIMIT;
+
+            if is_advanced {
+                advanced_state_roots.push(state_root);
+            } else if !is_boundary {
+                mid_epoch_state_roots.push(state_root);
+            } else if !could_finalize {
+                old_boundary_state_roots.push(state_root);
+            } else {
+                good_boundary_state_roots.push(state_root);
+            }
+
+            // Terminate early in the common case where we've already found enough junk to cull.
+            if advanced_state_roots.len() == count {
+                break;
+            }
+        }
+
+        // Stage 2: delete.
+        // This could probably be more efficient in how it interacts with the block map.
+        for state_root in advanced_state_roots
+            .iter()
+            .chain(mid_epoch_state_roots.iter())
+            .chain(old_boundary_state_roots.iter())
+            .chain(good_boundary_state_roots.iter())
+            .take(count)
+        {
+            self.delete_state(state_root);
         }
     }
 }
