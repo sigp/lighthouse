@@ -70,7 +70,7 @@ jobs:
             - name: Checkout sources
               uses: actions/checkout@v3
             - name: Get latest version of stable Rust
-              if: env.SELF_HOSTED_RUNNERS == false
+              if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable
 
             # ==============================
@@ -78,7 +78,7 @@ jobs:
             # ==============================
 
             - uses: KyleMayes/install-llvm-action@v1
-              if: env.SELF_HOSTED_RUNNERS == false && startsWith(matrix.arch, 'x86_64-windows')
+              if: env.SELF_HOSTED_RUNNERS == 'false' && startsWith(matrix.arch, 'x86_64-windows')
               with:
                 version: "15.0"
                 directory: ${{ runner.temp }}/llvm
