@@ -175,8 +175,7 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
                 config
                     .listen_addrs()
                     .v4()
-                    .map(|v4_addr| v4_addr.quic_port.try_into().ok())
-                    .flatten()
+                    .and_then(|v4_addr| v4_addr.quic_port.try_into().ok())
             }) {
                 builder.add_value(QUIC_ENR_KEY, &quic4_port.get());
             }
@@ -186,8 +185,7 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
                 config
                     .listen_addrs()
                     .v6()
-                    .map(|v6_addr| v6_addr.quic_port.try_into().ok())
-                    .flatten()
+                    .and_then(|v6_addr| v6_addr.quic_port.try_into().ok())
             }) {
                 builder.add_value(QUIC6_ENR_KEY, &quic6_port.get());
             }
@@ -198,8 +196,7 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
             config
                 .listen_addrs()
                 .v4()
-                .map(|v4_addr| v4_addr.tcp_port.try_into().ok())
-                .flatten()
+                .and_then(|v4_addr| v4_addr.tcp_port.try_into().ok())
         });
         if let Some(tcp4_port) = tcp4_port {
             builder.tcp4(tcp4_port.get());
@@ -209,8 +206,7 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
             config
                 .listen_addrs()
                 .v6()
-                .map(|v6_addr| v6_addr.tcp_port.try_into().ok())
-                .flatten()
+                .and_then(|v6_addr| v6_addr.tcp_port.try_into().ok())
         });
         if let Some(tcp6_port) = tcp6_port {
             builder.tcp6(tcp6_port.get());
