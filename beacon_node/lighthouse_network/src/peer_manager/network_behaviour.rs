@@ -21,19 +21,6 @@ use crate::{metrics, ClearDialError};
 
 use super::{ConnectingType, PeerManager, PeerManagerEvent};
 
-/// Aid when rejecting a connection.
-/// TODO: remove on a libp2p release with https://github.com/libp2p/rust-libp2p/pull/4530
-#[derive(Debug)]
-struct RejectPeer(String);
-
-impl std::fmt::Display for RejectPeer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Connection to Peer Rejected: {}", self.0)
-    }
-}
-
-impl std::error::Error for RejectPeer {}
-
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     type ConnectionHandler = ConnectionHandler;
     type ToSwarm = PeerManagerEvent;
@@ -193,16 +180,16 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             Some(libp2p::multiaddr::Protocol::Ip6(ip)) => IpAddr::V6(ip),
             Some(libp2p::multiaddr::Protocol::Ip4(ip)) => IpAddr::V4(ip),
             _ => {
-                return Err(ConnectionDenied::new(RejectPeer(format!(
-                    "invalid multiaddr: {remote_addr}"
-                ))))
+                return Err(ConnectionDenied::new(format!(
+                    "Connection to peer rejected: invalid multiaddr: {remote_addr}"
+                )))
             }
         };
 
         if self.network_globals.peers.read().is_ip_banned(&ip) {
-            return Err(ConnectionDenied::new(RejectPeer(format!(
-                "peer {ip} is banned"
-            ))));
+            return Err(ConnectionDenied::new(format!(
+                "Connection to peer rejected: peer {ip} is banned"
+            )));
         }
 
         Ok(())
@@ -218,9 +205,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         trace!(self.log, "Inbound connection"; "peer_id" => %peer_id, "multiaddr" => %remote_addr);
         // We already checked if the peer was banned on `handle_pending_inbound_connection`.
         if let Some(BanResult::BadScore) = self.ban_status(&peer_id) {
-            return Err(ConnectionDenied::new(RejectPeer(
-                "peer has a bad score".into(),
-            )));
+            return Err(ConnectionDenied::new(
+                "Connection to peer rejected: peer has a bad score",
+            ));
         }
         Ok(ConnectionHandler)
     }
