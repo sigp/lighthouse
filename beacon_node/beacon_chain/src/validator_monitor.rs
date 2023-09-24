@@ -16,7 +16,6 @@ use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::sync::{Arc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use futures::StreamExt;
 use itertools::Itertools;
 use smallvec::SmallVec;
 use store::AbstractExecPayload;
@@ -525,22 +524,23 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     /// Add missed non-finalized blocks for the monitored validators
     fn add_validators_missed_blocks(&mut self, state: &BeaconState<T>) {
         // Define range variables
+        let current_slot = state.slot();
         let range_of_slots = T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS;
-        let start_slot = state.slot() - Slot::new(range_of_slots as u64) + 1;
+        let start_slot = current_slot - Slot::new(range_of_slots as u64);
 
         // As we are skipping the genesis slot, we can simply pass Hash256::zero() as the shuffling decision block
         // cf. state.proposer_shuffling_decision_root implementation
         let shuffling_decision_block = Hash256::zero();
 
-        // List of proposers per epoch from the cache
+        // List of proposers per epoch from the beacon_proposer_cache
         let mut proposers_per_epoch: Option<SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> = None;
-        for n in 0..range_of_slots {
+        for n in 1..range_of_slots {
             let slot = start_slot + n as u64;
             let prev_slot = slot - 1;
 
-            // We want to skip the genesis slot as it is not possible to miss a block then
-            if slot == 0 {
-                continue;
+            // Safeguard to respect the MISSED_BLOCK_LAG_SLOTS
+            if slot.as_usize() >= (current_slot.as_usize() - MISSED_BLOCK_LAG_SLOTS) {
+                break;
             }
 
             // Condition for missed_block is defined such as block_root(slot) == block_root(slot - 1)
@@ -552,14 +552,15 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     let prev_slot_epoch = prev_slot.epoch(T::slots_per_epoch());
 
                     if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root(slot_epoch, shuffling_decision_block) {
-                        // When slot_epoch is at the fist slot of the epoch, we need to refresh the list of proposers_per_epoch
-                        // or if it's the first iteration of the loop where we need to initialize the list of proposers_per_epoch
-                        let slot_in_epoch = slot % T::slots_per_epoch();
-                        if (slot_epoch != prev_slot_epoch && slot_in_epoch == 0) || slot == start_slot {
+
+                        // Only update the cache if it needs to be initialised or because
+                        // slot is at epoch + 1
+                        if proposers_per_epoch.is_none() || slot_epoch != prev_slot_epoch {
                             proposers_per_epoch = self.get_proposers_by_epoch_from_cache(slot_epoch, shuffling_decision_block);
                         }
 
                         // Only add missed blocks for the proposer if it's in the list of monitored validators
+                        let slot_in_epoch = slot % T::slots_per_epoch();
                         if let Some(proposer_index) = proposers_per_epoch
                             .as_ref()
                             .and_then(|proposers| proposers.get(slot_in_epoch.as_usize())) {
@@ -917,6 +918,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         } else {
             None
         }
+    }
+
+    pub fn get_monitored_validator_missed_block_count(&self, validator_index: u64) -> u64 {
+        self.missed_blocks
+            .iter()
+            .filter(|(_, index, _)| *index == validator_index)
+            .count() as u64
     }
 
     /// If `self.auto_register == true`, add the `validator_index` to `self.monitored_validators`.
