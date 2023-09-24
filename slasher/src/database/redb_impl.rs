@@ -31,21 +31,17 @@ pub struct Database<'env> {
 
 #[derive(Debug)]
 pub struct RwTransaction<'env> {
-    // txn: Option<redb::WriteTransaction<'env>>,
     _phantom: PhantomData<&'env ()>,
+    tx: WriteTransaction<'static>,
+    env: &'env Environment,
 }
 
-impl<'env> Drop for RwTransaction<'env> {
-    fn drop(&mut self) {
-        // Perform any necessary cleanup or resource deallocation here
-        // This code will be automatically executed when an instance of MyStruct goes out of scope.
-    }
-}
 
 #[derive(Debug)]
 pub struct Cursor<'env> {
     db: &'env Database<'env>,
     current_key: Option<Cow<'env, [u8]>>,
+    rw_transaction: &'env RwTransaction<'env>,
 }
 pub struct WriteTransaction<'env>(redb::WriteTransaction<'env>);
 
@@ -70,7 +66,7 @@ impl Environment {
         })
     }
 
-    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
+    pub fn create_databases(&'static self) -> Result<OpenDatabases, Error> {
         let indexed_attestation_db = self.create_table(INDEXED_ATTESTATION_DB)?;
         let indexed_attestation_id_db = self.create_table(INDEXED_ATTESTATION_ID_DB)?;
         let attesters_db = self.create_table(ATTESTERS_DB)?;
@@ -95,7 +91,7 @@ impl Environment {
     }
 
     pub fn create_table<'env>(
-        &'env self,
+        &'static self,
         table_name: &'env str,
     ) -> Result<crate::Database<'env>, Error> {
         // need to create the table via opening in write mode
@@ -103,7 +99,9 @@ impl Environment {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(table_name);
         let database = &self.db;
         let tx = database.begin_write()?;
-        tx.open_table(table_definition)?;
+        {
+           tx.open_table(table_definition)?;
+        }
         tx.commit()?;
 
         Ok(crate::Database::Redb(Database {
@@ -116,9 +114,11 @@ impl Environment {
         vec![config.database_path.join(BASE_DB)]
     }
 
-    pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
+    pub fn begin_rw_txn(&'static self) -> Result<RwTransaction, Error> {
         Ok(RwTransaction {
             _phantom: PhantomData,
+            tx: WriteTransaction(self.db.begin_write()?),
+            env: self,
         })
     }
 }
@@ -175,26 +175,18 @@ impl<'env> RwTransaction<'env> {
     ) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(db.table_name);
-        let database = &db.env.db;
-        let tx = database.begin_write()?;
-        {
-            let mut table = tx.open_table(table_definition)?;
-            table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
-        }
-        tx.commit()?;
+        let mut table = self.tx.0.open_table(table_definition)?;
+        table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
+      
         Ok(())
     }
 
     pub fn del<K: AsRef<[u8]>>(&mut self, db: &Database, key: K) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(db.table_name);
-        let database = &db.env.db;
-        let tx = database.begin_write()?;
-        {
-            let mut table = tx.open_table(table_definition)?;
-            table.remove(key.as_ref().borrow())?;
-        }
-        tx.commit()?;
+        let mut table = self.tx.0.open_table(table_definition)?;
+        table.remove(key.as_ref().borrow())?;
+
         Ok(())
     }
 
@@ -202,10 +194,12 @@ impl<'env> RwTransaction<'env> {
         Ok(Cursor {
             db,
             current_key: None,
+            rw_transaction: self,
         })
     }
 
-    pub fn commit(self) -> Result<(), Error> {
+    pub fn commit(mut self) -> Result<(), Error> {
+        self.tx.0.commit()?;
         Ok(())
         /*
         match self.txn.unwrap().commit() {
@@ -308,13 +302,8 @@ impl<'env> Cursor<'env> {
         if let Some(key) = &self.current_key {
             let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                 TableDefinition::new(self.db.table_name);
-            let database = &self.db.env.db;
-            let tx = database.begin_write()?;
-            {
-                let mut table = tx.open_table(table_definition)?;
-                table.remove(key.as_ref())?;
-            }
-            tx.commit()?;
+            let mut table = self.rw_transaction.tx.0.open_table(table_definition)?;
+            table.remove(key.as_ref())?;
         }
         Ok(())
     }
@@ -322,13 +311,8 @@ impl<'env> Cursor<'env> {
     pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table_name);
-        let database = &self.db.env.db;
-        let tx = database.begin_write()?;
-        {
-            let mut table = tx.open_table(table_definition)?;
-            table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
-        }
-        tx.commit()?;
+        let mut table = self.rw_transaction.tx.0.open_table(table_definition)?;
+        table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
         Ok(())
     }
 }

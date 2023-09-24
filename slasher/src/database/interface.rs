@@ -83,7 +83,7 @@ impl Environment {
         }
     }
 
-    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
+    pub fn create_databases(&'static self) -> Result<OpenDatabases, Error> {
         match self {
             #[cfg(feature = "mdbx")]
             Self::Mdbx(env) => env.create_databases(),
@@ -95,7 +95,7 @@ impl Environment {
         }
     }
 
-    pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
+    pub fn begin_rw_txn(&'static self) -> Result<RwTransaction, Error> {
         match self {
             #[cfg(feature = "mdbx")]
             Self::Mdbx(env) => env.begin_rw_txn().map(RwTransaction::Mdbx),
