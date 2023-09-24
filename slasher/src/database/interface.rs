@@ -83,7 +83,7 @@ impl Environment {
         }
     }
 
-    pub fn create_databases(&'static self) -> Result<OpenDatabases, Error> {
+    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
         match self {
             #[cfg(feature = "mdbx")]
             Self::Mdbx(env) => env.create_databases(),
@@ -95,7 +95,7 @@ impl Environment {
         }
     }
 
-    pub fn begin_rw_txn(&'static self) -> Result<RwTransaction, Error> {
+    pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
         match self {
             #[cfg(feature = "mdbx")]
             Self::Mdbx(env) => env.begin_rw_txn().map(RwTransaction::Mdbx),
@@ -123,8 +123,8 @@ impl Environment {
 
 impl<'env> RwTransaction<'env> {
     pub fn get<K: AsRef<[u8]> + ?Sized>(
-        &'env self,
-        db: &Database<'env>,
+        &self,
+        db: &Database,
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         match (self, db) {
@@ -167,7 +167,7 @@ impl<'env> RwTransaction<'env> {
         }
     }
 
-    pub fn cursor<'a>(&'a mut self, db: &'a Database) -> Result<Cursor<'a>, Error> {
+    pub fn cursor<'a:'env>(&'a mut self, db: &Database) -> Result<Cursor<'a>, Error> {
         match (self, db) {
             #[cfg(feature = "mdbx")]
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.cursor(db).map(Cursor::Mdbx),

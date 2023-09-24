@@ -20,29 +20,30 @@ const BASE_DB: &str = "slasher_db";
 #[derive(Debug)]
 pub struct Environment {
     _db_count: usize,
+    db_path: String,
     db: redb::Database,
 }
 
 #[derive(Debug)]
 pub struct Database<'env> {
-    env: &'env Environment,
-    table_name: &'env str,
+    table_name: String,
+    _phantom: PhantomData<&'env ()>,
 }
 
 #[derive(Debug)]
 pub struct RwTransaction<'env> {
-    _phantom: PhantomData<&'env ()>,
-    tx: WriteTransaction<'static>,
-    env: &'env Environment,
+    txn: WriteTransaction<'env>,
+    db: &'env redb::Database,
 }
 
 
 #[derive(Debug)]
 pub struct Cursor<'env> {
-    db: &'env Database<'env>,
+    txn: &'env WriteTransaction<'env>,
+    table_name: String,
     current_key: Option<Cow<'env, [u8]>>,
-    rw_transaction: &'env RwTransaction<'env>,
 }
+
 pub struct WriteTransaction<'env>(redb::WriteTransaction<'env>);
 
 impl<'env> fmt::Debug for WriteTransaction<'env> {
@@ -58,15 +59,16 @@ impl Environment {
             None => "".to_string(),
         };
 
-        let database = redb::Database::create(db_path)?;
+        let database = redb::Database::create(db_path.clone())?;
 
         Ok(Environment {
             _db_count: MAX_NUM_DBS,
-            db: database,
+            db_path,
+            db: database
         })
     }
 
-    pub fn create_databases(&'static self) -> Result<OpenDatabases, Error> {
+    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
         let indexed_attestation_db = self.create_table(INDEXED_ATTESTATION_DB)?;
         let indexed_attestation_id_db = self.create_table(INDEXED_ATTESTATION_ID_DB)?;
         let attesters_db = self.create_table(ATTESTERS_DB)?;
@@ -91,22 +93,19 @@ impl Environment {
     }
 
     pub fn create_table<'env>(
-        &'static self,
+        &'env self,
         table_name: &'env str,
     ) -> Result<crate::Database<'env>, Error> {
         // need to create the table via opening in write mode
         // so we can open it in read mode later
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(table_name);
-        let database = &self.db;
-        let tx = database.begin_write()?;
-        {
-           tx.open_table(table_definition)?;
-        }
+        let tx = self.db.begin_write()?;
+        tx.open_table(table_definition)?;
         tx.commit()?;
 
         Ok(crate::Database::Redb(Database {
-            table_name,
-            env: self,
+            table_name: table_name.to_string(),
+            _phantom: PhantomData,
         }))
     }
 
@@ -114,11 +113,10 @@ impl Environment {
         vec![config.database_path.join(BASE_DB)]
     }
 
-    pub fn begin_rw_txn(&'static self) -> Result<RwTransaction, Error> {
+    pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
         Ok(RwTransaction {
-            _phantom: PhantomData,
-            tx: WriteTransaction(self.db.begin_write()?),
-            env: self,
+            txn: WriteTransaction(self.db.begin_write()?),
+            db: &self.db,
         })
     }
 }
@@ -149,15 +147,13 @@ impl<'env> Database<'env> {
 
 impl<'env> RwTransaction<'env> {
     pub fn get<K: AsRef<[u8]> + ?Sized>(
-        &'env self,
-        db: &Database<'env>,
+        &self,
+        db: &Database,
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(db.table_name);
-        let database = &db.env.db;
-        let tx = database.begin_read()?;
-        let table = tx.open_table(table_definition)?;
+            TableDefinition::new(&db.table_name);
+        let table = self.txn.0.open_table(table_definition)?;
         let result = table.get(key.as_ref().borrow())?;
         if let Some(access_guard) = result {
             let value = access_guard.value().to_vec().clone();
@@ -174,8 +170,8 @@ impl<'env> RwTransaction<'env> {
         value: V,
     ) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(db.table_name);
-        let mut table = self.tx.0.open_table(table_definition)?;
+            TableDefinition::new(&db.table_name);
+        let mut table = self.txn.0.open_table(table_definition)?;
         table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
       
         Ok(())
@@ -183,43 +179,34 @@ impl<'env> RwTransaction<'env> {
 
     pub fn del<K: AsRef<[u8]>>(&mut self, db: &Database, key: K) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(db.table_name);
-        let mut table = self.tx.0.open_table(table_definition)?;
+            TableDefinition::new(&db.table_name);
+        let mut table = self.txn.0.open_table(table_definition)?;
         table.remove(key.as_ref().borrow())?;
 
         Ok(())
     }
 
-    pub fn cursor<'a>(&'a mut self, db: &'a Database<'a>) -> Result<Cursor<'a>, Error> {
+    pub fn cursor<'a:'env>(&'a self, db: &Database) -> Result<Cursor<'a>, Error> {
+        // let txn = WriteTransaction(self.db.begin_write()?);
         Ok(Cursor {
-            db,
             current_key: None,
-            rw_transaction: self,
+            txn: &self.txn,
+            table_name: db.table_name.clone()
         })
     }
 
-    pub fn commit(mut self) -> Result<(), Error> {
-        self.tx.0.commit()?;
+    pub fn commit(self) -> Result<(), Error> {
+        self.txn.0.commit()?;
         Ok(())
-        /*
-        match self.txn.unwrap().commit() {
-            Ok(_) => {
-                self.txn = None;
-                Ok(())
-            }
-            Err(_) => panic!(),
-        }*/
     }
 }
 
 impl<'env> Cursor<'env> {
     pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(self.db.table_name);
-        let database = &self.db.env.db;
-        let tx = database.begin_read()?;
 
-        let table = tx.open_table(table_definition)?;
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+        TableDefinition::new(&self.table_name);
+        let table = self.txn.0.open_table(table_definition)?;
 
         let first = table
             .iter()?
@@ -237,11 +224,8 @@ impl<'env> Cursor<'env> {
 
     pub fn last_key(&mut self) -> Result<Option<Key<'env>>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(self.db.table_name);
-        let database = &self.db.env.db;
-        let tx = database.begin_read()?;
-
-        let table = tx.open_table(table_definition)?;
+        TableDefinition::new(&self.table_name);
+        let table = self.txn.0.open_table(table_definition)?;
 
         let last = table
             .iter()?
@@ -258,15 +242,14 @@ impl<'env> Cursor<'env> {
     }
 
     pub fn next_key(&mut self) -> Result<Option<Key<'env>>, Error> {
+
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(self.db.table_name);
-        let database = &self.db.env.db;
-        let tx = database.begin_read()?;
+        TableDefinition::new(&self.table_name);
 
         if let Some(current_key) = &self.current_key.clone() {
             let range: std::ops::RangeFrom<&[u8]> = current_key..;
-            let table = tx.open_table(table_definition)?;
 
+            let table = self.txn.0.open_table(table_definition)?;
             let next = table
                 .range(range)?
                 .next()
@@ -279,15 +262,13 @@ impl<'env> Cursor<'env> {
             }
         }
         Ok(None)
-    }
+    } 
 
     pub fn get_current(&mut self) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+        TableDefinition::new(&self.table_name);
         if let Some(key) = &self.current_key {
-            let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-                TableDefinition::new(self.db.table_name);
-            let database = &self.db.env.db;
-            let tx = database.begin_read()?;
-            let table = tx.open_table(table_definition)?;
+            let table = self.txn.0.open_table(table_definition)?;
             let result = table.get(key.as_ref())?;
 
             if let Some(access_guard) = result {
@@ -299,19 +280,20 @@ impl<'env> Cursor<'env> {
     }
 
     pub fn delete_current(&mut self) -> Result<(), Error> {
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+        TableDefinition::new(&self.table_name);
         if let Some(key) = &self.current_key {
-            let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-                TableDefinition::new(self.db.table_name);
-            let mut table = self.rw_transaction.tx.0.open_table(table_definition)?;
+            let mut table = self.txn.0.open_table(table_definition)?;
             table.remove(key.as_ref())?;
         }
         Ok(())
     }
 
     pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Result<(), Error> {
+        println!("CURSOR PRINT");
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(self.db.table_name);
-        let mut table = self.rw_transaction.tx.0.open_table(table_definition)?;
+        TableDefinition::new(&self.table_name);
+        let mut table = self.txn.0.open_table(table_definition)?;
         table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
         Ok(())
     }
