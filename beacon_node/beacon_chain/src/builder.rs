@@ -9,7 +9,7 @@ use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
-use crate::validator_monitor::ValidatorMonitor;
+use crate::validator_monitor::{ValidatorMonitor};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
@@ -617,6 +617,14 @@ where
         self
     }
 
+    pub fn validator_monitor(
+        mut self,
+        validator_monitor: ValidatorMonitor<TEthSpec>,
+    ) -> Self {
+        self.validator_monitor = Some(validator_monitor);
+        self
+    }
+
     /// Register some validators for additional monitoring.
     ///
     /// `validators` is a comma-separated string of 0x-formatted BLS pubkeys.
@@ -1116,6 +1124,7 @@ mod test {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let runtime = TestRuntime::default();
 
+        let beacon_proposer_cache = Arc::new(Mutex::new(<_>::default()));
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(Arc::new(store))
@@ -1127,10 +1136,12 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .beacon_proposer_cache(beacon_proposer_cache.clone())
             .monitor_validators(
                 true,
                 vec![],
                 DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+                beacon_proposer_cache,
                 log.clone(),
             )
             .build()
