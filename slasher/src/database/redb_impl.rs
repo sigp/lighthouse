@@ -39,7 +39,7 @@ pub struct RwTransaction<'env> {
 
 #[derive(Debug)]
 pub struct Cursor<'env> {
-    txn: &'env WriteTransaction<'env>,
+    txn: WriteTransaction<'env>,
     table_name: String,
     current_key: Option<Cow<'env, [u8]>>,
 }
@@ -186,11 +186,11 @@ impl<'env> RwTransaction<'env> {
         Ok(())
     }
 
-    pub fn cursor<'a:'env>(&'a self, db: &Database) -> Result<Cursor<'a>, Error> {
-        // let txn = WriteTransaction(self.db.begin_write()?);
+    pub fn cursor<'a>(&'a self, db: &Database) -> Result<Cursor<'a>, Error> {
+        let txn = WriteTransaction(self.db.begin_write()?);
         Ok(Cursor {
             current_key: None,
-            txn: &self.txn,
+            txn,
             table_name: db.table_name.clone()
         })
     }
