@@ -24,6 +24,7 @@ use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use sloggers::{null::NullLoggerBuilder, Build};
 use slog::{Logger};
+use beacon_chain::beacon_proposer_cache::BeaconProposerCache;
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
@@ -40,8 +41,8 @@ fn get_logger() -> Logger {
     builder.build().expect("should build logger")
 }
 
-fn get_harness(validator_count: usize, validator_index_to_monitor: usize, beacon_proposer_cache: BeaconProposerCache) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = BeaconChainHarness::builder(E)
+fn get_harness(validator_count: usize, validator_index_to_monitor: usize, beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
@@ -49,7 +50,7 @@ fn get_harness(validator_count: usize, validator_index_to_monitor: usize, beacon
         .beacon_proposer_cache(beacon_proposer_cache.clone())
         .validator_monitor(ValidatorMonitor::new(
             vec![
-                PublicKeyBytes::from(KEYPAIRS[validator_index_to_monitor].pk),
+                PublicKeyBytes::from(KEYPAIRS[validator_index_to_monitor].pk.clone()),
             ],
             false,
             DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
@@ -77,7 +78,6 @@ async fn produces_missed_blocks() {
 
     // Generate 63 slots (2 epochs * 32 slots per epoch - 1)
     let initial_blocks = slots_per_epoch * missed_block_epoch.as_u64() - 1;
-    println!("initial_blocks: {:?}", initial_blocks);
 
     // Mock the beacon proposer cache
     let mut beacon_proposer_cache = Arc::new(Mutex::new(<_>::default()));
@@ -142,25 +142,7 @@ async fn produces_missed_blocks() {
     // making sure that the cache reloads when the epoch changes
     // in that scenario the slot that missed a block is the first slot of the epoch
     validator_index_to_monitor = 7;
-    let harness2 = BeaconChainHarness::builder(MainnetEthSpec)
-        .default_spec()
-        .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .beacon_proposer_cache(beacon_proposer_cache.clone())
-        .validator_monitor(ValidatorMonitor::new(
-            vec![
-                PublicKeyBytes::from(KEYPAIRS[validator_index_to_monitor].pk.clone()),
-            ],
-            false,
-            DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
-            beacon_proposer_cache.clone(),
-            log.clone(),
-        ),
-        )
-        .build();
-    harness2.advance_slot();
-
+    let harness2 = get_harness(validator_count, validator_index_to_monitor, beacon_proposer_cache.clone());
     let advance_slot_by = 9;
     harness2
         .extend_chain(
@@ -183,13 +165,6 @@ async fn produces_missed_blocks() {
     validator_indexes = _state2.get_beacon_proposer_indices(&harness2.spec).unwrap();
     validator_index = validator_indexes[slot_in_epoch.as_usize()];
     proposer_shuffling_decision_root = _state2.proposer_shuffling_decision_root(epoch2, Hash256::zero()).unwrap();
-
-    // println!("key pair: {:?}", KEYPAIRS[0..validator_count].to_vec());
-    println!("harness2 current_epoch: {:?}", epoch2);
-    println!("proposer_shuffling_decision_root: {:?}", proposer_shuffling_decision_root);
-    println!("duplicate_block_root: {:?}", duplicate_block_root);
-    println!("validator_index: {:?}", validator_index);
-    println!("validator_indexes: {:?}", validator_indexes);
 
     // Let's fill the cache with the proposers for the current epoch
     // The proposers are the validators with indexes [1, 15, 5, 4, 9, 7, 7, 10]
@@ -240,23 +215,7 @@ async fn produces_missed_blocks() {
     // 4th scenario
     // a missed block happens but it happens but it's happening at state.slot - LOG_SLOTS_PER_EPOCH
     // it shouldn't be flagged as a missed block
-    let harness3 = BeaconChainHarness::builder(MainnetEthSpec)
-        .default_spec()
-        .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .beacon_proposer_cache(beacon_proposer_cache.clone())
-        .validator_monitor(ValidatorMonitor::new(
-            vec![],
-            false,
-            DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
-            beacon_proposer_cache.clone(),
-            log.clone(),
-        ),
-        )
-        .build();
-
-    harness3.advance_slot();
+    let harness3 = get_harness(validator_count, validator_index_to_monitor, beacon_proposer_cache.clone());
     harness3
         .extend_chain(
             slots_per_epoch as usize,
