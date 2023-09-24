@@ -30,14 +30,24 @@ This will build `lighthouse` and `lcli`. For `geth` and `bootnode`, go to [geth 
 ```bash
 cd ~
 curl -LO https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-amd64-1.13.1-3f40e65c.tar.gz
-tar -xvf eth-alltools-linux-amd64-1.13.1-3f40e65c.tar.gz
+tar xvf geth-alltools-linux-amd64-1.13.1-3f40e65c.tar.gz
 ```
 
-After extraction, copy `geth` and `bootnode` to the `PATH`. A typical directory is `/usr/local/bin`, so we run the command`sudo cp geth bootnode /usr/local/bin`.
+After extraction, copy `geth` and `bootnode` to the `PATH`. A typical directory is `/usr/local/bin`.
 
+```bash
+cd geth-alltools-linux-amd64-1.13.1-3f40e65c
+sudo cp geth bootnode /usr/local/bin
+```
+
+After that We can remove the downloaded files:
+
+```bash
+cd ~
+rm -r geth-alltools-linux-amd64-1.13.1-3f40e65c geth-alltools-linux-amd64-1.13.1-3f40e65c.tar.gz
+```
 
 We are now ready to start a local testnet.
-
 
 ## Starting the testnet
 
@@ -49,7 +59,7 @@ cd /lighthouse/scripts/local_testnet
 ./start_local_testnet.sh genesis.json
 ```
 
-This will execute the script and if the testnet setup is successful, you will see "Started!" at the end. Congratulations, you have successfully run a local testnet!
+This will execute the script and if the testnet setup is successful, you will see "Started!" at the end. 
 
 The testnet starts with a post-merge genesis state. 
 The testnet starts a consensus layer and execution layer boot node along with `BN_COUNT`
