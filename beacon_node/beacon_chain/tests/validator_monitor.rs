@@ -1,30 +1,33 @@
 #![cfg(not(debug_assertions))]
+
 use std::borrow::BorrowMut;
 use std::ops::Deref;
 use std::sync::Arc;
+
 use futures::AsyncWriteExt;
-use beacon_chain::validator_monitor::{MISSED_BLOCK_LAG_SLOTS, ValidatorMonitor};
+use lazy_static::lazy_static;
+use parking_lot::{Mutex, RwLock};
+use slog::Logger;
+use sloggers::{Build, null::NullLoggerBuilder};
+
 use beacon_chain::{
     attestation_verification::Error as AttnError,
-    test_utils::{
+    BeaconChain,
+    ChainConfig, NotifyExecutionLayer, StateSkipConfig, test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
-    },
-    BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
+    }, WhenSlotSkipped,
 };
-use lazy_static::lazy_static;
+use beacon_chain::beacon_proposer_cache::BeaconProposerCache;
 use beacon_chain::otb_verification_service::validate_optimistic_transition_blocks;
+use beacon_chain::validator_monitor::{MISSED_BLOCK_LAG_SLOTS, ValidatorMonitor};
+use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use operation_pool::PersistedOperationPool;
 use state_processing::{
-    per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
+    EpochProcessingError, per_slot_processing, per_slot_processing::Error as SlotProcessingError,
 };
-use parking_lot::{Mutex, RwLock};
-use types::{BeaconState, BeaconStateError, PublicKeyBytes, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot, Epoch, SignedBeaconBlock, MainnetEthSpec, ChainSpec};
+use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, Slot};
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
-use sloggers::{null::NullLoggerBuilder, Build};
-use slog::{Logger};
-use beacon_chain::beacon_proposer_cache::BeaconProposerCache;
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
