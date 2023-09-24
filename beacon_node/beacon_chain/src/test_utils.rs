@@ -27,7 +27,7 @@ pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
-use parking_lot::Mutex;
+use parking_lot::{Mutex};
 use parking_lot::RwLockWriteGuard;
 use rand::rngs::StdRng;
 use rand::Rng;
@@ -53,6 +53,8 @@ use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::{typenum::U4294967296, *};
+use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::validator_monitor::ValidatorMonitor;
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -161,6 +163,8 @@ pub struct Builder<T: BeaconChainTypes> {
     withdrawal_keypairs: Vec<Option<Keypair>>,
     chain_config: Option<ChainConfig>,
     store_config: Option<StoreConfig>,
+    beacon_proposer_cache: Option<Arc<Mutex<BeaconProposerCache>>>,
+    validator_monitor: Option<ValidatorMonitor<T::EthSpec>>,
     #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     initial_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
@@ -296,6 +300,8 @@ where
             withdrawal_keypairs: vec![],
             chain_config: None,
             store_config: None,
+            beacon_proposer_cache: None,
+            validator_monitor: None,
             store: None,
             initial_mutator: None,
             store_mutator: None,
@@ -372,6 +378,16 @@ where
     pub fn store_mutator(mut self, mutator: BoxedMutator<E, Hot, Cold>) -> Self {
         assert!(self.store_mutator.is_none(), "store mutator already set");
         self.store_mutator = Some(mutator);
+        self
+    }
+
+    pub fn beacon_proposer_cache(mut self, beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>) -> Self {
+        self.beacon_proposer_cache = Some(beacon_proposer_cache);
+        self
+    }
+
+    pub fn validator_monitor(mut self, validator_monitor: ValidatorMonitor<E>) -> Self {
+        self.validator_monitor = Some(validator_monitor);
         self
     }
 
@@ -516,9 +532,26 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
-        let beacon_proposer_cache = Arc::new(Mutex::new(<_>::default()));
-        let chain_config = self.chain_config.unwrap_or_default();
 
+        let beacon_proposer_cache = if let Some(beacon_proposer_cache) = self.beacon_proposer_cache {
+            beacon_proposer_cache
+        } else {
+            Arc::new(Mutex::new(<_>::default()))
+        };
+
+        let validator_monitor = if let Some(validator_monitor) = self.validator_monitor {
+            validator_monitor
+        } else {
+            ValidatorMonitor::new(
+                vec![],
+                false,
+                DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+                beacon_proposer_cache.clone(),
+                log.clone(),
+            )
+        };
+
+        let chain_config = self.chain_config.unwrap_or_default();
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
             .logger(log.clone())
             .custom_spec(spec)
@@ -539,7 +572,7 @@ where
                 5,
             )))
             .beacon_proposer_cache(beacon_proposer_cache.clone())
-            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, beacon_proposer_cache, log);
+            .validator_monitor(validator_monitor);
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)
