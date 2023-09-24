@@ -33,6 +33,7 @@ use tokio::time::sleep;
 use tree_hash::TreeHash;
 use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
+use parking_lot::{Mutex};
 
 // Should ideally be divisible by 3.
 pub const LOW_VALIDATOR_COUNT: usize = 24;
@@ -2141,6 +2142,8 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         Duration::from_secs(seconds_per_slot),
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
+
+    let beacon_proposer_cache = Arc::new(Mutex::new(<_>::default()));
     let beacon_chain = Arc::new(
         BeaconChainBuilder::new(MinimalEthSpec)
             .store(store.clone())
@@ -2159,7 +2162,8 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                 log.clone(),
                 1,
             )))
-            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
+            .beacon_proposer_cache(beacon_proposer_cache.clone())
+            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, beacon_proposer_cache, log)
             .build()
             .expect("should build"),
     );
