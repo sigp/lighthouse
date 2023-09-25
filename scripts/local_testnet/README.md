@@ -51,7 +51,7 @@ We are now ready to start a local testnet.
 
 ## Starting the testnet
 
-To start a testnet using the default settings:
+To start a testnet using the predetermined settings:
 
 ```bash
 cd ~
@@ -104,10 +104,10 @@ Once a testnet is stopped, it cannot be continued from where it left off. When t
 
 ## Manual creation of local testnet
 
-In [Starting the testnet](./README.md#starting-the-testnet), the testnet is started automatically with default parameters (database directory, ports used etc).  This section describes some modifications of the local testnet settings, e.g., you would like to change the database directory, or changing the ports used. 
+In [Starting the testnet](./README.md#starting-the-testnet), the testnet is started automatically with predetermined parameters (database directory, ports used etc).  This section describes some modifications of the local testnet settings, e.g., you would like to change the database directory, or changing the ports used. 
 
 
-The testnet contains some predefined parameters in `vars.env`, such as the slot time `SECONDS_PER_SLOT=3` (instead of 12 seconds on mainnet). You may change these parameters if you wish to suit your testing purposes. After that, in the testnet directory, we run the following command to create genesis state with embedded validators and validator keys:
+The predefined parameters are specified in `vars.env`, such as the slot time `SECONDS_PER_SLOT=3` (instead of 12 seconds on mainnet). You may change these parameters to suit your testing purposes. After that, in the testnet directory, run the following command to create genesis state with embedded validators and validator keys:
 
 ```bash
 ./setup.sh
@@ -133,11 +133,11 @@ e.g.
 Start a beacon node:
 
 ```bash
-./beacon_node.sh <DATADIR> <NETWORK-PORT> <HTTP-PORT> <EXECUTION-ENDPOINT> <EXECUTION-JWT-PATH> <OPTIONAL-DEBUG-LEVEL>
+./beacon_node.sh <DATADIR> <NETWORK-PORT> <QUIC-PORT> <HTTP-PORT> <EXECUTION-ENDPOINT> <EXECUTION-JWT-PATH> <OPTIONAL-DEBUG-LEVEL>
 ```
 e.g.
 ```bash
-./beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:6000 ~/.lighthouse/local-testnet/geth_1/geth/jwtsecret
+./beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 9100 8000 http://localhost:6000 ~/.lighthouse/local-testnet/geth_1/geth/jwtsecret
 ```
 
 In a new terminal, start the validator client which will attach to the first
