@@ -26,7 +26,6 @@ use lighthouse_network::{
 use lru::LruCache;
 use parking_lot::Mutex;
 use slot_clock::SlotClock;
-use std::collections::HashMap;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
