@@ -104,10 +104,10 @@ Once a testnet is stopped, it cannot be continued from where it left off. When t
 
 ## Manual creation of local testnet
 
-This section describes some modifications of the local testnet settings. 
+In [Starting the testnet](./README.md#starting-the-testnet), the testnet is started automatically with default parameters (database directory, ports used etc).  This section describes some modifications of the local testnet settings, e.g., you would like to change the database directory, or changing the ports used. 
 
 
-Assuming you are happy with the configuration in vars.env, create the testnet directory, genesis state with embedded validators and validator keys with:
+The testnet contains some predefined parameters in `vars.env`, such as the slot time `SECONDS_PER_SLOT=3` (instead of 12 seconds on mainnet). You may change these parameters if you wish to suit your testing purposes. After that, in the testnet directory, we run the following command to create genesis state with embedded validators and validator keys:
 
 ```bash
 ./setup.sh
@@ -163,7 +163,7 @@ instances using the `--datadir` parameter.
 
 ### Starting fresh
 
-You may delete the current testnet and all related files using the following command. This is generally not necessary as `start_local_test.sh` does this each time it starts.
+You can delete the current testnet and all related files using the following command. Alternatively, if you wish to start another testnet, doing the steps [Starting the testnet](./README.md#starting-the-testnet) will automatically delete the files and start a fresh local testnet. 
 
 ```bash
 ./clean.sh
