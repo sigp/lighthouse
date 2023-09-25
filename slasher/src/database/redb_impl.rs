@@ -32,7 +32,6 @@ pub struct Database<'env> {
 pub struct RwTransaction<'env> {
     #[derivative(Debug = "ignore")]
     txn: redb::WriteTransaction<'env>,
-    db: &'env redb::Database,
 }
 
 #[derive(Derivative)]
@@ -104,7 +103,6 @@ impl Environment {
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
         Ok(RwTransaction {
             txn: self.db.begin_write()?,
-            db: &self.db,
         })
     }
 }
