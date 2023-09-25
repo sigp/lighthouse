@@ -1,18 +1,17 @@
 #![cfg(feature = "redb")]
-use std::fmt;
-use std::{
-    borrow::{Borrow, Cow},
-    path::PathBuf,
-};
-
-use redb::{ReadableTable, TableDefinition};
-
 use crate::{
     database::{
         interface::{Key, OpenDatabases, Value},
         *,
     },
     Config, Error,
+};
+use derivative::Derivative;
+use redb::{ReadableTable, Table, TableDefinition};
+use std::fmt;
+use std::{
+    borrow::{Borrow, Cow},
+    path::PathBuf,
 };
 
 const BASE_DB: &str = "slasher_db";
@@ -36,10 +35,12 @@ pub struct RwTransaction<'env> {
     db: &'env redb::Database,
 }
 
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct Cursor<'txn, 'env: 'txn> {
     txn: &'txn WriteTransaction<'env>,
-    table_name: String,
+    #[derivative(Debug = "ignore")]
+    table: Table<'env, 'txn, &'static [u8], &'static [u8]>,
     current_key: Option<Cow<'txn, [u8]>>,
 }
 
@@ -187,10 +188,13 @@ impl<'env> RwTransaction<'env> {
 
     pub fn cursor<'a>(&'a self, db: &Database) -> Result<Cursor<'a, 'env>, Error> {
         let txn = &self.txn;
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+            TableDefinition::new(&db.table_name);
+        let table = self.txn.0.open_table(table_definition)?;
         Ok(Cursor {
             txn,
+            table,
             current_key: None,
-            table_name: db.table_name.clone(),
         })
     }
 
@@ -202,14 +206,11 @@ impl<'env> RwTransaction<'env> {
 
 impl<'txn, 'env: 'txn> Cursor<'txn, 'env> {
     pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(&self.table_name);
-        let table = self.txn.0.open_table(table_definition)?;
-
-        let first = table
+        let first = self
+            .table
             .iter()?
             .next()
-            .map(|x| x.map(|(key, _)| (key.value()).to_vec()));
+            .map(|x| x.map(|(key, _)| key.value().to_vec()));
 
         if let Some(owned_key) = first {
             let owned_key = owned_key?;
@@ -221,14 +222,11 @@ impl<'txn, 'env: 'txn> Cursor<'txn, 'env> {
     }
 
     pub fn last_key(&mut self) -> Result<Option<Key<'txn>>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(&self.table_name);
-        let table = self.txn.0.open_table(table_definition)?;
-
-        let last = table
+        let last = self
+            .table
             .iter()?
             .next_back()
-            .map(|x| x.map(|(key, _)| (key.value()).to_vec()));
+            .map(|x| x.map(|(key, _)| key.value().to_vec()));
 
         if let Some(owned_key) = last {
             let owned_key = owned_key?;
@@ -239,17 +237,14 @@ impl<'txn, 'env: 'txn> Cursor<'txn, 'env> {
     }
 
     pub fn next_key(&mut self) -> Result<Option<Key<'txn>>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(&self.table_name);
-
         if let Some(current_key) = &self.current_key.clone() {
             let range: std::ops::RangeFrom<&[u8]> = current_key..;
 
-            let table = self.txn.0.open_table(table_definition)?;
-            let next = table
+            let next = self
+                .table
                 .range(range)?
                 .next()
-                .map(|x| x.map(|(key, _)| (key.value()).to_vec()));
+                .map(|x| x.map(|(key, _)| key.value().to_vec()));
 
             if let Some(owned_key) = next {
                 let owned_key = owned_key?;
@@ -261,14 +256,11 @@ impl<'txn, 'env: 'txn> Cursor<'txn, 'env> {
     }
 
     pub fn get_current(&mut self) -> Result<Option<(Key<'txn>, Value<'txn>)>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(&self.table_name);
         if let Some(key) = &self.current_key {
-            let table = self.txn.0.open_table(table_definition)?;
-            let result = table.get(key.as_ref())?;
+            let result = self.table.get(key.as_ref())?;
 
             if let Some(access_guard) = result {
-                let value = access_guard.value().to_vec().clone();
+                let value = access_guard.value().to_vec();
                 return Ok(Some((key.clone(), Cow::from(value))));
             }
         }
@@ -276,20 +268,15 @@ impl<'txn, 'env: 'txn> Cursor<'txn, 'env> {
     }
 
     pub fn delete_current(&mut self) -> Result<(), Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(&self.table_name);
         if let Some(key) = &self.current_key {
-            let mut table = self.txn.0.open_table(table_definition)?;
-            table.remove(key.as_ref())?;
+            self.table.remove(key.as_ref())?;
         }
         Ok(())
     }
 
     pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Result<(), Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(&self.table_name);
-        let mut table = self.txn.0.open_table(table_definition)?;
-        table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
+        self.table
+            .insert(key.as_ref().borrow(), value.as_ref().borrow())?;
         Ok(())
     }
 }

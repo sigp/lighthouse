@@ -31,6 +31,7 @@ tree_hash = "0.5.0"
 tree_hash_derive = "0.5.0"
 types = { path = "../consensus/types" }
 strum = { version = "0.24.1", features = ["derive"] }
+derivative = "2.2.0"
 
 # MDBX is pinned at the last version with Windows and macOS support.
 mdbx = { package = "libmdbx", git = "https://github.com/sigp/libmdbx-rs", tag = "v0.1.4", optional = true }

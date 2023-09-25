@@ -7089,6 +7089,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "byteorder",
+ "derivative",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "filesystem",
