@@ -86,7 +86,7 @@ jobs:
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Install Foundry (anvil)
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
