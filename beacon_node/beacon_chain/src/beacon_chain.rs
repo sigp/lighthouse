@@ -477,8 +477,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     /// The slot at which blocks are downloaded back to.
     pub genesis_backfill_slot: Slot,
-    // Provides a KZG verification and temporary storage for blocks and blobs as
-    // they are collected and combined.
+    /// Provides a KZG verification and temporary storage for blocks and blobs as
+    /// they are collected and combined.
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     /// The KZG trusted setup used by this chain.
     pub kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
@@ -2798,6 +2798,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let block_root = blob.block_root();
+
+        // If this block has already been imported to forkchoice it must have been available, so
+        // we don't need to process its blobs again.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::BlockIsAlreadyKnown);
+        }
+
         self.data_availability_checker
             .notify_gossip_blob(blob.as_blob().slot, block_root, &blob);
         let r = self.check_gossip_blob_availability_and_import(blob).await;
@@ -2812,6 +2823,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        // If this block has already been imported to forkchoice it must have been available, so
+        // we don't need to process its blobs again.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::BlockIsAlreadyKnown);
+        }
+
         self.data_availability_checker
             .notify_rpc_blobs(slot, block_root, &blobs);
         let r = self

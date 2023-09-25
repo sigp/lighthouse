@@ -217,7 +217,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let msg = if child_components.is_some() {
             "Searching for components of a block with unknown parent"
         } else {
-            "Searching for block"
+            "Searching for block components"
         };
 
         let lookup = SingleBlockLookup::new(
