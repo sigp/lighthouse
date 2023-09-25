@@ -383,6 +383,9 @@ jobs:
       with:
           channel: nightly
           bins: cargo-udeps
+          cache: false
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Create Cargo config dir
       run: mkdir -p .cargo
     - name: Install custom Cargo config
