@@ -157,6 +157,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
         let blob_index = blob.message.index;
         validate_blob_sidecar_for_gossip(blob, blob_index, chain)
     }
+    /// Construct a `GossipVerifiedBlob` that is assumed to be valid.
+    ///
+    /// This should ONLY be used for testing.
+    pub fn __assumed_valid(blob: SignedBlobSidecar<T::EthSpec>) -> Self {
+        Self { blob }
+    }
     pub fn id(&self) -> BlobIdentifier {
         self.blob.message.id()
     }
