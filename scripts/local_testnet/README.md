@@ -84,14 +84,6 @@ tail -f ~/.lighthouse/local-testnet/testnet/geth_1.log
 
 where `beacon_node_1` can be changed to `beacon_node_2`, `beacon_node_3` or `beacon_node_4` to view logs for different beacon nodes. The same applies to validator clients and geth nodes. 
 
-The view the debug logs for beacon nodes and validator clients:
-```
-tail -f ~/.lighthouse/local-testnet/node_1/beacon/logs/beacon.log
-tail -f ~/.lighthouse/local-testnet/node_1/validators/logs/validator.log
-```
-
-Once again, the `node_1` can be modified to view the debug logs for different nodes.
-
 ## Stopping the testnet
 
 To stop the testnet, navigate to the directory `cd /lighthouse/scripts/local_testnet`, then run the command:
