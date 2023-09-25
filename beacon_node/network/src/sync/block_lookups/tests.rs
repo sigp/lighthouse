@@ -16,6 +16,7 @@ use beacon_chain::test_utils::{
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RPCResponseErrorCode;
 use lighthouse_network::{NetworkGlobals, Request};
+use rand::Rng;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;

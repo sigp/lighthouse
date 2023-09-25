@@ -396,6 +396,11 @@ where
                 .init_anchor_info(genesis.beacon_block.message(), retain_historic_states)
                 .map_err(|e| format!("Failed to initialize genesis anchor: {:?}", e))?,
         );
+        self.pending_io_batch.push(
+            store
+                .init_blob_info(genesis.beacon_block.slot())
+                .map_err(|e| format!("Failed to initialize genesis blob info: {:?}", e))?,
+        );
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
@@ -518,6 +523,11 @@ where
             store
                 .init_anchor_info(weak_subj_block.message(), retain_historic_states)
                 .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
+        );
+        self.pending_io_batch.push(
+            store
+                .init_blob_info(weak_subj_block.slot())
+                .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
         );
 
         // Store pruning checkpoint to prevent attempting to prune before the anchor state.
@@ -982,7 +992,7 @@ where
             );
         }
 
-        // Prune blobs sidecars older than the blob data availability boundary in the background.
+        // Prune blobs older than the blob data availability boundary in the background.
         if let Some(data_availability_boundary) = beacon_chain.data_availability_boundary() {
             beacon_chain
                 .store_migrator
