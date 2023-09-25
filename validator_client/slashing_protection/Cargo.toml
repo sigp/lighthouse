@@ -2,7 +2,7 @@
 name = "slashing_protection"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>", "pscott <scottpiriou@gmail.com>"]
-edition = "2021"
+edition = { workspace = true }
 autotests = false
 
 [[test]]
@@ -10,21 +10,21 @@ name = "slashing_protection_tests"
 path = "tests/main.rs"
 
 [dependencies]
-tempfile = "3.1.0"
-types = { path = "../../consensus/types" }
-rusqlite = { version = "0.28.0", features = ["bundled"] }
-r2d2 = "0.8.9"
+tempfile = { workspace = true }
+types = { workspace = true }
+rusqlite = { workspace = true }
+r2d2 = { workspace = true }
 r2d2_sqlite = "0.21.0"
-serde = "1.0.116"
+serde = { workspace = true }
 serde_derive = "1.0.116"
-serde_json = "1.0.58"
-ethereum_serde_utils = "0.5.0"
-filesystem = { path = "../../common/filesystem" }
-arbitrary = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { workspace = true }
+ethereum_serde_utils = { workspace = true }
+filesystem = { workspace = true }
+arbitrary = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-lazy_static = "1.4.0"
-rayon = "1.4.1"
+lazy_static = { workspace = true }
+rayon = { workspace = true }
 
 [features]
-arbitrary-fuzz = ["arbitrary", "types/arbitrary-fuzz"]
+arbitrary-fuzz = ["types/arbitrary-fuzz"]

@@ -754,22 +754,16 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // reboot if the `observed_block_producers` cache is empty. In that case, without this
         // check, we will load the parent and state from disk only to find out later that we
         // already know this block.
-        if chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
+        if fork_choice_read_lock.contains_block(&block_root) {
             return Err(BlockError::BlockIsAlreadyKnown);
         }
 
         // Do not process a block that doesn't descend from the finalized root.
         //
         // We check this *before* we load the parent so that we can return a more detailed error.
-        check_block_is_finalized_checkpoint_or_descendant(
-            chain,
-            &chain.canonical_head.fork_choice_read_lock(),
-            &block,
-        )?;
+        check_block_is_finalized_checkpoint_or_descendant(chain, &fork_choice_read_lock, &block)?;
+        drop(fork_choice_read_lock);
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) = verify_parent_block_is_known(chain, block)?;
@@ -1261,7 +1255,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         // Perform a sanity check on the pre-state.
         let parent_slot = parent.beacon_block.slot();
-        if state.slot() < parent_slot || state.slot() > parent_slot + 1 {
+        if state.slot() < parent_slot || state.slot() > block.slot() {
             return Err(BeaconChainError::BadPreState {
                 parent_root: parent.beacon_block_root,
                 parent_slot,
@@ -1760,13 +1754,18 @@ fn load_parent<T: BeaconChainTypes>(
                 BlockError::from(BeaconChainError::MissingBeaconBlock(block.parent_root()))
             })?;
 
-        // Load the parent blocks state from the database, returning an error if it is not found.
+        // Load the parent block's state from the database, returning an error if it is not found.
         // It is an error because if we know the parent block we should also know the parent state.
-        let parent_state_root = parent_block.state_root();
-        let parent_state = chain
-            .get_state(&parent_state_root, Some(parent_block.slot()))?
+        // Retrieve any state that is advanced through to at most `block.slot()`: this is
+        // particularly important if `block` descends from the finalized/split block, but at a slot
+        // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
+        let (parent_state_root, parent_state) = chain
+            .store
+            .get_advanced_hot_state(root, block.slot(), parent_block.state_root())?
             .ok_or_else(|| {
-                BeaconChainError::DBInconsistent(format!("Missing state {:?}", parent_state_root))
+                BeaconChainError::DBInconsistent(
+                    format!("Missing state for parent block {root:?}",),
+                )
             })?;
 
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SNAPSHOT_CACHE_MISSES);

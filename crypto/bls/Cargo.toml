@@ -2,24 +2,25 @@
 name = "bls"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-ethereum_ssz = "0.5.0"
-tree_hash = "0.5.0"
-milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.4.2", optional = true }
-rand = "0.7.3"
-serde = "1.0.116"
+ethereum_ssz = { workspace = true }
+tree_hash = { workspace = true }
+milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.5.1", optional = true }
+rand = { workspace = true }
+serde = { workspace = true }
 serde_derive = "1.0.116"
-ethereum_serde_utils = "0.5.0"
-hex = "0.4.2"
-ethereum_hashing = "1.0.0-beta.2"
-ethereum-types = "0.14.1"
-arbitrary = { version = "1.0", features = ["derive"], optional = true }
-zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
+ethereum_serde_utils = { workspace = true }
+hex = { workspace = true }
+ethereum_hashing = { workspace = true }
+ethereum-types = { workspace = true }
+arbitrary = { workspace = true }
+zeroize = { workspace = true }
 blst = { version = "0.3.3", optional = true }
 
 [features]
+arbitrary = []
 default = ["supranational"]
 fake_crypto = []
 milagro = ["milagro_bls"]

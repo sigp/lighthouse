@@ -17,6 +17,7 @@ pub mod rpc;
 pub mod types;
 
 pub use config::gossip_max_size;
+use libp2p::swarm::DialError;
 pub use listen_addr::*;
 
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
@@ -60,6 +61,46 @@ impl<'de> Deserialize<'de> for PeerIdSerialized {
         Ok(Self(PeerId::from_str(&s).map_err(|e| {
             de::Error::custom(format!("Failed to deserialise peer id: {:?}", e))
         })?))
+    }
+}
+
+// A wrapper struct that prints a dial error nicely.
+struct ClearDialError<'a>(&'a DialError);
+
+impl<'a> ClearDialError<'a> {
+    fn most_inner_error(err: &(dyn std::error::Error)) -> &(dyn std::error::Error) {
+        let mut current = err;
+        while let Some(source) = current.source() {
+            current = source;
+        }
+        current
+    }
+}
+
+impl<'a> std::fmt::Display for ClearDialError<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match &self.0 {
+            DialError::Transport(errors) => {
+                for (_, transport_error) in errors {
+                    match transport_error {
+                        libp2p::TransportError::MultiaddrNotSupported(multiaddr_error) => {
+                            write!(f, "Multiaddr not supported: {multiaddr_error}")?;
+                        }
+                        libp2p::TransportError::Other(other_error) => {
+                            let inner_error = ClearDialError::most_inner_error(other_error);
+                            write!(f, "Transport error: {inner_error}")?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            DialError::LocalPeerId { .. } => write!(f, "The peer being dialed is the local peer."),
+            DialError::NoAddresses => write!(f, "No addresses for the peer to dial."),
+            DialError::DialPeerConditionFalse(_) => write!(f, "PeerCondition evaluation failed."),
+            DialError::Aborted => write!(f, "Connection aborted."),
+            DialError::WrongPeerId { .. } => write!(f, "Wrong peer id."),
+            DialError::Denied { cause } => write!(f, "Connection denied: {:?}", cause),
+        }
     }
 }
 
