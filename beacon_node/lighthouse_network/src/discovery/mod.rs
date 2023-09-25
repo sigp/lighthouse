@@ -85,7 +85,7 @@ pub struct UpdatePorts {
     pub tcp4: bool,
     /// TCP port associated wih IPv6 address (if present)
     pub tcp6: bool,
-    /// QUIC port associated wih IPv6 address (if present)
+    /// QUIC port associated wih IPv4 address (if present)
     pub quic4: bool,
     /// QUIC port associated wih IPv6 address (if present)
     pub quic6: bool,
@@ -1060,7 +1060,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     Some(Protocol::Ip4(_)) => match (addr_iter.next(), addr_iter.next()) {
                         (Some(Protocol::Tcp(port)), None) => {
                             if !self.update_ports.tcp4 {
-                                debug!(self.log, "Skipping ENR (tcp4) update");
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
                                 return;
                             }
 
@@ -1068,7 +1068,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
                             if !self.update_ports.quic4 {
-                                debug!(self.log, "Skipping ENR (quic4) update");
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
                                 return;
                             }
 
@@ -1082,7 +1082,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     Some(Protocol::Ip6(_)) => match (addr_iter.next(), addr_iter.next()) {
                         (Some(Protocol::Tcp(port)), None) => {
                             if !self.update_ports.tcp6 {
-                                debug!(self.log, "Skipping ENR (tcp6) update");
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
                                 return;
                             }
 
@@ -1090,7 +1090,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
                             if !self.update_ports.quic6 {
-                                debug!(self.log, "Skipping ENR (quic6) update");
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
                                 return;
                             }
 
