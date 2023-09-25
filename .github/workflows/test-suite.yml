@@ -34,18 +34,6 @@ jobs:
     steps:
         - name: Check that the pull request is not targeting the stable branch
           run: test ${{ github.base_ref }} != "stable"
-  extract-msrv:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Extract Minimum Supported Rust Version (MSRV)
-      run: |
-        metadata=$(cargo metadata --no-deps --format-version 1)
-        msrv=$(echo $metadata | jq -r '.packages | map(select(.name == "lighthouse")) | .[0].rust_version')
-        echo "MSRV=$msrv" >> $GITHUB_OUTPUT
-      id: extract_msrv
-    outputs:
-      MSRV: ${{ steps.extract_msrv.outputs.MSRV }}
   release-tests-ubuntu:
     name: release-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
@@ -62,7 +50,7 @@ jobs:
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Install Foundry (anvil)
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
@@ -77,7 +65,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
@@ -91,17 +79,17 @@ jobs:
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Install make
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       run: choco install -y make
 #    - uses: KyleMayes/install-llvm-action@v1
-#         if: env.SELF_HOSTED_RUNNERS == false
+#         if: env.SELF_HOSTED_RUNNERS == 'false'
 #      with:
 #        version: "15.0"
 #        directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Install nextest for windows
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       run: |
         powershell Invoke-WebRequest -Uri https://get.nexte.st/latest/windows -OutFile nextest-windows.zip &&
         powershell Expand-Archive -Path 'nextest-windows.zip' -DestinationPath 'C:\Users\ContainerAdministrator\.cargo\bin\'
@@ -114,15 +102,16 @@ jobs:
     name: beacon-chain-tests
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
           bins: cargo-nextest
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
@@ -132,6 +121,8 @@ jobs:
   op-pool-tests:
     name: op-pool-tests
     runs-on: ubuntu-latest
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
@@ -139,13 +130,14 @@ jobs:
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
           bins: cargo-nextest
     - name: Run operation_pool tests for all known forks
       run: make test-op-pool
   slasher-tests:
     name: slasher-tests
     runs-on: ubuntu-latest
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
@@ -153,7 +145,6 @@ jobs:
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
           bins: cargo-nextest
     - name: Run slasher tests for all supported backends
       run: make test-slasher
@@ -161,17 +152,18 @@ jobs:
     name: debug-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
-          components: rustfmt
           bins: cargo-nextest
     - name: Install Foundry (anvil)
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
@@ -190,22 +182,22 @@ jobs:
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
     - name: Run state_transition_vectors in release.
       run: make run-state-transition-tests
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
           bins: cargo-nextest
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
       run: make nextest-ef
@@ -217,12 +209,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-          components: rustfmt
     - name: Build the root Dockerfile
       run: docker build --build-arg FEATURES=portable -t lighthouse:local .
     - name: Test the built image
@@ -237,7 +223,6 @@ jobs:
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
       with:
@@ -254,7 +239,6 @@ jobs:
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
       with:
@@ -271,7 +255,6 @@ jobs:
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
     - name: Run the beacon chain sim without an eth1 connection
       run: cargo run --release --bin simulator no-eth1-sim
   syncing-simulator-ubuntu:
@@ -284,7 +267,6 @@ jobs:
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
       with:
@@ -297,14 +279,13 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
     - name: Install geth
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       run: |
           sudo add-apt-repository -y ppa:ethereum/ethereum
           sudo apt-get update
@@ -313,7 +294,7 @@ jobs:
       run: |
           make
     - name: Install lcli
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       run: make install-lcli
     - name: Run the doppelganger protection failure test script
       run: |
@@ -333,7 +314,6 @@ jobs:
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
           cache: false
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -373,8 +353,13 @@ jobs:
     needs: [extract-msrv]
     steps:
     - uses: actions/checkout@v3
-    - name: Install Rust @ MSRV (${{ needs.extract-msrv.outputs.MSRV }})
-      run: rustup override set ${{ needs.extract-msrv.outputs.MSRV }}
+    - name: Extract Minimum Supported Rust Version (MSRV)
+      run: |
+        metadata=$(cargo metadata --no-deps --format-version 1)
+        msrv=$(echo $metadata | jq -r '.packages | map(select(.name == "lighthouse")) | .[0].rust_version')
+        echo "MSRV=$msrv" >> $GITHUB_OUTPUT
+    - name: Install Rust @ MSRV
+      run: rustup override set $msrv
     - name: Run cargo check
       run: cargo check --workspace
   cargo-udeps:
