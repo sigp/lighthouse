@@ -58,8 +58,9 @@ jobs:
       with:
           channel: stable
           cache-target: release
-          components: rustfmt
           bins: cargo-nextest
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Install Foundry (anvil)
       if: env.SELF_HOSTED_RUNNERS == false
       uses: foundry-rs/foundry-toolchain@v1
