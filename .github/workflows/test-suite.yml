@@ -53,7 +53,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
