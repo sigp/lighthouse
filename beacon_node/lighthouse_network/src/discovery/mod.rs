@@ -1056,7 +1056,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
 
                 let mut addr_iter = addr.iter();
 
-                if let Err(e) = match addr_iter.next() {
+                let attempt_enr_update = match addr_iter.next() {
                     Some(Protocol::Ip4(_)) => match (addr_iter.next(), addr_iter.next()) {
                         (Some(Protocol::Tcp(port)), None) => {
                             if !self.update_ports.tcp4 {
@@ -1105,12 +1105,15 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         debug!(self.log, "Encountered unacceptable multiaddr for listening (no IP)"; "addr" => ?addr);
                         return;
                     }
-                } {
-                    warn!(self.log, "Failed to update ENR"; "error" => ?e);
-                } else {
-                    let local_enr: Enr = self.discv5.local_enr();
-                    info!(self.log, "Updated local ENR"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
-                        "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6());
+                };
+
+                let local_enr: Enr = self.discv5.local_enr();
+
+                match attempt_enr_update {
+                    Ok(_) => {
+                        info!(self.log, "Updated local ENR"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(), "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6())
+                    }
+                    Err(e) => warn!(self.log, "Failed to update ENR"; "error" => ?e),
                 }
             }
             FromSwarm::ConnectionEstablished(_)
