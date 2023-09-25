@@ -1193,7 +1193,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             };
             match child_lookup.get_cached_child_block() {
                 CachedChild::Ok(rpc_block) => {
-                    blocks.push(rpc_block);
+                    // Insert this block at the front. This order is important because we later check
+                    // for linear roots in `filter_chain_segment`
+                    blocks.insert(0, rpc_block);
                 }
                 CachedChild::DownloadIncomplete => {
                     trace!(self.log, "Parent lookup chain complete, awaiting child response"; "chain_hash" => ?chain_hash);
