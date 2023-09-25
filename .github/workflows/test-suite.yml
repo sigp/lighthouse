@@ -58,7 +58,7 @@ jobs:
   release-tests-ubuntu:
     name: release-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
@@ -73,21 +73,13 @@ jobs:
       run: make test-release
   release-tests-windows:
     name: release-tests-windows
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows"]') || 'windows-2019'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "CI"]') || 'windows-2019'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
-    - name: Use Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '14'
-    - name: Install windows build tools
-      run: |
-        choco install python visualstudio2019-workload-vctools -y
-        npm config set msvs_version 2019
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
       with:
@@ -106,7 +98,7 @@ jobs:
   beacon-chain-tests:
     name: beacon-chain-tests
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
@@ -138,7 +130,7 @@ jobs:
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
@@ -164,7 +156,7 @@ jobs:
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "small"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3

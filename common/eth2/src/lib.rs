@@ -123,6 +123,7 @@ pub struct Timeouts {
     pub get_beacon_blocks_ssz: Duration,
     pub get_debug_beacon_states: Duration,
     pub get_deposit_snapshot: Duration,
+    pub get_validator_block_ssz: Duration,
 }
 
 impl Timeouts {
@@ -138,6 +139,7 @@ impl Timeouts {
             get_beacon_blocks_ssz: timeout,
             get_debug_beacon_states: timeout,
             get_deposit_snapshot: timeout,
+            get_validator_block_ssz: timeout,
         }
     }
 }
@@ -1601,14 +1603,14 @@ impl BeaconNodeHttpClient {
             .await
     }
 
-    /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks_modular<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    /// returns `GET v2/validator/blocks/{slot}` URL path
+    pub async fn get_validator_blocks_path<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+    ) -> Result<Url, Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -1630,6 +1632,26 @@ impl BeaconNodeHttpClient {
                 .append_pair("skip_randao_verification", "");
         }
 
+        Ok(path)
+    }
+
+    /// `GET v2/validator/blocks/{slot}`
+    pub async fn get_validator_blocks_modular<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+        let path = self
+            .get_validator_blocks_path::<T, Payload>(
+                slot,
+                randao_reveal,
+                graffiti,
+                skip_randao_verification,
+            )
+            .await?;
+
         self.get(path).await
     }
 
@@ -1640,7 +1662,18 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<ForkVersionedBeaconBlockType<T>, Error> {
-        self.get_validator_blocks_v3_modular(
+        self.get_validator_blocks_v3_modular()
+    }
+
+    /// `GET v2/validator/blocks/{slot}` in ssz format
+    pub async fn get_validator_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        self.get_validator_blocks_modular_ssz::<T, Payload>(
             slot,
             randao_reveal,
             graffiti,
@@ -1649,8 +1682,8 @@ impl BeaconNodeHttpClient {
         .await
     }
 
-    /// `GET v3/validator/blocks/{slot}`
-    pub async fn get_validator_blocks_v3_modular<T: EthSpec>(
+    /// `GET v2/validator/blocks/{slot}` in ssz format
+    pub async fn get_validator_blocks_modular_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
@@ -1695,6 +1728,22 @@ impl BeaconNodeHttpClient {
         Ok(ForkVersionedBeaconBlockType::Full(full_payload))
     }
 
+    /// `GET v3/validator/blocks/{slot}`
+    pub async fn get_validator_blocks_v3_modular<T: EthSpec>(
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let path = self
+            .get_validator_blocks_path::<T, Payload>(
+                slot,
+                randao_reveal,
+                graffiti,
+                skip_randao_verification,
+            )
+            .await?;
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block_ssz)
+            .await
+    }
+
     /// `GET v2/validator/blinded_blocks/{slot}`
     pub async fn get_validator_blinded_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
@@ -1711,17 +1760,14 @@ impl BeaconNodeHttpClient {
         .await
     }
 
-    /// `GET v1/validator/blinded_blocks/{slot}`
-    pub async fn get_validator_blinded_blocks_modular<
-        T: EthSpec,
-        Payload: AbstractExecPayload<T>,
-    >(
+    /// returns `GET v1/validator/blinded_blocks/{slot}` URL path
+    pub async fn get_validator_blinded_blocks_path<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+    ) -> Result<Url, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1743,7 +1789,69 @@ impl BeaconNodeHttpClient {
                 .append_key_only("skip_randao_verification");
         }
 
+        Ok(path)
+    }
+
+    /// `GET v1/validator/blinded_blocks/{slot}`
+    pub async fn get_validator_blinded_blocks_modular<
+        T: EthSpec,
+        Payload: AbstractExecPayload<T>,
+    >(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+        let path = self
+            .get_validator_blinded_blocks_path::<T, Payload>(
+                slot,
+                randao_reveal,
+                graffiti,
+                skip_randao_verification,
+            )
+            .await?;
+
         self.get(path).await
+    }
+
+    /// `GET v2/validator/blinded_blocks/{slot}` in ssz format
+    pub async fn get_validator_blinded_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        self.get_validator_blinded_blocks_modular_ssz::<T, Payload>(
+            slot,
+            randao_reveal,
+            graffiti,
+            SkipRandaoVerification::No,
+        )
+        .await
+    }
+
+    pub async fn get_validator_blinded_blocks_modular_ssz<
+        T: EthSpec,
+        Payload: AbstractExecPayload<T>,
+    >(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let path = self
+            .get_validator_blinded_blocks_path::<T, Payload>(
+                slot,
+                randao_reveal,
+                graffiti,
+                skip_randao_verification,
+            )
+            .await?;
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block_ssz)
+            .await
     }
 
     /// `GET validator/attestation_data?slot,committee_index`

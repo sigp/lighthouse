@@ -4,11 +4,13 @@ use crate::types::{
     error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind,
 };
 use crate::{GossipTopic, NetworkConfig};
+use futures::future::Either;
 use libp2p::bandwidth::BandwidthSinks;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::gossipsub;
 use libp2p::identity::{secp256k1, Keypair};
 use libp2p::{core, noise, yamux, PeerId, Transport, TransportExt};
+use libp2p_quic;
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
 use ssz::Decode;
@@ -37,19 +39,12 @@ pub struct Context<'a> {
 
 type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 
-/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
-/// mplex as the multiplexing layer.
+/// The implementation supports TCP/IP, QUIC (experimental) over UDP, noise as the encryption layer, and
+/// mplex/yamux as the multiplexing layer (when using TCP).
 pub fn build_transport(
     local_private_key: Keypair,
+    quic_support: bool,
 ) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
-    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true));
-    let transport = libp2p::dns::TokioDnsConfig::system(tcp)?;
-    #[cfg(feature = "libp2p-websocket")]
-    let transport = {
-        let trans_clone = transport.clone();
-        transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
-    };
-
     // mplex config
     let mut mplex_config = libp2p_mplex::MplexConfig::new();
     mplex_config.set_max_buffer_size(256);
@@ -58,18 +53,34 @@ pub fn build_transport(
     // yamux config
     let mut yamux_config = yamux::Config::default();
     yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());
-    let (transport, bandwidth) = transport
+
+    // Creates the TCP transport layer
+    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
         .multiplex(core::upgrade::SelectUpgrade::new(
             yamux_config,
             mplex_config,
         ))
-        .timeout(Duration::from_secs(10))
-        .boxed()
-        .with_bandwidth_logging();
+        .timeout(Duration::from_secs(10));
 
-    // Authentication
+    let (transport, bandwidth) = if quic_support {
+        // Enables Quic
+        // The default quic configuration suits us for now.
+        let quic_config = libp2p_quic::Config::new(&local_private_key);
+        tcp.or_transport(libp2p_quic::tokio::Transport::new(quic_config))
+            .map(|either_output, _| match either_output {
+                Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
+                Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
+            })
+            .with_bandwidth_logging()
+    } else {
+        tcp.with_bandwidth_logging()
+    };
+
+    // // Enables DNS over the transport.
+    let transport = libp2p::dns::TokioDnsConfig::system(transport)?.boxed();
+
     Ok((transport, bandwidth))
 }
 

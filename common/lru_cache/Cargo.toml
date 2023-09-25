@@ -2,7 +2,7 @@
 name = "lru_cache"
 version = "0.1.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-fnv = "1.0.7"
+fnv = { workspace = true }

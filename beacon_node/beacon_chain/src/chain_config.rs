@@ -1,5 +1,5 @@
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use types::{Checkpoint, Epoch, ProgressiveBalancesMode};
 

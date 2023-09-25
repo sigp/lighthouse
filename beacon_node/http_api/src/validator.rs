@@ -86,9 +86,22 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
                 .fork_name(&chain.spec)
                 .map_err(inconsistent_fork_rejection)?;
 
-            fork_versioned_response(endpoint_version, fork_name, block)
-                .map(|response| warp::reply::json(&response).into_response())
-                .map(|res| add_consensus_version_header(res, fork_name))
+            match accept_header {
+                Some(api_types::Accept::Ssz) => Response::builder()
+                    .status(200)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(block.as_ssz_bytes().into())
+                    .map(|res: Response<Bytes>| add_consensus_version_header(res, fork_name))
+                    .map_err(|e| {
+                        warp_utils::reject::custom_server_error(format!(
+                            "failed to create response: {}",
+                            e
+                        ))
+                    }),
+                _ => fork_versioned_response(endpoint_version, fork_name, block)
+                    .map(|response| warp::reply::json(&response).into_response())
+                    .map(|res| add_consensus_version_header(res, fork_name)),
+            }
         }
         BeaconBlockAndStateResponse::Blinded((block, _, _)) => {
             let fork_name = block
@@ -96,15 +109,29 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
                 .fork_name(&chain.spec)
                 .map_err(inconsistent_fork_rejection)?;
 
-            fork_versioned_response(endpoint_version, fork_name, block)
-                .map(|response| warp::reply::json(&response).into_response())
-                .map(|res| add_consensus_version_header(res, fork_name))
+            match accept_header {
+                Some(api_types::Accept::Ssz) => Response::builder()
+                    .status(200)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(block.as_ssz_bytes().into())
+                    .map(|res: Response<Bytes>| add_consensus_version_header(res, fork_name))
+                    .map_err(|e| {
+                        warp_utils::reject::custom_server_error(format!(
+                            "failed to create response: {}",
+                            e
+                        ))
+                    }),
+                _ => fork_versioned_response(endpoint_version, fork_name, block)
+                    .map(|response| warp::reply::json(&response).into_response())
+                    .map(|res| add_consensus_version_header(res, fork_name)),
+            }
         }
     }
 }
 
 pub async fn produce_block_v2<T: BeaconChainTypes>(
     endpoint_version: EndpointVersion,
+    accept_header: Option<api_types::Accept>,
     chain: Arc<BeaconChain<T>>,
     slot: Slot,
     query: api_types::ValidatorBlocksQuery,
@@ -136,9 +163,24 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
                 .fork_name(&chain.spec)
                 .map_err(inconsistent_fork_rejection)?;
 
-            fork_versioned_response(endpoint_version, fork_name, block)
-                .map(|response| warp::reply::json(&response).into_response())
-                .map(|res| add_consensus_version_header(res, fork_name))
+            match accept_header {
+                Some(api_types::Accept::Ssz) => Response::builder()
+                    .status(200)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(block.as_ssz_bytes().into())
+                    .map(|res: Response<Bytes>| {
+                        add_consensus_version_header(res, fork_name)
+                    })
+                    .map_err(|e| {
+                        warp_utils::reject::custom_server_error(format!(
+                            "failed to create response: {}",
+                            e
+                        ))
+                    }),
+                _ => fork_versioned_response(endpoint_version, fork_name, block)
+                    .map(|response| warp::reply::json(&response).into_response())
+                    .map(|res| add_consensus_version_header(res, fork_name)),
+            }
         }
         BeaconBlockAndStateResponse::Blinded((_, _, _)) => {
             Err(warp_utils::reject::custom_server_error(
