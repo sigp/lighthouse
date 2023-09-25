@@ -2338,6 +2338,18 @@ fn gui_flag() {
 }
 
 #[test]
+fn multiple_http_enabled_flags() {
+    CommandLineTest::new()
+        .flag("gui", None)
+        .flag("http", None)
+        .flag("staking", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.http_api.enabled);
+        });
+}
+
+#[test]
 fn optimistic_finalized_sync_default() {
     CommandLineTest::new()
         .run_with_zero_port()
