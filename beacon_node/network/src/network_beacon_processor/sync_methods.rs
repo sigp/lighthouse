@@ -302,6 +302,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .chain
             .data_availability_checker
             .incomplete_processing_components(slot);
+        if !block_roots.is_empty() {
+            debug!(self.log, "Found delayed lookups on poll"; "lookup_count" => block_roots.len());
+        }
         for block_root in block_roots {
             if let Some(peer_ids) = self.delayed_lookup_peers.lock().pop(&block_root) {
                 // Let the network layer de-dupe these.

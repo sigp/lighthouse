@@ -227,9 +227,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "Searching for block"
         };
         debug!(
-            log,
+            self.log,
             "{}", msg;
-            "peer_ids" => ?peer_source,
+            "peer_ids" => ?peer,
             "block" => ?block_root,
         );
         self.trigger_single_lookup(lookup, cx);
