@@ -57,14 +57,14 @@ pub struct OpenDatabases<'env> {
 }
 
 #[derive(Debug)]
-pub enum Cursor<'env> {
+pub enum Cursor<'txn, 'env: 'txn> {
     #[cfg(feature = "mdbx")]
-    Mdbx(mdbx_impl::Cursor<'env>),
+    Mdbx(mdbx_impl::Cursor<'txn>),
     #[cfg(feature = "lmdb")]
-    Lmdb(lmdb_impl::Cursor<'env>),
+    Lmdb(lmdb_impl::Cursor<'txn>),
     #[cfg(feature = "redb")]
-    Redb(redb_impl::Cursor<'env>),
-    Disabled(PhantomData<&'env ()>),
+    Redb(redb_impl::Cursor<'txn, 'env>),
+    Disabled(PhantomData<(&'txn (), &'env ())>),
 }
 
 pub type Key<'a> = Cow<'a, [u8]>;
@@ -167,7 +167,10 @@ impl<'env> RwTransaction<'env> {
         }
     }
 
-    pub fn cursor<'a>(&'a mut self, db: &Database) -> Result<Cursor<'a>, Error> {
+    pub fn cursor<'a>(&'a mut self, db: &Database) -> Result<Cursor<'a, 'env>, Error>
+    where
+        'env: 'a,
+    {
         match (self, db) {
             #[cfg(feature = "mdbx")]
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.cursor(db).map(Cursor::Mdbx),
@@ -192,7 +195,7 @@ impl<'env> RwTransaction<'env> {
     }
 }
 
-impl<'env> Cursor<'env> {
+impl<'txn, 'env> Cursor<'txn, 'env> {
     /// Return the first key in the current database while advancing the cursor's position.
     pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
         match self {
