@@ -333,6 +333,8 @@ jobs:
           cache-target: release
           components: rustfmt
           cache: false
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Run exec engine integration tests in release
       run: make test-exec-engine
   check-code:
