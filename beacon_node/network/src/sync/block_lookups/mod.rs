@@ -214,12 +214,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         }
 
-        let msg = if child_components.is_some() {
-            "Searching for components of a block with unknown parent"
-        } else {
-            "Searching for block"
-        };
-
         let lookup = SingleBlockLookup::new(
             block_root,
             child_components,
@@ -227,7 +221,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             self.da_checker.clone(),
             cx.next_id(),
         );
-        lookup_creation_logging(msg, &lookup, peer, &self.log);
+        let msg = if child_components.is_some() {
+            "Searching for components of a block with unknown parent"
+        } else {
+            "Searching for block"
+        };
+        debug!(
+            log,
+            "{}", msg;
+            "peer_ids" => ?peer_source,
+            "block" => ?block_root,
+        );
         self.trigger_single_lookup(lookup, cx);
     }
 
@@ -1387,31 +1391,5 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Drops all the parent chain requests and returns how many requests were dropped.
     pub fn drop_parent_chain_requests(&mut self) -> usize {
         self.parent_lookups.drain(..).len()
-    }
-}
-
-fn lookup_creation_logging<L: Lookup, T: BeaconChainTypes>(
-    msg: &str,
-    lookup: &SingleBlockLookup<L, T>,
-    peer_source: PeerShouldHave,
-    log: &Logger,
-) {
-    let block_root = lookup.block_root();
-    if lookup.da_checker.is_deneb() {
-        let blob_indices = lookup.blob_request_state.requested_ids.indices();
-        debug!(
-            log,
-            "{}", msg;
-            "peer_ids" => ?peer_source,
-            "block" => ?block_root,
-            "blob_indices" => ?blob_indices
-        );
-    } else {
-        debug!(
-            log,
-            "{}", msg;
-            "peer_ids" => ?peer_source,
-            "block" => ?block_root,
-        );
     }
 }
