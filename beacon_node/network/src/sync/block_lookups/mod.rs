@@ -214,6 +214,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         }
 
+        let msg = if child_components.is_some() {
+            "Searching for components of a block with unknown parent"
+        } else {
+            "Searching for block"
+        };
+
         let lookup = SingleBlockLookup::new(
             block_root,
             child_components,
@@ -221,11 +227,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             self.da_checker.clone(),
             cx.next_id(),
         );
-        let msg = if child_components.is_some() {
-            "Searching for components of a block with unknown parent"
-        } else {
-            "Searching for block"
-        };
+
         debug!(
             self.log,
             "{}", msg;

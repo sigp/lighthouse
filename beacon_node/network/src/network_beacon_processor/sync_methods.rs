@@ -18,7 +18,7 @@ use beacon_processor::{
     AsyncFn, BlockingFn, DuplicateCache,
 };
 use lighthouse_network::PeerAction;
-use slog::{debug, error, info, warn};
+use slog::{debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
@@ -302,7 +302,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .chain
             .data_availability_checker
             .incomplete_processing_components(slot);
-        if !block_roots.is_empty() {
+        if block_roots.is_empty() {
+            trace!(self.log, "No delayed lookups found on poll");
+        } else {
             debug!(self.log, "Found delayed lookups on poll"; "lookup_count" => block_roots.len());
         }
         for block_root in block_roots {
