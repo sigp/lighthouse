@@ -2510,7 +2510,6 @@ pub enum NumBlobs {
     None,
 }
 
-//TODO: port michael's changes to Rng from store updates
 pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
@@ -2524,17 +2523,12 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         // get random number between 0 and Max Blobs
         let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
         let num_blobs = match num_blobs {
-            NumBlobs::Random => {
-                let mut num_blobs = rand::random::<usize>() % E::max_blobs_per_block();
-                if num_blobs == 0 {
-                    num_blobs += 1;
-                }
-                num_blobs
-            }
+            NumBlobs::Random => 1 + rng.gen::<usize>() % E::max_blobs_per_block(),
             NumBlobs::None => 0,
         };
         let (bundle, transactions) =
-            execution_layer::test_utils::generate_random_blobs::<E>(num_blobs, kzg).unwrap();
+            execution_layer::test_utils::generate_random_blobs::<E, _>(num_blobs, kzg, rng)
+                .unwrap();
 
         payload.execution_payload.transactions = <_>::default();
         for tx in Vec::from(transactions) {

@@ -639,8 +639,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.log,
                     "Successfully verified gossip blob";
                     "slot" => %slot,
-                            "root" => %root,
-                            "index" => %index
+                    "root" => %root,
+                    "index" => %index
                 );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
