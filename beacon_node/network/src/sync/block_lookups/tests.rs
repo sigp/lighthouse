@@ -14,6 +14,7 @@ use beacon_chain::test_utils::{build_log, BeaconChainHarness, EphemeralHarnessTy
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RPCResponseErrorCode;
 use lighthouse_network::{NetworkGlobals, Request};
+use rand::Rng;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;
@@ -104,20 +105,16 @@ impl TestRig {
             // get random number between 0 and Max Blobs
             let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => {
-                    let mut num_blobs = rand::random::<usize>() % E::max_blobs_per_block();
-                    if num_blobs == 0 {
-                        num_blobs += 1;
-                    }
-                    num_blobs
-                }
+                NumBlobs::Random => 1 + self.rng.gen::<usize>() % E::max_blobs_per_block(),
                 NumBlobs::None => 0,
             };
-            let (bundle, transactions) = execution_layer::test_utils::generate_random_blobs::<E>(
-                num_blobs,
-                self.harness.chain.kzg.as_ref().unwrap(),
-            )
-            .unwrap();
+            let (bundle, transactions) =
+                execution_layer::test_utils::generate_random_blobs::<E, _>(
+                    num_blobs,
+                    self.harness.chain.kzg.as_ref().unwrap(),
+                    &mut self.rng,
+                )
+                .unwrap();
 
             payload.execution_payload.transactions = <_>::default();
             for tx in Vec::from(transactions) {

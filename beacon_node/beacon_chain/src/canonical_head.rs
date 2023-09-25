@@ -762,12 +762,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Drop the old cache head nice and early to try and free the memory as soon as possible.
         drop(old_cached_head);
 
-        // Prune blobs in the background.
-        if let Some(data_availability_boundary) = self.data_availability_boundary() {
-            self.store_migrator
-                .process_prune_blobs(data_availability_boundary);
-        }
-
         // If the finalized checkpoint changed, perform some updates.
         //
         // The `after_finalization` function will take a write-lock on `fork_choice`, therefore it
@@ -1063,6 +1057,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_view.finalized_checkpoint,
             self.head_tracker.clone(),
         )?;
+
+        // Prune blobs in the background.
+        if let Some(data_availability_boundary) = self.data_availability_boundary() {
+            self.store_migrator
+                .process_prune_blobs(data_availability_boundary);
+        }
 
         // Take a write-lock on the canonical head and signal for it to prune.
         self.canonical_head.fork_choice_write_lock().prune()?;

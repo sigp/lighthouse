@@ -51,16 +51,16 @@ type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
-    get_store_with_spec(db_path, test_spec::<E>())
+    get_store_generic(db_path, StoreConfig::default(), test_spec::<E>())
 }
 
-fn get_store_with_spec(
+fn get_store_generic(
     db_path: &TempDir,
+    config: StoreConfig,
     spec: ChainSpec,
 ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
-    let config = StoreConfig::default();
     let log = test_logger();
 
     HotColdDB::open(
@@ -93,7 +93,7 @@ fn get_harness_generic(
     chain_config: ChainConfig,
 ) -> TestHarness {
     let harness = TestHarness::builder(MinimalEthSpec)
-        .default_spec()
+        .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .logger(store.logger().clone())
         .fresh_disk_store(store)
@@ -1091,7 +1091,7 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         );
     }
 
-    assert_eq!(rig.get_finalized_checkpoints(), hashset! {},);
+    assert_eq!(rig.get_finalized_checkpoints(), hashset! {});
 
     assert!(rig.chain.knows_head(&stray_head));
 
@@ -1118,8 +1118,11 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     for &block_hash in stray_blocks.values() {
         assert!(
             !rig.block_exists(block_hash),
-            "abandoned block {} should have been pruned",
-            block_hash
+            "abandoned block {block_hash:?} should have been pruned",
+        );
+        assert!(
+            !rig.chain.store.blobs_exist(&block_hash.into()).unwrap(),
+            "blobs for abandoned block {block_hash:?} should have been pruned"
         );
     }
 
@@ -1807,6 +1810,10 @@ fn check_no_blocks_exist<'a>(
             block.is_none(),
             "did not expect block {:?} to be in the DB",
             block_hash
+        );
+        assert!(
+            !harness.chain.store.blobs_exist(&block_hash.into()).unwrap(),
+            "blobs for abandoned block {block_hash:?} should have been pruned"
         );
     }
 }
@@ -2590,7 +2597,7 @@ async fn revert_minority_fork_on_resume() {
 
     // Chain with no fork epoch configured.
     let db_path1 = tempdir().unwrap();
-    let store1 = get_store_with_spec(&db_path1, spec1.clone());
+    let store1 = get_store_generic(&db_path1, StoreConfig::default(), spec1.clone());
     let harness1 = BeaconChainHarness::builder(MinimalEthSpec)
         .spec(spec1)
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -2600,7 +2607,7 @@ async fn revert_minority_fork_on_resume() {
 
     // Chain with fork epoch configured.
     let db_path2 = tempdir().unwrap();
-    let store2 = get_store_with_spec(&db_path2, spec2.clone());
+    let store2 = get_store_generic(&db_path2, StoreConfig::default(), spec2.clone());
     let harness2 = BeaconChainHarness::builder(MinimalEthSpec)
         .spec(spec2.clone())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -2695,7 +2702,7 @@ async fn revert_minority_fork_on_resume() {
     // We have to do some hackery with the `slot_clock` so that the correct slot is set when
     // the beacon chain builder loads the head block.
     drop(harness1);
-    let resume_store = get_store_with_spec(&db_path1, spec2.clone());
+    let resume_store = get_store_generic(&db_path1, StoreConfig::default(), spec2.clone());
 
     let resumed_harness = TestHarness::builder(MinimalEthSpec)
         .spec(spec2)
@@ -2770,9 +2777,11 @@ async fn schema_downgrade_to_min_version() {
         )
         .await;
 
-    let min_version = if harness.spec.capella_fork_epoch.is_some() {
-        // Can't downgrade beyond V14 once Capella is reached, for simplicity don't test that
-        // at all if Capella is enabled.
+    let min_version = if harness.spec.deneb_fork_epoch.is_some() {
+        // Can't downgrade beyond V18 once Deneb is reached, for simplicity don't test that
+        // at all if Deneb is enabled.
+        SchemaVersion(18)
+    } else if harness.spec.capella_fork_epoch.is_some() {
         SchemaVersion(14)
     } else {
         SchemaVersion(11)
@@ -2812,15 +2821,6 @@ async fn schema_downgrade_to_min_version() {
     .expect("schema upgrade from minimum version should work");
 
     // Recreate the harness.
-    /*
-    let slot_clock = TestingSlotClock::new(
-        Slot::new(0),
-        Duration::from_secs(harness.chain.genesis_time),
-        Duration::from_secs(spec.seconds_per_slot),
-    );
-    slot_clock.set_slot(harness.get_current_slot().as_u64());
-    */
-
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
@@ -2846,6 +2846,278 @@ async fn schema_downgrade_to_min_version() {
         spec,
     )
     .expect_err("should not downgrade below minimum version");
+}
+
+/// Check that blob pruning prunes blobs older than the data availability boundary.
+#[tokio::test]
+async fn deneb_prune_blobs_happy_case() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+
+    let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
+        // No-op prior to Deneb.
+        return;
+    };
+    let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let num_blocks_produced = E::slots_per_epoch() * 8;
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Prior to manual pruning with an artifically low data availability boundary all blobs should
+    // be stored.
+    assert_eq!(
+        store.get_blob_info().oldest_blob_slot,
+        Some(deneb_fork_slot)
+    );
+    check_blob_existence(&harness, Slot::new(1), harness.head_slot(), true);
+
+    // Trigger blob pruning of blobs older than epoch 2.
+    let data_availability_boundary = Epoch::new(2);
+    store
+        .try_prune_blobs(true, data_availability_boundary)
+        .unwrap();
+
+    // Check oldest blob slot is updated accordingly and prior blobs have been deleted.
+    let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+    assert_eq!(
+        oldest_blob_slot,
+        data_availability_boundary.start_slot(E::slots_per_epoch())
+    );
+    check_blob_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
+    check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
+}
+
+/// Check that blob pruning does not prune without finalization.
+#[tokio::test]
+async fn deneb_prune_blobs_no_finalization() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+
+    let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
+        // No-op prior to Deneb.
+        return;
+    };
+    let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let initial_num_blocks = E::slots_per_epoch() * 5;
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Finalize to epoch 3.
+    harness
+        .extend_chain(
+            initial_num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Extend the chain for another few epochs without attestations.
+    let unfinalized_num_blocks = E::slots_per_epoch() * 3;
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            unfinalized_num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    // Finalization should be at epoch 3.
+    let finalized_slot = Slot::new(E::slots_per_epoch() * 3);
+    assert_eq!(harness.get_current_state().finalized_checkpoint().epoch, 3);
+    assert_eq!(store.get_split_slot(), finalized_slot);
+
+    // All blobs should still be available.
+    assert_eq!(
+        store.get_blob_info().oldest_blob_slot,
+        Some(deneb_fork_slot)
+    );
+    check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
+
+    // Attempt blob pruning of blobs older than epoch 4, which is newer than finalization.
+    let data_availability_boundary = Epoch::new(4);
+    store
+        .try_prune_blobs(true, data_availability_boundary)
+        .unwrap();
+
+    // Check oldest blob slot is only updated to finalization, and NOT to the DAB.
+    let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+    assert_eq!(oldest_blob_slot, finalized_slot);
+    check_blob_existence(&harness, Slot::new(0), finalized_slot - 1, false);
+    check_blob_existence(&harness, finalized_slot, harness.head_slot(), true);
+}
+
+/// Check that blob pruning does not fail trying to prune across the fork boundary.
+#[tokio::test]
+async fn deneb_prune_blobs_fork_boundary() {
+    let deneb_fork_epoch = Epoch::new(4);
+    let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
+    spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+    let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let num_blocks = E::slots_per_epoch() * 7;
+
+    // Finalize to epoch 5.
+    harness
+        .extend_chain(
+            num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Finalization should be at epoch 5.
+    let finalized_epoch = Epoch::new(5);
+    let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
+    assert_eq!(
+        harness.get_current_state().finalized_checkpoint().epoch,
+        finalized_epoch
+    );
+    assert_eq!(store.get_split_slot(), finalized_slot);
+
+    // All blobs should still be available.
+    assert_eq!(
+        store.get_blob_info().oldest_blob_slot,
+        Some(deneb_fork_slot)
+    );
+    check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
+
+    // Attempt pruning with data availability epochs that precede the fork epoch.
+    // No pruning should occur.
+    assert!(deneb_fork_epoch < finalized_epoch);
+    for data_availability_boundary in [Epoch::new(0), Epoch::new(3), deneb_fork_epoch] {
+        store
+            .try_prune_blobs(true, data_availability_boundary)
+            .unwrap();
+
+        // Check oldest blob slot is not updated.
+        assert_eq!(
+            store.get_blob_info().oldest_blob_slot,
+            Some(deneb_fork_slot)
+        );
+    }
+    // All blobs should still be available.
+    check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
+
+    // Prune one epoch past the fork.
+    let pruned_slot = (deneb_fork_epoch + 1).start_slot(E::slots_per_epoch());
+    store.try_prune_blobs(true, deneb_fork_epoch + 1).unwrap();
+    assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
+    check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
+    check_blob_existence(&harness, pruned_slot, harness.head_slot(), true);
+}
+
+/// Check that blob pruning prunes blobs older than the data availability boundary with margin
+/// applied.
+#[tokio::test]
+async fn deneb_prune_blobs_margin1() {
+    deneb_prune_blobs_margin_test(1).await;
+}
+
+#[tokio::test]
+async fn deneb_prune_blobs_margin3() {
+    deneb_prune_blobs_margin_test(3).await;
+}
+
+#[tokio::test]
+async fn deneb_prune_blobs_margin4() {
+    deneb_prune_blobs_margin_test(4).await;
+}
+
+async fn deneb_prune_blobs_margin_test(margin: u64) {
+    let config = StoreConfig {
+        blob_prune_margin_epochs: margin,
+        ..StoreConfig::default()
+    };
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, config, test_spec::<E>());
+
+    let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
+        // No-op prior to Deneb.
+        return;
+    };
+    let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let num_blocks_produced = E::slots_per_epoch() * 8;
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Prior to manual pruning with an artifically low data availability boundary all blobs should
+    // be stored.
+    assert_eq!(
+        store.get_blob_info().oldest_blob_slot,
+        Some(deneb_fork_slot)
+    );
+    check_blob_existence(&harness, Slot::new(1), harness.head_slot(), true);
+
+    // Trigger blob pruning of blobs older than epoch 6 - margin (6 is the minimum, due to
+    // finalization).
+    let data_availability_boundary = Epoch::new(6);
+    let effective_data_availability_boundary =
+        data_availability_boundary - store.get_config().blob_prune_margin_epochs;
+    assert!(
+        effective_data_availability_boundary > 0,
+        "must be > 0 because epoch 0 won't get pruned alone"
+    );
+    store
+        .try_prune_blobs(true, data_availability_boundary)
+        .unwrap();
+
+    // Check oldest blob slot is updated accordingly and prior blobs have been deleted.
+    let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+    assert_eq!(
+        oldest_blob_slot,
+        effective_data_availability_boundary.start_slot(E::slots_per_epoch())
+    );
+    check_blob_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
+    check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
+}
+
+/// Check that there are blob sidecars (or not) at every slot in the range.
+fn check_blob_existence(
+    harness: &TestHarness,
+    start_slot: Slot,
+    end_slot: Slot,
+    should_exist: bool,
+) {
+    let mut blobs_seen = 0;
+    for (block_root, slot) in harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap()
+        .map(Result::unwrap)
+    {
+        if let Some(blobs) = harness.chain.store.get_blobs(&block_root).unwrap() {
+            assert!(should_exist, "blobs at slot {slot} exist but should not");
+            blobs_seen += blobs.len();
+        } else {
+            // We don't actually store empty blobs, so unfortunately we can't assert anything
+            // meaningful here (like asserting that the blob should not exist).
+        }
+    }
+    if should_exist {
+        assert_ne!(blobs_seen, 0, "expected non-zero number of blobs");
+    }
 }
 
 /// Checks that two chains are the same, for the purpose of these tests.

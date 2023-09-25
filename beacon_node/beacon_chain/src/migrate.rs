@@ -218,7 +218,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         if let Err(e) = db.try_prune_blobs(false, data_availability_boundary) {
             error!(
                 log,
-                "Blobs pruning failed";
+                "Blob pruning failed";
                 "error" => ?e,
             );
         }
@@ -390,39 +390,44 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let (tx, rx) = mpsc::channel();
         let thread = thread::spawn(move || {
             while let Ok(notif) = rx.recv() {
-                // Read the rest of the messages in the channel, preferring any reconstruction
-                // notification, or the finalization notification with the greatest finalized epoch.
-                let notif =
-                    rx.try_iter()
-                        .fold(notif, |best, other: Notification| match (&best, &other) {
-                            (Notification::Reconstruction, _)
-                            | (_, Notification::Reconstruction) => Notification::Reconstruction,
-                            (
-                                Notification::Finalization(fin1),
-                                Notification::Finalization(fin2),
-                            ) => {
-                                if fin2.finalized_checkpoint.epoch > fin1.finalized_checkpoint.epoch
-                                {
-                                    other
-                                } else {
-                                    best
-                                }
-                            }
-                            (Notification::Finalization(_), Notification::PruneBlobs(_)) => best,
-                            (Notification::PruneBlobs(_), Notification::Finalization(_)) => other,
-                            (Notification::PruneBlobs(dab1), Notification::PruneBlobs(dab2)) => {
-                                if dab2 > dab1 {
-                                    other
-                                } else {
-                                    best
-                                }
-                            }
-                        });
-
+                let mut reconstruction_notif = None;
+                let mut finalization_notif = None;
+                let mut prune_blobs_notif = None;
                 match notif {
-                    Notification::Reconstruction => Self::run_reconstruction(db.clone(), &log),
-                    Notification::Finalization(fin) => Self::run_migration(db.clone(), fin, &log),
-                    Notification::PruneBlobs(dab) => Self::run_prune_blobs(db.clone(), dab, &log),
+                    Notification::Reconstruction => reconstruction_notif = Some(notif),
+                    Notification::Finalization(fin) => finalization_notif = Some(fin),
+                    Notification::PruneBlobs(dab) => prune_blobs_notif = Some(dab),
+                }
+                // Read the rest of the messages in the channel, taking the best of each type.
+                for notif in rx.try_iter() {
+                    match notif {
+                        Notification::Reconstruction => reconstruction_notif = Some(notif),
+                        Notification::Finalization(fin) => {
+                            if let Some(current) = finalization_notif.as_mut() {
+                                if fin.finalized_checkpoint.epoch
+                                    > current.finalized_checkpoint.epoch
+                                {
+                                    *current = fin;
+                                }
+                            } else {
+                                finalization_notif = Some(fin);
+                            }
+                        }
+                        Notification::PruneBlobs(dab) => {
+                            prune_blobs_notif = std::cmp::max(prune_blobs_notif, Some(dab));
+                        }
+                    }
+                }
+                // If reconstruction is on-going, ignore finalization migration and blob pruning.
+                if reconstruction_notif.is_some() {
+                    Self::run_reconstruction(db.clone(), &log);
+                } else {
+                    if let Some(fin) = finalization_notif {
+                        Self::run_migration(db.clone(), fin, &log);
+                    }
+                    if let Some(dab) = prune_blobs_notif {
+                        Self::run_prune_blobs(db.clone(), dab, &log);
+                    }
                 }
             }
         });
@@ -663,22 +668,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             head_tracker_lock.remove(&head_hash);
         }
 
-        let batch: Vec<StoreOp<E>> = abandoned_blocks
+        let mut batch: Vec<StoreOp<E>> = abandoned_blocks
             .into_iter()
             .map(Into::into)
             .flat_map(|block_root: Hash256| {
-                let mut store_ops = vec![
+                [
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
-                ];
-                if store.blobs_sidecar_exists(&block_root).unwrap_or(false) {
-                    // Keep track of non-empty orphaned blobs sidecars.
-                    store_ops.extend([
-                        StoreOp::DeleteBlobs(block_root),
-                        StoreOp::PutOrphanedBlobsKey(block_root),
-                    ]);
-                }
-                store_ops
+                    StoreOp::DeleteBlobs(block_root),
+                ]
             })
             .chain(
                 abandoned_states
@@ -686,8 +684,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash.into(), Some(slot))),
             )
             .collect();
-
-        let mut kv_batch = store.convert_to_kv_batch(batch)?;
 
         // Persist the head in case the process is killed or crashes here. This prevents
         // the head tracker reverting after our mutation above.
@@ -697,12 +693,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             ssz_head_tracker: SszHeadTracker::from_map(&head_tracker_lock),
         };
         drop(head_tracker_lock);
-        kv_batch.push(persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY));
+        batch.push(StoreOp::KeyValueOp(
+            persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY),
+        ));
 
         // Persist the new finalized checkpoint as the pruning checkpoint.
-        kv_batch.push(store.pruning_checkpoint_store_op(new_finalized_checkpoint));
+        batch.push(StoreOp::KeyValueOp(
+            store.pruning_checkpoint_store_op(new_finalized_checkpoint),
+        ));
 
-        store.hot_db.do_atomically(kv_batch)?;
+        store.do_atomically_with_block_and_blobs_cache(batch)?;
         debug!(log, "Database pruning complete");
 
         Ok(PruningOutcome::Successful {
