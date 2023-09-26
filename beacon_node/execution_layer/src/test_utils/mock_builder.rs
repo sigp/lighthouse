@@ -7,6 +7,7 @@ pub use ethereum_consensus::state_transition::Context;
 use ethereum_consensus::{
     crypto::{SecretKey, Signature},
     primitives::{BlsPublicKey, BlsSignature, ExecutionAddress, Hash32, Root, U256},
+    ssz::prelude::ssz_rs::{self, Merkleized, SimpleSerialize},
     state_transition::Error,
 };
 use fork_choice::ForkchoiceUpdateParameters;
@@ -27,7 +28,6 @@ use mev_rs::{
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use ssz::{Decode, Encode};
-use ssz_rs::{Merkleized, SimpleSerialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
