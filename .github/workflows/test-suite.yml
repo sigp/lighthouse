@@ -345,7 +345,6 @@ jobs:
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest
-    needs: [extract-msrv]
     steps:
     - uses: actions/checkout@v3
     - name: Extract Minimum Supported Rust Version (MSRV)
