@@ -2,27 +2,27 @@
 name = "store"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.1.0"
-beacon_chain = {path = "../beacon_chain"}
+tempfile = { workspace = true }
+beacon_chain = { workspace = true }
 
 [dependencies]
 db-key = "0.0.5"
-leveldb = { version = "0.8.6" }
-parking_lot = "0.12.0"
-itertools = "0.10.0"
-ethereum_ssz = "0.5.0"
-ethereum_ssz_derive = "0.5.0"
-types = { path =  "../../consensus/types" }
-state_processing = { path = "../../consensus/state_processing" }
-slog = "2.5.2"
-serde = "1.0.116"
+leveldb = { version = "0.8" }
+parking_lot = { workspace = true }
+itertools = { workspace = true }
+ethereum_ssz = { workspace = true }
+ethereum_ssz_derive = { workspace = true }
+types = { workspace = true }
+state_processing = { workspace = true }
+slog = { workspace = true }
+serde = { workspace = true }
 serde_derive = "1.0.116"
-lazy_static = "1.4.0"
-lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-lru = "0.7.1"
-sloggers = { version = "2.1.1", features = ["json"] }
-directory = { path = "../../common/directory" }
-strum = { version = "0.24.0", features = ["derive"] }
+lazy_static = { workspace = true }
+lighthouse_metrics = { workspace = true }
+lru = { workspace = true }
+sloggers = { workspace = true }
+directory = { workspace = true }
+strum = { workspace = true }

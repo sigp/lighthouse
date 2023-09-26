@@ -11,10 +11,11 @@
 //! To add a new built-in testnet, add it to the `define_hardcoded_nets` invocation in the `eth2_config`
 //! crate.
 
+use bytes::Bytes;
 use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
 use pretty_reqwest_error::PrettyReqwestError;
-use reqwest::blocking::Client;
+use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
 use sha2::{Digest, Sha256};
 use slog::{info, warn, Logger};
@@ -127,14 +128,8 @@ impl Eth2NetworkConfig {
         self.genesis_state_source != GenesisStateSource::Unknown
     }
 
-    /// The `genesis_validators_root` of the genesis state. May download the
-    /// genesis state if the value is not already available.
-    pub fn genesis_validators_root<E: EthSpec>(
-        &self,
-        genesis_state_url: Option<&str>,
-        timeout: Duration,
-        log: &Logger,
-    ) -> Result<Option<Hash256>, String> {
+    /// The `genesis_validators_root` of the genesis state.
+    pub fn genesis_validators_root<E: EthSpec>(&self) -> Result<Option<Hash256>, String> {
         if let GenesisStateSource::Url {
             genesis_validators_root,
             ..
@@ -149,10 +144,8 @@ impl Eth2NetworkConfig {
                     )
                 })
         } else {
-            self.genesis_state::<E>(genesis_state_url, timeout, log)?
-                .map(|state| state.genesis_validators_root())
-                .map(Result::Ok)
-                .transpose()
+            self.get_genesis_state_from_bytes::<E>()
+                .map(|state| Some(state.genesis_validators_root()))
         }
     }
 
@@ -170,7 +163,7 @@ impl Eth2NetworkConfig {
     ///
     /// If the genesis state is configured to be downloaded from a URL, then the
     /// `genesis_state_url` will override the built-in list of download URLs.
-    pub fn genesis_state<E: EthSpec>(
+    pub async fn genesis_state<E: EthSpec>(
         &self,
         genesis_state_url: Option<&str>,
         timeout: Duration,
@@ -180,15 +173,7 @@ impl Eth2NetworkConfig {
         match &self.genesis_state_source {
             GenesisStateSource::Unknown => Ok(None),
             GenesisStateSource::IncludedBytes => {
-                let state = self
-                    .genesis_state_bytes
-                    .as_ref()
-                    .map(|bytes| {
-                        BeaconState::from_ssz_bytes(bytes.as_ref(), &spec).map_err(|e| {
-                            format!("Built-in genesis state SSZ bytes are invalid: {:?}", e)
-                        })
-                    })
-                    .ok_or("Genesis state bytes missing from Eth2NetworkConfig")??;
+                let state = self.get_genesis_state_from_bytes()?;
                 Ok(Some(state))
             }
             GenesisStateSource::Url {
@@ -200,9 +185,9 @@ impl Eth2NetworkConfig {
                     format!("Unable to parse genesis state bytes checksum: {:?}", e)
                 })?;
                 let bytes = if let Some(specified_url) = genesis_state_url {
-                    download_genesis_state(&[specified_url], timeout, checksum, log)
+                    download_genesis_state(&[specified_url], timeout, checksum, log).await
                 } else {
-                    download_genesis_state(built_in_urls, timeout, checksum, log)
+                    download_genesis_state(built_in_urls, timeout, checksum, log).await
                 }?;
                 let state = BeaconState::from_ssz_bytes(bytes.as_ref(), &spec).map_err(|e| {
                     format!("Downloaded genesis state SSZ bytes are invalid: {:?}", e)
@@ -226,6 +211,17 @@ impl Eth2NetworkConfig {
                 Ok(Some(state))
             }
         }
+    }
+
+    fn get_genesis_state_from_bytes<E: EthSpec>(&self) -> Result<BeaconState<E>, String> {
+        let spec = self.chain_spec::<E>()?;
+        self.genesis_state_bytes
+            .as_ref()
+            .map(|bytes| {
+                BeaconState::from_ssz_bytes(bytes.as_ref(), &spec)
+                    .map_err(|e| format!("Built-in genesis state SSZ bytes are invalid: {:?}", e))
+            })
+            .ok_or("Genesis state bytes missing from Eth2NetworkConfig")?
     }
 
     /// Write the files to the directory.
@@ -352,7 +348,7 @@ impl Eth2NetworkConfig {
 /// Try to download a genesis state from each of the `urls` in the order they
 /// are defined. Return `Ok` if any url returns a response that matches the
 /// given `checksum`.
-fn download_genesis_state(
+async fn download_genesis_state(
     urls: &[&str],
     timeout: Duration,
     checksum: Hash256,
@@ -384,12 +380,7 @@ fn download_genesis_state(
         );
 
         let client = Client::new();
-        let response = client
-            .get(url)
-            .header("Accept", "application/octet-stream")
-            .timeout(timeout)
-            .send()
-            .and_then(|r| r.error_for_status().and_then(|r| r.bytes()));
+        let response = get_state_bytes(timeout, url, client).await;
 
         match response {
             Ok(bytes) => {
@@ -417,6 +408,18 @@ fn download_genesis_state(
         errors.len(),
         errors.join(",")
     ))
+}
+
+async fn get_state_bytes(timeout: Duration, url: Url, client: Client) -> Result<Bytes, Error> {
+    client
+        .get(url)
+        .header("Accept", "application/octet-stream")
+        .timeout(timeout)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await
 }
 
 /// Parses the `url` and joins the necessary state download path.
@@ -463,11 +466,12 @@ mod tests {
         assert_eq!(spec, config.chain_spec::<GnosisEthSpec>().unwrap());
     }
 
-    #[test]
-    fn mainnet_genesis_state() {
+    #[tokio::test]
+    async fn mainnet_genesis_state() {
         let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
         config
             .genesis_state::<E>(None, Duration::from_secs(1), &logging::test_logger())
+            .await
             .expect("beacon state can decode");
     }
 
