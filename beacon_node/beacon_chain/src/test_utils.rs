@@ -450,14 +450,14 @@ where
     }
 
     pub fn mock_execution_layer(self) -> Self {
-        self.mock_execution_layer_with_config()
+        self.mock_execution_layer_with_config(None)
     }
 
-    pub fn mock_execution_layer_with_config(mut self) -> Self {
+    pub fn mock_execution_layer_with_config(mut self, builder_threshold: Option<u128>) -> Self {
         let mock = mock_execution_layer_from_parts::<E>(
             self.spec.as_ref().expect("cannot build without spec"),
             self.runtime.task_executor.clone(),
-            None,
+            builder_threshold,
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);

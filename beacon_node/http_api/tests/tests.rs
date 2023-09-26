@@ -78,6 +78,7 @@ struct ApiTester {
 struct ApiTesterConfig {
     spec: ChainSpec,
     retain_historic_states: bool,
+    builder_threshold: Option<u128>,
 }
 
 impl Default for ApiTesterConfig {
@@ -87,6 +88,7 @@ impl Default for ApiTesterConfig {
         Self {
             spec,
             retain_historic_states: false,
+            builder_threshold: None,
         }
     }
 }
@@ -128,7 +130,7 @@ impl ApiTester {
             .logger(logging::test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
-            .mock_execution_layer_with_config()
+            .mock_execution_layer_with_config(config.builder_threshold)
             .build();
 
         harness
@@ -403,6 +405,7 @@ impl ApiTester {
 
     pub async fn new_mev_tester_no_builder_threshold() -> Self {
         let mut config = ApiTesterConfig {
+            builder_threshold: Some(0),
             retain_historic_states: false,
             spec: E::default_spec(),
         };
@@ -5350,6 +5353,7 @@ async fn builder_payload_chosen_by_profit() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_capella() {
     let mut config = ApiTesterConfig {
+        builder_threshold: Some(0),
         retain_historic_states: false,
         spec: E::default_spec(),
     };
@@ -5370,6 +5374,7 @@ async fn builder_works_post_capella() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_deneb() {
     let mut config = ApiTesterConfig {
+        builder_threshold: Some(0),
         retain_historic_states: false,
         spec: E::default_spec(),
     };
