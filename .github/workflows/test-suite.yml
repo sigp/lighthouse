@@ -347,13 +347,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - name: Extract Minimum Supported Rust Version (MSRV)
+    - name: Install Rust at Minimum Supported Rust Version (MSRV)
       run: |
         metadata=$(cargo metadata --no-deps --format-version 1)
         msrv=$(echo $metadata | jq -r '.packages | map(select(.name == "lighthouse")) | .[0].rust_version')
-        echo "MSRV=$msrv" >> $GITHUB_OUTPUT
-    - name: Install Rust @ MSRV
-      run: rustup override set $msrv
+        rustup override set $msrv
     - name: Run cargo check
       run: cargo check --workspace
   cargo-udeps:
