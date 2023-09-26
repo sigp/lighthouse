@@ -57,7 +57,7 @@ jobs:
     build-docker-single-arch:
         name: build-docker-${{ matrix.binary }}${{ matrix.features.version_suffix }}
         # Use self-hosted runners only on the sigp repo.
-        runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-22.04'  }}
+        runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release"]') || 'ubuntu-22.04'  }}
         strategy:
             matrix:
                 binary: [aarch64,
@@ -79,7 +79,7 @@ jobs:
         steps:
             - uses: actions/checkout@v3
             - name: Update Rust
-              if: env.SELF_HOSTED_RUNNERS == false
+              if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable
             - name: Dockerhub login
               run: |
@@ -107,9 +107,11 @@ jobs:
               run: echo "MODERNITY_SUFFIX=-modern" >> $GITHUB_ENV;
 
             - name: Install QEMU
+              if: env.SELF_HOSTED_RUNNERS == 'false'
               run: sudo apt-get update && sudo apt-get install -y qemu-user-static
 
             - name: Set up Docker Buildx
+              if: env.SELF_HOSTED_RUNNERS == 'false'
               uses: docker/setup-buildx-action@v2
 
             - name: Build and push

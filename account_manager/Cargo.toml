@@ -5,31 +5,31 @@ authors = [
     "Paul Hauner <paul@paulhauner.com>",
     "Luke Anderson <luke@sigmaprime.io>",
 ]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-bls = { path = "../crypto/bls" }
-clap = "2.33.3"
-types = { path = "../consensus/types" }
-environment = { path = "../lighthouse/environment" }
-eth2_network_config = { path = "../common/eth2_network_config" }
-clap_utils = { path = "../common/clap_utils" }
-directory = { path = "../common/directory" }
-eth2_wallet = { path = "../crypto/eth2_wallet" }
+bls = { workspace = true }
+clap = { workspace = true }
+types = { workspace = true }
+environment = { workspace = true }
+eth2_network_config = { workspace = true }
+clap_utils = { workspace = true }
+directory = { workspace = true }
+eth2_wallet = { workspace = true }
 eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
-validator_dir = { path = "../common/validator_dir" }
-tokio = { version = "1.14.0", features = ["full"] }
-eth2_keystore = { path = "../crypto/eth2_keystore" }
-account_utils = { path = "../common/account_utils" }
-slashing_protection = { path = "../validator_client/slashing_protection" }
-eth2 = { path = "../common/eth2" }
-safe_arith = { path = "../consensus/safe_arith" }
-slot_clock = { path = "../common/slot_clock" }
-filesystem = { path = "../common/filesystem" }
-sensitive_url = { path = "../common/sensitive_url" }
-serde = { version = "1.0.116", features = ["derive"] }
-serde_json = "1.0.58"
-slog = { version = "2.5.2" }
+validator_dir = { workspace = true }
+tokio = { workspace = true }
+eth2_keystore = { workspace = true }
+account_utils = { workspace = true }
+slashing_protection = { workspace = true }
+eth2 = { workspace = true }
+safe_arith = { workspace = true }
+slot_clock = { workspace = true }
+filesystem = { workspace = true }
+sensitive_url = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+slog = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.1.0"
+tempfile = { workspace = true }

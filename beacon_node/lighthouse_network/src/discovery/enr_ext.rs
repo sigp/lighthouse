@@ -6,12 +6,15 @@ use libp2p::core::multiaddr::Protocol;
 use libp2p::identity::{ed25519, secp256k1, KeyType, Keypair, PublicKey};
 use tiny_keccak::{Hasher, Keccak};
 
+pub const QUIC_ENR_KEY: &str = "quic";
+pub const QUIC6_ENR_KEY: &str = "quic6";
+
 /// Extend ENR for libp2p types.
 pub trait EnrExt {
     /// The libp2p `PeerId` for the record.
     fn peer_id(&self) -> PeerId;
 
-    /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
+    /// Returns a list of multiaddrs if the ENR has an `ip` and one of [`tcp`,`udp`,`quic`] key **or** an `ip6` and one of [`tcp6`,`udp6`,`quic6`].
     /// The vector remains empty if these fields are not defined.
     fn multiaddr(&self) -> Vec<Multiaddr>;
 
@@ -26,6 +29,15 @@ pub trait EnrExt {
 
     /// Returns any multiaddrs that contain the TCP protocol.
     fn multiaddr_tcp(&self) -> Vec<Multiaddr>;
+
+    /// Returns any QUIC multiaddrs that are registered in this ENR.
+    fn multiaddr_quic(&self) -> Vec<Multiaddr>;
+
+    /// Returns the quic port if one is set.
+    fn quic4(&self) -> Option<u16>;
+
+    /// Returns the quic6 port if one is set.
+    fn quic6(&self) -> Option<u16>;
 }
 
 /// Extend ENR CombinedPublicKey for libp2p types.
@@ -49,7 +61,17 @@ impl EnrExt for Enr {
         self.public_key().as_peer_id()
     }
 
-    /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
+    /// Returns the quic port if one is set.
+    fn quic4(&self) -> Option<u16> {
+        self.get_decodable(QUIC_ENR_KEY).and_then(Result::ok)
+    }
+
+    /// Returns the quic6 port if one is set.
+    fn quic6(&self) -> Option<u16> {
+        self.get_decodable(QUIC6_ENR_KEY).and_then(Result::ok)
+    }
+
+    /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp`, `quic` or `udp` key **or** an `ip6` and either a `tcp6` `quic6` or `udp6`.
     /// The vector remains empty if these fields are not defined.
     fn multiaddr(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
@@ -57,6 +79,12 @@ impl EnrExt for Enr {
             if let Some(udp) = self.udp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Udp(udp));
+                multiaddrs.push(multiaddr);
+            }
+            if let Some(quic) = self.quic4() {
+                let mut multiaddr: Multiaddr = ip.into();
+                multiaddr.push(Protocol::Udp(quic));
+                multiaddr.push(Protocol::QuicV1);
                 multiaddrs.push(multiaddr);
             }
 
@@ -70,6 +98,13 @@ impl EnrExt for Enr {
             if let Some(udp6) = self.udp6() {
                 let mut multiaddr: Multiaddr = ip6.into();
                 multiaddr.push(Protocol::Udp(udp6));
+                multiaddrs.push(multiaddr);
+            }
+
+            if let Some(quic6) = self.quic6() {
+                let mut multiaddr: Multiaddr = ip6.into();
+                multiaddr.push(Protocol::Udp(quic6));
+                multiaddr.push(Protocol::QuicV1);
                 multiaddrs.push(multiaddr);
             }
 
@@ -174,8 +209,30 @@ impl EnrExt for Enr {
         multiaddrs
     }
 
+    /// Returns a list of multiaddrs if the ENR has an `ip` and a `quic` key **or** an `ip6` and a `quic6`.
+    fn multiaddr_quic(&self) -> Vec<Multiaddr> {
+        let mut multiaddrs: Vec<Multiaddr> = Vec::new();
+        if let Some(quic_port) = self.quic4() {
+            if let Some(ip) = self.ip4() {
+                let mut multiaddr: Multiaddr = ip.into();
+                multiaddr.push(Protocol::Udp(quic_port));
+                multiaddr.push(Protocol::QuicV1);
+                multiaddrs.push(multiaddr);
+            }
+        }
+
+        if let Some(quic6_port) = self.quic6() {
+            if let Some(ip6) = self.ip6() {
+                let mut multiaddr: Multiaddr = ip6.into();
+                multiaddr.push(Protocol::Udp(quic6_port));
+                multiaddr.push(Protocol::QuicV1);
+                multiaddrs.push(multiaddr);
+            }
+        }
+        multiaddrs
+    }
+
     /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
-    /// The vector remains empty if these fields are not defined.
     fn multiaddr_tcp(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
         if let Some(ip) = self.ip4() {

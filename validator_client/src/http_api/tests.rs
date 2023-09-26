@@ -502,7 +502,7 @@ impl ApiTester {
             .await;
 
         assert!(resp.is_ok());
-        assert_eq!(resp.unwrap().message.epoch, expected_exit_epoch);
+        assert_eq!(resp.unwrap().data.message.epoch, expected_exit_epoch);
 
         self
     }

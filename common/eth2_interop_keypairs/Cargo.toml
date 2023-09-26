@@ -2,19 +2,19 @@
 name = "eth2_interop_keypairs"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lazy_static = "1.4.0"
+lazy_static = { workspace = true }
 num-bigint = "0.4.2"
-ethereum_hashing = "1.0.0-beta.2"
-hex = "0.4.2"
-serde_yaml = "0.8.13"
-serde = "1.0.116"
+ethereum_hashing = { workspace = true }
+hex = { workspace = true }
+serde_yaml = { workspace = true }
+serde = { workspace = true }
 serde_derive = "1.0.116"
-bls = { path = "../../crypto/bls" }
+bls = { workspace = true }
 
 [dev-dependencies]
 base64 = "0.13.0"
