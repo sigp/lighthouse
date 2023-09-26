@@ -2,7 +2,7 @@ use crate::beacon_state::balance::Balance;
 use crate::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec};
 use arbitrary::Arbitrary;
 use safe_arith::SafeArith;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, EnumVariantNames};
 
 /// This cache keeps track of the accumulated target attestation balance for the current & previous

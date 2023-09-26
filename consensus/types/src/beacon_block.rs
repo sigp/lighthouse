@@ -6,7 +6,7 @@ use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
 use derivative::Derivative;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;

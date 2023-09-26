@@ -2,7 +2,7 @@ use super::config::RateLimiterConfig;
 use crate::rpc::Protocol;
 use fnv::FnvHashMap;
 use libp2p::PeerId;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::future::Future;
 use std::hash::Hash;

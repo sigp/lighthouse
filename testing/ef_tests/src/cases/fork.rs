@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::cases::common::previous_fork;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use state_processing::upgrade::{upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella};
 use types::{BeaconState, ForkName};
 

@@ -1,7 +1,7 @@
 use crate::*;
 use bls::Signature;
 use derivative::Derivative;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
 use superstruct::superstruct;

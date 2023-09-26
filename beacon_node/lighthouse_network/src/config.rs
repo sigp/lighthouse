@@ -8,7 +8,7 @@ use directory::{
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub;
 use libp2p::Multiaddr;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::PathBuf;

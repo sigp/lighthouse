@@ -7,7 +7,7 @@ use lighthouse_network::{
     discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};
 use std::time::Duration;

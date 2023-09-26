@@ -1,5 +1,5 @@
 use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 use types::{ForkName, SubnetId, SyncSubnetId};
 

@@ -2,7 +2,7 @@ use crate::test_utils::TestRandom;
 use crate::Hash256;
 use derivative::Derivative;
 use rand::RngCore;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 

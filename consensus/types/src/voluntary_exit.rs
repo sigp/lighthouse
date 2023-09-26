@@ -3,7 +3,7 @@ use crate::{
     SignedVoluntaryExit,
 };
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;

@@ -5,7 +5,7 @@ use crate::{
 use bls::PublicKeyBytes;
 use bls::Signature;
 use serde::{Deserialize as De, Deserializer, Serialize as Ser, Serializer};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DeserializeAs, SerializeAs};
 use std::marker::PhantomData;
 use tree_hash_derive::TreeHash;

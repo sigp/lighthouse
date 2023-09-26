@@ -9,7 +9,7 @@ use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};

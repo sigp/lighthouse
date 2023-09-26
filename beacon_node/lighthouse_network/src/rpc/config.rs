@@ -6,7 +6,7 @@ use std::{
 
 use super::{methods, rate_limiter::Quota, Protocol};
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// Auxiliary struct to aid on configuration parsing.
 ///

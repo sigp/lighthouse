@@ -4,7 +4,7 @@ use crate::{
     SlasherDB,
 };
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::convert::TryFrom;

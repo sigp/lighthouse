@@ -19,7 +19,6 @@ ethereum-types = { workspace = true }
 hex = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 serde_repr = { workspace = true }
 serde_yaml = { workspace = true }
 ethereum_ssz = { workspace = true }

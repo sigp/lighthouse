@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use state_processing::{
     per_block_processing, state_advance::complete_state_advance, BlockSignatureStrategy,
     ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,

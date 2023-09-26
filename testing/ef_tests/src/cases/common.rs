@@ -1,4 +1,4 @@
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::convert::TryFrom;

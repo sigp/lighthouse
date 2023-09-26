@@ -19,7 +19,6 @@ slot_clock = { workspace = true }
 types = { workspace = true }
 safe_arith = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 bincode = { workspace = true }
 serde_json = { workspace = true }
 slog = { workspace = true }
