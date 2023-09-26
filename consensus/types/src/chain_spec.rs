@@ -1019,6 +1019,7 @@ pub struct Config {
     ejection_balance: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
+    #[serde(default)]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_churn_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
