@@ -2,33 +2,33 @@
 name = "eth1"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dev-dependencies]
-eth1_test_rig = { path = "../../testing/eth1_test_rig" }
-serde_yaml = "0.8.13"
-sloggers = { version = "2.1.1", features = ["json"] }
-environment = { path = "../../lighthouse/environment" }
+eth1_test_rig = { workspace = true }
+serde_yaml = { workspace = true }
+sloggers = { workspace = true }
+environment = { workspace = true }
 
 [dependencies]
-reqwest = { version = "0.11.0", features = ["native-tls-vendored"] }
-execution_layer = { path = "../execution_layer" }
-futures = "0.3.7"
-serde_json = "1.0.58"
-serde = { version = "1.0.116", features = ["derive"] }
-hex = "0.4.2"
-types = { path = "../../consensus/types"}
-merkle_proof = { path = "../../consensus/merkle_proof"}
-ethereum_ssz = "0.5.0"
-ethereum_ssz_derive = "0.5.0"
-tree_hash = "0.5.0"
-parking_lot = "0.12.0"
-slog = "2.5.2"
-superstruct = "0.5.0"
-tokio = { version = "1.14.0", features = ["full"] }
-state_processing = { path = "../../consensus/state_processing" }
-lighthouse_metrics = { path = "../../common/lighthouse_metrics"}
-lazy_static = "1.4.0"
-task_executor = { path = "../../common/task_executor" }
-eth2 = { path = "../../common/eth2" }
-sensitive_url = { path = "../../common/sensitive_url" }
+reqwest = { workspace = true }
+execution_layer = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+hex = { workspace = true }
+types = { workspace = true }
+merkle_proof = { workspace = true }
+ethereum_ssz = { workspace = true }
+ethereum_ssz_derive = { workspace = true }
+tree_hash = { workspace = true }
+parking_lot = { workspace = true }
+slog = { workspace = true }
+superstruct = { workspace = true }
+tokio = { workspace = true }
+state_processing = { workspace = true }
+lighthouse_metrics = { workspace = true }
+lazy_static = { workspace = true }
+task_executor = { workspace = true }
+eth2 = { workspace = true }
+sensitive_url = { workspace = true }

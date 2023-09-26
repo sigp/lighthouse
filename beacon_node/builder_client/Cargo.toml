@@ -1,13 +1,13 @@
 [package]
 name = "builder_client"
 version = "0.1.0"
-edition = "2021"
+edition = { workspace = true }
 authors = ["Sean Anderson <sean@sigmaprime.io>"]
 
 [dependencies]
-reqwest = { version = "0.11.0", features = ["json","stream"] }
-sensitive_url = { path = "../../common/sensitive_url" }
-eth2 = { path = "../../common/eth2" }
-serde = { version = "1.0.116", features = ["derive"] }
-serde_json = "1.0.58"
-lighthouse_version = { path = "../../common/lighthouse_version" }
+reqwest = { workspace = true }
+sensitive_url = { workspace = true }
+eth2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+lighthouse_version = { workspace = true }
