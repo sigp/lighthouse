@@ -1491,7 +1491,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
         match (Payload::block_type(), blobs) {
             (BlockType::Full, Some(blobs)) => {
                 Self::BlockAndBlobSidecars(BeaconBlockAndBlobSidecars {
-                    block: block,
+                    block,
                     blob_sidecars: blobs,
                 })
             }

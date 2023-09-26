@@ -2159,12 +2159,8 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .map_err(|e| println!("Unable to read trusted setup file: {}", e))
             .unwrap();
 
-    let mock = mock_execution_layer_from_parts(
-        &harness.spec,
-        harness.runtime.task_executor.clone(),
-        None,
-        None,
-    );
+    let mock =
+        mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone(), None);
 
     // Initialise a new beacon chain from the finalized checkpoint.
     // The slot clock must be set to a time ahead of the checkpoint state.
