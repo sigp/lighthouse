@@ -126,7 +126,7 @@ impl<'env> RwTransaction<'env> {
         &self,
         db: &Database,
         key: &K,
-    ) -> Result<Option<Cow<'env, [u8]>>, Error> {
+    ) -> Result<Option<Cow<'_, [u8]>>, Error> {
         match (self, db) {
             #[cfg(feature = "mdbx")]
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.get(db, key),

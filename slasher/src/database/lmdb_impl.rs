@@ -105,13 +105,8 @@ impl<'env> RwTransaction<'env> {
         &self,
         db: &Database,
         key: &K,
-    ) -> Result<Option<Cow<'env, [u8]>>, Error> {
-        let result = self.txn.get(db.db, key).optional()?;
-
-        match result {
-            Some(value) => Ok(Some(Cow::from(value.to_vec()))),
-            None => Ok(None),
-        }
+    ) -> Result<Option<Cow<'_, [u8]>>, Error> {
+        Ok(self.txn.get(db.db, key).optional()?.map(Cow::Borrowed))
     }
 
     pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(

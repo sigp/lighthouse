@@ -112,10 +112,10 @@ impl<'env> RwTransaction<'env> {
     }
 
     pub fn get<K: AsRef<[u8]> + ?Sized>(
-        &'env self,
-        db: &Database<'env>,
+        &self,
+        db: &Database,
         key: &K,
-    ) -> Result<Option<Cow<'env, [u8]>>, Error> {
+    ) -> Result<Option<Cow<'_, [u8]>>, Error> {
         Ok(self.txn.get(&db.db, key.as_ref())?)
     }
 

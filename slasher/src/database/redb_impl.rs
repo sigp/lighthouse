@@ -112,7 +112,7 @@ impl<'env> RwTransaction<'env> {
         &self,
         db: &Database,
         key: &K,
-    ) -> Result<Option<Cow<'env, [u8]>>, Error> {
+    ) -> Result<Option<Cow<'_, [u8]>>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(&db.table_name);
         let table = self.txn.open_table(table_definition)?;
