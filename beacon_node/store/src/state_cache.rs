@@ -50,7 +50,7 @@ impl<E: EthSpec> StateCache<E> {
     pub fn new(capacity: NonZeroUsize) -> Self {
         StateCache {
             finalized_state: None,
-            states: LruCache::new(capacity),
+            states: LruCache::new(capacity.get()),
             block_map: BlockMap::default(),
             capacity,
             max_epoch: Epoch::new(0),

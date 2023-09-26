@@ -2,22 +2,22 @@
 name = "account_utils"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand = "0.8.5"
-eth2_wallet = { path = "../../crypto/eth2_wallet" }
-eth2_keystore = { path = "../../crypto/eth2_keystore" }
-filesystem = { path = "../filesystem" }
-zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
-serde = "1.0.116"
+rand = { workspace = true }
+eth2_wallet = { workspace = true }
+eth2_keystore = { workspace = true }
+filesystem = { workspace = true }
+zeroize = { workspace = true }
+serde = { workspace = true }
 serde_derive = "1.0.116"
-serde_yaml = "0.8.13"
-slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
-types = { path = "../../consensus/types" }
-validator_dir = { path = "../validator_dir" }
-regex = "1.5.5"
+serde_yaml = { workspace = true }
+slog = { workspace = true }
+types = { workspace = true }
+validator_dir = { workspace = true }
+regex = { workspace = true }
 rpassword = "5.0.0"
-directory = { path = "../directory" }
+directory = { workspace = true }

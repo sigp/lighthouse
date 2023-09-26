@@ -87,7 +87,6 @@ impl<T: EthSpec> ParticipationEpochSummary<T> {
 
 impl<T: EthSpec> EpochProcessingSummary<T> {
     /// Updates some Prometheus metrics with some values in `self`.
-    #[cfg(feature = "metrics")]
     pub fn observe_metrics(&self) -> Result<(), BeaconStateError> {
         metrics::set_gauge(
             &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTING_GWEI_TOTAL,

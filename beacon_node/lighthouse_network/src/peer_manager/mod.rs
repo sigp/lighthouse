@@ -2197,7 +2197,7 @@ mod tests {
         }
 
         impl Arbitrary for PeerCondition {
-            fn arbitrary<G: Gen>(g: &mut G) -> Self {
+            fn arbitrary(g: &mut Gen) -> Self {
                 let attestation_net_bitfield = {
                     let len = <E as EthSpec>::SubnetBitfieldLength::to_usize();
                     let mut bitfield = Vec::with_capacity(len);

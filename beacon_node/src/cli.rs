@@ -1326,5 +1326,5 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("64")
                 .takes_value(true)
         )
-        .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]))
+        .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))
 }
