@@ -1468,9 +1468,10 @@ mod tests {
 }
 
 /// A wrapper over a [`BeaconBlock`] or a [`BeaconBlockAndBlobSidecars`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Encode, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
+#[ssz(enum_behaviour = "transparent")]
 pub enum BlockContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     BlockAndBlobSidecars(BeaconBlockAndBlobSidecars<T, Payload>),
     BlindedBlockAndBlobSidecars(BlindedBeaconBlockAndBlobSidecars<T, Payload>),

@@ -259,7 +259,7 @@ where
                     "Starting from known genesis state";
                 );
 
-                let genesis_state = genesis_state(&runtime_context, &config, log)?;
+                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
@@ -279,7 +279,7 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
-                let genesis_state = genesis_state(&runtime_context, &config, log)?;
+                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 builder
                     .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
@@ -380,7 +380,7 @@ where
 
                 debug!(context.log(), "Downloaded finalized block");
 
-                let genesis_state = genesis_state(&runtime_context, &config, log)?;
+                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 info!(
                     context.log(),
@@ -1099,7 +1099,7 @@ where
 }
 
 /// Obtain the genesis state from the `eth2_network_config` in `context`.
-fn genesis_state<T: EthSpec>(
+async fn genesis_state<T: EthSpec>(
     context: &RuntimeContext<T>,
     config: &ClientConfig,
     log: &Logger,
@@ -1113,6 +1113,7 @@ fn genesis_state<T: EthSpec>(
             config.genesis_state_url.as_deref(),
             config.genesis_state_url_timeout,
             log,
-        )?
+        )
+        .await?
         .ok_or_else(|| "Genesis state is unknown".to_string())
 }

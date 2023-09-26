@@ -2,15 +2,15 @@
 name = "eth1_test_rig"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-tokio = { version = "1.14.0", features = ["time"] }
-ethers-core = "1.0.2"
-ethers-providers = "1.0.2"
+tokio = { workspace = true }
+ethers-core = { workspace = true }
+ethers-providers = { workspace = true }
 ethers-contract = "1.0.2"
-types = { path = "../../consensus/types"}
-serde_json = "1.0.58"
-deposit_contract = { path = "../../common/deposit_contract"}
-unused_port = { path = "../../common/unused_port" }
-hex = "0.4.2"
+types = { workspace = true }
+serde_json = { workspace = true }
+deposit_contract = { workspace = true }
+unused_port = { workspace = true }
+hex = { workspace = true }
