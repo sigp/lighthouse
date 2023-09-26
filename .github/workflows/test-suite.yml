@@ -88,11 +88,6 @@ jobs:
 #        directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
-    - name: Install nextest for windows
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      run: |
-        powershell Invoke-WebRequest -Uri https://get.nexte.st/latest/windows -OutFile nextest-windows.zip &&
-        powershell Expand-Archive -Path 'nextest-windows.zip' -DestinationPath 'C:\Users\ContainerAdministrator\.cargo\bin\'
     - name: Run tests in release
       run: make nextest-release
     - name: Show cache stats
@@ -322,12 +317,12 @@ jobs:
   check-code:
     name: check-code
     runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 1
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
-      env:
-          CARGO_INCREMENTAL: 1
       with:
           channel: stable
           cache-target: release
