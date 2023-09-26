@@ -1484,6 +1484,58 @@ pub type BlockContentsTuple<T, Payload> = (
 );
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
+    pub fn new(
+        block: BeaconBlock<T, Payload>,
+        blobs: Option<SidecarList<T, Payload::Sidecar>>,
+    ) -> Self {
+        match (Payload::block_type(), blobs) {
+            (BlockType::Full, Some(blobs)) => {
+                Self::BlockAndBlobSidecars(BeaconBlockAndBlobSidecars {
+                    block: block,
+                    blob_sidecars: blobs,
+                })
+            }
+            (BlockType::Blinded, Some(blobs)) => {
+                Self::BlindedBlockAndBlobSidecars(BlindedBeaconBlockAndBlobSidecars {
+                    blinded_block: block,
+                    blinded_blob_sidecars: blobs,
+                })
+            }
+            (_, None) => Self::Block(block),
+        }
+    }
+
+    /// SSZ decode with fork variant determined by slot.
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+        let slot_len = <Slot as Decode>::ssz_fixed_len();
+        let slot_bytes = bytes
+            .get(0..slot_len)
+            .ok_or(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_len,
+            })?;
+
+        let slot = Slot::from_ssz_bytes(slot_bytes)?;
+        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
+
+        match fork_at_slot {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                BeaconBlock::from_ssz_bytes(bytes, spec).map(|block| BlockContents::Block(block))
+            }
+            ForkName::Deneb => {
+                let mut builder = ssz::SszDecoderBuilder::new(bytes);
+                builder.register_anonymous_variable_length_item()?;
+                builder.register_type::<SidecarList<T, Payload::Sidecar>>()?;
+
+                let mut decoder = builder.build()?;
+                let block =
+                    decoder.decode_next_with(|bytes| BeaconBlock::from_ssz_bytes(bytes, spec))?;
+                let blobs = decoder.decode_next()?;
+                Ok(BlockContents::new(block, Some(blobs)))
+            }
+        }
+    }
+
     pub fn block(&self) -> &BeaconBlock<T, Payload> {
         match self {
             BlockContents::BlockAndBlobSidecars(block_and_sidecars) => &block_and_sidecars.block,

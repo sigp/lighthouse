@@ -78,7 +78,6 @@ struct ApiTester {
 struct ApiTesterConfig {
     spec: ChainSpec,
     retain_historic_states: bool,
-    builder_threshold: Option<u128>,
 }
 
 impl Default for ApiTesterConfig {
@@ -88,7 +87,6 @@ impl Default for ApiTesterConfig {
         Self {
             spec,
             retain_historic_states: false,
-            builder_threshold: None,
         }
     }
 }
@@ -405,7 +403,6 @@ impl ApiTester {
 
     pub async fn new_mev_tester_no_builder_threshold() -> Self {
         let mut config = ApiTesterConfig {
-            builder_threshold: Some(0),
             retain_historic_states: false,
             spec: E::default_spec(),
         };
@@ -2585,18 +2582,22 @@ impl ApiTester {
                 .unwrap()
                 .expect("block bytes");
 
-            let block =
-                BeaconBlock::<E, FullPayload<E>>::from_ssz_bytes(&block_bytes, &self.chain.spec)
-                    .expect("block bytes can be decoded");
+            let block_contents =
+                BlockContents::<E, FullPayload<E>>::from_ssz_bytes(&block_bytes, &self.chain.spec)
+                    .expect("block contents bytes can be decoded");
 
-            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_contents =
+                block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
             self.client
-                .post_beacon_blocks_ssz(&signed_block)
+                .post_beacon_blocks_ssz(&signed_block_contents)
                 .await
                 .unwrap();
 
-            assert_eq!(self.chain.head_beacon_block().as_ref(), &signed_block);
+            assert_eq!(
+                self.chain.head_beacon_block().as_ref(),
+                signed_block_contents.signed_block()
+            );
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
@@ -2800,7 +2801,7 @@ impl ApiTester {
                 &block_contents_bytes,
                 &self.chain.spec,
             )
-            .expect("block bytes can be decoded");
+            .expect("block contents bytes can be decoded");
 
             let signed_block_contents =
                 block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
@@ -4135,7 +4136,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
             )));
@@ -5350,7 +5350,6 @@ async fn builder_payload_chosen_by_profit() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_capella() {
     let mut config = ApiTesterConfig {
-        builder_threshold: Some(0),
         retain_historic_states: false,
         spec: E::default_spec(),
     };
@@ -5371,7 +5370,6 @@ async fn builder_works_post_capella() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_deneb() {
     let mut config = ApiTesterConfig {
-        builder_threshold: Some(0),
         retain_historic_states: false,
         spec: E::default_spec(),
     };
