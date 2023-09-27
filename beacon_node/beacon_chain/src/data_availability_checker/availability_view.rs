@@ -105,7 +105,7 @@ pub trait AvailabilityView<E: EthSpec> {
     /// Merges a single blob into the cache.
     ///
     /// Blobs are only inserted if:
-    /// 1. The blob entry at the index is empty and no block exists.
+    /// 1. The blob entry at the index is empty and no block exists, or
     /// 2. The block exists and its commitment matches the blob's commitment.
     fn merge_single_blob(&mut self, index: usize, blob: Self::BlobType) {
         let commitment = *blob.get_commitment();
