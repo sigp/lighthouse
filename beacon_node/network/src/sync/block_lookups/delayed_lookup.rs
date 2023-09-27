@@ -57,7 +57,7 @@ pub fn spawn_delayed_lookup_service<T: BeaconChainTypes>(
             let mut interval = interval_at(interval_start, slot_duration);
             loop {
                 interval.tick().await;
-                let Some(slot) =   beacon_chain.slot_clock.now_or_genesis() else {
+                let Some(slot) = beacon_chain.slot_clock.now_or_genesis() else {
                     error!(log, "Skipping delayed lookup poll, unable to read slot clock");
                     continue
                 };
