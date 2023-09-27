@@ -102,7 +102,7 @@ pub trait AvailabilityView<E: EthSpec> {
         }
     }
 
-    /// Merges a single into the cache.
+    /// Merges a single blob into the cache.
     ///
     /// Blobs are only inserted if:
     /// 1. The blob entry at the index is empty and no block exists.
