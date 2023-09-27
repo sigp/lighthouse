@@ -56,17 +56,6 @@ pub struct OpenDatabases<'env> {
     pub metadata_db: Database<'env>,
 }
 
-#[derive(Debug)]
-pub enum Cursor<'txn, 'env: 'txn> {
-    #[cfg(feature = "mdbx")]
-    Mdbx(mdbx_impl::Cursor<'txn>),
-    #[cfg(feature = "lmdb")]
-    Lmdb(lmdb_impl::Cursor<'txn>),
-    #[cfg(feature = "redb")]
-    Redb(redb_impl::Cursor<'txn, 'env>),
-    Disabled(PhantomData<(&'txn (), &'env ())>),
-}
-
 pub type Key<'a> = Cow<'a, [u8]>;
 pub type Value<'a> = Cow<'a, [u8]>;
 
@@ -167,21 +156,6 @@ impl<'env> RwTransaction<'env> {
         }
     }
 
-    pub fn cursor<'a>(&'a mut self, db: &Database) -> Result<Cursor<'a, 'env>, Error>
-    where
-        'env: 'a,
-    {
-        match (self, db) {
-            #[cfg(feature = "mdbx")]
-            (Self::Mdbx(txn), Database::Mdbx(db)) => txn.cursor(db).map(Cursor::Mdbx),
-            #[cfg(feature = "lmdb")]
-            (Self::Lmdb(txn), Database::Lmdb(db)) => txn.cursor(db).map(Cursor::Lmdb),
-            #[cfg(feature = "redb")]
-            (Self::Redb(txn), Database::Redb(db)) => txn.cursor(db).map(Cursor::Redb),
-            _ => Err(Error::MismatchedDatabaseVariant),
-        }
-    }
-
     pub fn commit(self) -> Result<(), Error> {
         match self {
             #[cfg(feature = "mdbx")]
@@ -193,8 +167,84 @@ impl<'env> RwTransaction<'env> {
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
-}
 
+    pub fn first_key(&mut self, db: &Database) -> Result<Option<Key>, Error> {
+        match (self, db) {
+            #[cfg(feature = "mdbx")]
+            Cursor::Mdbx(cursor) => cursor.first_key(),
+            #[cfg(feature = "lmdb")]
+            Cursor::Lmdb(cursor) => cursor.first_key(),
+            #[cfg(feature = "redb")]
+            (Self::Redb(txn), Database::Redb(db)) => txn.first_key(db),
+            _ => Err(Error::MismatchedDatabaseVariant),
+        }
+    }
+
+    pub fn last_key(&mut self, db: &Database) -> Result<Option<Key>, Error> {
+        match (self, db) {
+            #[cfg(feature = "mdbx")]
+            Cursor::Mdbx(cursor) => cursor.first_key(),
+            #[cfg(feature = "lmdb")]
+            Cursor::Lmdb(cursor) => cursor.first_key(),
+            #[cfg(feature = "redb")]
+            (Self::Redb(txn), Database::Redb(db)) => txn.last_key(db),
+            _ => Err(Error::MismatchedDatabaseVariant),
+        }
+    }
+
+    pub fn next_key(&mut self, db: &Database) -> Result<Option<Key>, Error> {
+        match (self, db) {
+            #[cfg(feature = "mdbx")]
+            Cursor::Mdbx(cursor) => cursor.first_key(),
+            #[cfg(feature = "lmdb")]
+            Cursor::Lmdb(cursor) => cursor.first_key(),
+            #[cfg(feature = "redb")]
+            (Self::Redb(txn), Database::Redb(db)) => txn.next_key(db),
+            _ => Err(Error::MismatchedDatabaseVariant),
+        }
+    }
+
+    pub fn delete_current(&self, db: &Database) -> Result<(), Error> {
+        match (self, db) {
+            #[cfg(feature = "mdbx")]
+            (Self::Mdbx(txn), Database::Mdbx(db)) => txn.del(db, key),
+            #[cfg(feature = "lmdb")]
+            (Self::Lmdb(txn), Database::Lmdb(db)) => txn.del(db, key),
+            #[cfg(feature = "redb")]
+            (Self::Redb(txn), Database::Redb(db)) => txn.delete_current(db),
+            _ => Err(Error::MismatchedDatabaseVariant),
+        }
+    }
+
+    pub fn get_current(&self, db: &Database) -> Result<Option<(Key, Value)>, Error> {
+        match (self, db) {
+            #[cfg(feature = "mdbx")]
+            (Self::Mdbx(txn), Database::Mdbx(db)) => txn.del(db, key),
+            #[cfg(feature = "lmdb")]
+            (Self::Lmdb(txn), Database::Lmdb(db)) => txn.del(db, key),
+            #[cfg(feature = "redb")]
+            (Self::Redb(txn), Database::Redb(db)) => txn.get_current(db),
+            _ => Err(Error::MismatchedDatabaseVariant),
+        }
+    }
+
+    pub fn delete_while(
+        &mut self,
+        db: &Database,
+        f: impl Fn(&[u8]) -> Result<bool, Error>,
+    ) -> Result<(), Error> {
+        match (self, db) {
+            #[cfg(feature = "mdbx")]
+            (Self::Mdbx(txn), Database::Mdbx(db)) => txn.del(db, key),
+            #[cfg(feature = "lmdb")]
+            (Self::Lmdb(txn), Database::Lmdb(db)) => txn.del(db, key),
+            #[cfg(feature = "redb")]
+            (Self::Redb(txn), Database::Redb(db)) => txn.delete_while(db, f),
+            _ => Err(Error::MismatchedDatabaseVariant),
+        }
+    }
+}
+/*
 impl<'txn, 'env> Cursor<'txn, 'env> {
     /// Return the first key in the current database while advancing the cursor's position.
     pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
@@ -234,19 +284,6 @@ impl<'txn, 'env> Cursor<'txn, 'env> {
         }
     }
 
-    /// Get the key value pair at the current position.
-    pub fn get_current(&mut self) -> Result<Option<(Key, Value)>, Error> {
-        match self {
-            #[cfg(feature = "mdbx")]
-            Cursor::Mdbx(cursor) => cursor.get_current(),
-            #[cfg(feature = "lmdb")]
-            Cursor::Lmdb(cursor) => cursor.get_current(),
-            #[cfg(feature = "redb")]
-            Cursor::Redb(cursor) => cursor.get_current(),
-            _ => Err(Error::MismatchedDatabaseVariant),
-        }
-    }
-
     pub fn delete_current(&mut self) -> Result<(), Error> {
         match self {
             #[cfg(feature = "mdbx")]
@@ -270,4 +307,4 @@ impl<'txn, 'env> Cursor<'txn, 'env> {
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
-}
+}*/
