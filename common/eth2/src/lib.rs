@@ -1671,8 +1671,8 @@ impl BeaconNodeHttpClient {
         .await
     }
 
-     /// `GET v3/validator/blocks/{slot}`
-     pub async fn get_validator_blocks_v3_modular<T: EthSpec>(
+    /// `GET v3/validator/blocks/{slot}`
+    pub async fn get_validator_blocks_v3_modular<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,

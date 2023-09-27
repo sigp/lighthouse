@@ -3053,7 +3053,8 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    produce_blinded_block_v2(EndpointVersion(2), accept_header, chain, slot, query).await
+                    produce_blinded_block_v2(EndpointVersion(2), accept_header, chain, slot, query)
+                        .await
                 })
             },
         );
