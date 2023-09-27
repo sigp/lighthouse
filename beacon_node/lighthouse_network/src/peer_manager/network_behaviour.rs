@@ -176,6 +176,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         _local_addr: &libp2p::Multiaddr,
         remote_addr: &libp2p::Multiaddr,
     ) -> Result<(), ConnectionDenied> {
+        // get the IP address to verify it's not banned.
         let ip = match remote_addr.iter().next() {
             Some(libp2p::multiaddr::Protocol::Ip6(ip)) => IpAddr::V6(ip),
             Some(libp2p::multiaddr::Protocol::Ip4(ip)) => IpAddr::V4(ip),
@@ -222,7 +223,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         trace!(self.log, "Outbound connection"; "peer_id" => %peer_id, "multiaddr" => %addr);
         match self.ban_status(&peer_id) {
             Some(cause) => {
-                error!(self.log, "Dialing a banned peer. Re-banning"; "peer_id" => %peer_id);
+                error!(self.log, "Connected a banned peer. Re-banning"; "peer_id" => %peer_id);
                 // Re-ban the peer to prevent repeated errors.
                 self.events.push(PeerManagerEvent::Banned(peer_id, vec![]));
                 Err(ConnectionDenied::new(cause))
