@@ -754,22 +754,16 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // reboot if the `observed_block_producers` cache is empty. In that case, without this
         // check, we will load the parent and state from disk only to find out later that we
         // already know this block.
-        if chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
+        if fork_choice_read_lock.contains_block(&block_root) {
             return Err(BlockError::BlockIsAlreadyKnown);
         }
 
         // Do not process a block that doesn't descend from the finalized root.
         //
         // We check this *before* we load the parent so that we can return a more detailed error.
-        check_block_is_finalized_checkpoint_or_descendant(
-            chain,
-            &chain.canonical_head.fork_choice_read_lock(),
-            &block,
-        )?;
+        check_block_is_finalized_checkpoint_or_descendant(chain, &fork_choice_read_lock, &block)?;
+        drop(fork_choice_read_lock);
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) = verify_parent_block_is_known(chain, block)?;

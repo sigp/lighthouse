@@ -1,18 +1,18 @@
 [package]
 name = "database_manager"
 version = "0.1.0"
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-beacon_chain = { path = "../beacon_node/beacon_chain" }
-beacon_node = { path = "../beacon_node" }
-clap = "2.33.3"
-clap_utils = { path = "../common/clap_utils" }
-environment = { path = "../lighthouse/environment" }
-logging = { path = "../common/logging" }
-sloggers = "2.0.2"
-store = { path = "../beacon_node/store" }
-tempfile = "3.1.0"
-types = { path = "../consensus/types" }
-slog = "2.5.2"
-strum = { version = "0.24.0", features = ["derive"] }
+beacon_chain = { workspace = true }
+beacon_node = { workspace = true }
+clap = { workspace = true }
+clap_utils = { workspace = true }
+environment = { workspace = true }
+logging = { workspace = true }
+sloggers = { workspace = true }
+store = { workspace = true }
+tempfile = { workspace = true }
+types = { workspace = true }
+slog = { workspace = true }
+strum = { workspace = true }

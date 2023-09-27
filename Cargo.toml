@@ -89,10 +89,138 @@ members = [
 ]
 resolver = "2"
 
-[patch]
-[patch.crates-io]
-# TODO: remove when 0.3.6 get's released.
-warp = { git = "https://github.com/seanmonstar/warp.git", rev="149913fe" }
+[workspace.package]
+edition = "2021"
+
+[workspace.dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+bincode = "1"
+bitvec = "1"
+byteorder = "1"
+bytes = "1"
+clap = "2"
+compare_fields_derive = { path = "common/compare_fields_derive" }
+criterion = "0.3"
+delay_map = "0.3"
+derivative = "2"
+dirs = "3"
+discv5 = { version = "0.3", features = ["libp2p"] }
+env_logger = "0.9"
+error-chain = "0.12"
+ethereum-types = "0.14"
+ethereum_hashing = "1.0.0-beta.2"
+ethereum_serde_utils = "0.5"
+ethereum_ssz = "0.5"
+ethereum_ssz_derive = "0.5"
+ethers-core = "1"
+ethers-providers = { version = "1", default-features = false }
+exit-future = "0.2"
+fnv = "1"
+fs2 = "0.4"
+futures = "0.3"
+hex = "0.4"
+hyper = "0.14"
+itertools = "0.10"
+lazy_static = "1"
+libsecp256k1 = "0.7"
+log = "0.4"
+lru = "0.7"
+maplit = "1"
+num_cpus = "1"
+parking_lot = "0.12"
+paste = "1"
+quickcheck = "1"
+quickcheck_macros = "1"
+quote = "1"
+r2d2 = "0.8"
+rand = "0.8"
+rayon = "1.7"
+regex = "1"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "stream", "rustls-tls"] }
+ring = "0.16"
+rusqlite = { version = "0.28", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_repr = "0.1"
+serde_yaml = "0.8"
+sha2 = "0.9"
+slog = { version = "2", features = ["max_level_trace", "release_max_level_trace"] }
+slog-async = "2"
+slog-term = "2"
+sloggers = { version = "2", features = ["json"] }
+smallvec = "1"
+snap = "1"
+ssz_types = "0.5"
+strum = { version = "0.24", features = ["derive"] }
+superstruct = "0.6"
+syn = "1"
+sysinfo = "0.26"
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.6", features = ["codec", "compat", "time"] }
+tree_hash = "0.5"
+tree_hash_derive = "0.5"
+url = "2"
+uuid = { version = "0.8", features = ["serde", "v4"] }
+# TODO update to warp 0.3.6 after released.
+warp = { git = "https://github.com/seanmonstar/warp.git", default-features = false, features = ["tls"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+zip = "0.6"
+
+# Local crates.
+account_utils = { path = "common/account_utils" }
+beacon_chain = { path = "beacon_node/beacon_chain" }
+beacon_node = { path = "beacon_node" }
+beacon_processor =  { path = "beacon_node/beacon_processor" }
+bls = { path = "crypto/bls" }
+cached_tree_hash = { path = "consensus/cached_tree_hash" }
+clap_utils = { path = "common/clap_utils" }
+compare_fields = { path = "common/compare_fields" }
+deposit_contract = { path = "common/deposit_contract" }
+directory = { path = "common/directory" }
+environment = { path = "lighthouse/environment" }
+eth1 = { path = "beacon_node/eth1" }
+eth1_test_rig = { path = "testing/eth1_test_rig" }
+eth2 = { path = "common/eth2" }
+eth2_config = { path = "common/eth2_config" }
+eth2_key_derivation = { path = "crypto/eth2_key_derivation" }
+eth2_keystore = { path = "crypto/eth2_keystore" }
+eth2_network_config = { path = "common/eth2_network_config" }
+eth2_wallet = { path = "crypto/eth2_wallet" }
+execution_layer = { path = "beacon_node/execution_layer" }
+filesystem = { path = "common/filesystem" }
+fork_choice = { path = "consensus/fork_choice" }
+genesis = { path = "beacon_node/genesis" }
+http_api = { path = "beacon_node/http_api" }
+int_to_bytes = { path = "consensus/int_to_bytes" }
+lighthouse_metrics = { path = "common/lighthouse_metrics" }
+lighthouse_network = { path = "beacon_node/lighthouse_network" }
+lighthouse_version = { path = "common/lighthouse_version" }
+lockfile = { path = "common/lockfile" }
+logging = { path = "common/logging" }
+lru_cache = { path = "common/lru_cache" }
+malloc_utils = { path = "common/malloc_utils" }
+merkle_proof = { path = "consensus/merkle_proof" }
+monitoring_api = { path = "common/monitoring_api" }
+network = { path = "beacon_node/network" }
+operation_pool = { path = "beacon_node/operation_pool" }
+pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
+proto_array = { path = "consensus/proto_array" }
+safe_arith = {path = "consensus/safe_arith"}
+sensitive_url = { path = "common/sensitive_url" }
+slasher = { path = "slasher" }
+slashing_protection = { path = "validator_client/slashing_protection" }
+slot_clock = { path = "common/slot_clock" }
+state_processing = { path = "consensus/state_processing" }
+store = { path = "beacon_node/store" }
+swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
+task_executor = { path = "common/task_executor" }
+types = { path = "consensus/types" }
+unused_port = { path = "common/unused_port" }
+validator_client = { path = "validator_client/" }
+validator_dir = { path = "common/validator_dir" }
+warp_utils = { path = "common/warp_utils" }
 
 [profile.maxperf]
 inherits = "release"

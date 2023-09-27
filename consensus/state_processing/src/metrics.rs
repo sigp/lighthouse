@@ -1,5 +1,3 @@
-#![cfg(feature = "metrics")]
-
 use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 

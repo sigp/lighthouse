@@ -14,6 +14,16 @@ lazy_static! {
         "Count of libp2p peers currently connected"
     );
 
+    pub static ref TCP_PEERS_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "libp2p_tcp_peers",
+        "Count of libp2p peers currently connected via TCP"
+    );
+
+    pub static ref QUIC_PEERS_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "libp2p_quic_peers",
+        "Count of libp2p peers currently connected via QUIC"
+    );
+
     pub static ref PEER_CONNECT_EVENT_COUNT: Result<IntCounter> = try_create_int_counter(
         "libp2p_peer_connect_event_total",
         "Count of libp2p peer connect events (not the current number of connected peers)"

@@ -1,16 +1,11 @@
-use crate::{
-    metrics,
-    multiaddr::{Multiaddr, Protocol},
-    types::Subnet,
-    Enr, Gossipsub, PeerId,
-};
+use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, Gossipsub, PeerId};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
 use score::{PeerAction, ReportSource, Score, ScoreState};
 use slog::{crit, debug, error, trace, warn};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::time::Instant;
 use sync_status::SyncStatus;
 use types::EthSpec;
@@ -764,28 +759,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     | PeerConnectionStatus::Dialing { .. } => {}
                 }
 
-                // Add the seen ip address and port to the peer's info
-                let socket_addr = match seen_address.iter().fold(
-                    (None, None),
-                    |(found_ip, found_port), protocol| match protocol {
-                        Protocol::Ip4(ip) => (Some(ip.into()), found_port),
-                        Protocol::Ip6(ip) => (Some(ip.into()), found_port),
-                        Protocol::Tcp(port) => (found_ip, Some(port)),
-                        _ => (found_ip, found_port),
-                    },
-                ) {
-                    (Some(ip), Some(port)) => Some(SocketAddr::new(ip, port)),
-                    (Some(_ip), None) => {
-                        crit!(self.log, "Connected peer has an IP but no TCP port"; "peer_id" => %peer_id);
-                        None
-                    }
-                    _ => None,
-                };
-
                 // Update the connection state
                 match direction {
-                    ConnectionDirection::Incoming => info.connect_ingoing(socket_addr),
-                    ConnectionDirection::Outgoing => info.connect_outgoing(socket_addr),
+                    ConnectionDirection::Incoming => info.connect_ingoing(Some(seen_address)),
+                    ConnectionDirection::Outgoing => info.connect_outgoing(Some(seen_address)),
                 }
             }
 
@@ -1274,6 +1251,7 @@ impl BannedPeersCount {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libp2p::core::multiaddr::Protocol;
     use libp2p::core::Multiaddr;
     use slog::{o, Drain};
     use std::net::{Ipv4Addr, Ipv6Addr};
