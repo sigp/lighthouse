@@ -3004,7 +3004,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(not_while_syncing_filter.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(log_filter.clone())
@@ -3013,7 +3012,6 @@ pub fn serve<T: BeaconChainTypes>(
              slot: Slot,
              accept_header: Option<api_types::Accept>,
              query: api_types::ValidatorBlocksQuery,
-             accept_header: Option<api_types::Accept>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
@@ -3055,7 +3053,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    produce_blinded_block_v2(EndpointVersion(2), chain, slot, query).await
+                    produce_blinded_block_v2(EndpointVersion(2), accept_header, chain, slot, query).await
                 })
             },
         );

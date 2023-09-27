@@ -1603,6 +1603,26 @@ impl BeaconNodeHttpClient {
             .await
     }
 
+    /// `GET v2/validator/blocks/{slot}`
+    pub async fn get_validator_blocks_modular<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+        let path = self
+            .get_validator_blocks_path::<T, Payload>(
+                slot,
+                randao_reveal,
+                graffiti,
+                skip_randao_verification,
+            )
+            .await?;
+
+        self.get(path).await
+    }
+
     /// returns `GET v2/validator/blocks/{slot}` URL path
     pub async fn get_validator_blocks_path<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
@@ -1635,26 +1655,6 @@ impl BeaconNodeHttpClient {
         Ok(path)
     }
 
-    /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks_modular<T: EthSpec, Payload: AbstractExecPayload<T>>(
-        &self,
-        slot: Slot,
-        randao_reveal: &SignatureBytes,
-        graffiti: Option<&Graffiti>,
-        skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
-        let path = self
-            .get_validator_blocks_path::<T, Payload>(
-                slot,
-                randao_reveal,
-                graffiti,
-                skip_randao_verification,
-            )
-            .await?;
-
-        self.get(path).await
-    }
-
     /// `GET v3/validator/blocks/{slot}`
     pub async fn get_validator_blocks_v3<T: EthSpec>(
         &self,
@@ -1662,18 +1662,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<ForkVersionedBeaconBlockType<T>, Error> {
-        self.get_validator_blocks_v3_modular()
-    }
-
-    /// `GET v2/validator/blocks/{slot}` in ssz format
-    pub async fn get_validator_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
-        &self,
-        slot: Slot,
-        randao_reveal: &SignatureBytes,
-        graffiti: Option<&Graffiti>,
-        skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<Option<Vec<u8>>, Error> {
-        self.get_validator_blocks_modular_ssz::<T, Payload>(
+        self.get_validator_blocks_v3_modular(
             slot,
             randao_reveal,
             graffiti,
@@ -1682,8 +1671,8 @@ impl BeaconNodeHttpClient {
         .await
     }
 
-    /// `GET v2/validator/blocks/{slot}` in ssz format
-    pub async fn get_validator_blocks_modular_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+     /// `GET v3/validator/blocks/{slot}`
+     pub async fn get_validator_blocks_v3_modular<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
@@ -1728,8 +1717,29 @@ impl BeaconNodeHttpClient {
         Ok(ForkVersionedBeaconBlockType::Full(full_payload))
     }
 
-    /// `GET v3/validator/blocks/{slot}`
-    pub async fn get_validator_blocks_v3_modular<T: EthSpec>(
+    /// `GET v2/validator/blocks/{slot}` in ssz format
+    pub async fn get_validator_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        self.get_validator_blocks_modular_ssz::<T, Payload>(
+            slot,
+            randao_reveal,
+            graffiti,
+            SkipRandaoVerification::No,
+        )
+        .await
+    }
+
+    /// `GET v2/validator/blocks/{slot}` in ssz format
+    pub async fn get_validator_blocks_modular_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
     ) -> Result<Option<Vec<u8>>, Error> {
         let path = self
             .get_validator_blocks_path::<T, Payload>(

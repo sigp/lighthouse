@@ -1,5 +1,5 @@
 use types::{payload::BlockProductionVersion, *};
-
+use bytes::Bytes;
 use std::sync::Arc;
 
 use beacon_chain::{
@@ -56,6 +56,7 @@ pub fn get_randao_verification(
 
 pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
     endpoint_version: EndpointVersion,
+    accept_header: Option<api_types::Accept>,
     chain: Arc<BeaconChain<T>>,
     slot: Slot,
     query: api_types::ValidatorBlocksQuery,
