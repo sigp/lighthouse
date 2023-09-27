@@ -241,7 +241,7 @@ impl<E: EthSpec> GetCommitment<E> for KzgVerifiedBlob<E> {
     }
 }
 
-// These implementations are required to implement `AvailabilityView` for `CachedChildComponents`.
+// These implementations are required to implement `AvailabilityView` for `ChildComponents`.
 impl<E: EthSpec> GetCommitments<E> for Arc<SignedBeaconBlock<E>> {
     fn get_commitments(&self) -> KzgCommitments<E> {
         self.message()
