@@ -126,8 +126,7 @@ pub trait AvailabilityView<E: EthSpec> {
     /// Blobs that don't match the new block's commitments are evicted.
     fn merge_block(&mut self, block: Self::BlockType) {
         self.insert_block(block);
-        let mut reinsert = FixedVector::default();
-        std::mem::swap(self.get_cached_blobs_mut(), &mut reinsert);
+        let reinsert = std::mem::take(self.get_cached_blobs_mut());
         self.merge_blobs(reinsert);
     }
 
