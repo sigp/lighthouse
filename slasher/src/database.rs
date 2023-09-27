@@ -686,24 +686,23 @@ impl<E: EthSpec> SlasherDB<E> {
         current_epoch: Epoch,
         txn: &mut RwTransaction<'_>,
     ) -> Result<(), Error> {
-
         let min_slot = current_epoch
             .saturating_add(1u64)
             .saturating_sub(self.config.history_length)
             .start_slot(E::slots_per_epoch());
 
-        // Position cursor at first key, bailing out if the database is empty. 
-        if txn.first_key(&self.databases.proposers_db)?.is_none() { 
-            return Ok(()); 
-        } 
+        // Position cursor at first key, bailing out if the database is empty.
+        if txn.first_key(&self.databases.proposers_db)?.is_none() {
+            return Ok(());
+        }
 
-        let should_delete = |key: &[u8]| -> Result<bool, Error>{
-            let mut should_delete = false;  
+        let should_delete = |key: &[u8]| -> Result<bool, Error> {
+            let mut should_delete = false;
             let (slot, _) = ProposerKey::parse(Cow::from(key))?;
             if slot < min_slot {
                 should_delete = true;
             }
-    
+
             Ok(should_delete)
         };
 
@@ -711,7 +710,6 @@ impl<E: EthSpec> SlasherDB<E> {
 
         Ok(())
     }
-
 
     fn prune_indexed_attestations(
         &self,
@@ -722,35 +720,32 @@ impl<E: EthSpec> SlasherDB<E> {
             .saturating_add(1u64)
             .saturating_sub(self.config.history_length as u64);
 
-        // Collect indexed attestation IDs to delete.
-        let mut indexed_attestation_ids = vec![];
-
         // Position cursor at first key, bailing out if the database is empty.
-        if txn.first_key(&self.databases.indexed_attestation_id_db)?.is_none() {
+        if txn
+            .first_key(&self.databases.indexed_attestation_id_db)?
+            .is_none()
+        {
             return Ok(());
         }
 
-        loop {
-            let (key_bytes, value) = txn
-                .get_current(&self.databases.indexed_attestation_id_db)?
-                .ok_or(Error::MissingIndexedAttestationIdKey)?;
-
-            let (target_epoch, _) = IndexedAttestationIdKey::parse(key_bytes)?;
-
+        let should_delete = |key: &[u8]| -> Result<bool, Error> {
+            let (target_epoch, _) = IndexedAttestationIdKey::parse(Cow::from(key))?;
             if target_epoch < min_epoch {
-                indexed_attestation_ids.push(IndexedAttestationId::new(
-                    IndexedAttestationId::parse(value)?,
-                ));
-
-                txn.delete_current(&self.databases.indexed_attestation_id_db)?;
-
-                if txn.next_key(&self.databases.indexed_attestation_id_db)?.is_none() {
-                    break;
-                }
-            } else {
-                break;
+                return Ok(true);
             }
-        }
+
+            Ok(false)
+        };
+
+        let indexed_attestation_ids: Vec<IndexedAttestationId> = txn
+            .delete_while(&self.databases.proposers_db, should_delete)?
+            .into_iter()
+            .map(|value| {
+                IndexedAttestationId::new(
+                    IndexedAttestationId::parse(Cow::from(value)).unwrap_or_default(),
+                )
+            })
+            .collect();
 
         // Delete the indexed attestations.
         // Optimisation potential: use a cursor here.

@@ -227,17 +227,24 @@ impl<'env> RwTransaction<'env> {
         &self,
         db: &Database,
         f: impl Fn(&[u8]) -> Result<bool, Error>,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<Vec<u8>>, Error> {
+        let mut deleted_values: Vec<Vec<u8>> = vec![];
         if let Some(current_key) = &self.current_key {
             let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                 TableDefinition::new(&db.table_name);
 
             let mut table = self.txn.open_table(table_definition)?;
 
-            table.drain_filter(current_key.as_ref().., |key, _| f(&key).unwrap_or(false))?;
-        };
+            let deleted =
+                table.drain_filter(current_key.as_ref().., |key, _| f(&key).unwrap_or(false))?;
 
-        Ok(())
+            deleted.for_each(|result| {
+                let item = result.unwrap();
+                let value = item.1.value().to_vec();
+                deleted_values.push(value);
+            })
+        };
+        Ok(deleted_values)
     }
 
     pub fn commit(self) -> Result<(), Error> {

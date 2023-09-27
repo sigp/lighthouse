@@ -232,7 +232,7 @@ impl<'env> RwTransaction<'env> {
         &mut self,
         db: &Database,
         f: impl Fn(&[u8]) -> Result<bool, Error>,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<Vec<u8>>, Error> {
         match (self, db) {
             #[cfg(feature = "mdbx")]
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.del(db, key),
