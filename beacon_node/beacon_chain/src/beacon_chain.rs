@@ -58,6 +58,7 @@ use crate::validator_monitor::{
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, CachedHead};
+use eth2::lighthouse::StandardBlockReward;
 use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
@@ -4746,9 +4747,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let consensus_block_value = self
             .compute_beacon_block_reward(inner_block.to_ref(), Hash256::zero(), &mut state.clone())
-            .unwrap()
+            .unwrap_or(StandardBlockReward {
+                proposer_index: 0,
+                total: 0,
+                attestations: 0,
+                sync_aggregate: 0,
+                proposer_slashings: 0,
+                attester_slashings: 0,
+            })
             .total;
-        
 
         per_block_processing(
             &mut state,

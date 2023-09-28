@@ -1,7 +1,8 @@
 use crate::api_types::fork_versioned_response::ExecutionOptimisticFinalizedForkVersionedResponse;
 use crate::api_types::EndpointVersion;
 use eth2::{
-    CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, CONSENSUS_PAYLOAD_VALUE_HEADER,
+    CONSENSUS_PAYLOAD_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
+    EXECUTION_PAYLOAD_VALUE_HEADER,
 };
 use serde::Serialize;
 use types::{ForkName, ForkVersionedResponse, InconsistentFork, Uint256};
