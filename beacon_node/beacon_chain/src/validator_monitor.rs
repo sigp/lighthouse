@@ -929,6 +929,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .count() as u64
     }
 
+    pub fn get_beacon_proposer_cache(&self) -> Arc<Mutex<BeaconProposerCache>> {
+        self.beacon_proposer_cache.clone()
+    }
+
     /// If `self.auto_register == true`, add the `validator_index` to `self.monitored_validators`.
     /// Otherwise, do nothing.
     pub fn auto_register_local_validator(&mut self, validator_index: u64) {

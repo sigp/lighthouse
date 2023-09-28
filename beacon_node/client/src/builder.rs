@@ -195,7 +195,6 @@ where
             .graffiti(graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
-            .beacon_proposer_cache(beacon_proposer_cache.clone())
             .monitor_validators(
                 config.validator_monitor_auto,
                 config.validator_monitor_pubkeys.clone(),

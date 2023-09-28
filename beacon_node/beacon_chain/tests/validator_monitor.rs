@@ -36,7 +36,6 @@ fn get_harness(validator_count: usize, validator_index_to_monitor: usize, beacon
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
-        .beacon_proposer_cache(beacon_proposer_cache.clone())
         .validator_monitor(ValidatorMonitor::new(
             vec![
                 PublicKeyBytes::from(KEYPAIRS[validator_index_to_monitor].pk.clone()),

@@ -676,6 +676,7 @@ where
         let mut validator_monitor = self
             .validator_monitor
             .ok_or("Cannot build without a validator monitor")?;
+        let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = validator_monitor.get_beacon_proposer_cache();
         let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
 
         let current_slot = if slot_clock
@@ -903,9 +904,7 @@ where
                 log.clone(),
             )),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
-            beacon_proposer_cache: self
-                .beacon_proposer_cache
-                .ok_or("Cannot build a beacon proposer cache.")?,
+            beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
@@ -1136,7 +1135,6 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
-            .beacon_proposer_cache(beacon_proposer_cache.clone())
             .monitor_validators(
                 true,
                 vec![],

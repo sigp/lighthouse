@@ -533,15 +533,14 @@ where
             .validator_keypairs
             .expect("cannot build without validator keypairs");
 
-        let beacon_proposer_cache = if let Some(beacon_proposer_cache) = self.beacon_proposer_cache {
-            beacon_proposer_cache
-        } else {
-            Arc::new(Mutex::new(<_>::default()))
-        };
-
+        // Only create a beacon_proposer_cache if it's not coming from another component,
+        // here at the moment validator monitor
+        let mut beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>;
         let validator_monitor = if let Some(validator_monitor) = self.validator_monitor {
+            beacon_proposer_cache = validator_monitor.get_beacon_proposer_cache();
             validator_monitor
         } else {
+            beacon_proposer_cache = Arc::new(Mutex::new(<_>::default()));
             ValidatorMonitor::new(
                 vec![],
                 false,
@@ -571,7 +570,7 @@ where
                 log.clone(),
                 5,
             )))
-            .beacon_proposer_cache(beacon_proposer_cache.clone())
+            .beacon_proposer_cache(beacon_proposer_cache)
             .validator_monitor(validator_monitor);
 
         builder = if let Some(mutator) = self.initial_mutator {

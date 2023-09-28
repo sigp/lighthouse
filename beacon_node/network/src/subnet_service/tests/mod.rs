@@ -79,7 +79,6 @@ impl TestBeaconChain {
                 ))
                 .shutdown_sender(shutdown_tx)
                 .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, beacon_proposer_cache.clone(), log)
-                .beacon_proposer_cache(beacon_proposer_cache)
                 .build()
                 .expect("should build"),
         );

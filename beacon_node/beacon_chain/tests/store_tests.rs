@@ -2162,7 +2162,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                 log.clone(),
                 1,
             )))
-            .beacon_proposer_cache(beacon_proposer_cache.clone())
             .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, beacon_proposer_cache, log)
             .build()
             .expect("should build"),
