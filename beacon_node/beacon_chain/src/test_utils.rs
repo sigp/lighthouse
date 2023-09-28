@@ -1,5 +1,7 @@
+use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::validator_monitor::ValidatorMonitor;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
@@ -27,7 +29,7 @@ pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
-use parking_lot::{Mutex};
+use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
 use rand::rngs::StdRng;
 use rand::Rng;
@@ -53,8 +55,6 @@ use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::{typenum::U4294967296, *};
-use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::validator_monitor::ValidatorMonitor;
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -381,7 +381,10 @@ where
         self
     }
 
-    pub fn beacon_proposer_cache(mut self, beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>) -> Self {
+    pub fn beacon_proposer_cache(
+        mut self,
+        beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
+    ) -> Self {
         self.beacon_proposer_cache = Some(beacon_proposer_cache);
         self
     }

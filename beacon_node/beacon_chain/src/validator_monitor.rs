@@ -2,10 +2,13 @@
 //!
 //! This component should not affect consensus.
 
+use crate::beacon_proposer_cache::{BeaconProposerCache, TYPICAL_SLOTS_PER_EPOCH};
 use crate::metrics;
+use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use slog::{crit, debug, info, Logger};
 use slot_clock::SlotClock;
+use smallvec::SmallVec;
 use state_processing::per_epoch_processing::{
     errors::EpochProcessingError, EpochProcessingSummary,
 };
@@ -14,15 +17,13 @@ use std::convert::TryFrom;
 use std::io;
 use std::marker::PhantomData;
 use std::str::Utf8Error;
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use itertools::Itertools;
-use smallvec::SmallVec;
 use store::AbstractExecPayload;
-use types::{AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit};
-use crate::beacon_proposer_cache::{
-    BeaconProposerCache,
-    TYPICAL_SLOTS_PER_EPOCH
+use types::{
+    AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
+    IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
+    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
 };
 
 /// Used for Prometheus labels.
@@ -547,35 +548,50 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
             // Condition for missed_block is defined such as block_root(slot) == block_root(slot - 1)
             // where the proposer who missed the block is the proposer of the block at block_root(slot)
-            if let (Ok(block_root), Ok(prev_block_root)) = (state.get_block_root(slot), state.get_block_root(prev_slot)) {
+            if let (Ok(block_root), Ok(prev_block_root)) =
+                (state.get_block_root(slot), state.get_block_root(prev_slot))
+            {
                 // Found missed block
                 if block_root == prev_block_root {
                     let slot_epoch = slot.epoch(T::slots_per_epoch());
                     let prev_slot_epoch = prev_slot.epoch(T::slots_per_epoch());
 
-                    if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root_at_epoch(slot_epoch, shuffling_decision_block) {
-
+                    if let Ok(shuffling_decision_block) = state
+                        .proposer_shuffling_decision_root_at_epoch(
+                            slot_epoch,
+                            shuffling_decision_block,
+                        )
+                    {
                         // Only update the cache if it needs to be initialised or because
                         // slot is at epoch + 1
                         if proposers_per_epoch.is_none() || slot_epoch != prev_slot_epoch {
-                            proposers_per_epoch = self.get_proposers_by_epoch_from_cache(slot_epoch, shuffling_decision_block);
+                            proposers_per_epoch = self.get_proposers_by_epoch_from_cache(
+                                slot_epoch,
+                                shuffling_decision_block,
+                            );
                         }
 
                         // Only add missed blocks for the proposer if it's in the list of monitored validators
                         let slot_in_epoch = slot % T::slots_per_epoch();
                         if let Some(proposer_index) = proposers_per_epoch
                             .as_deref()
-                            .and_then(|proposers| proposers.get(slot_in_epoch.as_usize())) {
+                            .and_then(|proposers| proposers.get(slot_in_epoch.as_usize()))
+                        {
                             let i = *proposer_index as u64;
                             if let Some(pub_key) = self.indices.get(&i) {
-                                if self.validators
-                                    .get(pub_key)
-                                    .is_some() {
-                                        self.missed_blocks.insert((slot_epoch, *proposer_index as u64, slot));
+                                if self.validators.get(pub_key).is_some() {
+                                    self.missed_blocks.insert((
+                                        slot_epoch,
+                                        *proposer_index as u64,
+                                        slot,
+                                    ));
                                 }
                             }
                         } else {
-                            debug!(self.log, "Could not get proposers for epoch {slot_epoch:?} from cache");
+                            debug!(
+                                self.log,
+                                "Could not get proposers for epoch {slot_epoch:?} from cache"
+                            );
                         }
                     }
                 }
@@ -584,12 +600,19 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
         // Prune missed blocks that are prior to last finalized epoch
         let finalized_epoch = state.finalized_checkpoint().epoch;
-        self.missed_blocks.retain(|(epoch, _, _)| *epoch >= finalized_epoch);
+        self.missed_blocks
+            .retain(|(epoch, _, _)| *epoch >= finalized_epoch);
     }
 
-    fn get_proposers_by_epoch_from_cache(&mut self, epoch: Epoch, shuffling_decision_block: Hash256) -> Option<SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> {
+    fn get_proposers_by_epoch_from_cache(
+        &mut self,
+        epoch: Epoch,
+        shuffling_decision_block: Hash256,
+    ) -> Option<SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> {
         let mut cache = self.beacon_proposer_cache.lock();
-        cache.get_epoch::<T>(shuffling_decision_block, epoch).cloned()
+        cache
+            .get_epoch::<T>(shuffling_decision_block, epoch)
+            .cloned()
     }
 
     /// Run `func` with the `TOTAL_LABEL` and optionally the

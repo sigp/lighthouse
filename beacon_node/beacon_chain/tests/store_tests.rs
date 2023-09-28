@@ -15,6 +15,7 @@ use beacon_chain::{
 use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
+use parking_lot::Mutex;
 use rand::Rng;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::{state_advance::complete_state_advance, BlockReplayer};
@@ -33,7 +34,6 @@ use tokio::time::sleep;
 use tree_hash::TreeHash;
 use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
-use parking_lot::{Mutex};
 
 // Should ideally be divisible by 3.
 pub const LOW_VALIDATOR_COUNT: usize = 24;
@@ -2162,7 +2162,13 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                 log.clone(),
                 1,
             )))
-            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, beacon_proposer_cache, log)
+            .monitor_validators(
+                true,
+                vec![],
+                DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+                beacon_proposer_cache,
+                log,
+            )
             .build()
             .expect("should build"),
     );

@@ -1,4 +1,5 @@
 use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
+use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
@@ -9,7 +10,7 @@ use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
-use crate::validator_monitor::{ValidatorMonitor};
+use crate::validator_monitor::ValidatorMonitor;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
@@ -36,7 +37,6 @@ use types::{
     BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256,
     PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
 };
-use crate::beacon_proposer_cache::BeaconProposerCache;
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
@@ -97,7 +97,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
     task_executor: Option<TaskExecutor>,
-    beacon_proposer_cache: Option<Arc<Mutex<BeaconProposerCache>>>
+    beacon_proposer_cache: Option<Arc<Mutex<BeaconProposerCache>>>,
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
@@ -617,10 +617,7 @@ where
         self
     }
 
-    pub fn validator_monitor(
-        mut self,
-        validator_monitor: ValidatorMonitor<TEthSpec>,
-    ) -> Self {
+    pub fn validator_monitor(mut self, validator_monitor: ValidatorMonitor<TEthSpec>) -> Self {
         self.validator_monitor = Some(validator_monitor);
         self
     }
@@ -676,7 +673,8 @@ where
         let mut validator_monitor = self
             .validator_monitor
             .ok_or("Cannot build without a validator monitor")?;
-        let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = validator_monitor.get_beacon_proposer_cache();
+        let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> =
+            validator_monitor.get_beacon_proposer_cache();
         let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
 
         let current_slot = if slot_clock

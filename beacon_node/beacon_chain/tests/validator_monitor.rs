@@ -3,16 +3,14 @@ use std::sync::Arc;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use slog::Logger;
-use sloggers::{Build, null::NullLoggerBuilder};
+use sloggers::{null::NullLoggerBuilder, Build};
 
-use beacon_chain::{
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-    },
-};
 use beacon_chain::beacon_proposer_cache::BeaconProposerCache;
-use beacon_chain::validator_monitor::{MISSED_BLOCK_LAG_SLOTS, ValidatorMonitor};
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+};
 use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
+use beacon_chain::validator_monitor::{ValidatorMonitor, MISSED_BLOCK_LAG_SLOTS};
 use types::{Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, PublicKeyBytes, Slot};
 
 // Should ideally be divisible by 3.
@@ -30,21 +28,25 @@ fn get_logger() -> Logger {
     builder.build().expect("should build logger")
 }
 
-fn get_harness(validator_count: usize, validator_index_to_monitor: usize, beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+fn get_harness(
+    validator_count: usize,
+    validator_index_to_monitor: usize,
+    beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
+) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .validator_monitor(ValidatorMonitor::new(
-            vec![
-                PublicKeyBytes::from(KEYPAIRS[validator_index_to_monitor].pk.clone()),
-            ],
+            vec![PublicKeyBytes::from(
+                KEYPAIRS[validator_index_to_monitor].pk.clone(),
+            )],
             false,
             DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
             beacon_proposer_cache,
-            get_logger()),
-        )
+            get_logger(),
+        ))
         .build();
 
     harness.advance_slot();
@@ -54,7 +56,6 @@ fn get_harness(validator_count: usize, validator_index_to_monitor: usize, beacon
 
 #[tokio::test]
 async fn produces_missed_blocks() {
-
     let validator_count = 16;
 
     let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
@@ -70,11 +71,14 @@ async fn produces_missed_blocks() {
     // The validator index of the validator that is 'supposed' to miss a block
     let mut validator_index_to_monitor = 1;
 
-
     // 1st scenario //
     //
     // missed block happens when slot and prev_slot are in the same epoch
-    let harness1 = get_harness(validator_count, validator_index_to_monitor, beacon_proposer_cache.clone());
+    let harness1 = get_harness(
+        validator_count,
+        validator_index_to_monitor,
+        beacon_proposer_cache.clone(),
+    );
     harness1
         .extend_chain(
             initial_blocks as usize,
@@ -95,23 +99,28 @@ async fn produces_missed_blocks() {
     let mut duplicate_block_root = _state.block_roots().get(idx as usize).unwrap().clone();
     let mut validator_indexes = _state.get_beacon_proposer_indices(&harness1.spec).unwrap();
     let mut validator_index = validator_indexes[slot_in_epoch.as_usize()];
-    let mut proposer_shuffling_decision_root = _state.proposer_shuffling_decision_root(Hash256::zero()).unwrap();
+    let mut proposer_shuffling_decision_root = _state
+        .proposer_shuffling_decision_root(Hash256::zero())
+        .unwrap();
 
     // Let's fill the cache with the proposers for the current epoch
     // and push the duplicate_block_root to the block_roots vector
     assert_eq!(
-        beacon_proposer_cache
-        .lock()
-        .insert(
+        beacon_proposer_cache.lock().insert(
             epoch,
             proposer_shuffling_decision_root,
             validator_indexes.iter().map(|i| *i).collect::<Vec<usize>>(),
             _state.fork()
-        ), Ok(()));
+        ),
+        Ok(())
+    );
 
     // Modify the block root of the previous slot to be the same as the block root of the current slot
     // in order to simulate a missed block
-    assert_eq!(_state.set_block_root(prev_slot, duplicate_block_root), Ok(()));
+    assert_eq!(
+        _state.set_block_root(prev_slot, duplicate_block_root),
+        Ok(())
+    );
 
     // Let's validate the state which will call the function responsible for
     // adding the missed blocks to the validator monitor
@@ -119,8 +128,10 @@ async fn produces_missed_blocks() {
     validator_monitor.process_valid_state(nb_epoch_to_simulate, _state);
 
     // We should have one entry in the missed blocks map
-    assert_eq!(validator_monitor.get_monitored_validator_missed_block_count(validator_index as u64), 1);
-
+    assert_eq!(
+        validator_monitor.get_monitored_validator_missed_block_count(validator_index as u64),
+        1
+    );
 
     // 2nd scenario //
     //
@@ -128,7 +139,11 @@ async fn produces_missed_blocks() {
     // making sure that the cache reloads when the epoch changes
     // in that scenario the slot that missed a block is the first slot of the epoch
     validator_index_to_monitor = 7;
-    let harness2 = get_harness(validator_count, validator_index_to_monitor, beacon_proposer_cache.clone());
+    let harness2 = get_harness(
+        validator_count,
+        validator_index_to_monitor,
+        beacon_proposer_cache.clone(),
+    );
     let advance_slot_by = 9;
     harness2
         .extend_chain(
@@ -154,16 +169,19 @@ async fn produces_missed_blocks() {
     // Let's fill the cache with the proposers for the current epoch
     // and push the duplicate_block_root to the block_roots vector
     assert_eq!(
-        beacon_proposer_cache
-            .lock()
-            .insert(
-                epoch,
-                duplicate_block_root,
-                validator_indexes.iter().map(|i| *i).collect::<Vec<usize>>(),
-                _state2.fork()
-            ), Ok(()));
+        beacon_proposer_cache.lock().insert(
+            epoch,
+            duplicate_block_root,
+            validator_indexes.iter().map(|i| *i).collect::<Vec<usize>>(),
+            _state2.fork()
+        ),
+        Ok(())
+    );
 
-    assert_eq!(_state2.set_block_root(prev_slot, duplicate_block_root), Ok(()));
+    assert_eq!(
+        _state2.set_block_root(prev_slot, duplicate_block_root),
+        Ok(())
+    );
 
     // Let's validate the state which will call the function responsible for
     // adding the missed blocks to the validator monitor
@@ -171,8 +189,10 @@ async fn produces_missed_blocks() {
     validator_monitor.process_valid_state(epoch, _state2);
 
     // We should have one entry in the missed blocks map
-    assert_eq!(validator_monitor.get_monitored_validator_missed_block_count(validator_index as u64), 1);
-
+    assert_eq!(
+        validator_monitor.get_monitored_validator_missed_block_count(validator_index as u64),
+        1
+    );
 
     // 3rd scenario //
     //
@@ -186,7 +206,10 @@ async fn produces_missed_blocks() {
     validator_indexes = _state2.get_beacon_proposer_indices(&harness2.spec).unwrap();
     let not_monitored_validator_index = validator_indexes[slot_in_epoch.as_usize()];
 
-    assert_eq!(_state2.set_block_root(prev_slot, duplicate_block_root), Ok(()));
+    assert_eq!(
+        _state2.set_block_root(prev_slot, duplicate_block_root),
+        Ok(())
+    );
 
     // Let's validate the state which will call the function responsible for
     // adding the missed blocks to the validator monitor
@@ -194,14 +217,21 @@ async fn produces_missed_blocks() {
 
     // We shouldn't have any entry in the missed blocks map
     assert_eq!(validator_index != not_monitored_validator_index, true);
-    assert_eq!(validator_monitor.get_monitored_validator_missed_block_count(not_monitored_validator_index as u64), 0);
-
+    assert_eq!(
+        validator_monitor
+            .get_monitored_validator_missed_block_count(not_monitored_validator_index as u64),
+        0
+    );
 
     // 4th scenario //
     //
     // a missed block happens but it happens but it's happening at state.slot - LOG_SLOTS_PER_EPOCH
     // it shouldn't be flagged as a missed block
-    let harness3 = get_harness(validator_count, validator_index_to_monitor, beacon_proposer_cache.clone());
+    let harness3 = get_harness(
+        validator_count,
+        validator_index_to_monitor,
+        beacon_proposer_cache.clone(),
+    );
     harness3
         .extend_chain(
             slots_per_epoch as usize,
@@ -222,23 +252,28 @@ async fn produces_missed_blocks() {
     duplicate_block_root = _state3.block_roots().get(idx as usize).unwrap().clone();
     validator_indexes = _state3.get_beacon_proposer_indices(&harness3.spec).unwrap();
     validator_index = validator_indexes[slot_in_epoch.as_usize()];
-    proposer_shuffling_decision_root = _state3.proposer_shuffling_decision_root_at_epoch(epoch, Hash256::zero()).unwrap();
+    proposer_shuffling_decision_root = _state3
+        .proposer_shuffling_decision_root_at_epoch(epoch, Hash256::zero())
+        .unwrap();
 
     // Let's fill the cache with the proposers for the current epoch
     // and push the duplicate_block_root to the block_roots vector
     assert_eq!(
-        beacon_proposer_cache
-            .lock()
-            .insert(
-                epoch,
-                proposer_shuffling_decision_root,
-                validator_indexes.iter().map(|i| *i).collect::<Vec<usize>>(),
-                _state3.fork()
-            ), Ok(()));
+        beacon_proposer_cache.lock().insert(
+            epoch,
+            proposer_shuffling_decision_root,
+            validator_indexes.iter().map(|i| *i).collect::<Vec<usize>>(),
+            _state3.fork()
+        ),
+        Ok(())
+    );
 
     // Modify the block root of the previous slot to be the same as the block root of the current slot
     // in order to simulate a missed block
-    assert_eq!(_state3.set_block_root(prev_slot, duplicate_block_root), Ok(()));
+    assert_eq!(
+        _state3.set_block_root(prev_slot, duplicate_block_root),
+        Ok(())
+    );
 
     // Let's validate the state which will call the function responsible for
     // adding the missed blocks to the validator monitor
@@ -246,5 +281,8 @@ async fn produces_missed_blocks() {
     validator_monitor.process_valid_state(epoch, _state3);
 
     // We shouldn't have one entry in the missed blocks map
-    assert_eq!(validator_monitor.get_monitored_validator_missed_block_count(validator_index as u64), 0);
+    assert_eq!(
+        validator_monitor.get_monitored_validator_missed_block_count(validator_index as u64),
+        0
+    );
 }

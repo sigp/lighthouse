@@ -9,12 +9,12 @@ use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lazy_static::lazy_static;
 use lighthouse_network::NetworkConfig;
+use parking_lot::Mutex;
 use slog::{o, Drain, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use parking_lot::Mutex;
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
 use task_executor::test_utils::TestRuntime;
@@ -78,7 +78,13 @@ impl TestBeaconChain {
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
                 .shutdown_sender(shutdown_tx)
-                .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, beacon_proposer_cache.clone(), log)
+                .monitor_validators(
+                    true,
+                    vec![],
+                    DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+                    beacon_proposer_cache.clone(),
+                    log,
+                )
                 .build()
                 .expect("should build"),
         );
