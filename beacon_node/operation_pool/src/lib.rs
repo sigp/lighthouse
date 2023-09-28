@@ -258,13 +258,35 @@ impl<T: EthSpec> OperationPool<T> {
                     let cliques = bron_kerbosch(&aggregates, is_compatible);
 
                     // aggregate each cliques corresponding attestaiions
-                    let mut clique_aggregates = cliques.iter().map(|clique| {
-                        let mut res_att = aggregates[clique[0]].clone();
-                        for ind in clique.iter().skip(1) {
-                            res_att.aggregate(&aggregates[*ind]);
+                    let mut clique_aggregates: Vec<CompactIndexedAttestation<_>> = cliques
+                        .iter()
+                        .map(|clique| {
+                            let mut res_att = aggregates[clique[0]].clone();
+                            for ind in clique.iter().skip(1) {
+                                res_att.aggregate(&aggregates[*ind]);
+                            }
+                            res_att
+                        })
+                        .collect();
+
+                    let mut indices_to_remove = Vec::new();
+                    clique_aggregates
+                        .sort_by(|a, b| a.attesting_indices.len().cmp(&b.attesting_indices.len()));
+                    for (index, clique) in clique_aggregates.iter().enumerate() {
+                        for bigger_clique in clique_aggregates.iter().skip(index + 1) {
+                            if clique
+                                .aggregation_bits
+                                .is_subset(&bigger_clique.aggregation_bits)
+                            {
+                                indices_to_remove.push(index);
+                                break;
+                            }
                         }
-                        res_att
-                    });
+                    }
+                    for index in indices_to_remove.iter().rev() {
+                        clique_aggregates.remove(*index);
+                    }
+                    let mut clique_aggregates = clique_aggregates.into_iter();
 
                     // aggregate unaggregate attestations into the clique aggregates
                     // if compatible
