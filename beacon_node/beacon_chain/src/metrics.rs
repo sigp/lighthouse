@@ -813,6 +813,11 @@ lazy_static! {
         "Number of attester slashings seen",
         &["src", "validator"]
     );
+    pub static ref VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_AT_NON_FINALIZED_EPOCH_TOTAL: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "validator_monitor_missed_non_finalized_blocks_at_non_finalized_epoch_total",
+        "Number of non-finalized blocks missed at non-finalized epochs",
+        &["src", "validator"]
+    );
     pub static ref VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "validator_monitor_missed_non_finalized_blocks_total",
         "Number of non-finalized blocks missed",
