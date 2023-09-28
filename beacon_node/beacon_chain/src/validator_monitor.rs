@@ -513,11 +513,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .into_iter()
             .for_each(|(validator_index, group)| {
                 let missed_blocks_count = group.count();
-                metrics::set_int_gauge(
-                    &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
-                    &[validator_index.to_string().as_str()],
-                    u64_to_i64(missed_blocks_count as u64),
-                );
+                self.aggregatable_metric(validator_index.to_string().as_str(), |label| {
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
+                        &[label],
+                        u64_to_i64(missed_blocks_count as u64),
+                    );
+                });
             });
     }
 
