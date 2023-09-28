@@ -103,7 +103,7 @@ The testnet also contains parameters that are specified in `vars.env`, such as t
 
 ```bash
 ./setup.sh
-./setup_time.sh
+./setup_time.sh genesis.json
 ```
 
 Note: The generated genesis validators are embedded into the genesis state as genesis validators and hence do not require manual deposits to activate.
