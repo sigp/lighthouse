@@ -1,13 +1,11 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes};
 use eth2::types::{BlockId, StateId, ValidatorId};
-use eth2::{BeaconNodeHttpClient, StatusCode, Timeouts};
+use eth2::{BeaconNodeHttpClient, Timeouts};
 use fork_choice::ForkchoiceUpdateParameters;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
-use ssz::{Decode, Encode};
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::fmt::Debug;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -15,18 +13,16 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
-use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
-use types::application_domain::ApplicationDomain;
 use types::builder_bid::{BuilderBid, SignedBuilderBid};
 use types::payload::BlindedPayloadRefMut;
 use types::{
-    Address, BeaconState, BlindedPayload, ChainSpec, Domain, Epoch, EthSpec, ExecPayload, ForkName,
-    ForkVersionedResponse, Hash256, PublicKeyBytes, Signature, SignedAggregateAndProof,
-    SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
+    Address, BeaconState, BlindedPayload, ChainSpec, EthSpec, ExecPayload, ForkName,
+    ForkVersionedResponse, Hash256, PublicKeyBytes, Signature, SignedBlindedBeaconBlock,
+    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
-use types::{BeaconStateError, ExecutionBlockHash, SecretKey};
-use warp::{Filter, Rejection, Reply};
+use types::{ExecutionBlockHash, SecretKey};
+use warp::{Filter, Rejection};
 
 #[derive(Clone)]
 pub enum Operation {
@@ -71,11 +67,7 @@ pub trait BidStuff<E: EthSpec> {
     fn set_timestamp(&mut self, timestamp: u64);
     fn set_withdrawals_root(&mut self, withdrawals_root: Hash256);
 
-    fn sign_builder_message(
-        &mut self,
-        sk: &SecretKey,
-        spec: &ChainSpec,
-    ) ->Signature;
+    fn sign_builder_message(&mut self, sk: &SecretKey, spec: &ChainSpec) -> Signature;
 
     fn to_signed_bid(self, signature: Signature) -> SignedBuilderBid<E, BlindedPayload<E>>;
 }
@@ -157,14 +149,10 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
         }
     }
 
-    fn sign_builder_message(
-        &mut self,
-        sk: &SecretKey,
-        spec: &ChainSpec,
-    ) -> Signature {
+    fn sign_builder_message(&mut self, sk: &SecretKey, spec: &ChainSpec) -> Signature {
         let domain = spec.get_builder_domain();
         let message = self.signing_root(domain);
-        sk.sign(message).into()
+        sk.sign(message)
     }
 
     fn to_signed_bid(self, signature: Signature) -> SignedBuilderBid<E, BlindedPayload<E>> {
@@ -285,7 +273,7 @@ pub fn serve<E: EthSpec>(
                     builder
                         .val_registration_cache
                         .write()
-                        .insert(registration.message.pubkey.clone(), registration.clone());
+                        .insert(registration.message.pubkey, registration);
                 }
                 Ok(warp::reply())
             },
@@ -488,20 +476,18 @@ pub fn serve<E: EthSpec>(
                 };
                 message.set_gas_limit(cached_data.gas_limit);
 
-                builder
-                    .apply_operations(&mut message);
+                builder.apply_operations(&mut message);
 
-                let mut signature = message
-                    .sign_builder_message(
-                        &builder.builder_sk,
-                        &builder.spec,
-                    );
+                let mut signature =
+                    message.sign_builder_message(&builder.builder_sk, &builder.spec);
 
                 if *builder.invalidate_signatures.read() {
                     signature = Signature::empty();
                 }
 
-                let fork_name = builder.spec.fork_name_at_epoch(slot.epoch(E::slots_per_epoch()));
+                let fork_name = builder
+                    .spec
+                    .fork_name_at_epoch(slot.epoch(E::slots_per_epoch()));
                 let signed_bid = SignedBuilderBid { message, signature };
                 let resp = ForkVersionedResponse {
                     version: Some(fork_name),
@@ -532,5 +518,3 @@ pub fn serve<E: EthSpec>(
 fn reject(msg: &'static str) -> Rejection {
     warp::reject::custom(Custom(msg.to_string()))
 }
-
-
