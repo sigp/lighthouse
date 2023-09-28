@@ -621,8 +621,24 @@ impl<T: EthSpec> BeaconState<T> {
     /// The `block_root` covers the one-off scenario where the genesis block decides its own
     /// shuffling. It should be set to the latest block applied to `self` or the genesis block root.
     /// The `epoch` should be set to the epoch of the block root.
-    pub fn proposer_shuffling_decision_root(&self, epoch: Epoch, block_root: Hash256) -> Result<Hash256, Error> {
+    pub fn proposer_shuffling_decision_root_at_epoch(&self, epoch: Epoch, block_root: Hash256) -> Result<Hash256, Error> {
         let decision_slot = self.proposer_shuffling_decision_slot(epoch);
+        if self.slot() <= decision_slot {
+            Ok(block_root)
+        } else {
+            self.get_block_root(decision_slot).map(|root| *root)
+        }
+    }
+
+    /// Returns the block root which decided the proposer shuffling for the current epoch. This root
+    /// can be used to key this proposer shuffling.
+    ///
+    /// ## Notes
+    ///
+    /// The `block_root` covers the one-off scenario where the genesis block decides its own
+    /// shuffling. It should be set to the latest block applied to `self` or the genesis block root.
+    pub fn proposer_shuffling_decision_root(&self, block_root: Hash256) -> Result<Hash256, Error> {
+        let decision_slot = self.proposer_shuffling_decision_slot(self.current_epoch());
         if self.slot() == decision_slot {
             Ok(block_root)
         } else {
