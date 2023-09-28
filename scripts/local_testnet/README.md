@@ -99,10 +99,11 @@ Once a testnet is stopped, it cannot be continued from where it left off. When t
 In [Starting the testnet](./README.md#starting-the-testnet), the testnet is started automatically with predetermined parameters (database directory, ports used etc).  This section describes some modifications of the local testnet settings, e.g., you would like to change the database directory, or changing the ports used. 
 
 
-The predefined parameters are specified in `vars.env`, such as the slot time `SECONDS_PER_SLOT=3` (instead of 12 seconds on mainnet). You may change these parameters to suit your testing purposes. After that, in the testnet directory, run the following command to create genesis state with embedded validators and validator keys:
+The testnet also contains parameters that are specified in `vars.env`, such as the slot time `SECONDS_PER_SLOT=3` (instead of 12 seconds on mainnet). You may change these parameters to suit your testing purposes. After that, in the `local_testnet` directory, run the following command to create genesis state with embedded validators and validator keys, and also to update the time in `genesis.json`:
 
 ```bash
 ./setup.sh
+./setup_time.sh
 ```
 
 Note: The generated genesis validators are embedded into the genesis state as genesis validators and hence do not require manual deposits to activate.
@@ -119,7 +120,7 @@ Start a geth node:
 ```
 e.g.
 ```bash
-./geth.sh $HOME/.lighthouse/local-testnet/geth_1 5000 6000 7000 genesis.json
+./geth.sh $HOME/.lighthouse/local-testnet/geth_1 7001 6001 5001 genesis.json
 ```
 
 Start a beacon node:
@@ -129,7 +130,7 @@ Start a beacon node:
 ```
 e.g.
 ```bash
-./beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 9100 8000 http://localhost:6000 ~/.lighthouse/local-testnet/geth_1/geth/jwtsecret
+./beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9001 9101 8001 http://localhost:5001 ~/.lighthouse/local-testnet/geth_1/geth/jwtsecret
 ```
 
 In a new terminal, start the validator client which will attach to the first
@@ -140,10 +141,16 @@ beacon node:
 ```
 e.g. to attach to the above created beacon node
 ```bash
-./validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8000
+./validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8001
 ```
 
-You can create additional beacon node and validator client instances with appropriate parameters.
+You can create additional geth, beacon node and validator client instances by changing the ports, e.g., for a second geth, beacon node and validator client:
+
+```bash
+./geth.sh $HOME/.lighthouse/local-testnet/geth_2 7002 6002 5002 genesis.json
+./beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 9002 9102 8002 http://localhost:5002 ~/.lighthouse/local-testnet/geth_2/geth/jwtsecret
+./validator_client.sh $HOME/.lighthouse/local-testnet/node_2 http://localhost:8002
+```
 
 ## Additional Info
 
