@@ -168,7 +168,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
 
     let dependent_root = state
         // The only block which decides its own shuffling is the genesis block.
-        .proposer_shuffling_decision_root(state.current_epoch(), chain.genesis_block_root)
+        .proposer_shuffling_decision_root(chain.genesis_block_root)
         .map_err(BeaconChainError::from)?;
 
     Ok((indices, dependent_root, execution_status, state.fork()))

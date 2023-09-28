@@ -95,7 +95,7 @@ async fn produces_missed_blocks() {
     let mut duplicate_block_root = _state.block_roots().get(idx as usize).unwrap().clone();
     let mut validator_indexes = _state.get_beacon_proposer_indices(&harness1.spec).unwrap();
     let mut validator_index = validator_indexes[slot_in_epoch.as_usize()];
-    let mut proposer_shuffling_decision_root = _state.proposer_shuffling_decision_root(epoch, Hash256::zero()).unwrap();
+    let mut proposer_shuffling_decision_root = _state.proposer_shuffling_decision_root(Hash256::zero()).unwrap();
 
     // Let's fill the cache with the proposers for the current epoch
     // and push the duplicate_block_root to the block_roots vector
@@ -222,7 +222,7 @@ async fn produces_missed_blocks() {
     duplicate_block_root = _state3.block_roots().get(idx as usize).unwrap().clone();
     validator_indexes = _state3.get_beacon_proposer_indices(&harness3.spec).unwrap();
     validator_index = validator_indexes[slot_in_epoch.as_usize()];
-    proposer_shuffling_decision_root = _state3.proposer_shuffling_decision_root(epoch, Hash256::zero()).unwrap();
+    proposer_shuffling_decision_root = _state3.proposer_shuffling_decision_root_at_epoch(epoch, Hash256::zero()).unwrap();
 
     // Let's fill the cache with the proposers for the current epoch
     // and push the duplicate_block_root to the block_roots vector

@@ -830,7 +830,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
         let dependent_root = new_snapshot
             .beacon_state
-            .proposer_shuffling_decision_root(head_epoch, self.genesis_block_root);
+            .proposer_shuffling_decision_root(self.genesis_block_root);
         let prev_dependent_root = new_snapshot
             .beacon_state
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);

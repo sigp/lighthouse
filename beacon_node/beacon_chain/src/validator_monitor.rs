@@ -531,7 +531,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let start_slot = current_slot - Slot::new(range_of_slots as u64);
 
         // As we are skipping the genesis slot, we can simply pass Hash256::zero() as the shuffling decision block
-        // cf. state.proposer_shuffling_decision_root implementation
+        // cf. state.proposer_shuffling_decision_root_at_epoch implementation
         let shuffling_decision_block = Hash256::zero();
 
         // List of proposers per epoch from the beacon_proposer_cache
@@ -553,7 +553,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     let slot_epoch = slot.epoch(T::slots_per_epoch());
                     let prev_slot_epoch = prev_slot.epoch(T::slots_per_epoch());
 
-                    if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root(slot_epoch, shuffling_decision_block) {
+                    if let Ok(shuffling_decision_block) = state.proposer_shuffling_decision_root_at_epoch(slot_epoch, shuffling_decision_block) {
 
                         // Only update the cache if it needs to be initialised or because
                         // slot is at epoch + 1
