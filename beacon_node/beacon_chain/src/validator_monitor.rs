@@ -564,14 +564,15 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         // Only add missed blocks for the proposer if it's in the list of monitored validators
                         let slot_in_epoch = slot % T::slots_per_epoch();
                         if let Some(proposer_index) = proposers_per_epoch
-                            .as_ref()
+                            .as_deref()
                             .and_then(|proposers| proposers.get(slot_in_epoch.as_usize())) {
-                            if self.validators
-                                .values()
-                                .filter_map(|v| v.index)
-                                .find(|i| *i == *proposer_index as u64)
-                                .is_some() {
-                                self.missed_blocks.insert((slot_epoch, *proposer_index as u64, slot));
+                            let i = *proposer_index as u64;
+                            if let Some(pub_key) = self.indices.get(&i) {
+                                if self.validators
+                                    .get(pub_key)
+                                    .is_some() {
+                                        self.missed_blocks.insert((slot_epoch, *proposer_index as u64, slot));
+                                }
                             }
                         } else {
                             debug!(self.log, "Could not get proposers for epoch {slot_epoch:?} from cache");
