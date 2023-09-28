@@ -1194,7 +1194,7 @@ fn default_backfill_rate_limiting_flag() {
 }
 #[test]
 fn default_boot_nodes() {
-    let number_of_boot_nodes = 15;
+    let number_of_boot_nodes = 17;
 
     CommandLineTest::new()
         .run_with_zero_port()
@@ -1466,6 +1466,7 @@ fn http_flag() {
 fn http_address_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("127.0.0.99"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
@@ -1474,6 +1475,7 @@ fn http_address_flag() {
 fn http_address_ipv6_flag() {
     let addr = "::1".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("::1"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
@@ -1483,6 +1485,7 @@ fn http_port_flag() {
     let port1 = unused_tcp4_port().expect("Unable to find unused port.");
     let port2 = unused_tcp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
         .run()
@@ -2335,6 +2338,18 @@ fn gui_flag() {
 }
 
 #[test]
+fn multiple_http_enabled_flags() {
+    CommandLineTest::new()
+        .flag("gui", None)
+        .flag("http", None)
+        .flag("staking", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.http_api.enabled);
+        });
+}
+
+#[test]
 fn optimistic_finalized_sync_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -2446,6 +2461,7 @@ fn http_sse_capacity_multiplier_default() {
 #[test]
 fn http_sse_capacity_multiplier_override() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-sse-capacity-multiplier", Some("10"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.sse_capacity_multiplier, 10));
@@ -2463,6 +2479,7 @@ fn http_duplicate_block_status_default() {
 #[test]
 fn http_duplicate_block_status_override() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-duplicate-block-status", Some("301"))
         .run_with_zero_port()
         .with_config(|config| {

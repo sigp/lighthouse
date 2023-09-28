@@ -2,21 +2,21 @@
 name = "logging"
 version = "0.2.0"
 authors = ["blacktemplar <blacktemplar@a1.net>"]
-edition = "2021"
+edition = { workspace = true }
 
 [features]
 test_logger = [] # Print log output to stderr when running tests instead of dropping it
 
 [dependencies]
-slog = "2.5.2"
-slog-term = "2.6.0"
-tokio = { version = "1.26.0", features = ["sync"] }
-lighthouse_metrics = { path = "../lighthouse_metrics" }
-lazy_static = "1.4.0"
-sloggers = { version = "2.1.1", features = ["json"] }
-slog-async = "2.7.0"
+slog = { workspace = true }
+slog-term = { workspace = true }
+tokio = { workspace = true }
+lighthouse_metrics = { workspace = true }
+lazy_static = { workspace = true }
+sloggers = { workspace = true }
+slog-async = { workspace = true }
 take_mut = "0.2.2"
-parking_lot = "0.12.1"
-serde = "1.0.153"
-serde_json = "1.0.94"
+parking_lot = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
