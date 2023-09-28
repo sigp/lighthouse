@@ -1,6 +1,6 @@
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::BeaconBlockAndStateResponse;
+use crate::BeaconBlockResponseType;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
@@ -777,7 +777,7 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-        if let BeaconBlockAndStateResponse::Full((block, state, _)) = self
+        if let BeaconBlockResponseType::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -791,14 +791,14 @@ where
             .await
             .unwrap()
         {
-            let signed_block = block.sign(
+            let signed_block = block_response.block.sign(
                 &self.validator_keypairs[proposer_index].sk,
-                &state.fork(),
-                state.genesis_validators_root(),
+                &block_response.state.fork(),
+                block_response.state.genesis_validators_root(),
                 &self.spec,
             );
 
-            (signed_block, state)
+            (signed_block, block_response.state)
         } else {
             panic!("Should always be a full payload response")
         }
@@ -830,7 +830,7 @@ where
 
         let pre_state = state.clone();
 
-        if let BeaconBlockAndStateResponse::Full((block, state, _)) = self
+        if let BeaconBlockResponseType::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -844,10 +844,10 @@ where
             .await
             .unwrap()
         {
-            let signed_block = block.sign(
+            let signed_block = block_response.block.sign(
                 &self.validator_keypairs[proposer_index].sk,
-                &state.fork(),
-                state.genesis_validators_root(),
+                &block_response.state.fork(),
+                block_response.state.genesis_validators_root(),
                 &self.spec,
             );
 

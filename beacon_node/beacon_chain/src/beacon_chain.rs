@@ -430,13 +430,17 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub genesis_backfill_slot: Slot,
 }
 
-pub enum BeaconBlockAndStateResponse<T: EthSpec> {
-    Full(BeaconBlockAndStateAndValue<T, FullPayload<T>>),
-    Blinded(BeaconBlockAndStateAndValue<T, BlindedPayload<T>>),
+pub enum BeaconBlockResponseType<T: EthSpec> {
+    Full(BeaconBlockResponse<T, FullPayload<T>>),
+    Blinded(BeaconBlockResponse<T, BlindedPayload<T>>),
 }
 
-pub type BeaconBlockAndStateAndValue<T, Payload> =
-    (BeaconBlock<T, Payload>, BeaconState<T>, Uint256);
+pub struct BeaconBlockResponse<T: EthSpec, Payload: AbstractExecPayload<T>> {
+    pub block: BeaconBlock<T, Payload>,
+    pub state: BeaconState<T>,
+    pub execution_block_value: Option<Uint256>,
+    pub consensus_block_value: Option<u64>,
+}
 
 impl FinalizationAndCanonicity {
     pub fn is_finalized(self) -> bool {
@@ -3622,7 +3626,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
         block_production_version: BlockProductionVersion,
-    ) -> Result<BeaconBlockAndStateResponse<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockResponseType<T::EthSpec>, BlockProductionError> {
         // Part 1/2 (blocking)
         //
         // Load the parent state from disk.
@@ -4223,7 +4227,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
         block_production_version: BlockProductionVersion,
-    ) -> Result<BeaconBlockAndStateResponse<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockResponseType<T::EthSpec>, BlockProductionError> {
         // Part 1/3 (blocking)
         //
         // Perform the state advance and block-packing functions.
@@ -4270,7 +4274,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             match block_contents_type {
                 BlockProposalContentsType::Full(block_contents) => {
                     let chain = self.clone();
-                    let beacon_block_and_state = self
+                    let beacon_block_response = self
                         .task_executor
                         .spawn_blocking_handle(
                             move || {
@@ -4286,11 +4290,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .await
                         .map_err(BlockProductionError::TokioJoin)??;
 
-                    Ok(BeaconBlockAndStateResponse::Full(beacon_block_and_state))
+                    Ok(BeaconBlockResponseType::Full(beacon_block_response))
                 }
                 BlockProposalContentsType::Blinded(block_contents) => {
                     let chain = self.clone();
-                    let beacon_block_and_state = self
+                    let beacon_block_response = self
                         .task_executor
                         .spawn_blocking_handle(
                             move || {
@@ -4306,12 +4310,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .await
                         .map_err(BlockProductionError::TokioJoin)??;
 
-                    Ok(BeaconBlockAndStateResponse::Blinded(beacon_block_and_state))
+                    Ok(BeaconBlockResponseType::Blinded(beacon_block_response))
                 }
             }
         } else {
             let chain = self.clone();
-            let beacon_block_and_state = self
+            let beacon_block_response = self
                 .task_executor
                 .spawn_blocking_handle(
                     move || {
@@ -4327,7 +4331,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .await
                 .map_err(BlockProductionError::TokioJoin)??;
 
-            Ok(BeaconBlockAndStateResponse::Full(beacon_block_and_state))
+            Ok(BeaconBlockResponseType::Full(beacon_block_response))
         }
     }
 
@@ -4583,7 +4587,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,
         block_contents: Option<BlockProposalContents<T::EthSpec, Payload>>,
         verification: ProduceBlockVerification,
-    ) -> Result<BeaconBlockAndStateAndValue<T::EthSpec, Payload>, BlockProductionError> {
+    ) -> Result<BeaconBlockResponse<T::EthSpec, Payload>, BlockProductionError> {
         let PartialBeaconBlock {
             mut state,
             slot,
@@ -4605,7 +4609,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
-        let (inner_block, block_value) = match &state {
+        let (inner_block, execution_block_value) = match &state {
             BeaconState::Base(_) => (
                 BeaconBlock::Base(BeaconBlockBase {
                     slot,
@@ -4651,7 +4655,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Merge(_) => {
                 let block_proposal_contents =
                     block_contents.ok_or(BlockProductionError::MissingExecutionPayload)?;
-                let block_value = block_proposal_contents.block_value().to_owned();
+                let execution_block_value = block_proposal_contents.block_value().to_owned();
 
                 (
                     BeaconBlock::Merge(BeaconBlockMerge {
@@ -4676,13 +4680,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                         },
                     }),
-                    block_value,
+                    execution_block_value,
                 )
             }
             BeaconState::Capella(_) => {
                 let block_proposal_contents =
                     block_contents.ok_or(BlockProductionError::MissingExecutionPayload)?;
-                let block_value = block_proposal_contents.block_value().to_owned();
+                let execution_block_value = block_proposal_contents.block_value().to_owned();
 
                 (
                     BeaconBlock::Capella(BeaconBlockCapella {
@@ -4708,13 +4712,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             bls_to_execution_changes: bls_to_execution_changes.into(),
                         },
                     }),
-                    block_value,
+                    execution_block_value,
                 )
             }
         };
 
         let block = SignedBeaconBlock::from_block(
-            inner_block,
+            inner_block.clone(),
             // The block is not signed here, that is the task of a validator client.
             Signature::empty(),
         );
@@ -4739,6 +4743,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         // Use a context without block root or proposer index so that both are checked.
         let mut ctxt = ConsensusContext::new(block.slot());
+
+        let consensus_block_value = self
+            .compute_beacon_block_reward(inner_block.to_ref(), Hash256::zero(), &mut state.clone())
+            .unwrap()
+            .total;
+        
+
         per_block_processing(
             &mut state,
             &block,
@@ -4767,7 +4778,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "slot" => block.slot()
         );
 
-        Ok((block, state, block_value))
+        Ok(BeaconBlockResponse {
+            block,
+            state,
+            execution_block_value: Some(execution_block_value),
+            consensus_block_value: Some(consensus_block_value),
+        })
     }
 
     /// This method must be called whenever an execution engine indicates that a payload is

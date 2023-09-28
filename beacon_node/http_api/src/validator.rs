@@ -3,7 +3,7 @@ use std::sync::Arc;
 use types::{payload::BlockProductionVersion, *};
 
 use beacon_chain::{
-    BeaconBlockAndStateResponse, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconBlockResponse, BeaconBlockResponseType, BeaconChain, BeaconChainError, BeaconChainTypes,
     ProduceBlockVerification,
 };
 use eth2::types::{self as api_types, EndpointVersion, SkipRandaoVerification};
@@ -14,8 +14,9 @@ use warp::{
 };
 
 use crate::version::{
-    add_consensus_version_header, add_execution_payload_blinded_header,
-    add_execution_payload_value_header, fork_versioned_response, inconsistent_fork_rejection,
+    add_consensus_payload_value_header, add_consensus_version_header,
+    add_execution_payload_blinded_header, add_execution_payload_value_header,
+    fork_versioned_response, inconsistent_fork_rejection,
 };
 /// Uses the `chain.validator_pubkey_cache` to resolve a pubkey to a validator
 /// index and then ensures that the validator exists in the given `state`.
@@ -81,11 +82,11 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::block_production_error)?;
 
     match block_response {
-        BeaconBlockAndStateResponse::Full((block, _, _)) => {
-            build_response_v2(chain, block, endpoint_version)
+        BeaconBlockResponseType::Full(block_response) => {
+            build_response_v2(chain, block_response.block, endpoint_version, accept_header)
         }
-        BeaconBlockAndStateResponse::Blinded((block, _, _)) => {
-            build_response_v2(chain, block, endpoint_version)
+        BeaconBlockResponseType::Blinded(block_response) => {
+            build_response_v2(chain, block_response.block, endpoint_version, accept_header)
         }
     }
 }
@@ -138,11 +139,11 @@ pub async fn determine_and_produce_block_json<T: BeaconChainTypes>(
         })?;
 
     match block_response {
-        BeaconBlockAndStateResponse::Full((block, _, block_value)) => {
-            generate_json_response_v3(chain, block, endpoint_version, block_value, false)
+        BeaconBlockResponseType::Full(block_response) => {
+            generate_json_response_v3(chain, block_response, endpoint_version, false)
         }
-        BeaconBlockAndStateResponse::Blinded((block, _, block_value)) => {
-            generate_json_response_v3(chain, block, endpoint_version, block_value, true)
+        BeaconBlockResponseType::Blinded(block_response) => {
+            generate_json_response_v3(chain, block_response, endpoint_version, true)
         }
     }
 }
@@ -173,21 +174,33 @@ pub async fn determine_and_produce_block_ssz<T: BeaconChainTypes>(
         .map_err(|e| {
             warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
         })? {
-        BeaconBlockAndStateResponse::Full((block, _, block_value)) => {
-            let fork_name = block
+        BeaconBlockResponseType::Full(block_response) => {
+            let fork_name = block_response
+                .block
                 .to_ref()
                 .fork_name(&chain.spec)
                 .map_err(inconsistent_fork_rejection)?;
 
-            (block.as_ssz_bytes(), fork_name, block_value, false)
+            (
+                block_response.block.as_ssz_bytes(),
+                fork_name,
+                block_response.execution_block_value,
+                false,
+            )
         }
-        BeaconBlockAndStateResponse::Blinded((block, _, block_value)) => {
-            let fork_name = block
+        BeaconBlockResponseType::Blinded(block_response) => {
+            let fork_name = block_response
+                .block
                 .to_ref()
                 .fork_name(&chain.spec)
                 .map_err(inconsistent_fork_rejection)?;
 
-            (block.as_ssz_bytes(), fork_name, block_value, true)
+            (
+                block_response.block.as_ssz_bytes(),
+                fork_name,
+                block_response.execution_block_value,
+                true,
+            )
         }
     };
 
@@ -209,24 +222,27 @@ pub fn generate_json_response_v3<
     Payload: AbstractExecPayload<E>,
 >(
     chain: Arc<BeaconChain<T>>,
-    block: BeaconBlock<E, Payload>,
+    beacon_block_response: BeaconBlockResponse<E, Payload>,
     endpoint_version: EndpointVersion,
-    block_value: Uint256,
     blinded_payload_flag: bool,
 ) -> Result<Response<Body>, warp::Rejection> {
-    let fork_name = block
+    let fork_name = beacon_block_response
+        .block
         .to_ref()
         .fork_name(&chain.spec)
         .map_err(inconsistent_fork_rejection)?;
 
-    fork_versioned_response(endpoint_version, fork_name, block)
+    fork_versioned_response(endpoint_version, fork_name, beacon_block_response.block)
         .map(|response| warp::reply::json(&response).into_response())
         .map(|res| add_consensus_version_header(res, fork_name))
         .map(|res| add_execution_payload_blinded_header(res, blinded_payload_flag))
-        .map(|res: Response<Body>| add_execution_payload_value_header(res, block_value))
+        .map(|res| {
+            add_execution_payload_value_header(res, beacon_block_response.execution_block_value)
+        })
+        .map(|res| {
+            add_consensus_payload_value_header(res, beacon_block_response.consensus_block_value)
+        })
 }
-
-
 
 pub async fn produce_block_v2<T: BeaconChainTypes>(
     endpoint_version: EndpointVersion,
@@ -256,10 +272,10 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::block_production_error)?;
 
     match block_response {
-        BeaconBlockAndStateResponse::Full((block, _, _)) => {
-            build_response_v2(chain, block, endpoint_version)
+        BeaconBlockResponseType::Full(block_response) => {
+            build_response_v2(chain, block_response.block, endpoint_version, accept_header)
         }
-        BeaconBlockAndStateResponse::Blinded((_, _, _)) => {
+        BeaconBlockResponseType::Blinded(_) => {
             Err(warp_utils::reject::custom_server_error(
                 "Returned a blinded block. It should be impossible to return a blinded block via the Full Payload V2 block fetching flow.".to_string()
             ))
@@ -267,10 +283,11 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
     }
 }
 
-pub fn build_response_v2<E: EthSpec, Payload: AbstractExecPayload<E>>(
+pub fn build_response_v2<T: BeaconChainTypes, E: EthSpec, Payload: AbstractExecPayload<E>>(
     chain: Arc<BeaconChain<T>>,
     block: BeaconBlock<E, Payload>,
     endpoint_version: EndpointVersion,
+    accept_header: Option<api_types::Accept>,
 ) -> Result<Response<Body>, warp::Rejection> {
     let fork_name = block
         .to_ref()

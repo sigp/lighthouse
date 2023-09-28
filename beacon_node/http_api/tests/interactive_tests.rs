@@ -631,7 +631,6 @@ pub async fn proposer_boost_re_org_test(
             panic!("Should not be a blinded block");
         }
     };
-    // let block_c = harness.sign_beacon_block(unsigned_block_c, &state_b);
 
     if should_re_org {
         // Block C should build on A.
