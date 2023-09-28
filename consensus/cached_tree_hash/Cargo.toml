@@ -2,20 +2,20 @@
 name = "cached_tree_hash"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-ethereum-types = "0.14.1"
-ssz_types = "0.5.3"
-ethereum_hashing = "1.0.0-beta.2"
-ethereum_ssz_derive = "0.5.0"
-ethereum_ssz = "0.5.0"
-tree_hash = "0.5.0"
-smallvec = "1.6.1"
+ethereum-types = { workspace = true }
+ssz_types = { workspace = true }
+ethereum_hashing = { workspace = true }
+ethereum_ssz_derive = { workspace = true }
+ethereum_ssz = { workspace = true }
+tree_hash = { workspace = true }
+smallvec = { workspace = true }
 
 [dev-dependencies]
-quickcheck = "0.9.2"
-quickcheck_macros = "0.9.1"
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
 
 [features]
 arbitrary = ["ethereum-types/arbitrary"]

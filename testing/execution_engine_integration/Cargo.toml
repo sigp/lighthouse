@@ -1,24 +1,24 @@
 [package]
 name = "execution_engine_integration"
 version = "0.1.0"
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-tempfile = "3.1.0"
-serde_json = "1.0.58"
-task_executor = { path = "../../common/task_executor" }
-tokio = { version = "1.14.0", features = ["rt-multi-thread", "macros"] }
-futures = "0.3.7"
-exit-future = "0.2.0"
-environment = { path = "../../lighthouse/environment" }
-execution_layer = { path = "../../beacon_node/execution_layer" }
-sensitive_url = { path = "../../common/sensitive_url" }
-types = { path = "../../consensus/types" }
-unused_port = { path = "../../common/unused_port" }
-ethers-core = "1.0.2"
-ethers-providers = "1.0.2"
-deposit_contract = { path = "../../common/deposit_contract" }
-reqwest = { version = "0.11.0", features = ["json"] }
-hex = "0.4.2"
-fork_choice = { path = "../../consensus/fork_choice" }
-logging = { path = "../../common/logging" }
+tempfile = { workspace = true }
+serde_json = { workspace = true }
+task_executor = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+exit-future = { workspace = true }
+environment = { workspace = true }
+execution_layer = { workspace = true }
+sensitive_url = { workspace = true }
+types = { workspace = true }
+unused_port = { workspace = true }
+ethers-core = { workspace = true }
+ethers-providers = { workspace = true }
+deposit_contract = { workspace = true }
+reqwest = { workspace = true }
+hex = { workspace = true }
+fork_choice = { workspace = true }
+logging = { workspace = true }

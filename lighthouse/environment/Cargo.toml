@@ -2,23 +2,23 @@
 name = "environment"
 version = "0.1.2"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-tokio = { version = "1.14.0", features = ["macros", "rt", "rt-multi-thread", "signal" ] }
-slog = { version = "2.5.2", features = ["max_level_trace"] }
-sloggers = { version = "2.1.1", features = ["json"] }
-types = { path = "../../consensus/types" }
-eth2_config = { path = "../../common/eth2_config" }
-task_executor = { path = "../../common/task_executor" }
-eth2_network_config = { path = "../../common/eth2_network_config" }
-logging = { path = "../../common/logging" }
-slog-term = "2.6.0"
-slog-async = "2.5.0"
-futures = "0.3.7"
+tokio = { workspace = true }
+slog = { workspace = true }
+sloggers = { workspace = true }
+types = { workspace = true }
+eth2_config = { workspace = true }
+task_executor = { workspace = true }
+eth2_network_config = { workspace = true }
+logging = { workspace = true }
+slog-term = { workspace = true }
+slog-async = { workspace = true }
+futures = { workspace = true }
 slog-json = "2.3.0"
-exit-future = "0.2.0"
-serde = "1.0.116"
+exit-future = { workspace = true }
+serde = { workspace = true }
 serde_derive = "1.0.116"
 
 [target.'cfg(not(target_family = "unix"))'.dependencies]
