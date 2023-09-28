@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
-use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
@@ -23,13 +22,11 @@ use types::builder_bid::{BuilderBid, SignedBuilderBid};
 use types::payload::BlindedPayloadRefMut;
 use types::{
     Address, BeaconState, BlindedPayload, ChainSpec, Domain, Epoch, EthSpec, ExecPayload, ForkName,
-    Hash256, PublicKeyBytes, Signature, SignedAggregateAndProof, SignedBlindedBeaconBlock,
-    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
+    ForkVersionedResponse, Hash256, PublicKeyBytes, Signature, SignedAggregateAndProof,
+    SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
 use types::{BeaconStateError, ExecutionBlockHash, SecretKey};
 use warp::{Filter, Rejection, Reply};
-
-use super::{AuthError, ErrorMessage, DEFAULT_BUILDER_THRESHOLD_WEI};
 
 #[derive(Clone)]
 pub enum Operation {
@@ -44,7 +41,7 @@ pub enum Operation {
 }
 
 impl Operation {
-    fn apply<E: EthSpec, B: BidStuff<E>>(self, bid: &mut B) -> Result<(), MevError> {
+    fn apply<E: EthSpec, B: BidStuff<E>>(self, bid: &mut B) {
         match self {
             Operation::FeeRecipient(fee_recipient) => bid.set_fee_recipient(fee_recipient),
             Operation::GasLimit(gas_limit) => bid.set_gas_limit(gas_limit as u64),
@@ -55,20 +52,6 @@ impl Operation {
             Operation::Timestamp(timestamp) => bid.set_timestamp(timestamp as u64),
             Operation::WithdrawalsRoot(root) => bid.set_withdrawals_root(root),
         }
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-enum MevError {
-    SigningError,
-    InvalidFork,
-    BeaconStateError(BeaconStateError),
-}
-
-impl From<BeaconStateError> for MevError {
-    fn from(e: BeaconStateError) -> Self {
-        Self::BeaconStateError(e)
     }
 }
 
@@ -92,9 +75,7 @@ pub trait BidStuff<E: EthSpec> {
         &mut self,
         sk: &SecretKey,
         spec: &ChainSpec,
-        epoch: Epoch,
-        genesis_validators_root: Hash256,
-    ) -> Result<Signature, MevError>;
+    ) ->Signature;
 
     fn to_signed_bid(self, signature: Signature) -> SignedBuilderBid<E, BlindedPayload<E>>;
 }
@@ -167,7 +148,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
     }
     fn set_withdrawals_root(&mut self, withdrawals_root: Hash256) {
         match self.header.to_mut() {
-            BlindedPayloadRefMut::Merge(payload) => {
+            BlindedPayloadRefMut::Merge(_) => {
                 panic!("no withdrawals before capella")
             }
             BlindedPayloadRefMut::Capella(payload) => {
@@ -180,18 +161,10 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
         &mut self,
         sk: &SecretKey,
         spec: &ChainSpec,
-        epoch: Epoch,
-        genesis_validators_root: Hash256,
-    ) -> Result<Signature, MevError> {
-        let fork = spec.fork_at_epoch(epoch);
-        let domain = spec.get_domain(
-            epoch,
-            Domain::ApplicationMask(ApplicationDomain::Builder),
-            &fork,
-            genesis_validators_root,
-        );
+    ) -> Signature {
+        let domain = spec.get_builder_domain();
         let message = self.signing_root(domain);
-        Ok(sk.sign(message).into())
+        sk.sign(message).into()
     }
 
     fn to_signed_bid(self, signature: Signature) -> SignedBuilderBid<E, BlindedPayload<E>> {
@@ -278,12 +251,11 @@ impl<E: EthSpec> MockBuilder<E> {
         *self.invalidate_signatures.write() = false;
     }
 
-    fn apply_operations<B: BidStuff<E>>(&self, bid: &mut B) -> Result<(), MevError> {
+    fn apply_operations<B: BidStuff<E>>(&self, bid: &mut B) {
         let mut guard = self.operations.write();
         while let Some(op) = guard.pop() {
-            op.apply(bid)?;
+            op.apply(bid);
         }
-        Ok(())
     }
 }
 
@@ -326,6 +298,7 @@ pub fn serve<E: EthSpec>(
         .and(ctx_filter.clone())
         .and_then(
             |block: SignedBlindedBeaconBlock<E>, builder: MockBuilder<E>| async move {
+                let slot = block.slot();
                 let root = match block {
                     SignedBlindedBeaconBlock::Base(_) | types::SignedBeaconBlock::Altair(_) => {
                         return Err(reject("invalid fork"));
@@ -338,12 +311,17 @@ pub fn serve<E: EthSpec>(
                     }
                 };
 
+                let fork_name = builder.spec.fork_name_at_slot::<E>(slot);
                 let payload = builder
                     .el
                     .get_payload_by_root(&root)
                     .ok_or_else(|| reject("missing payload for tx root"))?;
+                let resp = ForkVersionedResponse {
+                    version: Some(fork_name),
+                    data: payload,
+                };
 
-                let json_payload = serde_json::to_string(&payload)
+                let json_payload = serde_json::to_string(&resp)
                     .map_err(|_| reject("coudn't serialize response"))?;
                 Ok::<_, warp::reject::Rejection>(
                     warp::http::Response::builder()
@@ -489,7 +467,7 @@ pub fn serve<E: EthSpec>(
                     finalized_hash: Some(finalized_execution_hash),
                 };
 
-                let mut payload = builder
+                let payload = builder
                     .el
                     .get_full_payload_caching::<BlindedPayload<E>>(
                         head_execution_hash,
@@ -511,26 +489,27 @@ pub fn serve<E: EthSpec>(
                 message.set_gas_limit(cached_data.gas_limit);
 
                 builder
-                    .apply_operations(&mut message)
-                    .map_err(|_| reject("couldn't apply operation"))?;
+                    .apply_operations(&mut message);
 
                 let mut signature = message
                     .sign_builder_message(
                         &builder.builder_sk,
                         &builder.spec,
-                        slot.epoch(E::slots_per_epoch()),
-                        genesis_data.genesis_validators_root,
-                    )
-                    .map_err(|_| reject("couldn't sign"))?;
+                    );
 
                 if *builder.invalidate_signatures.read() {
                     signature = Signature::empty();
                 }
 
+                let fork_name = builder.spec.fork_name_at_epoch(slot.epoch(E::slots_per_epoch()));
                 let signed_bid = SignedBuilderBid { message, signature };
-                let json_bid = serde_json::to_string(&signed_bid)
+                let resp = ForkVersionedResponse {
+                    version: Some(fork_name),
+                    data: signed_bid,
+                };
+                let json_bid = serde_json::to_string(&resp)
                     .map_err(|_| reject("coudn't serialize signed bid"))?;
-                Ok::<_, warp::reject::Rejection>(
+                Ok::<_, Rejection>(
                     warp::http::Response::builder()
                         .status(200)
                         .body(json_bid)
@@ -542,15 +521,10 @@ pub fn serve<E: EthSpec>(
     let routes = warp::post()
         .and(validators.or(blinded_block))
         .or(warp::get().and(status).or(header))
-        .recover(handle_rejection_2)
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-builder-server"));
 
-    let (_shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-
     let (listening_socket, server) = warp::serve(routes)
-        .try_bind_with_graceful_shutdown(SocketAddrV4::new(listen_addr, listen_port), async {
-            let _ = shutdown_rx.await;
-        })
+        .try_bind_ephemeral(SocketAddrV4::new(listen_addr, listen_port))
         .expect("mock builder server should start");
     Ok((listening_socket, server))
 }
@@ -558,14 +532,5 @@ pub fn serve<E: EthSpec>(
 fn reject(msg: &'static str) -> Rejection {
     warp::reject::custom(Custom(msg.to_string()))
 }
-async fn handle_rejection_2(err: Rejection) -> Result<impl warp::Reply, Infallible> {
-    let message = "BAD_REQUEST".to_string();
-    let code = StatusCode::BAD_REQUEST;
 
-    let json = warp::reply::json(&ErrorMessage {
-        code: code.as_u16(),
-        message,
-    });
 
-    Ok(warp::reply::with_status(json, code))
-}
