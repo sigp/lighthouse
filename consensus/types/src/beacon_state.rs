@@ -631,7 +631,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Returns the slot at which the proposer shuffling was decided. The block root at this slot
-    /// can be used to key the proposer shuffling for the current epoch.
+    /// can be used to key the proposer shuffling for the given epoch.
     fn proposer_shuffling_decision_slot(&self, epoch: Epoch) -> Slot {
         epoch
             .start_slot(T::slots_per_epoch())
