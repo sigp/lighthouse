@@ -10,7 +10,8 @@ use crate::block_verification::cheap_state_advance_to_obtain_committees;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::BeaconChainError;
-use kzg::Kzg;
+use eth2::types::{EventKind, SseBlobSidecar};
+use kzg::{Kzg, KzgCommitment};
 use slog::{debug, warn};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
@@ -177,6 +178,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     }
     pub fn slot(&self) -> Slot {
         self.blob.message.slot
+    }
+    pub fn index(&self) -> u64 {
+        self.blob.message.index
+    }
+    pub fn kzg_commitment(&self) -> KzgCommitment {
+        self.blob.message.kzg_commitment
     }
     pub fn proposer_index(&self) -> u64 {
         self.blob.message.proposer_index
@@ -427,6 +434,21 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             slot: blob_slot,
             index: blob_index,
         });
+    }
+
+    // Registering the event here instead of `chain::verify_blob_sidecar_for_gossip` because this
+    // event needs to be published when a `BlobSidecar` is received via either P2P or API.
+    if let Some(event_handler) = chain.event_handler.as_ref() {
+        if event_handler.has_blob_sidecar_subscribers() {
+            let blob = &signed_blob_sidecar.message;
+            event_handler.register(EventKind::BlobSidecar(SseBlobSidecar {
+                block_root: blob.block_root,
+                index: blob.index,
+                slot: blob.slot,
+                kzg_commitment: blob.kzg_commitment,
+                versioned_hash: blob.kzg_commitment.calculate_versioned_hash(),
+            }));
+        }
     }
 
     Ok(GossipVerifiedBlob {
