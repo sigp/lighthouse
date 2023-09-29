@@ -14,7 +14,7 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
+use types::{ChainSpec, Epoch, EthSpec, VoluntaryExit};
 
 pub const CMD: &str = "exit";
 pub const KEYSTORE_FLAG: &str = "keystore";
@@ -146,7 +146,6 @@ async fn publish_voluntary_exit<E: EthSpec>(
         .ok_or("Failed to get current epoch. Please check your system time")?;
     let validator_index = get_validator_index_for_exit(client, &keypair.pk, epoch, spec).await?;
 
-    let fork = get_beacon_state_fork(client).await?;
     let voluntary_exit = VoluntaryExit {
         epoch,
         validator_index,
@@ -173,12 +172,8 @@ async fn publish_voluntary_exit<E: EthSpec>(
 
     if confirmation == CONFIRMATION_PHRASE {
         // Sign and publish the voluntary exit to network
-        let signed_voluntary_exit = voluntary_exit.sign(
-            &keypair.sk,
-            &fork,
-            genesis_data.genesis_validators_root,
-            spec,
-        );
+        let signed_voluntary_exit =
+            voluntary_exit.sign(&keypair.sk, genesis_data.genesis_validators_root, spec);
         client
             .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
             .await
@@ -314,16 +309,6 @@ async fn is_syncing(client: &BeaconNodeHttpClient) -> Result<bool, String> {
         .map_err(|e| format!("Failed to get sync status: {:?}", e))?
         .data
         .is_syncing)
-}
-
-/// Get fork object for the current state by querying the beacon node client.
-async fn get_beacon_state_fork(client: &BeaconNodeHttpClient) -> Result<Fork, String> {
-    Ok(client
-        .get_beacon_states_fork(StateId::Head)
-        .await
-        .map_err(|e| format!("Failed to get get fork: {:?}", e))?
-        .ok_or("Failed to get fork, state not found")?
-        .data)
 }
 
 /// Calculates the current epoch from the genesis time and current time.

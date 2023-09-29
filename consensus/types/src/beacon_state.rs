@@ -208,7 +208,7 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella),
+    variants(Base, Altair, Merge, Capella, Deneb),
     variant_attributes(
         derive(
             Derivative,
@@ -362,10 +362,10 @@ where
     pub current_epoch_attestations: VList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     #[test_random(default)]
     pub previous_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     #[test_random(default)]
     pub current_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
@@ -385,15 +385,15 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     #[test_random(default)]
     pub inactivity_scores: VList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     #[metastruct(exclude_from(tree_lists))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     #[metastruct(exclude_from(tree_lists))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
@@ -410,18 +410,23 @@ where
     )]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<T>,
+    #[superstruct(
+        only(Deneb),
+        partial_getter(rename = "latest_execution_payload_header_deneb")
+    )]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<T>,
 
     // Capella
-    #[superstruct(only(Capella), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
-    #[superstruct(only(Capella))]
+    #[superstruct(only(Capella, Deneb))]
     #[test_random(default)]
     pub historical_summaries: VList<HistoricalSummary, T::HistoricalRootsLimit>,
 
@@ -554,15 +559,40 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Returns the name of the fork pertaining to `self`.
     ///
-    /// This is not checked for consistency with respect to the actual fork epochs, see `fork_name`
-    /// for a safer function.
+    /// Does not check if `self` is consistent with the fork dictated by `self.slot()`.
     pub fn fork_name_unchecked(&self) -> ForkName {
         match self {
             BeaconState::Base { .. } => ForkName::Base,
             BeaconState::Altair { .. } => ForkName::Altair,
             BeaconState::Merge { .. } => ForkName::Merge,
             BeaconState::Capella { .. } => ForkName::Capella,
+            BeaconState::Deneb { .. } => ForkName::Deneb,
         }
+    }
+
+    /// Specialised deserialisation method that uses the `ChainSpec` as context.
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
+        let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
+        let slot_end = slot_start + <Slot as Decode>::ssz_fixed_len();
+
+        let slot_bytes = bytes
+            .get(slot_start..slot_end)
+            .ok_or(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_end,
+            })?;
+
+        let slot = Slot::from_ssz_bytes(slot_bytes)?;
+        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
+
+        Ok(map_fork_name!(
+            fork_at_slot,
+            Self,
+            <_>::from_ssz_bytes(bytes)?
+        ))
+>>>>>>> origin/deneb-free-blobs
     }
 
     /// Returns the `tree_hash_root` of the state.
@@ -845,6 +875,9 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRef::Capella(
                 &state.latest_execution_payload_header,
             )),
+            BeaconState::Deneb(state) => Ok(ExecutionPayloadHeaderRef::Deneb(
+                &state.latest_execution_payload_header,
+            )),
         }
     }
 
@@ -857,6 +890,9 @@ impl<T: EthSpec> BeaconState<T> {
                 &mut state.latest_execution_payload_header,
             )),
             BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRefMut::Capella(
+                &mut state.latest_execution_payload_header,
+            )),
+            BeaconState::Deneb(state) => Ok(ExecutionPayloadHeaderRefMut::Deneb(
                 &mut state.latest_execution_payload_header,
             )),
         }
@@ -1312,6 +1348,11 @@ impl<T: EthSpec> BeaconState<T> {
                 &mut state.balances,
                 &mut state.progressive_balances_cache,
             ),
+            BeaconState::Deneb(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
         }
     }
 
@@ -1483,6 +1524,24 @@ impl<T: EthSpec> BeaconState<T> {
         ))
     }
 
+    /// Return the activation churn limit for the current epoch (number of validators who can enter per epoch).
+    ///
+    /// Uses the epoch cache, and will error if it isn't initialized.
+    ///
+    /// Spec v1.4.0
+    pub fn get_activation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        Ok(match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_) => self.get_churn_limit(spec)?,
+            BeaconState::Deneb(_) => std::cmp::min(
+                spec.max_per_epoch_activation_churn_limit,
+                self.get_churn_limit(spec)?,
+            ),
+        })
+    }
+
     /// Returns the `slot`, `index`, `committee_position` and `committee_len` for which a validator must produce an
     /// attestation.
     ///
@@ -1608,6 +1667,7 @@ impl<T: EthSpec> BeaconState<T> {
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Deneb(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == previous_epoch {
             match self {
@@ -1615,6 +1675,7 @@ impl<T: EthSpec> BeaconState<T> {
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Deneb(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
@@ -2210,6 +2271,7 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
             (BeaconState::Altair(x), BeaconState::Altair(y)) => x.compare_fields(y),
             (BeaconState::Merge(x), BeaconState::Merge(y)) => x.compare_fields(y),
             (BeaconState::Capella(x), BeaconState::Capella(y)) => x.compare_fields(y),
+            (BeaconState::Deneb(x), BeaconState::Deneb(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
     }
@@ -2228,5 +2290,82 @@ impl<T: EthSpec> ForkVersionDeserialize for BeaconState<T> {
                 e
             )))?
         ))
+    }
+}
+
+/// This module can be used to encode and decode a `BeaconState` the same way it
+/// would be done if we had tagged the superstruct enum with
+/// `#[ssz(enum_behaviour = "union")]`
+/// This should _only_ be used for *some* cases to store these objects in the
+/// database and _NEVER_ for encoding / decoding states sent over the network!
+pub mod ssz_tagged_beacon_state {
+    use super::*;
+    pub mod encode {
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            false
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            BYTES_PER_LENGTH_OFFSET
+        }
+
+        pub fn ssz_bytes_len<E: EthSpec>(state: &BeaconState<E>) -> usize {
+            state
+                .ssz_bytes_len()
+                .checked_add(1)
+                .expect("encoded length must be less than usize::max")
+        }
+
+        pub fn ssz_append<E: EthSpec>(state: &BeaconState<E>, buf: &mut Vec<u8>) {
+            let fork_name = state.fork_name_unchecked();
+            fork_name.ssz_append(buf);
+            state.ssz_append(buf);
+        }
+
+        pub fn as_ssz_bytes<E: EthSpec>(state: &BeaconState<E>) -> Vec<u8> {
+            let mut buf = vec![];
+            ssz_append(state, &mut buf);
+
+            buf
+        }
+    }
+
+    pub mod decode {
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            false
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            BYTES_PER_LENGTH_OFFSET
+        }
+
+        pub fn from_ssz_bytes<E: EthSpec>(bytes: &[u8]) -> Result<BeaconState<E>, DecodeError> {
+            let fork_byte = bytes
+                .first()
+                .copied()
+                .ok_or(DecodeError::OutOfBoundsByte { i: 0 })?;
+            let body = bytes
+                .get(1..)
+                .ok_or(DecodeError::OutOfBoundsByte { i: 1 })?;
+            match ForkName::from_ssz_bytes(&[fork_byte])? {
+                ForkName::Base => Ok(BeaconState::Base(BeaconStateBase::from_ssz_bytes(body)?)),
+                ForkName::Altair => Ok(BeaconState::Altair(BeaconStateAltair::from_ssz_bytes(
+                    body,
+                )?)),
+                ForkName::Merge => Ok(BeaconState::Merge(BeaconStateMerge::from_ssz_bytes(body)?)),
+                ForkName::Capella => Ok(BeaconState::Capella(BeaconStateCapella::from_ssz_bytes(
+                    body,
+                )?)),
+                ForkName::Deneb => Ok(BeaconState::Deneb(BeaconStateDeneb::from_ssz_bytes(body)?)),
+            }
+        }
     }
 }

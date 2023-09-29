@@ -15,6 +15,8 @@ pub const DEFAULT_COMPRESSION_LEVEL: i32 = 1;
 pub const DEFAULT_DIFF_BUFFER_CACHE_SIZE: usize = 16;
 const EST_COMPRESSION_FACTOR: usize = 2;
 pub const DEFAULT_HISTORIC_STATE_CACHE_SIZE: usize = 1;
+pub const DEFAULT_EPOCHS_PER_BLOB_PRUNE: u64 = 1;
+pub const DEFAULT_BLOB_PUNE_MARGIN_EPOCHS: u64 = 0;
 
 /// Database configuration parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +45,13 @@ pub struct StoreConfig {
     pub linear_restore_points: bool,
     /// State diff hierarchy.
     pub hierarchy_config: HierarchyConfig,
+    /// Whether to prune blobs older than the blob data availability boundary.
+    pub prune_blobs: bool,
+    /// Frequency of blob pruning in epochs. Default: 1 (every epoch).
+    pub epochs_per_blob_prune: u64,
+    /// The margin for blob pruning in epochs. The oldest blobs are pruned up until
+    /// data_availability_boundary - blob_prune_margin_epochs. Default: 0.
+    pub blob_prune_margin_epochs: u64,
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
@@ -70,6 +79,7 @@ pub enum StoreConfigError {
         epochs_per_state_diff: u64,
         max_supported: u64,
     },
+    ZeroEpochsPerBlobPrune,
 }
 
 impl Default for StoreConfig {
@@ -87,6 +97,9 @@ impl Default for StoreConfig {
             linear_blocks: true,
             linear_restore_points: true,
             hierarchy_config: HierarchyConfig::default(),
+            prune_blobs: true,
+            epochs_per_blob_prune: DEFAULT_EPOCHS_PER_BLOB_PRUNE,
+            blob_prune_margin_epochs: DEFAULT_BLOB_PUNE_MARGIN_EPOCHS,
         }
     }
 }
@@ -116,6 +129,7 @@ impl StoreConfig {
     /// Check that the configuration is valid.
     pub fn verify<E: EthSpec>(&self) -> Result<(), StoreConfigError> {
         self.verify_compression_level()?;
+        self.verify_epochs_per_blob_prune()?;
         self.verify_epochs_per_state_diff::<E>()
     }
 
@@ -142,6 +156,19 @@ impl StoreConfig {
                 epochs_per_state_diff: self.epochs_per_state_diff,
                 max_supported,
             })
+        }
+    }
+
+    /// Check that epochs_per_blob_prune is at least 1 epoch to avoid attempting to prune the same
+    /// epochs over and over again.
+    fn verify_epochs_per_blob_prune(
+        &self,
+        epochs_per_blob_prune: u64,
+    ) -> Result<(), StoreConfigError> {
+        if self.epochs_per_blob_prune > 0 {
+            Ok(())
+        } else {
+            Err(StoreConfigError::ZeroEpochsPerBlobPrune)
         }
     }
 

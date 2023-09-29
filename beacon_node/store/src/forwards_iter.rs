@@ -202,7 +202,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         column: DBColumn,
         start_slot: Slot,
         end_slot: Option<Slot>,
-        get_state: impl FnOnce() -> (BeaconState<E>, Hash256),
+        get_state: impl FnOnce() -> Result<(BeaconState<E>, Hash256)>,
     ) -> Result<Self> {
         use HybridForwardsIterator::*;
 
@@ -225,7 +225,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
                 if end_slot.map_or(false, |end_slot| end_slot < freezer_upper_limit) {
                     None
                 } else {
-                    Some(Box::new(get_state()))
+                    Some(Box::new(get_state()?))
                 };
             PreFinalization {
                 iter,
@@ -236,7 +236,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             }
         } else {
             PostFinalizationLazy {
-                continuation_data: Some(Box::new(get_state())),
+                continuation_data: Some(Box::new(get_state()?)),
                 store,
                 start_slot,
                 column,

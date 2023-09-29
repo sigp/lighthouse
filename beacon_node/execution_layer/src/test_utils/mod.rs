@@ -8,6 +8,7 @@ use bytes::Bytes;
 use environment::null_logger;
 use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
+use kzg::Kzg;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -23,9 +24,15 @@ use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
 use crate::EngineCapabilities;
-pub use execution_block_generator::{generate_pow_block, Block, ExecutionBlockGenerator};
+pub use execution_block_generator::{
+    generate_genesis_block, generate_genesis_header, generate_pow_block, generate_random_blobs,
+    Block, ExecutionBlockGenerator,
+};
 pub use hook::Hook;
-pub use mock_builder::{Context as MockBuilderContext, MockBuilder, MockBuilderServer, Operation};
+pub use mock_builder::{
+    convert_err, custom_err, from_ssz_rs, to_ssz_rs, Context as MockBuilderContext, MockBuilder,
+    MockBuilderServer, Operation,
+};
 pub use mock_execution_layer::MockExecutionLayer;
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
@@ -37,12 +44,15 @@ pub const DEFAULT_BUILDER_PAYLOAD_VALUE_WEI: u128 = 20_000_000_000_000_000;
 pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v1: true,
     new_payload_v2: true,
+    new_payload_v3: true,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: true,
+    forkchoice_updated_v3: true,
     get_payload_bodies_by_hash_v1: true,
     get_payload_bodies_by_range_v1: true,
     get_payload_v1: true,
     get_payload_v2: true,
+    get_payload_v3: true,
 };
 
 mod execution_block_generator;
@@ -59,6 +69,7 @@ pub struct MockExecutionConfig {
     pub terminal_block: u64,
     pub terminal_block_hash: ExecutionBlockHash,
     pub shanghai_time: Option<u64>,
+    pub cancun_time: Option<u64>,
 }
 
 impl Default for MockExecutionConfig {
@@ -70,6 +81,7 @@ impl Default for MockExecutionConfig {
             terminal_block_hash: ExecutionBlockHash::zero(),
             server_config: Config::default(),
             shanghai_time: None,
+            cancun_time: None,
         }
     }
 }
@@ -90,10 +102,16 @@ impl<T: EthSpec> MockServer<T> {
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
             None, // FIXME(capella): should this be the default?
+            None, // FIXME(deneb): should this be the default?
+            None, // FIXME(deneb): should this be the default?
         )
     }
 
-    pub fn new_with_config(handle: &runtime::Handle, config: MockExecutionConfig) -> Self {
+    pub fn new_with_config(
+        handle: &runtime::Handle,
+        config: MockExecutionConfig,
+        kzg: Option<Kzg<T::Kzg>>,
+    ) -> Self {
         let MockExecutionConfig {
             jwt_key,
             terminal_difficulty,
@@ -101,6 +119,7 @@ impl<T: EthSpec> MockServer<T> {
             terminal_block_hash,
             server_config,
             shanghai_time,
+            cancun_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -109,6 +128,8 @@ impl<T: EthSpec> MockServer<T> {
             terminal_block,
             terminal_block_hash,
             shanghai_time,
+            cancun_time,
+            kzg,
         );
 
         let ctx: Arc<Context<T>> = Arc::new(Context {
@@ -161,6 +182,7 @@ impl<T: EthSpec> MockServer<T> {
         *self.ctx.engine_capabilities.write() = engine_capabilities;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         handle: &runtime::Handle,
         jwt_key: JwtKey,
@@ -168,6 +190,8 @@ impl<T: EthSpec> MockServer<T> {
         terminal_block: u64,
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
+        cancun_time: Option<u64>,
+        kzg: Option<Kzg<T::Kzg>>,
     ) -> Self {
         Self::new_with_config(
             handle,
@@ -178,7 +202,9 @@ impl<T: EthSpec> MockServer<T> {
                 terminal_block,
                 terminal_block_hash,
                 shanghai_time,
+                cancun_time,
             },
+            kzg,
         )
     }
 

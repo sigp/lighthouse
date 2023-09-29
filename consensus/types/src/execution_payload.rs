@@ -18,7 +18,7 @@ pub type Transactions<T> = VariableList<
 pub type Withdrawals<T> = VariableList<Withdrawal, <T as EthSpec>::MaxWithdrawalsPerPayload>;
 
 #[superstruct(
-    variants(Merge, Capella),
+    variants(Merge, Capella, Deneb),
     variant_attributes(
         derive(
             Default,
@@ -84,8 +84,14 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<T>,
-    #[superstruct(only(Capella))]
+    #[superstruct(only(Capella, Deneb))]
     pub withdrawals: Withdrawals<T>,
+    #[superstruct(only(Deneb), partial_getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub blob_gas_used: u64,
+    #[superstruct(only(Deneb), partial_getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub excess_blob_gas: u64,
 }
 
 impl<'a, T: EthSpec> ExecutionPayloadRef<'a, T> {
@@ -106,6 +112,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             ))),
             ForkName::Merge => ExecutionPayloadMerge::from_ssz_bytes(bytes).map(Self::Merge),
             ForkName::Capella => ExecutionPayloadCapella::from_ssz_bytes(bytes).map(Self::Capella),
+            ForkName::Deneb => ExecutionPayloadDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
         }
     }
 
@@ -132,6 +139,19 @@ impl<T: EthSpec> ExecutionPayload<T> {
             // Max size of variable length `withdrawals` field
             + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
     }
+
+    #[allow(clippy::arithmetic_side_effects)]
+    /// Returns the maximum size of an execution payload.
+    pub fn max_execution_payload_deneb_size() -> usize {
+        // Fixed part
+        ExecutionPayloadDeneb::<T>::default().as_ssz_bytes().len()
+            // Max size of variable length `extra_data` field
+            + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
+            // Max size of variable length `transactions` field
+            + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
+            // Max size of variable length `withdrawals` field
+            + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
+    }
 }
 
 impl<T: EthSpec> ForkVersionDeserialize for ExecutionPayload<T> {
@@ -146,6 +166,7 @@ impl<T: EthSpec> ForkVersionDeserialize for ExecutionPayload<T> {
         Ok(match fork_name {
             ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(
                     "ExecutionPayload failed to deserialize: unsupported fork '{}'",
@@ -161,6 +182,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
         match self {
             ExecutionPayload::Merge(_) => ForkName::Merge,
             ExecutionPayload::Capella(_) => ForkName::Capella,
+            ExecutionPayload::Deneb(_) => ForkName::Deneb,
         }
     }
 }

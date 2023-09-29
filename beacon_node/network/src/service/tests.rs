@@ -11,7 +11,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::Arc;
     use tokio::runtime::Runtime;
-    use types::MinimalEthSpec;
+    use types::MinimalEthSpec as E;
 
     fn get_logger(actual_log: bool) -> Logger {
         if actual_log {
@@ -35,7 +35,7 @@ mod tests {
     fn test_dht_persistence() {
         let log = get_logger(false);
 
-        let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
+        let beacon_chain = BeaconChainHarness::builder(E)
             .default_spec()
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()

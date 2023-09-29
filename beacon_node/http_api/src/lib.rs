@@ -10,6 +10,7 @@ mod attester_duties;
 mod block_id;
 mod block_packing_efficiency;
 mod block_rewards;
+mod build_block_contents;
 mod builder_states;
 mod database;
 mod metrics;
@@ -38,7 +39,8 @@ use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
-    SkipRandaoVerification, ValidatorId, ValidatorStatus,
+    SignedBlindedBlockContents, SignedBlockContents, SkipRandaoVerification, ValidatorId,
+    ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -74,9 +76,8 @@ use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
     BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -1287,7 +1288,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
+            move |block_contents: SignedBlockContents<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1295,7 +1296,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block),
+                        ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1323,16 +1324,16 @@ pub fn serve<T: BeaconChainTypes>(
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let block =
-                        SignedBeaconBlock::<T::EthSpec>::from_ssz_bytes(&block_bytes, &chain.spec)
-                            .map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "invalid SSZ: {e:?}"
-                                ))
-                            })?;
+                    let block_contents = SignedBlockContents::<T::EthSpec>::from_ssz_bytes(
+                        &block_bytes,
+                        &chain.spec,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                    })?;
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(Arc::new(block)),
+                        ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1356,7 +1357,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  block: Arc<SignedBeaconBlock<T::EthSpec>>,
+                  block_contents: SignedBlockContents<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1364,7 +1365,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block),
+                        ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1394,16 +1395,16 @@ pub fn serve<T: BeaconChainTypes>(
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let block =
-                        SignedBeaconBlock::<T::EthSpec>::from_ssz_bytes(&block_bytes, &chain.spec)
-                            .map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "invalid SSZ: {e:?}"
-                                ))
-                            })?;
+                    let block_contents = SignedBlockContents::<T::EthSpec>::from_ssz_bytes(
+                        &block_bytes,
+                        &chain.spec,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                    })?;
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(Arc::new(block)),
+                        ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1430,14 +1431,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            move |block: SignedBlindedBeaconBlock<T::EthSpec>,
+            move |block_contents: SignedBlindedBlockContents<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
-                        block,
+                        block_contents,
                         chain,
                         &network_tx,
                         log,
@@ -1466,13 +1467,14 @@ pub fn serve<T: BeaconChainTypes>(
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
-                        &block_bytes,
-                        &chain.spec,
-                    )
-                    .map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
-                    })?;
+                    let block =
+                        SignedBlockContents::<T::EthSpec, BlindedPayload<_>>::from_ssz_bytes(
+                            &block_bytes,
+                            &chain.spec,
+                        )
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                        })?;
                     publish_blocks::publish_blinded_block(
                         block,
                         chain,
@@ -1498,14 +1500,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  block: SignedBlindedBeaconBlock<T::EthSpec>,
+                  block_contents: SignedBlindedBlockContents<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
-                        block,
+                        block_contents,
                         chain,
                         &network_tx,
                         log,
@@ -1535,13 +1537,14 @@ pub fn serve<T: BeaconChainTypes>(
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
-                        &block_bytes,
-                        &chain.spec,
-                    )
-                    .map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
-                    })?;
+                    let block =
+                        SignedBlockContents::<T::EthSpec, BlindedPayload<_>>::from_ssz_bytes(
+                            &block_bytes,
+                            &chain.spec,
+                        )
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                        })?;
                     publish_blocks::publish_blinded_block(
                         block,
                         chain,
@@ -1704,6 +1707,47 @@ pub fn serve<T: BeaconChainTypes>(
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
+            },
+        );
+
+    /*
+     * beacon/blob_sidecars
+     */
+
+    // GET beacon/blob_sidecars/{block_id}
+    let get_blobs = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("blob_sidecars"))
+        .and(block_id_or_err)
+        .and(warp::query::<api_types::BlobIndicesQuery>())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and_then(
+            |block_id: BlockId,
+             indices: api_types::BlobIndicesQuery,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                async move {
+                    let blob_sidecar_list_filtered =
+                        block_id.blob_sidecar_list_filtered(indices, &chain).await?;
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(blob_sidecar_list_filtered.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&api_types::GenericResponse::from(
+                            blob_sidecar_list_filtered,
+                        ))
+                        .into_response()),
+                    }
+                }
             },
         );
 
@@ -3030,16 +3074,16 @@ pub fn serve<T: BeaconChainTypes>(
                         if query.skip_randao_verification == SkipRandaoVerification::Yes {
                             if !randao_reveal.is_infinity() {
                                 return Err(warp_utils::reject::custom_bad_request(
-                                "randao_reveal must be point-at-infinity if verification is skipped"
-                                    .into(),
-                            ));
+                                    "randao_reveal must be point-at-infinity if verification is skipped"
+                                        .into(),
+                                ));
                             }
                             ProduceBlockVerification::NoVerification
                         } else {
                             ProduceBlockVerification::VerifyRandao
                         };
 
-                    let (block, _) = chain
+                    let (block, _, maybe_blobs) = chain
                         .produce_block_with_verification::<FullPayload<T::EthSpec>>(
                             randao_reveal,
                             slot,
@@ -3053,11 +3097,14 @@ pub fn serve<T: BeaconChainTypes>(
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
 
+                    let block_contents =
+                        build_block_contents::build_block_contents(fork_name, block, maybe_blobs)?;
+
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
                             .header("Content-Type", "application/octet-stream")
-                            .body(block.as_ssz_bytes().into())
+                            .body(block_contents.as_ssz_bytes().into())
                             .map(|res: Response<Bytes>| {
                                 add_consensus_version_header(res, fork_name)
                             })
@@ -3067,7 +3114,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => fork_versioned_response(endpoint_version, fork_name, block)
+                        _ => fork_versioned_response(endpoint_version, fork_name, block_contents)
                             .map(|response| warp::reply::json(&response).into_response())
                             .map(|res| add_consensus_version_header(res, fork_name)),
                     }
@@ -3117,7 +3164,7 @@ pub fn serve<T: BeaconChainTypes>(
                             ProduceBlockVerification::VerifyRandao
                         };
 
-                    let (block, _) = chain
+                    let (block, _, maybe_blobs) = chain
                         .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
                             randao_reveal,
                             slot,
@@ -3131,11 +3178,17 @@ pub fn serve<T: BeaconChainTypes>(
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
 
+                    let block_contents = build_block_contents::build_blinded_block_contents(
+                        fork_name,
+                        block,
+                        maybe_blobs,
+                    )?;
+
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
                             .header("Content-Type", "application/octet-stream")
-                            .body(block.as_ssz_bytes().into())
+                            .body(block_contents.as_ssz_bytes().into())
                             .map(|res: Response<Bytes>| {
                                 add_consensus_version_header(res, fork_name)
                             })
@@ -3146,7 +3199,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 ))
                             }),
                         // Pose as a V2 endpoint so we return the fork `version`.
-                        _ => fork_versioned_response(V2, fork_name, block)
+                        _ => fork_versioned_response(V2, fork_name, block_contents)
                             .map(|response| warp::reply::json(&response).into_response())
                             .map(|res| add_consensus_version_header(res, fork_name)),
                     }
@@ -4260,31 +4313,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // POST lighthouse/database/historical_blocks
-    let post_lighthouse_database_historical_blocks = database_path
-        .and(warp::path("historical_blocks"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
-        .then(
-            |blocks: Vec<Arc<SignedBlindedBeaconBlock<T::EthSpec>>>,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             log: Logger| {
-                info!(
-                    log,
-                    "Importing historical blocks";
-                    "count" => blocks.len(),
-                    "source" => "http_api"
-                );
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    database::historical_blocks(chain, blocks)
-                })
-            },
-        );
-
     // GET lighthouse/analysis/block_rewards
     let get_lighthouse_block_rewards = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -4518,6 +4546,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_block_attestations)
                 .uor(get_beacon_blinded_block)
                 .uor(get_beacon_block_root)
+                .uor(get_blobs)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)
                 .uor(get_beacon_pool_proposer_slashings)
@@ -4603,7 +4632,6 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)
-                    .uor(post_lighthouse_database_historical_blocks)
                     .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)

@@ -124,6 +124,7 @@ pub enum PruningError {
 pub enum Notification {
     Finalization(FinalizationNotification),
     Reconstruction,
+    PruneBlobs(Epoch),
 }
 
 #[derive(Clone, Debug)]
@@ -211,11 +212,33 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
     }
 
+    pub fn process_prune_blobs(&self, data_availability_boundary: Epoch) {
+        if let Some(Notification::PruneBlobs(data_availability_boundary)) =
+            self.send_background_notification(Notification::PruneBlobs(data_availability_boundary))
+        {
+            Self::run_prune_blobs(self.db.clone(), data_availability_boundary, &self.log);
+        }
+    }
+
     pub fn run_reconstruction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) {
         if let Err(e) = db.reconstruct_historic_states(None) {
             error!(
                 log,
                 "State reconstruction failed";
+                "error" => ?e,
+            );
+        }
+    }
+
+    pub fn run_prune_blobs(
+        db: Arc<HotColdDB<E, Hot, Cold>>,
+        data_availability_boundary: Epoch,
+        log: &Logger,
+    ) {
+        if let Err(e) = db.try_prune_blobs(false, data_availability_boundary) {
+            error!(
+                log,
+                "Blob pruning failed";
                 "error" => ?e,
             );
         }
@@ -415,11 +438,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 let migrate_notif = queue
                     .iter()
                     .filter_map(|n| match n {
-                        // should not be present anymore
-                        Notification::Reconstruction => None,
                         Notification::Finalization(f) => Some(f),
+                        _ => None,
                     })
                     .max_by_key(|f| f.finalized_checkpoint.epoch);
+                let prune_blobs_notif = queue
+                    .iter()
+                    .filter_map(|n| match n {
+                        Notification::PruneBlobs(dab) => Some(dab),
+                        _ => None,
+                    })
+                    .max();
 
                 // Do a bit of state reconstruction first if required.
                 if reconstruction_notif.is_some() {
@@ -454,7 +483,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
                 // Do the finalization migration.
                 if let Some(notif) = migrate_notif {
-                    Self::run_migration(db.clone(), notif.to_owned(), &log);
+                    Self::run_migration(db.clone(), notif, &log);
+                }
+
+                // Prune blobs.
+                if let Some(dab) = prune_blobs_notif {
+                    Self::run_prune_blobs(db.clone(), dab, &log);
                 }
             }
         });
@@ -680,6 +714,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 [
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
+                    StoreOp::DeleteBlobs(block_root),
                 ]
             })
             .collect();
@@ -701,7 +736,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             store.pruning_checkpoint_store_op(new_finalized_checkpoint)?,
         ));
 
-        store.do_atomically(batch)?;
+        store.do_atomically_with_blocks_and_blob_cache(batch)?;
         debug!(
             log,
             "Database block pruning complete";

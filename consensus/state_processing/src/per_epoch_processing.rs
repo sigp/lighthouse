@@ -43,9 +43,10 @@ pub fn process_epoch<T: EthSpec>(
 
     match state {
         BeaconState::Base(_) => base::process_epoch(state, spec),
-        BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
-            altair::process_epoch(state, spec)
-        }
+        BeaconState::Altair(_)
+        | BeaconState::Merge(_)
+        | BeaconState::Capella(_)
+        | BeaconState::Deneb(_) => altair::process_epoch(state, spec),
     }
 }
 

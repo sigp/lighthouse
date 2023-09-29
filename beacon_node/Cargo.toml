@@ -37,6 +37,7 @@ eth2_network_config = { workspace = true }
 execution_layer = { workspace = true }
 lighthouse_network = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 clap_utils = { workspace = true }
 hyper = { workspace = true }
 lighthouse_version = { workspace = true }

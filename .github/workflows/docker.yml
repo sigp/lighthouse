@@ -5,6 +5,7 @@ on:
         branches:
             - unstable
             - stable
+            - deneb-free-blobs
         tags:
             - v*
 
@@ -40,6 +41,11 @@ jobs:
               run: |
                     echo "VERSION=latest" >> $GITHUB_ENV
                     echo "VERSION_SUFFIX=-unstable" >> $GITHUB_ENV
+            - name: Extract version (if deneb)
+              if: github.event.ref == 'refs/heads/deneb-free-blobs'
+              run: |
+                    echo "VERSION=deneb" >> $GITHUB_ENV
+                    echo "VERSION_SUFFIX=" >> $GITHUB_ENV
             - name: Extract version (if tagged release)
               if: startsWith(github.event.ref, 'refs/tags')
               run: |

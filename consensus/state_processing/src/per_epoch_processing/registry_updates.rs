@@ -41,7 +41,7 @@ pub fn process_registry_updates<T: EthSpec>(
 
     // Queue validators eligible for activation and not dequeued for activation prior to finalized epoch
     // Dequeue validators for activation up to churn limit
-    let churn_limit = state.get_churn_limit(spec)? as usize;
+    let churn_limit = state.get_activation_churn_limit(spec)? as usize;
 
     let epoch_cache = state.epoch_cache().clone();
     let activation_queue = epoch_cache

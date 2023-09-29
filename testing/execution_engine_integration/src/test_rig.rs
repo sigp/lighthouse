@@ -270,7 +270,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 head_root,
                 proposer_index,
                 // TODO: think about how to test different forks
-                PayloadAttributes::new(timestamp, prev_randao, Address::repeat_byte(42), None),
+                PayloadAttributes::new(
+                    timestamp,
+                    prev_randao,
+                    Address::repeat_byte(42),
+                    None,
+                    None,
+                ),
             )
             .await;
 
@@ -309,7 +315,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .get_suggested_fee_recipient(proposer_index)
             .await;
         let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
         let valid_payload = self
             .ee_a
             .execution_layer
@@ -358,10 +364,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Provide the valid payload back to the EE again.
          */
 
+        // TODO: again consider forks here
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(&valid_payload)
+            .notify_new_payload(valid_payload.clone().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -409,12 +416,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Provide an invalidated payload to the EE.
          */
 
+        // TODO: again think about forks here
         let mut invalid_payload = valid_payload.clone();
         *invalid_payload.prev_randao_mut() = Hash256::from_low_u64_be(42);
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(&invalid_payload)
+            .notify_new_payload(invalid_payload.try_into().unwrap())
             .await
             .unwrap();
         assert!(matches!(
@@ -449,7 +457,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .get_suggested_fee_recipient(proposer_index)
             .await;
         let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
         let second_payload = self
             .ee_a
             .execution_layer
@@ -473,10 +481,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Provide the second payload back to the EE again.
          */
 
+        // TODO: again consider forks here
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(&second_payload)
+            .notify_new_payload(second_payload.clone().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -493,7 +502,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         // To save sending proposer preparation data, just set the fee recipient
         // to the fee recipient configured for EE A.
         let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, Address::repeat_byte(42), None);
+            PayloadAttributes::new(timestamp, prev_randao, Address::repeat_byte(42), None, None);
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(100);
         let validator_index = 0;
@@ -520,10 +529,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          *
          * Provide the second payload, without providing the first.
          */
+        // TODO: again consider forks here
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(&second_payload)
+            .notify_new_payload(second_payload.clone().try_into().unwrap())
             .await
             .unwrap();
         // TODO: we should remove the `Accepted` status here once Geth fixes it
@@ -561,10 +571,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Provide the first payload to the EE.
          */
 
+        // TODO: again consider forks here
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(&valid_payload)
+            .notify_new_payload(valid_payload.clone().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -578,7 +589,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(&second_payload)
+            .notify_new_payload(second_payload.clone().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);

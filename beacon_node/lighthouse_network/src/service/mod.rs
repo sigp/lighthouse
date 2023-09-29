@@ -15,7 +15,8 @@ use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
     fork_core_topics, subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic,
-    SnappyTransform, Subnet, SubnetDiscovery,
+    SnappyTransform, Subnet, SubnetDiscovery, ALTAIR_CORE_TOPICS, BASE_CORE_TOPICS,
+    CAPELLA_CORE_TOPICS, DENEB_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
 };
 use crate::EnrExt;
 use crate::Eth2Enr;
@@ -40,7 +41,8 @@ use std::{
 };
 use types::ForkName;
 use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, consts::deneb::BLOB_SIDECAR_SUBNET_COUNT,
+    EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
@@ -69,6 +71,8 @@ pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
         id: AppReqId,
         /// The peer to which this request was sent.
         peer_id: PeerId,
+        /// The error of the failed request.
+        error: RPCError,
     },
     RequestReceived {
         /// The peer that sent the request.
@@ -219,15 +223,27 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             // Set up a scoring update interval
             let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
 
+            let max_topics = ctx.chain_spec.attestation_subnet_count as usize
+                + SYNC_COMMITTEE_SUBNET_COUNT as usize
+                + BLOB_SIDECAR_SUBNET_COUNT as usize
+                + BASE_CORE_TOPICS.len()
+                + ALTAIR_CORE_TOPICS.len()
+                + CAPELLA_CORE_TOPICS.len()
+                + DENEB_CORE_TOPICS.len()
+                + LIGHT_CLIENT_GOSSIP_TOPICS.len();
+
             let possible_fork_digests = ctx.fork_context.all_fork_digests();
             let filter = gossipsub::MaxCountSubscriptionFilter {
                 filter: utils::create_whitelist_filter(
                     possible_fork_digests,
                     ctx.chain_spec.attestation_subnet_count,
                     SYNC_COMMITTEE_SUBNET_COUNT,
+                    BLOB_SIDECAR_SUBNET_COUNT,
                 ),
-                max_subscribed_topics: 200,
-                max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
+                // during a fork we subscribe to both the old and new topics
+                max_subscribed_topics: max_topics * 4,
+                // 162 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics) * 2
+                max_subscriptions_per_request: max_topics * 2,
             };
 
             let gossipsub_config_params = GossipsubConfigParams {
@@ -603,7 +619,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
 
         // Subscribe to core topics for the new fork
-        for kind in fork_core_topics(&new_fork) {
+        for kind in fork_core_topics::<TSpec>(&new_fork) {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
@@ -1048,6 +1064,12 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::BlocksByRoot { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
             }
+            Request::BlobsByRange { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"])
+            }
+            Request::BlobsByRoot { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_root"])
+            }
         }
         NetworkEvent::RequestReceived {
             peer_id,
@@ -1226,9 +1248,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                             &error,
                             ConnectionDirection::Outgoing,
                         );
-                        // inform failures of requests comming outside the behaviour
+                        // inform failures of requests coming outside the behaviour
                         if let RequestId::Application(id) = id {
-                            Some(NetworkEvent::RPCFailed { peer_id, id })
+                            Some(NetworkEvent::RPCFailed { peer_id, id, error })
                         } else {
                             None
                         }
@@ -1311,6 +1333,19 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         Some(event)
                     }
+                    InboundRequest::BlobsByRange(req) => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::BlobsByRange(req),
+                        );
+                        Some(event)
+                    }
+                    InboundRequest::BlobsByRoot(req) => {
+                        let event =
+                            self.build_request(peer_request_id, peer_id, Request::BlobsByRoot(req));
+                        Some(event)
+                    }
                     InboundRequest::LightClientBootstrap(req) => {
                         let event = self.build_request(
                             peer_request_id,
@@ -1343,8 +1378,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlocksByRange(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRange(Some(resp)))
                     }
+                    RPCResponse::BlobsByRange(resp) => {
+                        self.build_response(id, peer_id, Response::BlobsByRange(Some(resp)))
+                    }
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
+                    }
+                    RPCResponse::BlobsByRoot(resp) => {
+                        self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
                     }
                     // Should never be reached
                     RPCResponse::LightClientBootstrap(bootstrap) => {
@@ -1356,6 +1397,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                    ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
+                    ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                 };
                 self.build_response(id, peer_id, response)
             }

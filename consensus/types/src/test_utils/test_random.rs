@@ -10,6 +10,8 @@ mod address;
 mod aggregate_signature;
 mod bitfield;
 mod hash256;
+mod kzg_commitment;
+mod kzg_proof;
 mod public_key;
 mod public_key_bytes;
 mod secret_key;

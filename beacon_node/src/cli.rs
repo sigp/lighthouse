@@ -29,6 +29,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Data directory for the freezer database.")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("blobs-dir")
+                .long("blobs-dir")
+                .value_name("DIR")
+                .help("Data directory for the blobs database.")
+                .takes_value(true)
+        )
         /*
          * Network parameters.
          */
@@ -745,6 +752,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("1")
                 .takes_value(true)
         )
+        /* Deneb settings */
+        .arg(
+            Arg::with_name("trusted-setup-file-override")
+                .long("trusted-setup-file-override")
+                .value_name("FILE")
+                .help("Path to a json file containing the trusted setup params. \
+                      NOTE: This will override the trusted setup that is generated \
+                      from the mainnet kzg ceremony. Use with caution")
+                .takes_value(true)
+        )
         /*
          * Database.
          */
@@ -808,6 +825,35 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("16")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("prune-blobs")
+                .long("prune-blobs")
+                .value_name("BOOLEAN")
+                .help("Prune blobs from Lighthouse's database when they are older than the data \
+                       data availability boundary relative to the current epoch.")
+                .takes_value(true)
+                .default_value("true")
+        )
+        .arg(
+            Arg::with_name("epochs-per-blob-prune")
+                .long("epochs-per-blob-prune")
+                .value_name("EPOCHS")
+                .help("The epoch interval with which to prune blobs from Lighthouse's \
+                       database when they are older than the data availability boundary \
+                       relative to the current epoch.")
+                .takes_value(true)
+                .default_value("1")
+        )
+        .arg(
+            Arg::with_name("blob-prune-margin-epochs")
+                .long("blob-prune-margin-epochs")
+                .value_name("EPOCHS")
+                .help("The margin for blob pruning in epochs. The oldest blobs are pruned \
+                       up until data_availability_boundary - blob_prune_margin_epochs.")
+                .takes_value(true)
+                .default_value("0")
+        )
+
         /*
          * Misc.
          */
@@ -1177,6 +1223,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("ignore-builder-override-suggestion-threshold")
+                .long("ignore-builder-override-suggestion-threshold")
+                .value_name("PERCENTAGE")
+                .help("When the EE advises Lighthouse to ignore the builder payload, this flag \
+                    specifies a percentage threshold for the difference between the reward from \
+                    the builder payload and the local EE's payload. This threshold must be met \
+                    for Lighthouse to consider ignoring the EE's suggestion. If the reward from \
+                    the builder's payload doesn't exceed the local payload by at least this \
+                    percentage, the local payload will be used. The conditions under which the \
+                    EE may make this suggestion depend on the EE's implementation, with the \
+                    primary intent being to safeguard against potential censorship attacks \
+                    from builders. Setting this flag to 0 will cause Lighthouse to always \
+                    ignore the EE's suggestion. Default: 10.0 (equivalent to 10%).")
+                .default_value("10.0")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("builder-user-agent")
                 .long("builder-user-agent")
                 .value_name("STRING")
@@ -1246,6 +1309,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             // to local payloads, therefore it fundamentally conflicts with
             // always using the builder.
             .conflicts_with("builder-profit-threshold")
+            .conflicts_with("ignore-builder-override-suggestion-threshold")
         )
         .arg(
             Arg::with_name("invalid-gossip-verified-blocks-path")

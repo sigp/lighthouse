@@ -3,10 +3,12 @@
 //! Stores the various syncing methods for the beacon chain.
 mod backfill_sync;
 mod block_lookups;
+mod block_sidecar_coupling;
 pub mod manager;
 mod network_context;
 mod peer_sync_info;
 mod range_sync;
 
+pub use block_lookups::CachedChildComponents;
 pub use manager::{BatchProcessResult, SyncMessage};
 pub use range_sync::{BatchOperationOutcome, ChainId};

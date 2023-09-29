@@ -516,10 +516,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     response,
                 });
             }
-            NetworkEvent::RPCFailed { id, peer_id } => {
+            NetworkEvent::RPCFailed { id, peer_id, error } => {
                 self.send_to_router(RouterMessage::RPCFailed {
                     peer_id,
                     request_id: id,
+                    error,
                 });
             }
             NetworkEvent::StatusPeer(peer_id) => {
@@ -691,7 +692,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                for topic_kind in core_topics_to_subscribe(self.fork_context.current_fork()) {
+                for topic_kind in
+                    core_topics_to_subscribe::<T::EthSpec>(self.fork_context.current_fork())
+                {
                     for fork_digest in self.required_gossip_fork_digests() {
                         let topic = GossipTopic::new(
                             topic_kind.clone(),
@@ -913,7 +916,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     }
 
     fn subscribed_core_topics(&self) -> bool {
-        let core_topics = core_topics_to_subscribe(self.fork_context.current_fork());
+        let core_topics = core_topics_to_subscribe::<T::EthSpec>(self.fork_context.current_fork());
         let core_topics: HashSet<&GossipKind> = HashSet::from_iter(&core_topics);
         let subscriptions = self.network_globals.gossipsub_subscriptions.read();
         let subscribed_topics: HashSet<&GossipKind> =

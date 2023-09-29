@@ -32,13 +32,22 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, T: EthSpec>(
             attestation: data.slot,
         }
     );
-    verify!(
-        state.slot() <= data.slot.safe_add(T::slots_per_epoch())?,
-        Invalid::IncludedTooLate {
-            state: state.slot(),
-            attestation: data.slot,
+    match state {
+        BeaconState::Base(_)
+        | BeaconState::Altair(_)
+        | BeaconState::Merge(_)
+        | BeaconState::Capella(_) => {
+            verify!(
+                state.slot() <= data.slot.safe_add(T::slots_per_epoch())?,
+                Invalid::IncludedTooLate {
+                    state: state.slot(),
+                    attestation: data.slot,
+                }
+            );
         }
-    );
+        // [Modified in Deneb:EIP7045]
+        BeaconState::Deneb(_) => {}
+    }
 
     verify_attestation_for_state(state, attestation, ctxt, verify_signatures, spec)
 }

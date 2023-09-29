@@ -23,6 +23,7 @@ crossbeam-channel = { workspace = true }
 derivative = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }
+eth2_network_config = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
@@ -35,6 +36,7 @@ genesis = { workspace = true }
 hex = { workspace = true }
 int_to_bytes = { workspace = true }
 itertools = { workspace = true }
+kzg = { workspace = true }
 lazy_static = { workspace = true }
 lighthouse_metrics = { workspace = true }
 logging = { workspace = true }
@@ -49,8 +51,11 @@ rayon = { workspace = true }
 safe_arith = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 slasher = { workspace = true }
 slog = { workspace = true }
+slog-async = { workspace = true }
+slog-term = { workspace = true }
 sloggers = { workspace = true }
 slot_clock = { workspace = true }
 smallvec = { workspace = true }
