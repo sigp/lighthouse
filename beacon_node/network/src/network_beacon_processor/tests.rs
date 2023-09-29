@@ -37,7 +37,6 @@ const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const SMALL_CHAIN: u64 = 2;
 const LONG_CHAIN: u64 = SLOTS_PER_EPOCH * 2;
 
-const TCP_PORT: u16 = 42;
 const SEQ_NUMBER: u64 = 0;
 
 /// The default time to wait for `BeaconProcessor` events.
@@ -195,15 +194,7 @@ impl TestRig {
         });
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
-        let network_globals = Arc::new(NetworkGlobals::new(
-            enr,
-            Some(TCP_PORT),
-            None,
-            meta_data,
-            vec![],
-            false,
-            &log,
-        ));
+        let network_globals = Arc::new(NetworkGlobals::new(enr, meta_data, vec![], false, &log));
 
         let executor = harness.runtime.task_executor.clone();
 
