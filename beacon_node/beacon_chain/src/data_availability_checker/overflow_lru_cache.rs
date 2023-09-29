@@ -27,10 +27,11 @@
 //! On startup, the keys of these components are stored in memory and will be loaded in
 //! the cache when they are accessed.
 
+use super::state_lru_cache::{DietAvailabilityPendingExecutedBlock, StateLRUCache};
 use crate::beacon_chain::BeaconStore;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::{
-    AsBlock, AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
+    AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
 };
 use crate::data_availability_checker::availability_view::AvailabilityView;
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
@@ -43,7 +44,7 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
-use types::{BlobSidecar, Epoch, EthSpec, Hash256};
+use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256};
 
 /// This represents the components of a partially available block
 ///
@@ -53,7 +54,8 @@ use types::{BlobSidecar, Epoch, EthSpec, Hash256};
 pub struct PendingComponents<T: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
-    pub executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
+    /// FIXME: change this back to `AvailabilityPendingExecutedBlock` once tree-states is merged
+    pub executed_block: Option<DietAvailabilityPendingExecutedBlock<T>>,
 }
 
 impl<T: EthSpec> PendingComponents<T> {
@@ -68,17 +70,25 @@ impl<T: EthSpec> PendingComponents<T> {
     /// Verifies an `SignedBeaconBlock` against a set of KZG verified blobs.
     /// This does not check whether a block *should* have blobs, these checks should have been
     /// completed when producing the `AvailabilityPendingBlock`.
-    pub fn make_available(self) -> Result<Availability<T>, AvailabilityCheckError> {
+    ///
+    /// WARNING: This function can potentially take a lot of time if the state needs to be
+    /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
+    pub fn make_available<R>(self, recover: R) -> Result<Availability<T>, AvailabilityCheckError>
+    where
+        R: FnOnce(
+            DietAvailabilityPendingExecutedBlock<T>,
+        ) -> Result<AvailabilityPendingExecutedBlock<T>, AvailabilityCheckError>,
+    {
         let Self {
             block_root,
             verified_blobs,
             executed_block,
         } = self;
 
-        let Some(executed_block) = executed_block else {
+        let Some(diet_executed_block) = executed_block else {
             return Err(AvailabilityCheckError::Unexpected);
         };
-        let num_blobs_expected = executed_block.num_blobs_expected();
+        let num_blobs_expected = diet_executed_block.num_blobs_expected();
         let Some(verified_blobs) = verified_blobs
             .into_iter()
             .cloned()
@@ -89,6 +99,8 @@ impl<T: EthSpec> PendingComponents<T> {
             return Err(AvailabilityCheckError::Unexpected);
         };
         let verified_blobs = VariableList::new(verified_blobs)?;
+
+        let executed_block = recover(diet_executed_block)?;
 
         let AvailabilityPendingExecutedBlock {
             block,
@@ -109,7 +121,7 @@ impl<T: EthSpec> PendingComponents<T> {
     pub fn epoch(&self) -> Option<Epoch> {
         self.executed_block
             .as_ref()
-            .map(|pending_block| pending_block.block.epoch())
+            .map(|pending_block| pending_block.as_block().epoch())
             .or_else(|| {
                 for maybe_blob in self.verified_blobs.iter() {
                     if maybe_blob.is_some() {
@@ -208,9 +220,10 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
                 OverflowKey::Block(_) => {
                     maybe_pending_components
                         .get_or_insert_with(|| PendingComponents::empty(block_root))
-                        .executed_block = Some(AvailabilityPendingExecutedBlock::from_ssz_bytes(
-                        value_bytes.as_slice(),
-                    )?);
+                        .executed_block =
+                        Some(DietAvailabilityPendingExecutedBlock::from_ssz_bytes(
+                            value_bytes.as_slice(),
+                        )?);
                 }
                 OverflowKey::Blob(_, index) => {
                     *maybe_pending_components
@@ -356,6 +369,9 @@ pub struct OverflowLRUCache<T: BeaconChainTypes> {
     critical: RwLock<Critical<T>>,
     /// This is how we read and write components to the disk
     overflow_store: OverflowStore<T>,
+    /// This cache holds a limited number of states in memory and reconstructs them
+    /// from disk when necessary. This is necessary until we merge tree-states
+    state_cache: StateLRUCache<T>,
     /// Mutex to guard maintenance methods which move data between disk and memory
     maintenance_lock: Mutex<()>,
     /// The capacity of the LRU cache
@@ -366,13 +382,15 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     pub fn new(
         capacity: usize,
         beacon_store: BeaconStore<T>,
+        spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
-        let overflow_store = OverflowStore(beacon_store);
+        let overflow_store = OverflowStore(beacon_store.clone());
         let mut critical = Critical::new(capacity);
         critical.reload_store_keys(&overflow_store)?;
         Ok(Self {
             critical: RwLock::new(critical),
             overflow_store,
+            state_cache: StateLRUCache::new(beacon_store, spec),
             maintenance_lock: Mutex::new(()),
             capacity,
         })
@@ -426,7 +444,11 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         pending_components.merge_blobs(fixed_blobs);
 
         if pending_components.is_available() {
-            pending_components.make_available()
+            // No need to hold the write lock anymore
+            drop(write_lock);
+            pending_components.make_available(|diet_block| {
+                self.state_cache.recover_pending_executed_block(diet_block)
+            })
         } else {
             write_lock.put_pending_components(
                 block_root,
@@ -446,17 +468,26 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let mut write_lock = self.critical.write();
         let block_root = executed_block.import_data.block_root;
 
+        // register the block to get the diet block
+        let diet_executed_block = self
+            .state_cache
+            .register_pending_executed_block(executed_block);
+
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
             .pop_pending_components(block_root, &self.overflow_store)?
             .unwrap_or_else(|| PendingComponents::empty(block_root));
 
         // Merge in the block.
-        pending_components.merge_block(executed_block);
+        pending_components.merge_block(diet_executed_block);
 
         // Check if we have all components and entire set is consistent.
         if pending_components.is_available() {
-            pending_components.make_available()
+            // No need to hold the write lock anymore
+            drop(write_lock);
+            pending_components.make_available(|diet_block| {
+                self.state_cache.recover_pending_executed_block(diet_block)
+            })
         } else {
             write_lock.put_pending_components(
                 block_root,
@@ -612,10 +643,10 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                     delete_if_outdated(self, current_block_data)?;
                     let current_epoch = match &overflow_key {
                         OverflowKey::Block(_) => {
-                            AvailabilityPendingExecutedBlock::<T::EthSpec>::from_ssz_bytes(
+                            DietAvailabilityPendingExecutedBlock::<T::EthSpec>::from_ssz_bytes(
                                 value_bytes.as_slice(),
                             )?
-                            .block
+                            .as_block()
                             .epoch()
                         }
                         OverflowKey::Blob(_, _) => {
@@ -706,6 +737,7 @@ impl ssz::Decode for OverflowKey {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::block_verification_types::AsBlock;
     use crate::{
         blob_verification::{
             validate_blob_sidecar_for_gossip, verify_kzg_for_blob, GossipVerifiedBlob,
@@ -1019,10 +1051,10 @@ mod test {
         let harness: BeaconChainHarness<T> = get_deneb_chain(log.clone(), &chain_db_path).await;
         let spec = harness.spec.clone();
         let capacity = 4;
-        let db_path = tempdir().expect("should get temp dir");
-        let test_store = get_store_with_spec::<E>(&db_path, spec.clone(), log.clone());
+        let test_store = harness.chain.store.clone();
         let cache = Arc::new(
-            OverflowLRUCache::<T>::new(capacity, test_store).expect("should create cache"),
+            OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
+                .expect("should create cache"),
         );
 
         let (pending_block, blobs) = availability_pending_block(&harness, log.clone()).await;
@@ -1139,10 +1171,10 @@ mod test {
         let harness: BeaconChainHarness<T> = get_deneb_chain(log.clone(), &chain_db_path).await;
         let spec = harness.spec.clone();
         let capacity = 4;
-        let db_path = tempdir().expect("should get temp dir");
-        let test_store = get_store_with_spec::<E>(&db_path, spec.clone(), log.clone());
+        let test_store = harness.chain.store.clone();
         let cache = Arc::new(
-            OverflowLRUCache::<T>::new(capacity, test_store).expect("should create cache"),
+            OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
+                .expect("should create cache"),
         );
 
         let mut pending_blocks = VecDeque::new();
@@ -1299,10 +1331,10 @@ mod test {
         let spec = harness.spec.clone();
         let n_epochs = 4;
         let capacity = E::slots_per_epoch() as usize;
-        let db_path = tempdir().expect("should get temp dir");
-        let test_store = get_store_with_spec::<E>(&db_path, spec.clone(), log.clone());
+        let test_store = harness.chain.store.clone();
         let cache = Arc::new(
-            OverflowLRUCache::<T>::new(capacity, test_store).expect("should create cache"),
+            OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
+                .expect("should create cache"),
         );
 
         let mut pending_blocks = VecDeque::new();
@@ -1450,10 +1482,10 @@ mod test {
         let spec = harness.spec.clone();
         let n_epochs = 4;
         let capacity = E::slots_per_epoch() as usize;
-        let db_path = tempdir().expect("should get temp dir");
-        let test_store = get_store_with_spec::<E>(&db_path, spec.clone(), log.clone());
+        let test_store = harness.chain.store.clone();
         let cache = Arc::new(
-            OverflowLRUCache::<T>::new(capacity, test_store.clone()).expect("should create cache"),
+            OverflowLRUCache::<T>::new(capacity, test_store.clone(), spec.clone())
+                .expect("should create cache"),
         );
 
         let mut pending_blocks = VecDeque::new();
@@ -1580,8 +1612,8 @@ mod test {
         drop(cache);
 
         // create a new cache with the same store
-        let recovered_cache =
-            OverflowLRUCache::<T>::new(capacity, test_store).expect("should recover cache");
+        let recovered_cache = OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
+            .expect("should recover cache");
         // again, everything should be on disk
         assert_eq!(
             recovered_cache

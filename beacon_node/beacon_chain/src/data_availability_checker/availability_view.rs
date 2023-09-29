@@ -1,4 +1,5 @@
 use super::child_components::ChildComponents;
+use super::state_lru_cache::DietAvailabilityPendingExecutedBlock;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::AsBlock;
 use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
@@ -190,7 +191,7 @@ impl_availability_view!(
 
 impl_availability_view!(
     PendingComponents,
-    AvailabilityPendingExecutedBlock<E>,
+    DietAvailabilityPendingExecutedBlock<E>,
     KzgVerifiedBlob<E>,
     executed_block,
     verified_blobs
@@ -235,6 +236,18 @@ impl<E: EthSpec> GetCommitments<E> for AvailabilityPendingExecutedBlock<E> {
             .unwrap_or_default()
     }
 }
+
+impl<E: EthSpec> GetCommitments<E> for DietAvailabilityPendingExecutedBlock<E> {
+    fn get_commitments(&self) -> KzgCommitments<E> {
+        self.as_block()
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .cloned()
+            .unwrap_or_default()
+    }
+}
+
 impl<E: EthSpec> GetCommitment<E> for KzgVerifiedBlob<E> {
     fn get_commitment(&self) -> &KzgCommitment {
         &self.as_blob().kzg_commitment
@@ -346,7 +359,7 @@ pub mod tests {
     }
 
     type PendingComponentsSetup<E> = (
-        AvailabilityPendingExecutedBlock<E>,
+        DietAvailabilityPendingExecutedBlock<E>,
         FixedVector<Option<KzgVerifiedBlob<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
         FixedVector<Option<KzgVerifiedBlob<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
     );
@@ -395,7 +408,7 @@ pub mod tests {
                 is_valid_merge_transition_block: false,
             },
         };
-        (block, blobs, invalid_blobs)
+        (block.into(), blobs, invalid_blobs)
     }
 
     type ChildComponentsSetup<E> = (

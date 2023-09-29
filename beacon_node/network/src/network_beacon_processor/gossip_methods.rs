@@ -11,7 +11,7 @@ use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
-    data_availability_checker::AvailabilityCheckError,
+    data_availability_checker::AvailabilityCheckErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
@@ -1225,24 +1225,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Err(BlockError::AvailabilityCheck(err)) => {
-                match err {
-                    AvailabilityCheckError::KzgNotInitialized
-                    | AvailabilityCheckError::Unexpected
-                    | AvailabilityCheckError::SszTypes(_)
-                    | AvailabilityCheckError::MissingBlobs
-                    | AvailabilityCheckError::StoreError(_)
-                    | AvailabilityCheckError::DecodeError(_) => {
+                match err.category() {
+                    AvailabilityCheckErrorCategory::Internal => {
                         warn!(
                             self.log,
                             "Internal availability check error";
                             "error" => ?err,
                         );
                     }
-                    AvailabilityCheckError::Kzg(_)
-                    | AvailabilityCheckError::KzgVerificationFailed
-                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
-                    | AvailabilityCheckError::BlobIndexInvalid(_)
-                    | AvailabilityCheckError::InconsistentBlobBlockRoots { .. } => {
+                    AvailabilityCheckErrorCategory::Malicious => {
                         // Note: we cannot penalize the peer that sent us the block
                         // over gossip here because these errors imply either an issue
                         // with:
