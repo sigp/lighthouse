@@ -9,6 +9,7 @@ use beacon_chain::data_availability_checker::DataAvailabilityChecker;
 use beacon_chain::BeaconChainTypes;
 use itertools::Itertools;
 use lighthouse_network::PeerId;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
@@ -145,7 +146,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self,
     ) -> (
         Hash256,
-        Vec<RpcBlock<T::EthSpec>>,
+        VecDeque<RpcBlock<T::EthSpec>>,
         Vec<Hash256>,
         SingleBlockLookup<Parent, T>,
     ) {
@@ -155,10 +156,10 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             current_parent_request,
         } = self;
         let block_count = downloaded_blocks.len();
-        let mut blocks = Vec::with_capacity(block_count);
+        let mut blocks = VecDeque::with_capacity(block_count);
         let mut hashes = Vec::with_capacity(block_count);
         for (hash, block) in downloaded_blocks.into_iter() {
-            blocks.push(block);
+            blocks.push_back(block);
             hashes.push(hash);
         }
         (chain_hash, blocks, hashes, current_parent_request)

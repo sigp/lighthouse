@@ -27,7 +27,7 @@ pub use single_block_lookup::CachedChildComponents;
 pub use single_block_lookup::{BlobRequestState, BlockRequestState};
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
@@ -1122,7 +1122,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 let (chain_hash, blocks, hashes, block_request) =
                     parent_lookup.parts_for_processing();
 
-                let blocks = self.add_child_block_to_chain(chain_hash, blocks, cx);
+                let blocks = self.add_child_block_to_chain(chain_hash, blocks, cx).into();
 
                 let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
 
@@ -1177,9 +1177,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn add_child_block_to_chain(
         &mut self,
         chain_hash: Hash256,
-        mut blocks: Vec<RpcBlock<T::EthSpec>>,
+        mut blocks: VecDeque<RpcBlock<T::EthSpec>>,
         cx: &SyncNetworkContext<T>,
-    ) -> Vec<RpcBlock<T::EthSpec>> {
+    ) -> VecDeque<RpcBlock<T::EthSpec>> {
         // Find the child block that spawned the parent lookup request and add it to the chain
         // to send for processing.
         if let Some(child_lookup_id) = self
@@ -1193,7 +1193,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             };
             match child_lookup.get_cached_child_block() {
                 CachedChild::Ok(rpc_block) => {
-                    blocks.push(rpc_block);
+                    // Insert this block at the front. This order is important because we later check
+                    // for linear roots in `filter_chain_segment`
+                    blocks.push_front(rpc_block);
                 }
                 CachedChild::DownloadIncomplete => {
                     trace!(self.log, "Parent lookup chain complete, awaiting child response"; "chain_hash" => ?chain_hash);
