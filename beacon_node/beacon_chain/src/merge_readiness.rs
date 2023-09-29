@@ -1,8 +1,10 @@
 //! Provides tools for checking if a node is ready for the Bellatrix upgrade and following merge
 //! transition.
 
-use crate::{BeaconChain, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError as Error, BeaconChainTypes};
+use execution_layer::BlockByNumberQuery;
 use serde::{Deserialize, Serialize, Serializer};
+use slog::debug;
 use std::fmt;
 use std::fmt::Write;
 use types::*;
@@ -120,6 +122,25 @@ impl fmt::Display for MergeReadiness {
     }
 }
 
+pub enum GenesisExecutionPayloadStatus {
+    Correct(ExecutionBlockHash),
+    BlockHashMismatch {
+        got: ExecutionBlockHash,
+        expected: ExecutionBlockHash,
+    },
+    TransactionsRootMismatch {
+        got: Hash256,
+        expected: Hash256,
+    },
+    WithdrawalsRootMismatch {
+        got: Hash256,
+        expected: Hash256,
+    },
+    OtherMismatch,
+    Irrelevant,
+    AlreadyHappened,
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `true` if user has an EL configured, or if the Bellatrix fork has occurred or will
     /// occur within `MERGE_READINESS_PREPARATION_SECONDS`.
@@ -144,9 +165,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Attempts to connect to the EL and confirm that it is ready for the merge.
-    pub async fn check_merge_readiness(&self) -> MergeReadiness {
+    pub async fn check_merge_readiness(&self, current_slot: Slot) -> MergeReadiness {
         if let Some(el) = self.execution_layer.as_ref() {
-            if !el.is_synced_for_notifier().await {
+            if !el.is_synced_for_notifier(current_slot).await {
                 // The EL is not synced.
                 return MergeReadiness::NotSynced;
             }
@@ -160,6 +181,91 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // There is no EL configured.
             MergeReadiness::NoExecutionEndpoint
         }
+    }
+
+    /// Check that the execution payload embedded in the genesis state matches the EL's genesis
+    /// block.
+    pub async fn check_genesis_execution_payload_is_correct(
+        &self,
+    ) -> Result<GenesisExecutionPayloadStatus, Error> {
+        let head_snapshot = self.head_snapshot();
+        let genesis_state = &head_snapshot.beacon_state;
+
+        if genesis_state.slot() != 0 {
+            return Ok(GenesisExecutionPayloadStatus::AlreadyHappened);
+        }
+
+        let Ok(latest_execution_payload_header) = genesis_state.latest_execution_payload_header()
+        else {
+            return Ok(GenesisExecutionPayloadStatus::Irrelevant);
+        };
+        let fork = self.spec.fork_name_at_epoch(Epoch::new(0));
+
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?;
+        let exec_block_hash = latest_execution_payload_header.block_hash();
+
+        // Use getBlockByNumber(0) to check that the block hash matches.
+        // At present, Geth does not respond to engine_getPayloadBodiesByRange before genesis.
+        let execution_block = execution_layer
+            .get_block_by_number(BlockByNumberQuery::Tag("0x0"))
+            .await
+            .map_err(|e| Error::ExecutionLayerGetBlockByNumberFailed(Box::new(e)))?
+            .ok_or(Error::BlockHashMissingFromExecutionLayer(exec_block_hash))?;
+
+        if execution_block.block_hash != exec_block_hash {
+            return Ok(GenesisExecutionPayloadStatus::BlockHashMismatch {
+                got: execution_block.block_hash,
+                expected: exec_block_hash,
+            });
+        }
+
+        // Double-check the block by reconstructing it.
+        let execution_payload = execution_layer
+            .get_payload_by_hash_legacy(exec_block_hash, fork)
+            .await
+            .map_err(|e| Error::ExecutionLayerGetBlockByHashFailed(Box::new(e)))?
+            .ok_or(Error::BlockHashMissingFromExecutionLayer(exec_block_hash))?;
+
+        // Verify payload integrity.
+        let header_from_payload = ExecutionPayloadHeader::from(execution_payload.to_ref());
+
+        let got_transactions_root = header_from_payload.transactions_root();
+        let expected_transactions_root = latest_execution_payload_header.transactions_root();
+        let got_withdrawals_root = header_from_payload.withdrawals_root().ok();
+        let expected_withdrawals_root = latest_execution_payload_header.withdrawals_root().ok();
+
+        if got_transactions_root != expected_transactions_root {
+            return Ok(GenesisExecutionPayloadStatus::TransactionsRootMismatch {
+                got: got_transactions_root,
+                expected: expected_transactions_root,
+            });
+        }
+
+        if let Some(&expected) = expected_withdrawals_root {
+            if let Some(&got) = got_withdrawals_root {
+                if got != expected {
+                    return Ok(GenesisExecutionPayloadStatus::WithdrawalsRootMismatch {
+                        got,
+                        expected,
+                    });
+                }
+            }
+        }
+
+        if header_from_payload.to_ref() != latest_execution_payload_header {
+            debug!(
+                self.log,
+                "Genesis execution payload reconstruction failure";
+                "consensus_node_header" => ?latest_execution_payload_header,
+                "execution_node_header" => ?header_from_payload
+            );
+            return Ok(GenesisExecutionPayloadStatus::OtherMismatch);
+        }
+
+        Ok(GenesisExecutionPayloadStatus::Correct(exec_block_hash))
     }
 }
 

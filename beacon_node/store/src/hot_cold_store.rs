@@ -2210,7 +2210,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops.push(StoreOp::KeyValueOp(update_blob_info));
 
         self.do_atomically_with_block_and_blobs_cache(ops)?;
-        info!(
+        debug!(
             self.log,
             "Blob pruning complete";
             "blob_lists_pruned" => blob_lists_pruned,

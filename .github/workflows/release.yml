@@ -14,6 +14,8 @@ env:
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
     REPO_NAME: ${{ github.repository_owner }}/lighthouse
     IMAGE_NAME: ${{ github.repository_owner }}/lighthouse
+    # Enable self-hosted runners for the sigp repo only.
+    SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
 
 jobs:
     extract-version:
@@ -38,36 +40,37 @@ jobs:
                        x86_64-windows-portable]
                 include:
                     -   arch: aarch64-unknown-linux-gnu
-                        platform: ubuntu-latest
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
                         profile: maxperf
                     -   arch: aarch64-unknown-linux-gnu-portable
-                        platform: ubuntu-latest
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
                         profile: maxperf
                     -   arch: x86_64-unknown-linux-gnu
-                        platform: ubuntu-latest
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
                         profile: maxperf
                     -   arch: x86_64-unknown-linux-gnu-portable
-                        platform: ubuntu-latest
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
                         profile: maxperf
                     -   arch: x86_64-apple-darwin
-                        platform: macos-latest
+                        runner: macos-latest
                         profile: maxperf
                     -   arch: x86_64-apple-darwin-portable
-                        platform: macos-latest
+                        runner: macos-latest
                         profile: maxperf
                     -   arch: x86_64-windows
-                        platform: windows-2019
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "release"]') || 'windows-2019'  }}
                         profile: maxperf
                     -   arch: x86_64-windows-portable
-                        platform: windows-2019
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "release"]') || 'windows-2019'  }}
                         profile: maxperf
 
-        runs-on:    ${{ matrix.platform }}
+        runs-on:    ${{ matrix.runner }}
         needs: extract-version
         steps:
             - name: Checkout sources
               uses: actions/checkout@v3
             - name: Get latest version of stable Rust
+              if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable
 
             # ==============================
@@ -75,7 +78,7 @@ jobs:
             # ==============================
 
             - uses: KyleMayes/install-llvm-action@v1
-              if: startsWith(matrix.arch, 'x86_64-windows')
+              if: env.SELF_HOSTED_RUNNERS == 'false' && startsWith(matrix.arch, 'x86_64-windows')
               with:
                 version: "15.0"
                 directory: ${{ runner.temp }}/llvm
