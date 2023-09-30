@@ -1,4 +1,6 @@
 #![cfg(feature = "sqlite")]
+use r2d2::PooledConnection;
+use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, ToSql, Transaction, Connection};
 use std::{fmt, collections::HashMap};
 use derivative::Derivative;
@@ -34,7 +36,7 @@ struct FullQueryResult {
 pub struct Environment {
     _db_count: usize,
     db_path: String,
-    conn: Connection,
+    conn: PooledConnection<SqliteConnectionManager>
 }
 
 #[derive(Debug)]
@@ -58,7 +60,9 @@ impl Environment {
             Some(path) => path.to_string(),
             None => "".to_string(),
         };
-        let conn = rusqlite::Connection::open(&db_path)?;
+        let manager = SqliteConnectionManager::file(&db_path);
+        let pool = r2d2::Pool::builder().build(manager).unwrap();
+        let conn = pool.get().unwrap();
 
         Ok(Environment {
             _db_count: MAX_NUM_DBS,
@@ -114,13 +118,15 @@ impl Environment {
         }))
     }
 
+    pub fn db_path(&self) -> String {
+        return self.db_path.clone();
+    }
+
     pub fn filenames(&self, config: &Config) -> Vec<PathBuf> {
         vec![config.database_path.join(BASE_DB)]
     }
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
-    
-        
         Ok(RwTransaction {
             _phantom: PhantomData,
             db_path: self.db_path.clone(),

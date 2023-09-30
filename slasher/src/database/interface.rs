@@ -88,6 +88,7 @@ impl Environment {
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
         match self {
+            /* */
             #[cfg(feature = "mdbx")]
             Self::Mdbx(env) => env.begin_rw_txn().map(RwTransaction::Mdbx),
             #[cfg(feature = "lmdb")]
