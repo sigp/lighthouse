@@ -120,7 +120,7 @@ impl Environment {
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
     
-
+        
         Ok(RwTransaction {
             _phantom: PhantomData,
             db_path: self.db_path.clone(),
@@ -330,7 +330,7 @@ impl<'env> RwTransaction<'env> {
         Ok(deleted_values)
     }
 
-    pub fn commit(mut self) -> Result<(), Error> {
+    pub fn commit(self) -> Result<(), Error> {
         self.txn.commit()?;
         Ok(())
     }
