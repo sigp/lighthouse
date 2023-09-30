@@ -56,17 +56,6 @@ pub struct OpenDatabases<'env> {
     pub metadata_db: Database<'env>,
 }
 
-#[derive(Debug)]
-pub enum Cursor<'env> {
-    #[cfg(feature = "mdbx")]
-    Mdbx(mdbx_impl::Cursor<'env>),
-    #[cfg(feature = "lmdb")]
-    Lmdb(lmdb_impl::Cursor<'env>),
-    #[cfg(feature = "sqlite")]
-    Sqlite(sqlite_impl::Cursor<'env>),
-    Disabled(PhantomData<&'env ()>),
-}
-
 pub type Key<'a> = Cow<'a, [u8]>;
 pub type Value<'a> = Cow<'a, [u8]>;
 
@@ -169,14 +158,80 @@ impl<'env> RwTransaction<'env> {
         }
     }
 
-    pub fn cursor<'a>(&'a mut self, db: &'a Database) -> Result<Cursor<'a>, Error> {
+    pub fn first_key(&mut self, db: &Database) -> Result<Option<Key>, Error> {
         match (self, db) {
             #[cfg(feature = "mdbx")]
-            (Self::Mdbx(txn), Database::Mdbx(db)) => txn.cursor(db).map(Cursor::Mdbx),
+            Cursor::Mdbx(cursor) => cursor.first_key(),
             #[cfg(feature = "lmdb")]
-            (Self::Lmdb(txn), Database::Lmdb(db)) => txn.cursor(db).map(Cursor::Lmdb),
+            Cursor::Lmdb(cursor) => cursor.first_key(),
             #[cfg(feature = "sqlite")]
-            (Self::Sqlite(txn), Database::Sqlite(db)) => txn.cursor(db).map(Cursor::Sqlite),
+            (Self::Sqlite(txn), Database::Sqlite(db)) => txn.first_key(db),
+            _ => Err(Error::MismatchedDatabaseVariant),
+        }
+    }
+
+    /// Return the last key in the current database while advancing the cursor's position.
+    pub fn last_key(&mut self, db: &Database) -> Result<Option<Key>, Error> {
+        match (self, db) {
+            #[cfg(feature = "mdbx")]
+            Cursor::Mdbx(cursor) => cursor.last_key(),
+            #[cfg(feature = "lmdb")]
+            Cursor::Lmdb(cursor) => cursor.last_key(),
+            #[cfg(feature = "sqlite")]
+            (Self::Sqlite(txn), Database::Sqlite(db)) => txn.last_key(db),
+            _ => Err(Error::MismatchedDatabaseVariant),
+        }
+    }
+
+    pub fn next_key(&mut self, db: &Database) -> Result<Option<Key>, Error> {
+        match (self, db) {
+            #[cfg(feature = "mdbx")]
+            Cursor::Mdbx(cursor) => cursor.next_key(),
+            #[cfg(feature = "lmdb")]
+            Cursor::Lmdb(cursor) => cursor.next_key(),
+            #[cfg(feature = "sqlite")]
+            (Self::Sqlite(txn), Database::Sqlite(db)) => txn.next_key(db),
+            _ => Err(Error::MismatchedDatabaseVariant),
+        }
+    }
+
+    /// Get the key value pair at the current position.
+    pub fn get_current(&mut self, db: &Database) -> Result<Option<(Key, Value)>, Error> {
+        match (self, db) {
+            #[cfg(feature = "mdbx")]
+            Cursor::Mdbx(cursor) => cursor.get_current(),
+            #[cfg(feature = "lmdb")]
+            Cursor::Lmdb(cursor) => cursor.get_current(),
+            #[cfg(feature = "sqlite")]
+            (Self::Sqlite(txn), Database::Sqlite(db)) => txn.get_current(db),
+            _ => Err(Error::MismatchedDatabaseVariant),
+        }
+    }
+
+    pub fn delete_current(&mut self, db: &Database) -> Result<(), Error> {
+        match (self, db) {
+            #[cfg(feature = "mdbx")]
+            Cursor::Mdbx(cursor) => cursor.delete_current(),
+            #[cfg(feature = "lmdb")]
+            Cursor::Lmdb(cursor) => cursor.delete_current(),
+            #[cfg(feature = "sqlite")]
+            (Self::Sqlite(txn), Database::Sqlite(db)) => txn.delete_current(db),
+            _ => Err(Error::MismatchedDatabaseVariant),
+        }
+    }
+
+    pub fn delete_while(
+        &mut self,
+        db: &Database,
+        f: impl Fn(&[u8]) -> Result<bool, Error>,
+    ) -> Result<Vec<Vec<u8>>, Error> {
+        match (self, db) {
+            #[cfg(feature = "mdbx")]
+            (Self::Mdbx(txn), Database::Mdbx(db)) => txn.del(db, key),
+            #[cfg(feature = "lmdb")]
+            (Self::Lmdb(txn), Database::Lmdb(db)) => txn.del(db, key),
+            #[cfg(feature = "sqlite")]
+            (Self::Sqlite(txn), Database::Sqlite(db)) => txn.delete_while(db, f),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -189,83 +244,6 @@ impl<'env> RwTransaction<'env> {
             Self::Lmdb(txn) => txn.commit(),
             #[cfg(feature = "sqlite")]
             Self::Sqlite(txn) => txn.commit(),
-            _ => Err(Error::MismatchedDatabaseVariant),
-        }
-    }
-}
-
-impl<'env> Cursor<'env> {
-    /// Return the first key in the current database while advancing the cursor's position.
-    pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
-        match self {
-            #[cfg(feature = "mdbx")]
-            Cursor::Mdbx(cursor) => cursor.first_key(),
-            #[cfg(feature = "lmdb")]
-            Cursor::Lmdb(cursor) => cursor.first_key(),
-            #[cfg(feature = "sqlite")]
-            Cursor::Sqlite(cursor) => cursor.first_key(),
-            _ => Err(Error::MismatchedDatabaseVariant),
-        }
-    }
-
-    /// Return the last key in the current database while advancing the cursor's position.
-    pub fn last_key(&mut self) -> Result<Option<Key>, Error> {
-        match self {
-            #[cfg(feature = "mdbx")]
-            Cursor::Mdbx(cursor) => cursor.last_key(),
-            #[cfg(feature = "lmdb")]
-            Cursor::Lmdb(cursor) => cursor.last_key(),
-            #[cfg(feature = "sqlite")]
-            Cursor::Sqlite(cursor) => cursor.last_key(),
-            _ => Err(Error::MismatchedDatabaseVariant),
-        }
-    }
-
-    pub fn next_key(&mut self) -> Result<Option<Key>, Error> {
-        match self {
-            #[cfg(feature = "mdbx")]
-            Cursor::Mdbx(cursor) => cursor.next_key(),
-            #[cfg(feature = "lmdb")]
-            Cursor::Lmdb(cursor) => cursor.next_key(),
-            #[cfg(feature = "sqlite")]
-            Cursor::Sqlite(cursor) => cursor.next_key(),
-            _ => Err(Error::MismatchedDatabaseVariant),
-        }
-    }
-
-    /// Get the key value pair at the current position.
-    pub fn get_current(&mut self) -> Result<Option<(Key, Value)>, Error> {
-        match self {
-            #[cfg(feature = "mdbx")]
-            Cursor::Mdbx(cursor) => cursor.get_current(),
-            #[cfg(feature = "lmdb")]
-            Cursor::Lmdb(cursor) => cursor.get_current(),
-            #[cfg(feature = "sqlite")]
-            Cursor::Sqlite(cursor) => cursor.get_current(),
-            _ => Err(Error::MismatchedDatabaseVariant),
-        }
-    }
-
-    pub fn delete_current(&mut self) -> Result<(), Error> {
-        match self {
-            #[cfg(feature = "mdbx")]
-            Cursor::Mdbx(cursor) => cursor.delete_current(),
-            #[cfg(feature = "lmdb")]
-            Cursor::Lmdb(cursor) => cursor.delete_current(),
-            #[cfg(feature = "sqlite")]
-            Cursor::Sqlite(cursor) => cursor.delete_current(),
-            _ => Err(Error::MismatchedDatabaseVariant),
-        }
-    }
-
-    pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Result<(), Error> {
-        match self {
-            #[cfg(feature = "mdbx")]
-            Self::Mdbx(cursor) => cursor.put(key, value),
-            #[cfg(feature = "lmdb")]
-            Self::Lmdb(cursor) => cursor.put(key, value),
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(cursor) => cursor.put(key, value),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }

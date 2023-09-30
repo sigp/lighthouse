@@ -40,6 +40,11 @@ impl<T: EthSpec> IndexedAttestation<T> {
     ///
     /// Spec v0.12.1
     pub fn is_double_vote(&self, other: &Self) -> bool {
+        println!("{:?}", self.data.target.epoch);
+        println!("{:?}", other.data.target.epoch);
+        println!("{:?}", self.data);
+        println!("{:?}", other.data);
+        
         self.data.target.epoch == other.data.target.epoch && self.data != other.data
     }
 

@@ -448,9 +448,8 @@ impl<E: EthSpec> SlasherDB<E> {
 
         // Store the new indexed attestation at the end of the current table.
         let db = &self.databases.indexed_attestation_db;
-        let mut cursor = txn.cursor(db)?;
 
-        let indexed_att_id = match cursor.last_key()? {
+        let indexed_att_id = match txn.last_key(db)? {
             // First ID is 1 so that 0 can be used to represent `null` in `CompactAttesterRecord`.
             None => 1,
             Some(key_bytes) => IndexedAttestationId::parse(key_bytes)? + 1,
@@ -459,8 +458,7 @@ impl<E: EthSpec> SlasherDB<E> {
         let attestation_key = IndexedAttestationId::new(indexed_att_id);
         let data = indexed_attestation.as_ssz_bytes();
 
-        cursor.put(attestation_key.as_ref(), &data)?;
-        drop(cursor);
+        txn.put(db, attestation_key.as_ref(), &data)?;
 
         // Update the (epoch, hash) to ID mapping.
         self.put_indexed_attestation_id(txn, &id_key, attestation_key)?;
@@ -692,27 +690,24 @@ impl<E: EthSpec> SlasherDB<E> {
             .saturating_sub(self.config.history_length)
             .start_slot(E::slots_per_epoch());
 
-        let mut cursor = txn.cursor(&self.databases.proposers_db)?;
+        let db = &self.databases.proposers_db;
 
         // Position cursor at first key, bailing out if the database is empty.
-        if cursor.first_key()?.is_none() {
+        if txn.first_key(db)?.is_none() {
             return Ok(());
         }
 
-        loop {
-            let (key_bytes, _) = cursor.get_current()?.ok_or(Error::MissingProposerKey)?;
-
-            let (slot, _) = ProposerKey::parse(key_bytes)?;
+        let should_delete = |key: &[u8]| -> Result<bool, Error> {
+            let mut should_delete = false;
+            let (slot, _) = ProposerKey::parse(Cow::from(key))?;
             if slot < min_slot {
-                cursor.delete_current()?;
-                // End the loop if there is no next entry.
-                if cursor.next_key()?.is_none() {
-                    break;
-                }
-            } else {
-                break;
+                should_delete = true;
             }
-        }
+
+            Ok(should_delete)
+        };
+
+        txn.delete_while(&self.databases.proposers_db, should_delete)?;
 
         Ok(())
     }
@@ -726,38 +721,31 @@ impl<E: EthSpec> SlasherDB<E> {
             .saturating_add(1u64)
             .saturating_sub(self.config.history_length as u64);
 
-        // Collect indexed attestation IDs to delete.
-        let mut indexed_attestation_ids = vec![];
-
-        let mut cursor = txn.cursor(&self.databases.indexed_attestation_id_db)?;
+        let db = &self.databases.indexed_attestation_id_db;
 
         // Position cursor at first key, bailing out if the database is empty.
-        if cursor.first_key()?.is_none() {
+        if txn.first_key(db)?.is_none() {
             return Ok(());
         }
 
-        loop {
-            let (key_bytes, value) = cursor
-                .get_current()?
-                .ok_or(Error::MissingIndexedAttestationIdKey)?;
-
-            let (target_epoch, _) = IndexedAttestationIdKey::parse(key_bytes)?;
-
+        let should_delete = |key: &[u8]| -> Result<bool, Error> {
+            let (target_epoch, _) = IndexedAttestationIdKey::parse(Cow::from(key))?;
             if target_epoch < min_epoch {
-                indexed_attestation_ids.push(IndexedAttestationId::new(
-                    IndexedAttestationId::parse(value)?,
-                ));
-
-                cursor.delete_current()?;
-
-                if cursor.next_key()?.is_none() {
-                    break;
-                }
-            } else {
-                break;
+                return Ok(true);
             }
-        }
-        drop(cursor);
+
+            Ok(false)
+        };
+
+        let indexed_attestation_ids: Vec<IndexedAttestationId> = txn
+            .delete_while(&self.databases.proposers_db, should_delete)?
+            .into_iter()
+            .map(|value| {
+                IndexedAttestationId::new(
+                    IndexedAttestationId::parse(Cow::from(value)).unwrap_or_default(),
+                )
+            })
+            .collect();
 
         // Delete the indexed attestations.
         // Optimisation potential: use a cursor here.

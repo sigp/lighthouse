@@ -1,6 +1,7 @@
 #![cfg(feature = "sqlite")]
-use rusqlite::{params, OptionalExtension, ToSql};
-use std::fmt;
+use rusqlite::{params, OptionalExtension, ToSql, Transaction, Connection};
+use std::{fmt, collections::HashMap};
+use derivative::Derivative;
 use std::{
     borrow::{Borrow, Cow},
     path::PathBuf,
@@ -20,7 +21,7 @@ impl<'env> Database<'env> {}
 
 struct QueryResult {
     id: Option<u32>,
-    value: Option<Vec<u8>>,
+    key: Option<Vec<u8>>,
 }
 
 struct FullQueryResult {
@@ -33,6 +34,7 @@ struct FullQueryResult {
 pub struct Environment {
     _db_count: usize,
     db_path: String,
+    conn: Connection,
 }
 
 #[derive(Debug)]
@@ -41,23 +43,13 @@ pub struct Database<'env> {
     table_name: &'env str,
 }
 
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct RwTransaction<'env> {
-    // txn: Option<redb::WriteTransaction<'env>>,
+    db_path: String,
+    cursor: HashMap<String, u32>,
+    txn: Transaction<'env>,
     _phantom: PhantomData<&'env ()>,
-}
-
-impl<'env> Drop for RwTransaction<'env> {
-    fn drop(&mut self) {
-        // Perform any necessary cleanup or resource deallocation here
-        // This code will be automatically executed when an instance of MyStruct goes out of scope.
-    }
-}
-
-#[derive(Debug)]
-pub struct Cursor<'env> {
-    db: &'env Database<'env>,
-    current_id: Option<u32>,
 }
 
 impl Environment {
@@ -66,11 +58,12 @@ impl Environment {
             Some(path) => path.to_string(),
             None => "".to_string(),
         };
-        let _ = rusqlite::Connection::open(&db_path)?;
+        let conn = rusqlite::Connection::open(&db_path)?;
 
         Ok(Environment {
             _db_count: MAX_NUM_DBS,
             db_path,
+            conn
         })
     }
 
@@ -126,8 +119,13 @@ impl Environment {
     }
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
+    
+
         Ok(RwTransaction {
             _phantom: PhantomData,
+            db_path: self.db_path.clone(),
+            cursor: HashMap::new(),
+            txn: self.conn.unchecked_transaction()?,
         })
     }
 }
@@ -139,8 +137,7 @@ impl<'env> RwTransaction<'env> {
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         let query_statement = format!("SELECT * FROM {} where key =:key;", db.table_name);
-        let database = rusqlite::Connection::open(&db.env.db_path)?;
-        let mut stmt = database.prepare_cached(&query_statement)?;
+        let mut stmt = self.txn.prepare_cached(&query_statement)?;
 
         let query_result = stmt
             .query_row([key.as_ref()], |row| {
@@ -154,7 +151,9 @@ impl<'env> RwTransaction<'env> {
 
         match query_result {
             Some(result) => Ok(Some(Cow::from(result.value.unwrap_or_default()))),
-            None => Ok(None),
+            None => {
+                Ok(None)
+            },
         }
     }
 
@@ -168,37 +167,28 @@ impl<'env> RwTransaction<'env> {
             "INSERT OR REPLACE INTO {} (key, value) VALUES (?1, ?2)",
             db.table_name
         );
-        let database = rusqlite::Connection::open(&db.env.db_path)?;
-        let mut stmt = database.prepare_cached(&insert_statement)?;
-        stmt.execute(params![key.as_ref(), value.as_ref()])?;
+        self.txn.execute(&insert_statement, params![key.as_ref().to_owned(), value.as_ref().to_owned()])?;
         Ok(())
     }
-
+    
     pub fn del<K: AsRef<[u8]>>(&mut self, db: &Database, key: K) -> Result<(), Error> {
         let delete_statement = format!("DELETE FROM {} WHERE key=?1", db.table_name);
-        let database = rusqlite::Connection::open(&db.env.db_path)?;
-        let mut stmt = database.prepare_cached(&delete_statement)?;
-        stmt.execute(params![key.as_ref()])?;
+        self.txn.execute(&delete_statement, params![key.as_ref().to_owned()])?;
         Ok(())
     }
 
-    pub fn cursor<'a>(&'a mut self, db: &'a Database) -> Result<Cursor<'a>, Error> {
-        Ok(Cursor {
-            db,
-            current_id: None,
-        })
-    }
-
-    pub fn commit(self) -> Result<(), Error> {
+    pub fn delete_current(&mut self, db: &Database) -> Result<(), Error> {
+        if let Some(current_id) = self.cursor.get(db.table_name) {
+            let delete_statement = format!("DELETE FROM {} WHERE id=?1", db.table_name);
+            self.txn.execute(&delete_statement, params![current_id.to_owned()])?;
+            self.cursor.remove(db.table_name);
+        }
         Ok(())
     }
-}
 
-impl<'env> Cursor<'env> {
-    pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
-        let query_statement = format!("SELECT MIN(id), key, value FROM {}", self.db.table_name);
-        let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-        let mut stmt = database.prepare_cached(&query_statement)?;
+    pub fn first_key(&mut self, db: &Database) -> Result<Option<Key>, Error> {
+        let query_statement = format!("SELECT MIN(id), key, value FROM {}", db.table_name);
+        let mut stmt = self.txn.prepare_cached(&query_statement)?;
         let mut query_result = stmt.query_row([], |row| {
             Ok(FullQueryResult {
                 id: row.get(0)?,
@@ -207,18 +197,17 @@ impl<'env> Cursor<'env> {
             })
         })?;
 
-        if query_result.id.is_some() {
-            let key = Cow::from(query_result.key.unwrap_or_default());
-            self.current_id = query_result.id;
-            return Ok(Some(key));
-        }
+        if let Some(key) = query_result.key {
+            self.cursor.insert(db.table_name.to_string(), query_result.id.unwrap_or_default());
+            return Ok(Some(Cow::from(key)));
+        } 
+
         Ok(None)
     }
 
-    pub fn last_key(&mut self) -> Result<Option<Key<'env>>, Error> {
-        let query_statement = format!("SELECT MAX(id), key, value FROM {}", self.db.table_name);
-        let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-        let mut stmt = database.prepare_cached(&query_statement)?;
+    pub fn last_key(&mut self, db: &Database) -> Result<Option<Key<'env>>, Error> {
+        let query_statement = format!("SELECT MAX(id), key, value FROM {}", db.table_name);
+        let mut stmt = self.txn.prepare_cached(&query_statement)?;
 
         let mut query_result = stmt.query_row([], |row| {
             Ok(FullQueryResult {
@@ -228,50 +217,67 @@ impl<'env> Cursor<'env> {
             })
         })?;
 
-        if query_result.id.is_some() {
-            let key = Cow::from(query_result.key.unwrap_or_default());
-            self.current_id = query_result.id;
-            return Ok(Some(key));
-        }
+        if let Some(key) = query_result.key {
+            self.cursor.insert(db.table_name.to_string(), query_result.id.unwrap_or_default());
+            return Ok(Some(Cow::from(key)));
+        } 
+
         Ok(None)
     }
 
-    pub fn next_key(&mut self) -> Result<Option<Key<'env>>, Error> {
+    pub fn next_key(&mut self, db: &Database) -> Result<Option<Key<'env>>, Error> {
+        
         let mut query_statement = "".to_string();
-        if let Some(current_id) = &self.current_id {
-            query_statement = format!(
-                "SELECT MIN(id), key FROM {} where id > {}",
-                self.db.table_name, current_id
-            );
-        } else {
-            query_statement = format!("SELECT MIN(id), key FROM {}", self.db.table_name);
-        }
-        let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-        let mut stmt = database.prepare_cached(&query_statement)?;
 
-        let mut query_result = stmt.query_row([], |row| {
-            Ok(QueryResult {
-                id: row.get(0)?,
-                value: row.get(1)?,
-            })
-        })?;
+        let query_result = match self.cursor.get(db.table_name) {
+            Some(current_key) => {     
+                query_statement = format!(
+                    "SELECT MIN(id), key FROM {} where id >?1",
+                    db.table_name
+                );
+    
+                let mut stmt = self.txn.prepare_cached(&query_statement)?;
+    
+                let mut query_result = stmt.query_row(params![current_key], |row| {
+                    Ok(QueryResult {
+                        id: row.get(0)?,
+                        key: row.get(1)?,
+                    })
+                })?;
 
-        if query_result.id.is_some() {
-            let key = Cow::from(query_result.value.unwrap_or_default());
-            self.current_id = query_result.id;
-            return Ok(Some(key));
+                query_result
+            },
+            None => {
+                query_statement = format!("SELECT MIN(id), key FROM {}", db.table_name);
+
+                let mut stmt = self.txn.prepare_cached(&query_statement)?;
+    
+                let mut query_result = stmt.query_row([], |row| {
+                    Ok(QueryResult {
+                        id: row.get(0)?,
+                        key: row.get(1)?,
+                    })
+                })?;
+
+                query_result
+            },
+        };
+
+        if let Some(key) = query_result.key {
+            self.cursor.insert(db.table_name.to_string(), query_result.id.unwrap_or_default());
+            return Ok(Some(Cow::from(key)));
         }
+
         Ok(None)
     }
 
-    pub fn get_current(&mut self) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
-        if let Some(current_id) = &self.current_id {
+    pub fn get_current(&mut self, db: &Database) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
+        if let Some(current_id) = self.cursor.get(db.table_name) {
             let query_statement = format!(
                 "SELECT id, key, value FROM {} where id=?1",
-                self.db.table_name
+                db.table_name
             );
-            let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-            let mut stmt = database.prepare_cached(&query_statement)?;
+            let mut stmt = self.txn.prepare_cached(&query_statement)?;
             let query_result = stmt
                 .query_row([current_id], |row| {
                     Ok(FullQueryResult {
@@ -292,24 +298,40 @@ impl<'env> Cursor<'env> {
         Ok(None)
     }
 
-    pub fn delete_current(&mut self) -> Result<(), Error> {
-        if let Some(current_id) = &self.current_id {
-            let delete_statement = format!("DELETE FROM {} WHERE id=?1", self.db.table_name);
-            let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-            let _ = database.execute(&delete_statement, [current_id])?;
-            self.current_id = None;
-        }
-        Ok(())
+    pub fn delete_while(
+        &mut self,
+        db: &Database,
+        f: impl Fn(&[u8]) -> Result<bool, Error>,
+    ) -> Result<Vec<Vec<u8>>, Error> {
+        let mut deleted_values: Vec<Vec<u8>> = vec![];
+        if let Some(current_key) = &self.cursor.get(db.table_name) {
+            let query_statement = format!(
+                "SELECT id, key, value FROM {} where id>=?1",
+                db.table_name
+            );
+            let mut stmt = self.txn.prepare(&query_statement)?;
+            let rows = stmt.query_map(params![current_key], |row| {
+                Ok(FullQueryResult {
+                    id: row.get(0)?,
+                    key: row.get(1)?,
+                    value: row.get(2)?,
+                })
+            })?;
+
+            for row in rows {
+                let query_result = row?;
+               
+                if f(&query_result.key.unwrap())? {
+                    let delete_statement = format!("DELETE FROM {} WHERE id=?1", db.table_name);
+                    self.txn.execute(&delete_statement, params![query_result.id.unwrap()])?;
+                }
+            }
+        };
+        Ok(deleted_values)
     }
 
-    pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Result<(), Error> {
-        let insert_statement = format!(
-            "INSERT OR REPLACE INTO {} (key, value) VALUES (?1, ?2)",
-            self.db.table_name
-        );
-        let database = rusqlite::Connection::open(&self.db.env.db_path)?;
-        let mut stmt = database.prepare_cached(&insert_statement)?;
-        stmt.execute(params![key.as_ref(), value.as_ref()])?;
+    pub fn commit(mut self) -> Result<(), Error> {
+        self.txn.commit()?;
         Ok(())
     }
 }
