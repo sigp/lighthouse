@@ -223,7 +223,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         trace!(self.log, "Outbound connection"; "peer_id" => %peer_id, "multiaddr" => %addr);
         match self.ban_status(&peer_id) {
             Some(cause) => {
-                error!(self.log, "Connected a banned peer. Re-banning"; "peer_id" => %peer_id);
+                error!(self.log, "Connected a banned peer. Rejecting connection"; "peer_id" => %peer_id);
                 Err(ConnectionDenied::new(cause))
             }
             None => Ok(ConnectionHandler),
