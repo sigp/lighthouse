@@ -1,7 +1,7 @@
 use crate::api_types::fork_versioned_response::ExecutionOptimisticFinalizedForkVersionedResponse;
 use crate::api_types::EndpointVersion;
 use eth2::{
-    CONSENSUS_PAYLOAD_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
+    CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
     EXECUTION_PAYLOAD_VALUE_HEADER,
 };
 use serde::Serialize;
@@ -84,13 +84,13 @@ pub fn add_execution_payload_value_header<T: Reply>(
 }
 
 /// Add the `Eth-Execution-Payload-Value` header to a response.
-pub fn add_consensus_payload_value_header<T: Reply>(
+pub fn add_consensus_block_value_header<T: Reply>(
     reply: T,
     consensus_payload_value: Option<u64>,
 ) -> Response {
     reply::with_header(
         reply,
-        CONSENSUS_PAYLOAD_VALUE_HEADER,
+        CONSENSUS_BLOCK_VALUE_HEADER,
         consensus_payload_value.unwrap_or_default().to_string(),
     )
     .into_response()

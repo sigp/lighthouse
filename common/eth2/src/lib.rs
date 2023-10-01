@@ -43,7 +43,7 @@ pub const V3: EndpointVersion = EndpointVersion(3);
 pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 pub const EXECUTION_PAYLOAD_BLINDED_HEADER: &str = "Eth-Execution-Payload-Blinded";
 pub const EXECUTION_PAYLOAD_VALUE_HEADER: &str = "Eth-Execution-Payload-Value";
-pub const CONSENSUS_PAYLOAD_VALUE_HEADER: &str = "Eth-Consensus-Payload-Value";
+pub const CONSENSUS_BLOCK_VALUE_HEADER: &str = "Eth-Consensus-Block-Value";
 
 #[derive(Debug)]
 pub enum Error {

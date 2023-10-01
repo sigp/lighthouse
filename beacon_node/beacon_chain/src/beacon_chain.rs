@@ -439,7 +439,7 @@ pub enum BeaconBlockResponseType<T: EthSpec> {
 pub struct BeaconBlockResponse<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub block: BeaconBlock<T, Payload>,
     pub state: BeaconState<T>,
-    pub execution_block_value: Option<Uint256>,
+    pub execution_payload_value: Option<Uint256>,
     pub consensus_block_value: Option<u64>,
 }
 
@@ -4610,7 +4610,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
-        let (inner_block, execution_block_value) = match &state {
+        let (inner_block, execution_payload_value) = match &state {
             BeaconState::Base(_) => (
                 BeaconBlock::Base(BeaconBlockBase {
                     slot,
@@ -4656,7 +4656,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Merge(_) => {
                 let block_proposal_contents =
                     block_contents.ok_or(BlockProductionError::MissingExecutionPayload)?;
-                let execution_block_value = block_proposal_contents.block_value().to_owned();
+                let execution_payload_value = block_proposal_contents.block_value().to_owned();
 
                 (
                     BeaconBlock::Merge(BeaconBlockMerge {
@@ -4681,13 +4681,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                         },
                     }),
-                    execution_block_value,
+                    execution_payload_value,
                 )
             }
             BeaconState::Capella(_) => {
                 let block_proposal_contents =
                     block_contents.ok_or(BlockProductionError::MissingExecutionPayload)?;
-                let execution_block_value = block_proposal_contents.block_value().to_owned();
+                let execution_payload_value = block_proposal_contents.block_value().to_owned();
 
                 (
                     BeaconBlock::Capella(BeaconBlockCapella {
@@ -4713,7 +4713,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             bls_to_execution_changes: bls_to_execution_changes.into(),
                         },
                     }),
-                    execution_block_value,
+                    execution_payload_value,
                 )
             }
         };
@@ -4788,7 +4788,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(BeaconBlockResponse {
             block,
             state,
-            execution_block_value: Some(execution_block_value),
+            execution_payload_value: Some(execution_payload_value),
             consensus_block_value: Some(consensus_block_value),
         })
     }

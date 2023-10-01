@@ -14,7 +14,7 @@ use warp::{
 };
 
 use crate::version::{
-    add_consensus_payload_value_header, add_consensus_version_header,
+    add_consensus_block_value_header, add_consensus_version_header,
     add_execution_payload_blinded_header, add_execution_payload_value_header,
     fork_versioned_response, inconsistent_fork_rejection,
 };
@@ -184,7 +184,7 @@ pub async fn determine_and_produce_block_ssz<T: BeaconChainTypes>(
             (
                 block_response.block.as_ssz_bytes(),
                 fork_name,
-                block_response.execution_block_value,
+                block_response.execution_payload_value,
                 false,
             )
         }
@@ -198,7 +198,7 @@ pub async fn determine_and_produce_block_ssz<T: BeaconChainTypes>(
             (
                 block_response.block.as_ssz_bytes(),
                 fork_name,
-                block_response.execution_block_value,
+                block_response.execution_payload_value,
                 true,
             )
         }
@@ -237,10 +237,10 @@ pub fn generate_json_response_v3<
         .map(|res| add_consensus_version_header(res, fork_name))
         .map(|res| add_execution_payload_blinded_header(res, blinded_payload_flag))
         .map(|res| {
-            add_execution_payload_value_header(res, beacon_block_response.execution_block_value)
+            add_execution_payload_value_header(res, beacon_block_response.execution_payload_value)
         })
         .map(|res| {
-            add_consensus_payload_value_header(res, beacon_block_response.consensus_block_value)
+            add_consensus_block_value_header(res, beacon_block_response.consensus_block_value)
         })
 }
 
