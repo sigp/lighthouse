@@ -537,7 +537,6 @@ where
             .expect("cannot build without validator keypairs");
 
         // Only create a beacon_proposer_cache if it's not coming from another component,
-        // here at the moment validator monitor
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>;
         let validator_monitor = if let Some(validator_monitor) = self.validator_monitor {
             beacon_proposer_cache = validator_monitor.get_beacon_proposer_cache();

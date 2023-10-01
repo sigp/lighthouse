@@ -518,7 +518,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .into_iter()
             .for_each(|(validator_index, group)| {
                 let missed_blocks_count = group.count();
-                self.aggregatable_metric(validator_index.to_string().as_str(), |label| {
+                self.aggregatable_metric(validator_index.to_string().as_str(), | label| {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_AT_NON_FINALIZED_EPOCH_TOTAL,
                         &[label],
@@ -532,7 +532,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .to_owned()
             .into_iter()
             .for_each(|(i, c)| {
-                self.aggregatable_metric(i.to_string().as_str(), |label| {
+                self.aggregatable_metric(i.to_string().as_str(), | label| {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
                         &[label],
@@ -601,7 +601,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                     // Add to missed blocks
                                     self.missed_blocks.insert((slot_epoch, i, slot));
                                     // In order to overcome the case where a validator misses a block and the cache gets pruned which might prove
-                                    // challenging for the user, we also want to keep track of all the missed blocks in the total missed blocks
+                                    // challenging for the user, we also want to keep track of all the missed blocks in total_missed_blocks
                                     self.total_missed_blocks.insert(
                                         i,
                                         self.total_missed_blocks.get(&i).unwrap_or(&0) + 1,
