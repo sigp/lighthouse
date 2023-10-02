@@ -118,6 +118,7 @@ impl<T: BeaconChainTypes> Router<T> {
             log: log.clone(),
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
+        network_beacon_processor.spawn_delayed_lookup_service();
 
         // spawn the sync thread
         crate::sync::manager::spawn(

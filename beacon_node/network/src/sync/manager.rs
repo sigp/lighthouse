@@ -42,7 +42,6 @@ use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::common::{Current, Parent};
-use crate::sync::block_lookups::delayed_lookup;
 use crate::sync::block_lookups::{BlobRequestState, BlockRequestState};
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::block_verification_types::AsBlock;
@@ -261,11 +260,8 @@ pub fn spawn<T: BeaconChainTypes>(
         log: log.clone(),
     };
 
-    let log_clone = log.clone();
-    delayed_lookup::spawn_delayed_lookup_service(&executor, beacon_chain, beacon_processor, log);
-
     // spawn the sync manager thread
-    debug!(log_clone, "Sync Manager started");
+    debug!(log, "Sync Manager started");
     executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
 }
 

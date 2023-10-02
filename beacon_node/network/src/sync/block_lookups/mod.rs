@@ -37,7 +37,6 @@ use types::blob_sidecar::FixedBlobSidecarList;
 use types::Slot;
 
 pub mod common;
-pub(crate) mod delayed_lookup;
 mod parent_lookup;
 mod single_block_lookup;
 #[cfg(test)]
