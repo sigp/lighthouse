@@ -67,7 +67,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         let current_parent_request = SingleBlockLookup::new(
             parent_root,
             Some(ChildComponents::empty(block_root)),
-            peer_id,
+            &[peer_id],
             da_checker,
             cx.next_id(),
         );
@@ -212,6 +212,11 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
 
     pub fn add_peer(&mut self, peer: PeerShouldHave) {
         self.current_parent_request.add_peer(peer)
+    }
+
+    /// Adds a list of peers to the parent request.
+    pub fn add_peers(&mut self, peers: &[PeerShouldHave]) {
+        self.current_parent_request.add_peers(peers)
     }
 
     pub fn used_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {

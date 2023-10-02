@@ -4,6 +4,7 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
+use std::collections::HashSet;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
@@ -754,12 +755,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_slot, block_root)) => {
                 if delay_lookup {
-                    let mut guard = self.delayed_lookup_peers.lock();
-                    if let Some(peers) = guard.get_mut(&block_root) {
-                        peers.push(peer_id);
-                    } else {
-                        guard.push(block_root, vec![peer_id]);
-                    }
+                    self.cache_peer(peer_id, &block_root);
                     trace!(
                         self.log,
                         "Processed blob, delaying lookup for other components";
@@ -776,7 +772,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "block_root" => %block_root,
                     );
                     self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
-                        peer_id, block_root,
+                        vec![peer_id],
+                        block_root,
                     ));
                 }
             }
@@ -799,6 +796,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Invalid gossip blob ssz";
                 );
             }
+        }
+    }
+
+    /// Cache the peer id for the given block root.
+    fn cache_peer(self: &Arc<Self>, peer_id: PeerId, block_root: &Hash256) {
+        let mut guard = self.delayed_lookup_peers.lock();
+        if let Some(peers) = guard.get_mut(block_root) {
+            peers.insert(peer_id);
+        } else {
+            let mut peers = HashSet::new();
+            peers.insert(peer_id);
+            guard.push(*block_root, peers);
         }
     }
 
@@ -1174,12 +1183,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
                 if delay_lookup {
-                    let mut guard = self.delayed_lookup_peers.lock();
-                    if let Some(peers) = guard.get_mut(block_root) {
-                        peers.push(peer_id);
-                    } else {
-                        guard.push(*block_root, vec![peer_id]);
-                    }
+                    self.cache_peer(peer_id, block_root);
                     trace!(
                         self.log,
                         "Processed block, delaying lookup for other components";
@@ -1194,7 +1198,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "block_root" => %block_root,
                     );
                     self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
-                        peer_id,
+                        vec![peer_id],
                         *block_root,
                     ));
                 }

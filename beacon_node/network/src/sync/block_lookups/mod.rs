@@ -122,7 +122,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_block(
         &mut self,
         block_root: Hash256,
-        peer_source: PeerShouldHave,
+        peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
         self.new_current_lookup(block_root, None, peer_source, cx)
@@ -138,7 +138,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         block_root: Hash256,
         child_components: ChildComponents<T::EthSpec>,
-        peer_source: PeerShouldHave,
+        peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
         self.new_current_lookup(block_root, Some(child_components), peer_source, cx)
@@ -179,7 +179,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         block_root: Hash256,
         child_components: Option<ChildComponents<T::EthSpec>>,
-        peer: PeerShouldHave,
+        peers: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
         // Do not re-request a block that is already being requested
@@ -188,7 +188,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .iter_mut()
             .find(|(_id, lookup)| lookup.is_for_block(block_root))
         {
-            lookup.add_peer(peer);
+            lookup.add_peers(peers);
             if let Some(components) = child_components {
                 lookup.add_child_components(components);
             }
@@ -198,7 +198,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
             parent_req.is_for_block(block_root) || parent_req.contains_block(&block_root)
         }) {
-            parent_lookup.add_peer(peer);
+            parent_lookup.add_peers(peers);
 
             // If the block was already downloaded, or is being downloaded in this moment, do not
             // request it.
@@ -223,7 +223,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let lookup = SingleBlockLookup::new(
             block_root,
             child_components,
-            peer,
+            peers,
             self.da_checker.clone(),
             cx.next_id(),
         );
@@ -231,7 +231,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         debug!(
             self.log,
             "{}", msg;
-            "peer_ids" => ?peer,
+            "peer_ids" => ?peers,
             "block" => ?block_root,
         );
         self.trigger_single_lookup(lookup, cx);

@@ -144,7 +144,7 @@ pub enum SyncMessage<T: EthSpec> {
     ///
     /// We will either attempt to find the block matching the unknown hash immediately or queue a lookup,
     /// which will then trigger the request when we receive `MissingGossipBlockComponentsDelayed`.
-    MissingGossipBlockComponents(PeerId, Hash256),
+    MissingGossipBlockComponents(Vec<PeerId>, Hash256),
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -663,19 +663,29 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.synced_and_connected(&peer_id) {
                     self.block_lookups.search_block(
                         block_hash,
-                        PeerShouldHave::BlockAndBlobs(peer_id),
+                        &[PeerShouldHave::BlockAndBlobs(peer_id)],
                         &mut self.network,
                     );
                 }
             }
             SyncMessage::MissingGossipBlockComponents(peer_id, block_root) => {
+                let peers_guard = self.network_globals().peers.read();
+                let connected_peers = peer_id
+                    .into_iter()
+                    .filter_map(|peer_id| {
+                        if peers_guard.is_connected(&peer_id) {
+                            Some(PeerShouldHave::Neither(peer_id))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                drop(peers_guard);
+
                 // If we are not synced, ignore this block.
-                if self.synced_and_connected(&peer_id) {
-                    self.block_lookups.search_block(
-                        block_root,
-                        PeerShouldHave::Neither(peer_id),
-                        &mut self.network,
-                    )
+                if self.synced() && !connected_peers.is_empty() {
+                    self.block_lookups
+                        .search_block(block_root, &connected_peers, &mut self.network)
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
@@ -759,7 +769,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.block_lookups.search_child_block(
                 block_root,
                 child_components,
-                PeerShouldHave::Neither(peer_id),
+                &[PeerShouldHave::Neither(peer_id)],
                 &mut self.network,
             );
         }
@@ -784,10 +794,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             && self.network.is_execution_engine_online()
     }
 
-    fn synced_and_connected(&mut self, peer_id: &PeerId) -> bool {
+    fn synced(&mut self) -> bool {
         self.network_globals().sync_state.read().is_synced()
-            && self.network_globals().peers.read().is_connected(peer_id)
             && self.network.is_execution_engine_online()
+    }
+
+    fn synced_and_connected(&mut self, peer_id: &PeerId) -> bool {
+        self.synced() && self.network_globals().peers.read().is_connected(peer_id)
     }
 
     fn handle_new_execution_engine_state(&mut self, engine_state: EngineState) {

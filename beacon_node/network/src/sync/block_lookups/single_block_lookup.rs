@@ -66,7 +66,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     pub fn new(
         requested_block_root: Hash256,
         child_components: Option<ChildComponents<T::EthSpec>>,
-        peers: PeerShouldHave,
+        peers: &[PeerShouldHave],
         da_checker: Arc<DataAvailabilityChecker<T>>,
         id: Id,
     ) -> Self {
@@ -204,6 +204,13 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         }
     }
 
+    /// Add all given peers to both block and blob request states.
+    pub fn add_peers(&mut self, peers: &[PeerShouldHave]) {
+        for peer in peers {
+            self.add_peer(*peer);
+        }
+    }
+
     /// Returns true if the block has already been downloaded.
     pub fn both_components_downloaded(&self) -> bool {
         self.block_request_state.state.component_downloaded
@@ -338,7 +345,7 @@ pub struct BlobRequestState<L: Lookup, T: EthSpec> {
 }
 
 impl<L: Lookup, E: EthSpec> BlobRequestState<L, E> {
-    pub fn new(block_root: Hash256, peer_source: PeerShouldHave, is_deneb: bool) -> Self {
+    pub fn new(block_root: Hash256, peer_source: &[PeerShouldHave], is_deneb: bool) -> Self {
         let default_ids = MissingBlobs::new_without_block(block_root, is_deneb);
         Self {
             requested_ids: default_ids,
@@ -357,7 +364,7 @@ pub struct BlockRequestState<L: Lookup> {
 }
 
 impl<L: Lookup> BlockRequestState<L> {
-    pub fn new(block_root: Hash256, peers: PeerShouldHave) -> Self {
+    pub fn new(block_root: Hash256, peers: &[PeerShouldHave]) -> Self {
         Self {
             requested_block_root: block_root,
             state: SingleLookupRequestState::new(peers),
@@ -410,17 +417,20 @@ pub struct SingleLookupRequestState {
 }
 
 impl SingleLookupRequestState {
-    pub fn new(peer: PeerShouldHave) -> Self {
+    pub fn new(peers: &[PeerShouldHave]) -> Self {
         let mut available_peers = HashSet::default();
         let mut potential_peers = HashSet::default();
-        match peer {
-            PeerShouldHave::BlockAndBlobs(peer_id) => {
-                available_peers.insert(peer_id);
-            }
-            PeerShouldHave::Neither(peer_id) => {
-                potential_peers.insert(peer_id);
+        for peer in peers {
+            match peer {
+                PeerShouldHave::BlockAndBlobs(peer_id) => {
+                    available_peers.insert(*peer_id);
+                }
+                PeerShouldHave::Neither(peer_id) => {
+                    potential_peers.insert(*peer_id);
+                }
             }
         }
+
         Self {
             state: State::AwaitingDownload,
             available_peers,
@@ -618,7 +628,7 @@ mod tests {
         let mut sl = SingleBlockLookup::<TestLookup1, T>::new(
             block.canonical_root(),
             None,
-            peer_id,
+            &[peer_id],
             da_checker,
             1,
         );
@@ -660,7 +670,7 @@ mod tests {
         let mut sl = SingleBlockLookup::<TestLookup2, T>::new(
             block.canonical_root(),
             None,
-            peer_id,
+            &[peer_id],
             da_checker,
             1,
         );

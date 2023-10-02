@@ -22,6 +22,7 @@ use lru::LruCache;
 use parking_lot::Mutex;
 use slog::{debug, Logger};
 use slot_clock::ManualSlotClock;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -63,7 +64,7 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub invalid_block_storage: InvalidBlockStorage,
-    pub delayed_lookup_peers: Mutex<LruCache<Hash256, Vec<PeerId>>>,
+    pub delayed_lookup_peers: Mutex<LruCache<Hash256, HashSet<PeerId>>>,
     pub executor: TaskExecutor,
     pub log: Logger,
 }

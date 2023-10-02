@@ -237,7 +237,11 @@ fn test_single_block_lookup_happy_path() {
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
     // Trigger the request
-    bl.search_block(block_root, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
+    bl.search_block(
+        block_root,
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
+        &mut cx,
+    );
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -285,7 +289,11 @@ fn test_single_block_lookup_empty_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
+    bl.search_block(
+        block_hash,
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
+        &mut cx,
+    );
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -313,7 +321,11 @@ fn test_single_block_lookup_wrong_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
+    bl.search_block(
+        block_hash,
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
+        &mut cx,
+    );
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -351,7 +363,11 @@ fn test_single_block_lookup_failure() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
+    bl.search_block(
+        block_hash,
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
+        &mut cx,
+    );
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -385,7 +401,7 @@ fn test_single_block_lookup_becomes_parent_request() {
     // Trigger the request
     bl.search_block(
         block.canonical_root(),
-        PeerShouldHave::BlockAndBlobs(peer_id),
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
         &mut cx,
     );
     let id = rig.expect_lookup_request(response_type);
@@ -971,7 +987,7 @@ fn test_single_block_lookup_ignored_response() {
     // Trigger the request
     bl.search_block(
         block.canonical_root(),
-        PeerShouldHave::BlockAndBlobs(peer_id),
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
         &mut cx,
     );
     let id = rig.expect_lookup_request(response_type);
@@ -1224,7 +1240,7 @@ mod deneb_only {
                     RequestTrigger::AttestationUnknownBlock => {
                         bl.search_block(
                             block_root,
-                            PeerShouldHave::BlockAndBlobs(peer_id),
+                            &[PeerShouldHave::BlockAndBlobs(peer_id)],
                             &mut cx,
                         );
                         let block_req_id = rig.expect_lookup_request(ResponseType::Block);
@@ -1249,7 +1265,7 @@ mod deneb_only {
                         bl.search_child_block(
                             child_root,
                             ChildComponents::new(child_root, Some(child_block), None),
-                            PeerShouldHave::Neither(peer_id),
+                            &[PeerShouldHave::Neither(peer_id)],
                             &mut cx,
                         );
 
@@ -1287,7 +1303,7 @@ mod deneb_only {
                         bl.search_child_block(
                             child_root,
                             ChildComponents::new(child_root, None, Some(blobs)),
-                            PeerShouldHave::Neither(peer_id),
+                            &[PeerShouldHave::Neither(peer_id)],
                             &mut cx,
                         );
 
@@ -1305,7 +1321,7 @@ mod deneb_only {
                         )
                     }
                     RequestTrigger::GossipUnknownBlockOrBlob => {
-                        bl.search_block(block_root, PeerShouldHave::Neither(peer_id), &mut cx);
+                        bl.search_block(block_root, &[PeerShouldHave::Neither(peer_id)], &mut cx);
                         let block_req_id = rig.expect_lookup_request(ResponseType::Block);
                         let blob_req_id = rig.expect_lookup_request(ResponseType::Blob);
                         (Some(block_req_id), Some(blob_req_id), None, None)
