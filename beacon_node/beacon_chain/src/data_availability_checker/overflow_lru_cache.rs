@@ -49,18 +49,28 @@ use types::{BlobSidecar, Epoch, EthSpec, Hash256};
 ///
 /// The blobs are all gossip and kzg verified.
 /// The block has completed all verifications except the availability check.
-#[derive(Encode, Decode, Clone, Default)]
+#[derive(Encode, Decode, Clone)]
 pub struct PendingComponents<T: EthSpec> {
+    pub block_root: Hash256,
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
     pub executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
 }
 
 impl<T: EthSpec> PendingComponents<T> {
+    pub fn empty(block_root: Hash256) -> Self {
+        Self {
+            block_root,
+            verified_blobs: FixedVector::default(),
+            executed_block: None,
+        }
+    }
+
     /// Verifies an `SignedBeaconBlock` against a set of KZG verified blobs.
     /// This does not check whether a block *should* have blobs, these checks should have been
     /// completed when producing the `AvailabilityPendingBlock`.
     pub fn make_available(self) -> Result<Availability<T>, AvailabilityCheckError> {
         let Self {
+            block_root,
             verified_blobs,
             executed_block,
         } = self;
@@ -87,6 +97,7 @@ impl<T: EthSpec> PendingComponents<T> {
         } = executed_block;
 
         let available_block = AvailableBlock {
+            block_root,
             block,
             blobs: Some(verified_blobs),
         };
@@ -196,14 +207,14 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
             match OverflowKey::from_ssz_bytes(&key_bytes)? {
                 OverflowKey::Block(_) => {
                     maybe_pending_components
-                        .get_or_insert_with(PendingComponents::default)
+                        .get_or_insert_with(|| PendingComponents::empty(block_root))
                         .executed_block = Some(AvailabilityPendingExecutedBlock::from_ssz_bytes(
                         value_bytes.as_slice(),
                     )?);
                 }
                 OverflowKey::Blob(_, index) => {
                     *maybe_pending_components
-                        .get_or_insert_with(PendingComponents::default)
+                        .get_or_insert_with(|| PendingComponents::empty(block_root))
                         .verified_blobs
                         .get_mut(index as usize)
                         .ok_or(AvailabilityCheckError::BlobIndexInvalid(index as u64))? =
@@ -409,7 +420,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
             .pop_pending_components(block_root, &self.overflow_store)?
-            .unwrap_or_default();
+            .unwrap_or_else(|| PendingComponents::empty(block_root));
 
         // Merge in the blobs.
         pending_components.merge_blobs(fixed_blobs);
@@ -438,7 +449,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
             .pop_pending_components(block_root, &self.overflow_store)?
-            .unwrap_or_default();
+            .unwrap_or_else(|| PendingComponents::empty(block_root));
 
         // Merge in the block.
         pending_components.merge_block(executed_block);

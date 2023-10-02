@@ -449,14 +449,15 @@ pub mod tests {
         ($module_name:ident, $type_name:ty, $block_field:ident, $blob_field:ident, $setup_fn:ident) => {
             mod $module_name {
                 use super::*;
+                use types::Hash256;
 
                 #[test]
                 fn valid_block_invalid_blobs_valid_blobs() {
                     let (block_commitments, blobs, random_blobs) = pre_setup();
                     let (block_commitments, blobs, random_blobs) =
                         $setup_fn(block_commitments, blobs, random_blobs);
-
-                    let mut cache = <$type_name>::default();
+                    let block_root = Hash256::zero();
+                    let mut cache = <$type_name>::empty(block_root);
                     cache.merge_block(block_commitments);
                     cache.merge_blobs(random_blobs);
                     cache.merge_blobs(blobs);
@@ -469,8 +470,8 @@ pub mod tests {
                     let (block_commitments, blobs, random_blobs) = pre_setup();
                     let (block_commitments, blobs, random_blobs) =
                         $setup_fn(block_commitments, blobs, random_blobs);
-
-                    let mut cache = <$type_name>::default();
+                    let block_root = Hash256::zero();
+                    let mut cache = <$type_name>::empty(block_root);
                     cache.merge_blobs(random_blobs);
                     cache.merge_block(block_commitments);
                     cache.merge_blobs(blobs);
@@ -484,7 +485,8 @@ pub mod tests {
                     let (block_commitments, blobs, random_blobs) =
                         $setup_fn(block_commitments, blobs, random_blobs);
 
-                    let mut cache = <$type_name>::default();
+                    let block_root = Hash256::zero();
+                    let mut cache = <$type_name>::empty(block_root);
                     cache.merge_blobs(random_blobs);
                     cache.merge_blobs(blobs);
                     cache.merge_block(block_commitments);
@@ -498,7 +500,8 @@ pub mod tests {
                     let (block_commitments, blobs, random_blobs) =
                         $setup_fn(block_commitments, blobs, random_blobs);
 
-                    let mut cache = <$type_name>::default();
+                    let block_root = Hash256::zero();
+                    let mut cache = <$type_name>::empty(block_root);
                     cache.merge_block(block_commitments);
                     cache.merge_blobs(blobs);
                     cache.merge_blobs(random_blobs);
@@ -512,7 +515,8 @@ pub mod tests {
                     let (block_commitments, blobs, random_blobs) =
                         $setup_fn(block_commitments, blobs, random_blobs);
 
-                    let mut cache = <$type_name>::default();
+                    let block_root = Hash256::zero();
+                    let mut cache = <$type_name>::empty(block_root);
                     cache.merge_blobs(blobs);
                     cache.merge_block(block_commitments);
                     cache.merge_blobs(random_blobs);
@@ -526,7 +530,8 @@ pub mod tests {
                     let (block_commitments, blobs, random_blobs) =
                         $setup_fn(block_commitments, blobs, random_blobs);
 
-                    let mut cache = <$type_name>::default();
+                    let block_root = Hash256::zero();
+                    let mut cache = <$type_name>::empty(block_root);
                     cache.merge_blobs(blobs);
                     cache.merge_blobs(random_blobs);
                     cache.merge_block(block_commitments);

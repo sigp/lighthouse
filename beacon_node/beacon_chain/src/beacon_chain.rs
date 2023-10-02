@@ -11,7 +11,7 @@ use crate::blob_verification::{self, GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
-    check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
+    check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
     signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
     IntoExecutionPendingBlock,
 };
@@ -2552,7 +2552,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 });
             }
 
-            let block_root = get_block_root(block.as_block());
+            let block_root = block.block_root();
 
             if let Some((child_parent_root, child_slot)) = children.get(i) {
                 // If this block has a child in this chain segment, ensure that its parent root matches
@@ -3324,7 +3324,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        let (signed_block, blobs) = signed_block.deconstruct();
+        let (_, signed_block, blobs) = signed_block.deconstruct();
         let block = signed_block.message();
         ops.extend(
             confirmed_state_roots

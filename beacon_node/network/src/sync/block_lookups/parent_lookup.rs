@@ -5,7 +5,7 @@ use crate::sync::block_lookups::common::RequestState;
 use crate::sync::{manager::SLOT_IMPORT_TOLERANCE, network_context::SyncNetworkContext};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_availability_checker::DataAvailabilityChecker;
+use beacon_chain::data_availability_checker::{ChildComponents, DataAvailabilityChecker};
 use beacon_chain::BeaconChainTypes;
 use itertools::Itertools;
 use lighthouse_network::PeerId;
@@ -66,7 +66,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     ) -> Self {
         let current_parent_request = SingleBlockLookup::new(
             parent_root,
-            Some(<_>::default()),
+            Some(ChildComponents::empty(block_root)),
             peer_id,
             da_checker,
             cx.next_id(),

@@ -66,7 +66,7 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
                 }
             }
             let blobs = VariableList::from(blobs_buffer.into_iter().flatten().collect::<Vec<_>>());
-            responses.push(RpcBlock::new(block, Some(blobs))?)
+            responses.push(RpcBlock::new(None, block, Some(blobs))?)
         }
 
         // if accumulated sidecars is not empty, throw an error.

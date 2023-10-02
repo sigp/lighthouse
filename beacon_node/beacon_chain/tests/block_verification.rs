@@ -161,7 +161,7 @@ fn chain_segment_blocks(
         .iter()
         .zip(blobs.into_iter())
         .map(|(snapshot, blobs)| {
-            RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+            RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
         })
         .collect()
 }
@@ -328,7 +328,10 @@ async fn chain_segment_non_linear_parent_roots() {
 
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
-    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
+    blocks[3] = RpcBlock::new_without_blobs(
+        None,
+        Arc::new(SignedBeaconBlock::from_block(block, signature)),
+    );
 
     assert!(
         matches!(
@@ -362,7 +365,10 @@ async fn chain_segment_non_linear_slots() {
         .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
-    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
+    blocks[3] = RpcBlock::new_without_blobs(
+        None,
+        Arc::new(SignedBeaconBlock::from_block(block, signature)),
+    );
 
     assert!(
         matches!(
@@ -386,7 +392,10 @@ async fn chain_segment_non_linear_slots() {
         .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
-    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
+    blocks[3] = RpcBlock::new_without_blobs(
+        None,
+        Arc::new(SignedBeaconBlock::from_block(block, signature)),
+    );
 
     assert!(
         matches!(
@@ -413,7 +422,7 @@ async fn assert_invalid_signature(
         .iter()
         .zip(chain_segment_blobs.iter())
         .map(|(snapshot, blobs)| {
-            RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+            RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
         })
         .collect();
 
@@ -440,7 +449,7 @@ async fn assert_invalid_signature(
         .take(block_index)
         .zip(chain_segment_blobs.iter())
         .map(|(snapshot, blobs)| {
-            RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+            RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
         })
         .collect();
     // We don't care if this fails, we just call this to ensure that all prior blocks have been
@@ -456,6 +465,7 @@ async fn assert_invalid_signature(
         .process_block(
             snapshots[block_index].beacon_block.canonical_root(),
             RpcBlock::new(
+                None,
                 snapshots[block_index].beacon_block.clone(),
                 chain_segment_blobs[block_index].clone(),
             )
@@ -511,7 +521,7 @@ async fn invalid_signature_gossip_block() {
             .take(block_index)
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+                RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
             })
             .collect();
         harness
@@ -558,7 +568,7 @@ async fn invalid_signature_block_proposal() {
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+                RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
             })
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
@@ -771,7 +781,7 @@ async fn invalid_signature_deposit() {
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+                RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
             })
             .collect();
         assert!(
@@ -1359,7 +1369,10 @@ async fn add_base_block_to_altair_chain() {
     assert!(matches!(
         harness
             .chain
-            .process_chain_segment(vec![Arc::new(base_block).into()], NotifyExecutionLayer::Yes,)
+            .process_chain_segment(
+                vec![RpcBlock::new_without_blobs(None, Arc::new(base_block))],
+                NotifyExecutionLayer::Yes,
+            )
             .await,
         ChainSegmentResult::Failed {
             imported_blocks: 0,
@@ -1495,7 +1508,7 @@ async fn add_altair_block_to_base_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![Arc::new(altair_block).into()],
+                vec![RpcBlock::new_without_blobs(None, Arc::new(altair_block))],
                 NotifyExecutionLayer::Yes
             )
             .await,

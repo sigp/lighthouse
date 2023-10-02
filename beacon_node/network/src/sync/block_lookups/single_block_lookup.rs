@@ -96,7 +96,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.block_request_state.requested_block_root = block_root;
         self.block_request_state.state.state = State::AwaitingDownload;
         self.blob_request_state.state.state = State::AwaitingDownload;
-        self.child_components = Some(ChildComponents::default());
+        self.child_components = Some(ChildComponents::empty(block_root));
     }
 
     /// Get all unique peers across block and blob requests.
@@ -145,7 +145,11 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
                 return CachedChild::DownloadIncomplete;
             }
 
-            match RpcBlock::new_from_fixed(block.clone(), components.downloaded_blobs.clone()) {
+            match RpcBlock::new_from_fixed(
+                self.block_request_state.requested_block_root,
+                block.clone(),
+                components.downloaded_blobs.clone(),
+            ) {
                 Ok(rpc_block) => CachedChild::Ok(rpc_block),
                 Err(e) => CachedChild::Err(e),
             }
@@ -173,6 +177,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     pub fn add_child_components(&mut self, components: ChildComponents<T::EthSpec>) {
         if let Some(ref mut existing_components) = self.child_components {
             let ChildComponents {
+                block_root: _,
                 downloaded_block,
                 downloaded_blobs,
             } = components;

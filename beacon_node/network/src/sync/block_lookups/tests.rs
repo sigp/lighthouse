@@ -414,7 +414,7 @@ fn test_single_block_lookup_becomes_parent_request() {
     // parent request after processing.
     bl.single_block_component_processed::<BlockRequestState<Current>>(
         id.id,
-        BlockError::ParentUnknown(block.into()).into(),
+        BlockError::ParentUnknown(RpcBlock::new_without_blobs(None, block)).into(),
         &mut cx,
     );
     assert_eq!(bl.single_block_lookups.len(), 1);
@@ -923,7 +923,7 @@ fn test_parent_lookup_too_deep() {
         // the processing result
         bl.parent_block_processed(
             chain_hash,
-            BlockError::ParentUnknown(block.into()).into(),
+            BlockError::ParentUnknown(RpcBlock::new_without_blobs(None, block)).into(),
             &mut cx,
         )
     }
@@ -1133,7 +1133,7 @@ fn test_same_chain_race_condition() {
         } else {
             bl.parent_block_processed(
                 chain_hash,
-                BlockError::ParentUnknown(block.into()).into(),
+                BlockError::ParentUnknown(RpcBlock::new_without_blobs(None, block)).into(),
                 &mut cx,
             )
         }
@@ -1248,7 +1248,7 @@ mod deneb_only {
                         block_root = child_root;
                         bl.search_child_block(
                             child_root,
-                            ChildComponents::new(Some(child_block), None),
+                            ChildComponents::new(child_root, Some(child_block), None),
                             PeerShouldHave::Neither(peer_id),
                             &mut cx,
                         );
@@ -1286,7 +1286,7 @@ mod deneb_only {
                         *blobs.index_mut(0) = Some(child_blob);
                         bl.search_child_block(
                             child_root,
-                            ChildComponents::new(None, Some(blobs)),
+                            ChildComponents::new(child_root, None, Some(blobs)),
                             PeerShouldHave::Neither(peer_id),
                             &mut cx,
                         );
@@ -1509,6 +1509,7 @@ mod deneb_only {
             self.bl.parent_block_processed(
                 self.block_root,
                 BlockProcessingResult::Err(BlockError::ParentUnknown(RpcBlock::new_without_blobs(
+                    Some(self.block_root),
                     self.parent_block.clone().expect("parent block"),
                 ))),
                 &mut self.cx,

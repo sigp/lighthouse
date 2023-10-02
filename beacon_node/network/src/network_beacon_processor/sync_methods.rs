@@ -498,7 +498,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .into_iter()
                 .filter_map(|maybe_available| match maybe_available {
                     MaybeAvailableBlock::Available(block) => Some(block),
-                    MaybeAvailableBlock::AvailabilityPending(_) => None,
+                    MaybeAvailableBlock::AvailabilityPending { .. } => None,
                 })
                 .collect::<Vec<_>>(),
             Err(e) => match e {

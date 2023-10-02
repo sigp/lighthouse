@@ -63,8 +63,8 @@ impl<E: EthSpec> ProcessingComponents<E> {
 
 // Not safe for use outside of tests as this always required a slot.
 #[cfg(test)]
-impl<E: EthSpec> Default for ProcessingComponents<E> {
-    fn default() -> Self {
+impl<E: EthSpec> ProcessingComponents<E> {
+    pub fn empty(_block_root: Hash256) -> Self {
         Self {
             slot: Slot::new(0),
             block_commitments: None,

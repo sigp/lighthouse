@@ -227,6 +227,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
 
     /// Convert a verified response to the type we send to the beacon processor.
     fn verified_to_reconstructed(
+        block_root: Hash256,
         verified: Self::VerifiedResponseType,
     ) -> Self::ReconstructedResponseType;
 
@@ -332,9 +333,10 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
     }
 
     fn verified_to_reconstructed(
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> RpcBlock<T::EthSpec> {
-        RpcBlock::new_without_blobs(block)
+        RpcBlock::new_without_blobs(Some(block_root), block)
     }
 
     fn send_reconstructed_for_processing(
@@ -438,6 +440,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
     }
 
     fn verified_to_reconstructed(
+        _block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> FixedBlobSidecarList<T::EthSpec> {
         blobs

@@ -465,7 +465,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 id,
                 self,
                 block_root,
-                R::verified_to_reconstructed(verified_response),
+                R::verified_to_reconstructed(block_root, verified_response),
                 seen_timestamp,
                 cx,
             )?,

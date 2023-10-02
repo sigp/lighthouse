@@ -282,13 +282,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
-        let (block, blobs) = block.deconstruct();
+        let (block_root, block, blobs) = block.deconstruct();
         match blobs {
             None => {
                 if self.blobs_required_for_block(&block) {
-                    Ok(MaybeAvailableBlock::AvailabilityPending(block))
+                    Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
                 } else {
                     Ok(MaybeAvailableBlock::Available(AvailableBlock {
+                        block_root,
                         block,
                         blobs: None,
                     }))
@@ -306,6 +307,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     None
                 };
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
+                    block_root,
                     block,
                     blobs: verified_blobs,
                 }))
@@ -539,6 +541,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
 /// A fully available block that is ready to be imported into fork choice.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AvailableBlock<E: EthSpec> {
+    block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
 }
@@ -555,9 +558,19 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.blobs.as_ref()
     }
 
-    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<BlobSidecarList<E>>) {
-        let AvailableBlock { block, blobs } = self;
-        (block, blobs)
+    pub fn deconstruct(
+        self,
+    ) -> (
+        Hash256,
+        Arc<SignedBeaconBlock<E>>,
+        Option<BlobSidecarList<E>>,
+    ) {
+        let AvailableBlock {
+            block_root,
+            block,
+            blobs,
+        } = self;
+        (block_root, block, blobs)
     }
 }
 
@@ -568,7 +581,10 @@ pub enum MaybeAvailableBlock<E: EthSpec> {
     /// post-4844 blocks, it contains a `SignedBeaconBlock` and a Blobs variant other than `Blobs::None`.
     Available(AvailableBlock<E>),
     /// This variant is not fully available and requires blobs to become fully available.
-    AvailabilityPending(Arc<SignedBeaconBlock<E>>),
+    AvailabilityPending {
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<E>>,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -655,7 +655,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     blob_slot,
-                    ChildComponents::new(None, Some(blobs)),
+                    ChildComponents::new(block_root, None, Some(blobs)),
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
@@ -888,7 +888,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         batch_id,
                         &peer_id,
                         id,
-                        block.map(Into::into),
+                        block.map(|b| RpcBlock::new_without_blobs(None, b)),
                     ) {
                         Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
                         Ok(ProcessResult::Successful) => {}
@@ -912,7 +912,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         chain_id,
                         batch_id,
                         id,
-                        block.map(Into::into),
+                        block.map(|b| RpcBlock::new_without_blobs(None, b)),
                     );
                     self.update_sync_state();
                 }
