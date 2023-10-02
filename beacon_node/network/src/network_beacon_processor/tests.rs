@@ -9,6 +9,7 @@ use crate::{
     service::NetworkMessage,
     sync::{manager::BlockProcessType, SyncMessage},
 };
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
@@ -301,10 +302,11 @@ impl TestRig {
     }
 
     pub fn enqueue_rpc_block(&self) {
+        let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_rpc_beacon_block(
-                self.next_block.canonical_root(),
-                self.next_block.clone().into(),
+                block_root,
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone().into()),
                 std::time::Duration::default(),
                 BlockProcessType::ParentLookup {
                     chain_hash: Hash256::random(),
@@ -314,10 +316,11 @@ impl TestRig {
     }
 
     pub fn enqueue_single_lookup_rpc_block(&self) {
+        let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_rpc_beacon_block(
-                self.next_block.canonical_root(),
-                self.next_block.clone().into(),
+                block_root,
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone().into()),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )

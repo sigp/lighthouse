@@ -204,14 +204,46 @@ fn update_proposal_signatures(
     }
 }
 
-fn update_parent_roots(snapshots: &mut [BeaconSnapshot<E>]) {
+fn update_parent_roots(
+    snapshots: &mut [BeaconSnapshot<E>],
+    blobs: &mut [Option<BlobSidecarList<E>>],
+) {
     for i in 0..snapshots.len() {
         let root = snapshots[i].beacon_block.canonical_root();
-        if let Some(child) = snapshots.get_mut(i + 1) {
+        if let (Some(child), Some(child_blobs)) = (snapshots.get_mut(i + 1), blobs.get_mut(i + 1)) {
             let (mut block, signature) = child.beacon_block.as_ref().clone().deconstruct();
             *block.parent_root_mut() = root;
-            child.beacon_block = Arc::new(SignedBeaconBlock::from_block(block, signature))
+            let new_child = Arc::new(SignedBeaconBlock::from_block(block, signature));
+            let new_child_root = new_child.canonical_root();
+            child.beacon_block = new_child;
+            if let Some(blobs) = child_blobs {
+                update_blob_roots(new_child_root, blobs);
+            }
         }
+    }
+}
+
+fn update_blob_roots<E: EthSpec>(block_root: Hash256, blobs: &mut BlobSidecarList<E>) {
+    for old_blob_sidecar in blobs.iter_mut() {
+        let index = old_blob_sidecar.index;
+        let slot = old_blob_sidecar.slot;
+        let block_parent_root = old_blob_sidecar.block_parent_root;
+        let proposer_index = old_blob_sidecar.proposer_index;
+        let blob = old_blob_sidecar.blob.clone();
+        let kzg_commitment = old_blob_sidecar.kzg_commitment;
+        let kzg_proof = old_blob_sidecar.kzg_proof;
+
+        let new_blob = Arc::new(BlobSidecar::<E> {
+            block_root,
+            index,
+            slot,
+            block_parent_root,
+            proposer_index,
+            blob,
+            kzg_commitment,
+            kzg_proof,
+        });
+        *old_blob_sidecar = new_blob;
     }
 }
 
@@ -588,7 +620,7 @@ async fn invalid_signature_block_proposal() {
 
 #[tokio::test]
 async fn invalid_signature_randao_reveal() {
-    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
@@ -600,7 +632,7 @@ async fn invalid_signature_randao_reveal() {
         *block.body_mut().randao_reveal_mut() = junk_signature();
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
-        update_parent_roots(&mut snapshots);
+        update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
             &chain_segment,
@@ -616,7 +648,7 @@ async fn invalid_signature_randao_reveal() {
 
 #[tokio::test]
 async fn invalid_signature_proposer_slashing() {
-    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
@@ -642,7 +674,7 @@ async fn invalid_signature_proposer_slashing() {
             .expect("should update proposer slashing");
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
-        update_parent_roots(&mut snapshots);
+        update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
             &chain_segment,
@@ -658,7 +690,7 @@ async fn invalid_signature_proposer_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attester_slashing() {
-    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
@@ -695,7 +727,7 @@ async fn invalid_signature_attester_slashing() {
             .expect("should update attester slashing");
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
-        update_parent_roots(&mut snapshots);
+        update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
             &chain_segment,
@@ -711,7 +743,7 @@ async fn invalid_signature_attester_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attestation() {
-    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     let mut checked_attestation = false;
 
     for &block_index in BLOCK_INDICES {
@@ -726,7 +758,7 @@ async fn invalid_signature_attestation() {
             attestation.signature = junk_aggregate_signature();
             snapshots[block_index].beacon_block =
                 Arc::new(SignedBeaconBlock::from_block(block, signature));
-            update_parent_roots(&mut snapshots);
+            update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
             update_proposal_signatures(&mut snapshots, &harness);
             assert_invalid_signature(
                 &chain_segment,
@@ -749,7 +781,7 @@ async fn invalid_signature_attestation() {
 
 #[tokio::test]
 async fn invalid_signature_deposit() {
-    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         // Note: an invalid deposit signature is permitted!
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -775,7 +807,7 @@ async fn invalid_signature_deposit() {
             .expect("should update deposit");
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
-        update_parent_roots(&mut snapshots);
+        update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
         let blocks: Vec<RpcBlock<E>> = snapshots
             .iter()
@@ -800,7 +832,7 @@ async fn invalid_signature_deposit() {
 
 #[tokio::test]
 async fn invalid_signature_exit() {
-    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
@@ -823,7 +855,7 @@ async fn invalid_signature_exit() {
             .expect("should update deposit");
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
-        update_parent_roots(&mut snapshots);
+        update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
             &chain_segment,
