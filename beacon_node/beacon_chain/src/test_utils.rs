@@ -2530,10 +2530,10 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
     let mut blob_sidecars = vec![];
     if let Ok(message) = block.message_deneb_mut() {
-        // get random number between 0 and Max Blobs
+        // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
         let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
         let num_blobs = match num_blobs {
-            NumBlobs::Random => 1 + rng.gen::<usize>() % E::max_blobs_per_block(),
+            NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
             NumBlobs::None => 0,
         };
         let (bundle, transactions) =
