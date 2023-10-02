@@ -1629,7 +1629,14 @@ pub fn serve<T: BeaconChainTypes>(
             |block_id: BlockId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                // Prioritise requests for the head block root, as it is used by some VCs (including
+                // the Lighthouse VC) to create sync committee messages.
+                let priority = if block_id == BlockId::Head {
+                    Priority::P0
+                } else {
+                    Priority::P1,
+                };
+                task_spawner.blocking_json_task(priority, move || {
                     let (block, execution_optimistic, finalized) =
                         block_id.blinded_block(&chain)?;
                     Ok(api_types::GenericResponse::from(api_types::RootData::from(
