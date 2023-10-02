@@ -184,8 +184,8 @@ impl_availability_view!(
     ProcessingComponents,
     KzgCommitments<E>,
     KzgCommitment,
-    kzg_commitments,
-    processing_blobs
+    block_commitments,
+    blob_commitments
 );
 
 impl_availability_view!(

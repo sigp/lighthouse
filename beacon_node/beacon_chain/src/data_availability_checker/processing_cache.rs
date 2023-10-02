@@ -45,19 +45,18 @@ pub struct ProcessingComponents<E: EthSpec> {
     /// Blobs required for a block can only be known if we have seen the block. So `Some` here
     /// means we've seen it, a `None` means we haven't. The `kzg_commitments` value helps us figure
     /// out whether incoming blobs actually match the block.
-    pub kzg_commitments: Option<KzgCommitments<E>>,
-    /// On insertion, a collision at an index here when `required_blobs` is
-    /// `None` means we need to construct an entirely new `Data` entry. This is because we have
-    /// no way of knowing which blob is the correct one until we see the block.
-    pub processing_blobs: KzgCommitmentOpts<E>,
+    pub block_commitments: Option<KzgCommitments<E>>,
+    /// `KzgCommitments` for blobs are always known, even if we haven't seen the block. See
+    /// `AvailabilityView`'s trait definition for more details.
+    pub blob_commitments: KzgCommitmentOpts<E>,
 }
 
 impl<E: EthSpec> ProcessingComponents<E> {
     pub fn new(slot: Slot) -> Self {
         Self {
             slot,
-            kzg_commitments: None,
-            processing_blobs: KzgCommitmentOpts::<E>::default(),
+            block_commitments: None,
+            blob_commitments: KzgCommitmentOpts::<E>::default(),
         }
     }
 }
@@ -68,8 +67,8 @@ impl<E: EthSpec> Default for ProcessingComponents<E> {
     fn default() -> Self {
         Self {
             slot: Slot::new(0),
-            kzg_commitments: None,
-            processing_blobs: KzgCommitmentOpts::<E>::default(),
+            block_commitments: None,
+            blob_commitments: KzgCommitmentOpts::<E>::default(),
         }
     }
 }
