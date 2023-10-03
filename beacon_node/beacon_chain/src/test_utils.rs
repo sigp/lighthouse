@@ -595,7 +595,10 @@ where
             .execution_block_generator()
     }
 
-    pub async fn set_mock_builder(&mut self, beacon_url: SensitiveUrl) {
+    pub fn set_mock_builder(
+        &mut self,
+        beacon_url: SensitiveUrl,
+    ) -> impl futures::Future<Output = ()> {
         let mock_el = self
             .mock_execution_layer
             .as_ref()
@@ -634,7 +637,7 @@ where
         let mock_el_builder = mock_el.el.builder().unwrap();
         assert!(Arc::ptr_eq(&el_builder, &mock_el_builder));
 
-        mock_builder_server.await
+        mock_builder_server
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
