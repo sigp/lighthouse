@@ -567,8 +567,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
             // If we could convert this peer id, remove it from the DHT and ban it from discovery.
             self.discv5.ban_node(&node_id, None);
-            // Remove the node from the routing table.
-            self.discv5.remove_node(&node_id);
         }
 
         for ip_address in ip_addresses {
