@@ -178,6 +178,16 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
         block_replayer
             .apply_blocks(vec![diet_executed_block.block.clone_as_blinded()], None)
             .map(|block_replayer| block_replayer.into_state())
+            .and_then(|mut state| {
+                // TODO: check this
+                state
+                    .build_caches(&self.spec)
+                    .map_err(AvailabilityCheckError::RebuildingStateCaches)?;
+                state
+                    .update_tree_hash_cache()
+                    .map_err(AvailabilityCheckError::RebuildingStateCaches)?;
+                Ok(state)
+            })
     }
 }
 

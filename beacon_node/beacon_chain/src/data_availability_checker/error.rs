@@ -1,6 +1,6 @@
 use kzg::{Error as KzgError, KzgCommitment};
 use strum::IntoStaticStr;
-use types::Hash256;
+use types::{BeaconStateError, Hash256};
 
 #[derive(Debug, IntoStaticStr)]
 pub enum Error {
@@ -23,6 +23,7 @@ pub enum Error {
     },
     ParentStateMissing(Hash256),
     BlockReplayError(state_processing::BlockReplayError),
+    RebuildingStateCaches(BeaconStateError),
 }
 
 pub enum ErrorCategory {
@@ -42,7 +43,8 @@ impl Error {
             | Error::DecodeError(_)
             | Error::Unexpected
             | Error::ParentStateMissing(_)
-            | Error::BlockReplayError(_) => ErrorCategory::Internal,
+            | Error::BlockReplayError(_)
+            | Error::RebuildingStateCaches(_) => ErrorCategory::Internal,
             Error::Kzg(_)
             | Error::BlobIndexInvalid(_)
             | Error::KzgCommitmentMismatch { .. }
