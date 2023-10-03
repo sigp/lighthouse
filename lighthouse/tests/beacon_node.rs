@@ -1274,7 +1274,12 @@ fn enr_udp_port_flag() {
     CommandLineTest::new()
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_udp4_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_quic_port_flag() {
@@ -1282,7 +1287,12 @@ fn enr_quic_port_flag() {
     CommandLineTest::new()
         .flag("enr-quic-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_quic4_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_quic4_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_tcp_port_flag() {
@@ -1290,7 +1300,12 @@ fn enr_tcp_port_flag() {
     CommandLineTest::new()
         .flag("enr-tcp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_tcp4_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_tcp4_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_udp6_port_flag() {
@@ -1298,7 +1313,12 @@ fn enr_udp6_port_flag() {
     CommandLineTest::new()
         .flag("enr-udp6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_udp6_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_udp6_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_quic6_port_flag() {
@@ -1306,7 +1326,12 @@ fn enr_quic6_port_flag() {
     CommandLineTest::new()
         .flag("enr-quic6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_quic6_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_quic6_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_tcp6_port_flag() {
@@ -1314,7 +1339,12 @@ fn enr_tcp6_port_flag() {
     CommandLineTest::new()
         .flag("enr-tcp6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_tcp6_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_tcp6_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_match_flag_over_ipv4() {
@@ -1340,7 +1370,10 @@ fn enr_match_flag_over_ipv4() {
                 Some((addr, udp4_port, tcp4_port))
             );
             assert_eq!(config.network.enr_address, (Some(addr), None));
-            assert_eq!(config.network.enr_udp4_port, Some(udp4_port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(udp4_port)
+            );
         });
 }
 #[test]
@@ -1368,7 +1401,10 @@ fn enr_match_flag_over_ipv6() {
                 Some((addr, udp6_port, tcp6_port))
             );
             assert_eq!(config.network.enr_address, (None, Some(addr)));
-            assert_eq!(config.network.enr_udp6_port, Some(udp6_port));
+            assert_eq!(
+                config.network.enr_udp6_port.map(|port| port.get()),
+                Some(udp6_port)
+            );
         });
 }
 #[test]
@@ -1416,8 +1452,14 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
                 config.network.enr_address,
                 (Some(ipv4_addr), Some(ipv6_addr))
             );
-            assert_eq!(config.network.enr_udp6_port, Some(udp6_port));
-            assert_eq!(config.network.enr_udp4_port, Some(udp4_port));
+            assert_eq!(
+                config.network.enr_udp6_port.map(|port| port.get()),
+                Some(udp6_port)
+            );
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(udp4_port)
+            );
         });
 }
 #[test]
@@ -1430,7 +1472,10 @@ fn enr_address_flag_with_ipv4() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enr_address, (Some(addr), None));
-            assert_eq!(config.network.enr_udp4_port, Some(port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            );
         });
 }
 #[test]
@@ -1443,7 +1488,10 @@ fn enr_address_flag_with_ipv6() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enr_address, (Some(addr), None));
-            assert_eq!(config.network.enr_udp4_port, Some(port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            );
         });
 }
 #[test]
@@ -1460,7 +1508,10 @@ fn enr_address_dns_flag() {
                 config.network.enr_address.0 == Some(addr)
                     || config.network.enr_address.1 == Some(ipv6addr)
             );
-            assert_eq!(config.network.enr_udp4_port, Some(port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            );
         });
 }
 #[test]
