@@ -59,8 +59,7 @@ diff=()
 
 # function to check
 check() {
-if [[ -f $1 ]]; # check for existence of file
-then 
+if [[ -f $1 ]]; then # check for existence of file 
     diff=$(diff $1 $2)
     diff+=($diff)
     exist+=(false)
@@ -70,8 +69,7 @@ else
     exist+=(true) 
 fi
 
-if [[ -z $diff ]]; # check for difference
-then 
+if [[ -z $diff ]]; then # check for difference 
     update+=(false)
     return 1 # exit a function (i.e., do nothing)
 else
