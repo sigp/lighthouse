@@ -21,10 +21,11 @@ pub use libp2p::identity::{Keypair, PublicKey};
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
+use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 use libp2p::swarm::THandlerInEvent;
 pub use libp2p::{
-    core::{ConnectedPoint, Multiaddr},
+    core::{transport::ListenerId, ConnectedPoint, Multiaddr},
     identity::PeerId,
     swarm::{
         dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour, NotifyHandler,
@@ -75,6 +76,19 @@ const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 #[derive(Debug)]
 pub struct DiscoveredPeers {
     pub peers: HashMap<Enr, Option<Instant>>,
+}
+
+/// Specifies which port numbers should be modified after start of the discovery service
+#[derive(Debug)]
+pub struct UpdatePorts {
+    /// TCP port associated wih IPv4 address (if present)
+    pub tcp4: bool,
+    /// TCP port associated wih IPv6 address (if present)
+    pub tcp6: bool,
+    /// QUIC port associated wih IPv4 address (if present)
+    pub quic4: bool,
+    /// QUIC port associated wih IPv6 address (if present)
+    pub quic6: bool,
 }
 
 #[derive(Clone, PartialEq)]
@@ -177,12 +191,8 @@ pub struct Discovery<TSpec: EthSpec> {
     /// always false.
     pub started: bool,
 
-    /// This keeps track of whether an external UDP port change should also indicate an internal
-    /// TCP port change. As we cannot detect our external TCP port, we assume that the external UDP
-    /// port is also our external TCP port. This assumption only holds if the user has not
-    /// explicitly set their ENR TCP port via the CLI config. The first indicates tcp4 and the
-    /// second indicates tcp6.
-    update_tcp_port: (bool, bool),
+    /// Specifies whether various port numbers should be updated after the discovery service has been started
+    update_ports: UpdatePorts,
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
@@ -300,10 +310,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
         }
 
-        let update_tcp_port = (
-            config.enr_tcp4_port.is_none(),
-            config.enr_tcp6_port.is_none(),
-        );
+        let update_ports = UpdatePorts {
+            tcp4: config.enr_tcp4_port.is_none(),
+            tcp6: config.enr_tcp6_port.is_none(),
+            quic4: config.enr_quic4_port.is_none(),
+            quic6: config.enr_quic6_port.is_none(),
+        };
 
         Ok(Self {
             cached_enrs: LruCache::new(50),
@@ -314,7 +326,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             discv5,
             event_stream,
             started: !config.disable_discovery,
-            update_tcp_port,
+            update_ports,
             log,
             enr_dir,
         })
@@ -1006,8 +1018,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
 
-                            if (self.update_tcp_port.0 && socket_addr.is_ipv4())
-                                || (self.update_tcp_port.1 && socket_addr.is_ipv6())
+                            if (self.update_ports.tcp4 && socket_addr.is_ipv4())
+                                || (self.update_ports.tcp6 && socket_addr.is_ipv6())
                             {
                                 // Update the TCP port in the ENR
                                 self.discv5.update_local_enr_socket(socket_addr, true);
@@ -1036,12 +1048,79 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
             FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
                 self.on_dial_failure(peer_id, error)
             }
+            FromSwarm::NewListenAddr(ev) => {
+                let addr = ev.addr;
+                let listener_id = ev.listener_id;
+
+                trace!(self.log, "Received NewListenAddr event from swarm"; "listener_id" => ?listener_id, "addr" => ?addr);
+
+                let mut addr_iter = addr.iter();
+
+                let attempt_enr_update = match addr_iter.next() {
+                    Some(Protocol::Ip4(_)) => match (addr_iter.next(), addr_iter.next()) {
+                        (Some(Protocol::Tcp(port)), None) => {
+                            if !self.update_ports.tcp4 {
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                return;
+                            }
+
+                            self.update_enr_tcp_port(port)
+                        }
+                        (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
+                            if !self.update_ports.quic4 {
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                return;
+                            }
+
+                            self.update_enr_quic_port(port)
+                        }
+                        _ => {
+                            debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
+                            return;
+                        }
+                    },
+                    Some(Protocol::Ip6(_)) => match (addr_iter.next(), addr_iter.next()) {
+                        (Some(Protocol::Tcp(port)), None) => {
+                            if !self.update_ports.tcp6 {
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                return;
+                            }
+
+                            self.update_enr_tcp_port(port)
+                        }
+                        (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
+                            if !self.update_ports.quic6 {
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                return;
+                            }
+
+                            self.update_enr_quic_port(port)
+                        }
+                        _ => {
+                            debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
+                            return;
+                        }
+                    },
+                    _ => {
+                        debug!(self.log, "Encountered unacceptable multiaddr for listening (no IP)"; "addr" => ?addr);
+                        return;
+                    }
+                };
+
+                let local_enr: Enr = self.discv5.local_enr();
+
+                match attempt_enr_update {
+                    Ok(_) => {
+                        info!(self.log, "Updated local ENR"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(), "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6())
+                    }
+                    Err(e) => warn!(self.log, "Failed to update ENR"; "error" => ?e),
+                }
+            }
             FromSwarm::ConnectionEstablished(_)
             | FromSwarm::ConnectionClosed(_)
             | FromSwarm::AddressChange(_)
             | FromSwarm::ListenFailure(_)
             | FromSwarm::NewListener(_)
-            | FromSwarm::NewListenAddr(_)
             | FromSwarm::ExpiredListenAddr(_)
             | FromSwarm::ListenerError(_)
             | FromSwarm::ListenerClosed(_)
