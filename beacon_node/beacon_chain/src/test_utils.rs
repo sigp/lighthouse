@@ -595,10 +595,7 @@ where
             .execution_block_generator()
     }
 
-    pub fn set_mock_builder(
-        &mut self,
-        beacon_url: SensitiveUrl,
-    ) -> impl std::future::Future<Output = ()> {
+    pub async fn set_mock_builder(&mut self, beacon_url: SensitiveUrl) {
         let mock_el = self
             .mock_execution_layer
             .as_ref()
