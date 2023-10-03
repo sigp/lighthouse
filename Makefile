@@ -185,7 +185,7 @@ test-exec-engine:
 # test vectors.
 test: test-release
 
-# Run bash script to output cli.txt
+# Updates the CLI help text pages in the Lighthouse book.
 cli:
 	./scripts/cli.sh
 # Runs the entire test suite, downloading test vectors if required.
