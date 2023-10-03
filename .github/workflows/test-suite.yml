@@ -390,7 +390,6 @@ jobs:
   cli-check:
     name: cli-check
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Run Makefile to trigger the bash script
