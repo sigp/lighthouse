@@ -2,7 +2,6 @@ use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
-use beacon_chain::beacon_proposer_cache::BeaconProposerCache;
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
@@ -27,7 +26,6 @@ use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
-use parking_lot::Mutex;
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
@@ -180,9 +178,6 @@ where
             None
         };
 
-        // Required for monitor_validators
-        let beacon_proposer_cache = Arc::new(Mutex::new(BeaconProposerCache::default()));
-
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
             .store(store)
@@ -195,16 +190,7 @@ where
             .graffiti(graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
-            .monitor_validators(
-                config.validator_monitor_auto,
-                config.validator_monitor_pubkeys.clone(),
-                config.validator_monitor_individual_tracking_threshold,
-                beacon_proposer_cache,
-                runtime_context
-                    .service_context("val_mon".to_string())
-                    .log()
-                    .clone(),
-            );
+            .validator_monitor_config(config.validator_monitor.clone());
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)

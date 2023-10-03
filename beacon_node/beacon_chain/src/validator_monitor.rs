@@ -6,6 +6,7 @@ use crate::beacon_proposer_cache::{BeaconProposerCache, TYPICAL_SLOTS_PER_EPOCH}
 use crate::metrics;
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
+use serde::{Deserialize, Serialize};
 use slog::{crit, debug, info, Logger};
 use slot_clock::SlotClock;
 use smallvec::SmallVec;
@@ -39,10 +40,28 @@ pub const HISTORIC_EPOCHS: usize = 10;
 /// Once the validator monitor reaches this number of validators it will stop
 /// tracking their metrics/logging individually in an effort to reduce
 /// Prometheus cardinality and log volume.
-pub const DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD: usize = 64;
+const DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD: usize = 64;
 
 /// Lag slots used in detecting missed blocks for the monitored validators
 pub const MISSED_BLOCK_LAG_SLOTS: usize = 4;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+// Initial configuration values for the `ValidatorMonitor`.
+pub struct ValidatorMonitorConfig {
+    pub auto_register: bool,
+    pub validators: Vec<PublicKeyBytes>,
+    pub individual_tracking_threshold: usize,
+}
+
+impl Default for ValidatorMonitorConfig {
+    fn default() -> Self {
+        Self {
+            auto_register: false,
+            validators: vec![],
+            individual_tracking_threshold: DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -362,12 +381,16 @@ pub struct ValidatorMonitor<T> {
 
 impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn new(
-        pubkeys: Vec<PublicKeyBytes>,
-        auto_register: bool,
-        individual_tracking_threshold: usize,
+        config: ValidatorMonitorConfig,
         beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
         log: Logger,
     ) -> Self {
+        let ValidatorMonitorConfig {
+            auto_register,
+            validators,
+            individual_tracking_threshold,
+        } = config;
+
         let mut s = Self {
             validators: <_>::default(),
             indices: <_>::default(),
@@ -379,7 +402,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             log,
             _phantom: PhantomData,
         };
-        for pubkey in pubkeys {
+        for pubkey in validators {
             s.add_validator_pubkey(pubkey)
         }
         s
@@ -531,7 +554,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         self.total_missed_blocks
             .iter()
             .for_each(|(i, c)| {
-                self.aggregatable_metric(i.to_string().as_str(), | label| {
+                self.aggregatable_metric(i.to_string().as_str(), |label| {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
                         &[label],

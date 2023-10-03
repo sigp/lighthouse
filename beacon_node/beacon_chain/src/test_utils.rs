@@ -1,12 +1,10 @@
-use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::validator_monitor::ValidatorMonitor;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
     sync_committee_verification::Error as SyncCommitteeError,
-    validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+    validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
     BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
 };
 use crate::{
@@ -163,8 +161,6 @@ pub struct Builder<T: BeaconChainTypes> {
     withdrawal_keypairs: Vec<Option<Keypair>>,
     chain_config: Option<ChainConfig>,
     store_config: Option<StoreConfig>,
-    beacon_proposer_cache: Option<Arc<Mutex<BeaconProposerCache>>>,
-    validator_monitor: Option<ValidatorMonitor<T::EthSpec>>,
     #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     initial_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
@@ -173,6 +169,7 @@ pub struct Builder<T: BeaconChainTypes> {
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     mock_builder: Option<TestingBuilder<T::EthSpec>>,
     testing_slot_clock: Option<TestingSlotClock>,
+    validator_monitor_config: Option<ValidatorMonitorConfig>,
     runtime: TestRuntime,
     log: Logger,
 }
@@ -300,8 +297,6 @@ where
             withdrawal_keypairs: vec![],
             chain_config: None,
             store_config: None,
-            beacon_proposer_cache: None,
-            validator_monitor: None,
             store: None,
             initial_mutator: None,
             store_mutator: None,
@@ -309,6 +304,7 @@ where
             mock_execution_layer: None,
             mock_builder: None,
             testing_slot_clock: None,
+            validator_monitor_config: None,
             runtime,
             log,
         }
@@ -381,16 +377,11 @@ where
         self
     }
 
-    pub fn beacon_proposer_cache(
+    pub fn validator_monitor_config(
         mut self,
-        beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
+        validator_monitor_config: ValidatorMonitorConfig,
     ) -> Self {
-        self.beacon_proposer_cache = Some(beacon_proposer_cache);
-        self
-    }
-
-    pub fn validator_monitor(mut self, validator_monitor: ValidatorMonitor<E>) -> Self {
-        self.validator_monitor = Some(validator_monitor);
+        self.validator_monitor_config = Some(validator_monitor_config);
         self
     }
 
@@ -536,21 +527,7 @@ where
             .validator_keypairs
             .expect("cannot build without validator keypairs");
 
-        // Only create a beacon_proposer_cache if it's not coming from another component,
-        let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>;
-        let validator_monitor = if let Some(validator_monitor) = self.validator_monitor {
-            beacon_proposer_cache = validator_monitor.get_beacon_proposer_cache();
-            validator_monitor
-        } else {
-            beacon_proposer_cache = Arc::new(Mutex::new(<_>::default()));
-            ValidatorMonitor::new(
-                vec![],
-                false,
-                DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
-                beacon_proposer_cache.clone(),
-                log.clone(),
-            )
-        };
+        let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
 
         let chain_config = self.chain_config.unwrap_or_default();
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
@@ -572,8 +549,7 @@ where
                 log.clone(),
                 5,
             )))
-            .beacon_proposer_cache(beacon_proposer_cache)
-            .validator_monitor(validator_monitor);
+            .validator_monitor_config(validator_monitor_config);
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)

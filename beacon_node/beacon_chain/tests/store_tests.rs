@@ -6,7 +6,6 @@ use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
-use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::{
     historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
     BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
@@ -15,7 +14,6 @@ use beacon_chain::{
 use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
-use parking_lot::Mutex;
 use rand::Rng;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::{state_advance::complete_state_advance, BlockReplayer};
@@ -2143,7 +2141,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
-    let beacon_proposer_cache = Arc::new(Mutex::new(<_>::default()));
     let beacon_chain = Arc::new(
         BeaconChainBuilder::new(MinimalEthSpec)
             .store(store.clone())
@@ -2162,13 +2159,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                 log.clone(),
                 1,
             )))
-            .monitor_validators(
-                true,
-                vec![],
-                DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
-                beacon_proposer_cache,
-                log,
-            )
             .build()
             .expect("should build"),
     );

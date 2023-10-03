@@ -1606,11 +1606,17 @@ fn metrics_allow_origin_all_flag() {
 
 // Tests for Validator Monitor flags.
 #[test]
+fn validator_monitor_default_values() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.validator_monitor == <_>::default()));
+}
+#[test]
 fn validator_monitor_auto_flag() {
     CommandLineTest::new()
         .flag("validator-monitor-auto", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.validator_monitor_auto));
+        .with_config(|config| assert!(config.validator_monitor.auto_register));
 }
 #[test]
 fn validator_monitor_pubkeys_flag() {
@@ -1619,8 +1625,8 @@ fn validator_monitor_pubkeys_flag() {
                                                 0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.validator_monitor_pubkeys[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
-            assert_eq!(config.validator_monitor_pubkeys[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
         });
 }
 #[test]
@@ -1634,8 +1640,8 @@ fn validator_monitor_file_flag() {
         .flag("validator-monitor-file", dir.path().join("pubkeys.txt").as_os_str().to_str())
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.validator_monitor_pubkeys[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
-            assert_eq!(config.validator_monitor_pubkeys[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
         });
 }
 #[test]
@@ -1644,7 +1650,7 @@ fn validator_monitor_metrics_threshold_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.validator_monitor_individual_tracking_threshold,
+                config.validator_monitor.individual_tracking_threshold,
                 // If this value changes make sure to update the help text for
                 // the CLI command.
                 64
@@ -1660,7 +1666,7 @@ fn validator_monitor_metrics_threshold_custom() {
         )
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.validator_monitor_individual_tracking_threshold, 42)
+            assert_eq!(config.validator_monitor.individual_tracking_threshold, 42)
         });
 }
 
@@ -2267,7 +2273,7 @@ fn gui_flag() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.http_api.enabled);
-            assert!(config.validator_monitor_auto);
+            assert!(config.validator_monitor.auto_register);
         });
 }
 

@@ -2,14 +2,12 @@ use super::*;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
-    validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
     BeaconChain,
 };
 use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lazy_static::lazy_static;
 use lighthouse_network::NetworkConfig;
-use parking_lot::Mutex;
 use slog::{o, Drain, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
@@ -52,7 +50,6 @@ impl TestBeaconChain {
 
         let test_runtime = TestRuntime::default();
 
-        let beacon_proposer_cache = Arc::new(Mutex::new(<_>::default()));
         let chain = Arc::new(
             BeaconChainBuilder::new(MainnetEthSpec)
                 .logger(log.clone())
@@ -78,13 +75,6 @@ impl TestBeaconChain {
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
                 .shutdown_sender(shutdown_tx)
-                .monitor_validators(
-                    true,
-                    vec![],
-                    DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
-                    beacon_proposer_cache.clone(),
-                    log,
-                )
                 .build()
                 .expect("should build"),
         );
