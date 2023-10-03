@@ -4,6 +4,7 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
+use std::collections::HashSet;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
@@ -639,8 +640,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.log,
                     "Successfully verified gossip blob";
                     "slot" => %slot,
-                            "root" => %root,
-                            "index" => %index
+                    "root" => %root,
+                    "index" => %index
                 );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
@@ -666,7 +667,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             self.log,
                             "Unknown parent hash for blob";
                             "action" => "requesting parent",
-                            "blob_root" => %blob.block_root,
+                            "block_root" => %blob.block_root,
                             "parent_root" => %blob.block_parent_root
                         );
                         self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
@@ -732,10 +733,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
-        let blob_root = verified_blob.block_root();
+        let block_root = verified_blob.block_root();
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
-        match self.chain.process_blob(verified_blob).await {
+
+        let delay_lookup = self
+            .chain
+            .data_availability_checker
+            .should_delay_lookup(blob_slot);
+
+        match self.chain.process_gossip_blob(verified_blob).await {
             Ok(AvailabilityProcessingStatus::Imported(hash)) => {
                 // Note: Reusing block imported metric here
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
@@ -746,24 +753,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 self.chain.recompute_head_at_current_slot().await;
             }
-            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_hash)) => {
-                trace!(
-                    self.log,
-                    "Missing block components for gossip verified blob";
-                    "slot" => %blob_slot,
-                    "blob_index" => %blob_index,
-                    "blob_root" => %blob_root,
-                );
-                self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
-                    slot, peer_id, block_hash,
-                ));
+            Ok(AvailabilityProcessingStatus::MissingComponents(_slot, block_root)) => {
+                if delay_lookup {
+                    self.cache_peer(peer_id, &block_root);
+                    trace!(
+                        self.log,
+                        "Processed blob, delaying lookup for other components";
+                        "slot" => %blob_slot,
+                        "blob_index" => %blob_index,
+                        "block_root" => %block_root,
+                    );
+                } else {
+                    trace!(
+                        self.log,
+                        "Missing block components for gossip verified blob";
+                        "slot" => %blob_slot,
+                        "blob_index" => %blob_index,
+                        "block_root" => %block_root,
+                    );
+                    self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
+                        vec![peer_id],
+                        block_root,
+                    ));
+                }
             }
             Err(err) => {
                 debug!(
                     self.log,
                     "Invalid gossip blob";
                     "outcome" => ?err,
-                    "block root" => ?blob_root,
+                    "block root" => ?block_root,
                     "block slot" =>  blob_slot,
                     "blob index" =>  blob_index,
                 );
@@ -777,6 +796,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Invalid gossip blob ssz";
                 );
             }
+        }
+    }
+
+    /// Cache the peer id for the given block root.
+    fn cache_peer(self: &Arc<Self>, peer_id: PeerId, block_root: &Hash256) {
+        let mut guard = self.delayed_lookup_peers.lock();
+        if let Some(peers) = guard.get_mut(block_root) {
+            peers.insert(peer_id);
+        } else {
+            let mut peers = HashSet::new();
+            peers.insert(peer_id);
+            guard.push(*block_root, peers);
         }
     }
 
@@ -1112,14 +1143,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
+        let delay_lookup = self
+            .chain
+            .data_availability_checker
+            .should_delay_lookup(verified_block.block.slot());
+
         let result = self
             .chain
-            .process_block(
-                block_root,
-                verified_block,
-                NotifyExecutionLayer::Yes,
-                || Ok(()),
-            )
+            .process_block_with_early_caching(block_root, verified_block, NotifyExecutionLayer::Yes)
             .await;
 
         match &result {
@@ -1151,12 +1182,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                // make rpc request for blob
-                self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
-                    *slot,
-                    peer_id,
-                    *block_root,
-                ));
+                if delay_lookup {
+                    self.cache_peer(peer_id, block_root);
+                    trace!(
+                        self.log,
+                        "Processed block, delaying lookup for other components";
+                        "slot" => slot,
+                        "block_root" => %block_root,
+                    );
+                } else {
+                    trace!(
+                        self.log,
+                        "Missing block components for gossip verified block";
+                        "slot" => slot,
+                        "block_root" => %block_root,
+                    );
+                    self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
+                        vec![peer_id],
+                        *block_root,
+                    ));
+                }
             }
             Err(BlockError::ParentUnknown(block)) => {
                 // Inform the sync manager to find parents for this block
@@ -1182,6 +1227,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(BlockError::AvailabilityCheck(err)) => {
                 match err {
                     AvailabilityCheckError::KzgNotInitialized
+                    | AvailabilityCheckError::Unexpected
                     | AvailabilityCheckError::SszTypes(_)
                     | AvailabilityCheckError::MissingBlobs
                     | AvailabilityCheckError::StoreError(_)
@@ -1194,12 +1240,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                     AvailabilityCheckError::Kzg(_)
                     | AvailabilityCheckError::KzgVerificationFailed
-                    | AvailabilityCheckError::NumBlobsMismatch { .. }
+                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
                     | AvailabilityCheckError::BlobIndexInvalid(_)
-                    | AvailabilityCheckError::UnorderedBlobs { .. }
-                    | AvailabilityCheckError::BlockBlobRootMismatch { .. }
-                    | AvailabilityCheckError::BlockBlobSlotMismatch { .. }
-                    | AvailabilityCheckError::KzgCommitmentMismatch { .. } => {
+                    | AvailabilityCheckError::InconsistentBlobBlockRoots { .. } => {
                         // Note: we cannot penalize the peer that sent us the block
                         // over gossip here because these errors imply either an issue
                         // with:

@@ -40,6 +40,10 @@ lazy_static! {
         "beacon_block_processing_block_root_seconds",
         "Time spent calculating the block root when processing a block."
     );
+    pub static ref BLOCK_PROCESSING_BLOB_ROOT: Result<Histogram> = try_create_histogram(
+        "beacon_block_processing_blob_root_seconds",
+        "Time spent calculating the blob root when processing a block."
+    );
     pub static ref BLOCK_PROCESSING_DB_READ: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_db_read_seconds",
         "Time spent loading block and state from DB for block processing"
@@ -282,6 +286,11 @@ lazy_static! {
         "Count of times the early attester cache returns an attestation"
     );
 
+}
+
+// Second lazy-static block is used to account for macro recursion limit.
+lazy_static! {
+
     /*
      * Attestation Production
      */
@@ -301,10 +310,7 @@ lazy_static! {
         "attestation_production_cache_prime_seconds",
         "Time spent loading a new state from the disk due to a cache miss"
     );
-}
 
-// Second lazy-static block is used to account for macro recursion limit.
-lazy_static! {
     /*
      * Fork Choice
      */

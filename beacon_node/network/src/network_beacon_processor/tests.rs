@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
+use crate::network_beacon_processor::DELAYED_PEER_CACHE_SIZE;
 use crate::{
     network_beacon_processor::{
         ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
@@ -8,6 +9,7 @@ use crate::{
     service::NetworkMessage,
     sync::{manager::BlockProcessType, SyncMessage},
 };
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
@@ -22,6 +24,8 @@ use lighthouse_network::{
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
     Client, MessageId, NetworkGlobals, PeerId, Response,
 };
+use lru::LruCache;
+use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use std::iter::Iterator;
 use std::sync::Arc;
@@ -217,6 +221,7 @@ impl TestRig {
             reprocess_tx: work_reprocessing_tx.clone(),
             network_globals: network_globals.clone(),
             invalid_block_storage: InvalidBlockStorage::Disabled,
+            delayed_lookup_peers: Mutex::new(LruCache::new(DELAYED_PEER_CACHE_SIZE)),
             executor: executor.clone(),
             log: log.clone(),
         };
@@ -297,10 +302,11 @@ impl TestRig {
     }
 
     pub fn enqueue_rpc_block(&self) {
+        let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_rpc_beacon_block(
-                self.next_block.canonical_root(),
-                self.next_block.clone().into(),
+                block_root,
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone().into()),
                 std::time::Duration::default(),
                 BlockProcessType::ParentLookup {
                     chain_hash: Hash256::random(),
@@ -310,10 +316,11 @@ impl TestRig {
     }
 
     pub fn enqueue_single_lookup_rpc_block(&self) {
+        let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_rpc_beacon_block(
-                self.next_block.canonical_root(),
-                self.next_block.clone().into(),
+                block_root,
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone().into()),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )

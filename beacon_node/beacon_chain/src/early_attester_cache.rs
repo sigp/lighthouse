@@ -70,7 +70,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             },
         };
 
-        let (block, blobs) = block.deconstruct();
+        let (_, block, blobs) = block.deconstruct();
         let item = CacheItem {
             epoch,
             committee_lengths,

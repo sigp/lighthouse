@@ -449,9 +449,7 @@ impl<E: EthSpec> Tester<E> {
                 let result = self.block_on_dangerous(
                     self.harness
                         .chain
-                        .check_gossip_blob_availability_and_import(
-                            GossipVerifiedBlob::__assumed_valid(signed_sidecar),
-                        ),
+                        .process_gossip_blob(GossipVerifiedBlob::__assumed_valid(signed_sidecar)),
                 )?;
                 if valid {
                     assert!(result.is_ok());

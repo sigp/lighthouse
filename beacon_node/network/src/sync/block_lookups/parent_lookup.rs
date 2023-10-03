@@ -5,7 +5,7 @@ use crate::sync::block_lookups::common::RequestState;
 use crate::sync::{manager::SLOT_IMPORT_TOLERANCE, network_context::SyncNetworkContext};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_availability_checker::DataAvailabilityChecker;
+use beacon_chain::data_availability_checker::{ChildComponents, DataAvailabilityChecker};
 use beacon_chain::BeaconChainTypes;
 use itertools::Itertools;
 use lighthouse_network::PeerId;
@@ -67,7 +67,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     ) -> Self {
         let current_parent_request = SingleBlockLookup::new(
             parent_root,
-            Some(<_>::default()),
+            Some(ChildComponents::empty(block_root)),
             &[peer_id],
             da_checker,
             cx.next_id(),
@@ -179,7 +179,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .blob_request_state
             .state
             .register_failure_processing();
-        if let Some(components) = self.current_parent_request.cached_child_components.as_mut() {
+        if let Some(components) = self.current_parent_request.child_components.as_mut() {
             components.downloaded_block = None;
             components.downloaded_blobs = <_>::default();
         }
@@ -211,8 +211,13 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         Ok(root_and_verified)
     }
 
-    pub fn add_peers(&mut self, peer_source: &[PeerShouldHave]) {
-        self.current_parent_request.add_peers(peer_source)
+    pub fn add_peer(&mut self, peer: PeerShouldHave) {
+        self.current_parent_request.add_peer(peer)
+    }
+
+    /// Adds a list of peers to the parent request.
+    pub fn add_peers(&mut self, peers: &[PeerShouldHave]) {
+        self.current_parent_request.add_peers(peers)
     }
 
     pub fn used_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {

@@ -18,14 +18,14 @@ use beacon_processor::{
     AsyncFn, BlockingFn, DuplicateCache,
 };
 use lighthouse_network::PeerAction;
-use slog::{debug, error, info, warn};
+use slog::{debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{Epoch, Hash256};
+use types::{Epoch, Hash256, Slot};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -214,7 +214,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .process_block(block_root, block, NotifyExecutionLayer::Yes, || Ok(()))
+            .process_block_with_early_caching(block_root, block, NotifyExecutionLayer::Yes)
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
@@ -272,6 +272,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Box::pin(process_fn)
     }
 
+    /// Attempt to process a list of blobs received from a direct RPC request.
     pub async fn process_rpc_blobs(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
@@ -286,10 +287,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         };
 
-        let result = self
-            .chain
-            .check_rpc_blob_availability_and_import(slot, block_root, blobs)
-            .await;
+        let result = self.chain.process_rpc_blobs(slot, block_root, blobs).await;
 
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
@@ -298,8 +296,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    pub fn send_delayed_lookup(&self, block_root: Hash256) {
-        self.send_sync_message(SyncMessage::MissingGossipBlockComponentsDelayed(block_root))
+    /// Poll the beacon chain for any delayed lookups that are now available.
+    pub fn poll_delayed_lookups(&self, slot: Slot) {
+        let block_roots = self
+            .chain
+            .data_availability_checker
+            .incomplete_processing_components(slot);
+        if block_roots.is_empty() {
+            trace!(self.log, "No delayed lookups found on poll");
+        } else {
+            debug!(self.log, "Found delayed lookups on poll"; "lookup_count" => block_roots.len());
+        }
+        for block_root in block_roots {
+            if let Some(peer_ids) = self.delayed_lookup_peers.lock().pop(&block_root) {
+                self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
+                    peer_ids.into_iter().collect(),
+                    block_root,
+                ));
+            }
+        }
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
@@ -481,7 +496,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .into_iter()
                 .filter_map(|maybe_available| match maybe_available {
                     MaybeAvailableBlock::Available(block) => Some(block),
-                    MaybeAvailableBlock::AvailabilityPending(_) => None,
+                    MaybeAvailableBlock::AvailabilityPending { .. } => None,
                 })
                 .collect::<Vec<_>>(),
             Err(e) => match e {

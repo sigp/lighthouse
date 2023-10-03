@@ -12,6 +12,7 @@ use crate::sync::block_lookups::single_block_lookup::{
 };
 use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+pub use beacon_chain::data_availability_checker::ChildComponents;
 use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
@@ -23,7 +24,6 @@ use fnv::FnvHashMap;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-pub use single_block_lookup::CachedChildComponents;
 pub use single_block_lookup::{BlobRequestState, BlockRequestState};
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
@@ -37,7 +37,6 @@ use types::blob_sidecar::FixedBlobSidecarList;
 use types::Slot;
 
 pub mod common;
-pub(crate) mod delayed_lookup;
 mod parent_lookup;
 mod single_block_lookup;
 #[cfg(test)]
@@ -122,34 +121,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_block(
         &mut self,
         block_root: Hash256,
-        peer_source: PeerShouldHave,
+        peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let lookup = self.new_current_lookup(block_root, None, &[peer_source], cx);
-
-        if let Some(lookup) = lookup {
-            let msg = "Searching for block";
-            lookup_creation_logging(msg, &lookup, peer_source, &self.log);
-            self.trigger_single_lookup(lookup, cx);
-        }
-    }
-
-    /// Creates a lookup for the block with the given `block_root`.
-    ///
-    /// The request is not immediately triggered, and should be triggered by a call to
-    /// `trigger_lookup_by_root`.
-    pub fn search_block_delayed(
-        &mut self,
-        block_root: Hash256,
-        peer_source: PeerShouldHave,
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        let lookup = self.new_current_lookup(block_root, None, &[peer_source], cx);
-        if let Some(lookup) = lookup {
-            let msg = "Initialized delayed lookup for block";
-            lookup_creation_logging(msg, &lookup, peer_source, &self.log);
-            self.add_single_lookup(lookup)
-        }
+        self.new_current_lookup(block_root, None, peer_source, cx)
     }
 
     /// Creates a lookup for the block with the given `block_root`, while caching other block
@@ -161,44 +136,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_child_block(
         &mut self,
         block_root: Hash256,
-        child_components: CachedChildComponents<T::EthSpec>,
-        peer_source: PeerShouldHave,
+        child_components: ChildComponents<T::EthSpec>,
+        peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
-        if child_components.is_missing_components() {
-            let lookup =
-                self.new_current_lookup(block_root, Some(child_components), &[peer_source], cx);
-            if let Some(lookup) = lookup {
-                let msg = "Searching for components of a block with unknown parent";
-                lookup_creation_logging(msg, &lookup, peer_source, &self.log);
-                self.trigger_single_lookup(lookup, cx);
-            }
-        }
-    }
-
-    /// Creates a lookup for the block with the given `block_root`, while caching other block
-    /// components we've already received. The block components are cached here because we haven't
-    /// imported it's parent and therefore can't fully validate it and store it in the data
-    /// availability cache.
-    ///
-    /// The request is not immediately triggered, and should be triggered by a call to
-    /// `trigger_lookup_by_root`.
-    pub fn search_child_delayed(
-        &mut self,
-        block_root: Hash256,
-        child_components: CachedChildComponents<T::EthSpec>,
-        peer_source: PeerShouldHave,
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        if child_components.is_missing_components() {
-            let lookup =
-                self.new_current_lookup(block_root, Some(child_components), &[peer_source], cx);
-            if let Some(lookup) = lookup {
-                let msg = "Initialized delayed lookup for block with unknown parent";
-                lookup_creation_logging(msg, &lookup, peer_source, &self.log);
-                self.add_single_lookup(lookup)
-            }
-        }
+        self.new_current_lookup(block_root, Some(child_components), peer_source, cx)
     }
 
     /// Attempts to trigger the request matching the given `block_root`.
@@ -230,47 +172,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         );
     }
 
-    /// Trigger any lookups that are waiting for the given `block_root`.
-    pub fn trigger_lookup_by_root(&mut self, block_root: Hash256, cx: &SyncNetworkContext<T>) {
-        self.single_block_lookups.retain(|_id, lookup| {
-            if lookup.block_root() == block_root {
-                if lookup.da_checker.is_deneb() {
-                    let blob_indices = lookup.blob_request_state.requested_ids.indices();
-                    debug!(
-                        self.log,
-                        "Triggering delayed single lookup";
-                        "block" => ?block_root,
-                        "blob_indices" => ?blob_indices
-                    );
-                } else {
-                    debug!(
-                        self.log,
-                        "Triggering delayed single lookup";
-                        "block" => ?block_root,
-                    );
-                }
-
-                if let Err(e) = lookup.request_block_and_blobs(cx) {
-                    debug!(self.log, "Delayed single block lookup failed";
-                        "error" => ?e,
-                        "block_root" => ?block_root,
-                    );
-                    return false;
-                }
-            }
-            true
-        });
-    }
-
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
     /// constructed.
     pub fn new_current_lookup(
         &mut self,
         block_root: Hash256,
-        child_components: Option<CachedChildComponents<T::EthSpec>>,
+        child_components: Option<ChildComponents<T::EthSpec>>,
         peers: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
-    ) -> Option<SingleBlockLookup<Current, T>> {
+    ) {
         // Do not re-request a block that is already being requested
         if let Some((_, lookup)) = self
             .single_block_lookups
@@ -281,7 +191,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             if let Some(components) = child_components {
                 lookup.add_child_components(components);
             }
-            return None;
+            return;
         }
 
         if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
@@ -291,7 +201,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
             // If the block was already downloaded, or is being downloaded in this moment, do not
             // request it.
-            return None;
+            return;
         }
 
         if self
@@ -300,16 +210,30 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .any(|(hashes, _last_parent_request)| hashes.contains(&block_root))
         {
             // we are already processing this block, ignore it.
-            return None;
+            return;
         }
 
-        Some(SingleBlockLookup::new(
+        let msg = if child_components.is_some() {
+            "Searching for components of a block with unknown parent"
+        } else {
+            "Searching for block components"
+        };
+
+        let lookup = SingleBlockLookup::new(
             block_root,
             child_components,
             peers,
             self.da_checker.clone(),
             cx.next_id(),
-        ))
+        );
+
+        debug!(
+            self.log,
+            "{}", msg;
+            "peer_ids" => ?peers,
+            "block" => ?block_root,
+        );
+        self.trigger_single_lookup(lookup, cx);
     }
 
     /// If a block is attempted to be processed but we do not know its parent, this function is
@@ -337,7 +261,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
             parent_req.contains_block(&block_root) || parent_req.is_for_block(block_root)
         }) {
-            parent_lookup.add_peers(&[peer_source]);
+            parent_lookup.add_peer(peer_source);
             // we are already searching for this block, ignore it
             return;
         }
@@ -540,7 +464,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 id,
                 self,
                 block_root,
-                R::verified_to_reconstructed(verified_response),
+                R::verified_to_reconstructed(block_root, verified_response),
                 seen_timestamp,
                 cx,
             )?,
@@ -975,9 +899,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     AvailabilityCheckError::KzgNotInitialized
                     | AvailabilityCheckError::SszTypes(_)
                     | AvailabilityCheckError::MissingBlobs
-                    | AvailabilityCheckError::UnorderedBlobs { .. }
                     | AvailabilityCheckError::StoreError(_)
-                    | AvailabilityCheckError::DecodeError(_) => {
+                    | AvailabilityCheckError::DecodeError(_)
+                    | AvailabilityCheckError::Unexpected => {
                         warn!(self.log, "Internal availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
                         lookup
                             .block_request_state
@@ -990,20 +914,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         lookup.request_block_and_blobs(cx)?
                     }
 
-                    // Invalid block and blob comparison.
-                    AvailabilityCheckError::NumBlobsMismatch { .. }
-                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
-                    | AvailabilityCheckError::BlockBlobRootMismatch { .. }
-                    | AvailabilityCheckError::BlockBlobSlotMismatch { .. } => {
-                        warn!(self.log, "Availability check failure in consistency"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
-                        lookup.handle_consistency_failure(cx);
-                        lookup.request_block_and_blobs(cx)?
-                    }
-
                     // Malicious errors.
                     AvailabilityCheckError::Kzg(_)
                     | AvailabilityCheckError::BlobIndexInvalid(_)
-                    | AvailabilityCheckError::KzgVerificationFailed => {
+                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
+                    | AvailabilityCheckError::KzgVerificationFailed
+                    | AvailabilityCheckError::InconsistentBlobBlockRoots { .. } => {
                         warn!(self.log, "Availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
                         lookup.handle_availability_check_failure(cx);
                         lookup.request_block_and_blobs(cx)?
@@ -1478,31 +1394,5 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Drops all the parent chain requests and returns how many requests were dropped.
     pub fn drop_parent_chain_requests(&mut self) -> usize {
         self.parent_lookups.drain(..).len()
-    }
-}
-
-fn lookup_creation_logging<L: Lookup, T: BeaconChainTypes>(
-    msg: &str,
-    lookup: &SingleBlockLookup<L, T>,
-    peer_source: PeerShouldHave,
-    log: &Logger,
-) {
-    let block_root = lookup.block_root();
-    if lookup.da_checker.is_deneb() {
-        let blob_indices = lookup.blob_request_state.requested_ids.indices();
-        debug!(
-            log,
-            "{}", msg;
-            "peer_id" => ?peer_source,
-            "block" => ?block_root,
-            "blob_indices" => ?blob_indices
-        );
-    } else {
-        debug!(
-            log,
-            "{}", msg;
-            "peer_id" => ?peer_source,
-            "block" => ?block_root,
-        );
     }
 }

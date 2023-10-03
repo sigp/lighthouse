@@ -60,6 +60,7 @@ use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
+use types::test_utils::TestRandom;
 use types::{typenum::U4294967296, *};
 
 // 4th September 2019
@@ -709,14 +710,14 @@ where
         let block = self.chain.head_beacon_block();
         let block_root = block.canonical_root();
         let blobs = self.chain.get_blobs(&block_root).unwrap();
-        RpcBlock::new(block, Some(blobs)).unwrap()
+        RpcBlock::new(Some(block_root), block, Some(blobs)).unwrap()
     }
 
     pub fn get_full_block(&self, block_root: &Hash256) -> RpcBlock<E> {
         let block = self.chain.get_blinded_block(block_root).unwrap().unwrap();
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
         let blobs = self.chain.get_blobs(block_root).unwrap();
-        RpcBlock::new(Arc::new(full_block), Some(blobs)).unwrap()
+        RpcBlock::new(Some(*block_root), Arc::new(full_block), Some(blobs)).unwrap()
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -1922,7 +1923,7 @@ where
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Arc::new(block), blobs_without_signatures).unwrap(),
+                RpcBlock::new(Some(block_root), Arc::new(block), blobs_without_signatures).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -1947,11 +1948,12 @@ where
                     .collect::<Vec<_>>(),
             )
         });
+        let block_root = block.canonical_root();
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
-                block.canonical_root(),
-                RpcBlock::new(Arc::new(block), blobs_without_signatures).unwrap(),
+                block_root,
+                RpcBlock::new(Some(block_root), Arc::new(block), blobs_without_signatures).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -2512,4 +2514,65 @@ pub fn build_log(level: slog::Level, enabled: bool) -> Logger {
     } else {
         Logger::root(drain.filter(|_| false).fuse(), o!())
     }
+}
+
+pub enum NumBlobs {
+    Random,
+    None,
+}
+
+pub fn generate_rand_block_and_blobs<E: EthSpec>(
+    fork_name: ForkName,
+    num_blobs: NumBlobs,
+    kzg: &Kzg<E::Kzg>,
+    rng: &mut impl Rng,
+) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
+    let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
+    let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
+    let mut blob_sidecars = vec![];
+    if let Ok(message) = block.message_deneb_mut() {
+        // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
+        let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
+        let num_blobs = match num_blobs {
+            NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+            NumBlobs::None => 0,
+        };
+        let (bundle, transactions) =
+            execution_layer::test_utils::generate_random_blobs::<E, _>(num_blobs, kzg, rng)
+                .unwrap();
+
+        payload.execution_payload.transactions = <_>::default();
+        for tx in Vec::from(transactions) {
+            payload.execution_payload.transactions.push(tx).unwrap();
+        }
+        message.body.blob_kzg_commitments = bundle.commitments.clone();
+
+        let eth2::types::BlobsBundle {
+            commitments,
+            proofs,
+            blobs,
+        } = bundle;
+
+        let block_root = block.canonical_root();
+
+        for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
+            .into_iter()
+            .zip(commitments.into_iter())
+            .zip(proofs.into_iter())
+            .enumerate()
+        {
+            blob_sidecars.push(BlobSidecar {
+                block_root,
+                index: index as u64,
+                slot: block.slot(),
+                block_parent_root: block.parent_root(),
+                proposer_index: block.message().proposer_index(),
+                blob: blob.clone(),
+                kzg_commitment,
+                kzg_proof,
+            });
+        }
+    }
+
+    (block, blob_sidecars)
 }

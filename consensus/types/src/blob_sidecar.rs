@@ -23,6 +23,19 @@ pub struct BlobIdentifier {
     pub index: u64,
 }
 
+impl BlobIdentifier {
+    pub fn get_all_blob_ids<E: EthSpec>(block_root: Hash256) -> Vec<BlobIdentifier> {
+        let mut blob_ids = Vec::with_capacity(E::max_blobs_per_block());
+        for i in 0..E::max_blobs_per_block() {
+            blob_ids.push(BlobIdentifier {
+                block_root,
+                index: i as u64,
+            });
+        }
+        blob_ids
+    }
+}
+
 impl PartialOrd for BlobIdentifier {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.index.partial_cmp(&other.index)

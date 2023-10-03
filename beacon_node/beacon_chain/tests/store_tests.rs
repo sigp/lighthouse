@@ -2217,7 +2217,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         beacon_chain
             .process_block(
                 full_block.canonical_root(),
-                RpcBlock::new(Arc::new(full_block), Some(blobs)).unwrap(),
+                RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs)).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -2277,7 +2277,9 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         if let MaybeAvailableBlock::Available(block) = harness
             .chain
             .data_availability_checker
-            .check_rpc_block_availability(RpcBlock::new(Arc::new(full_block), Some(blobs)).unwrap())
+            .check_rpc_block_availability(
+                RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs)).unwrap(),
+            )
             .expect("should check availability")
         {
             available_blocks.push(block);

@@ -10,19 +10,18 @@ use super::*;
 use crate::sync::block_lookups::common::ResponseType;
 use beacon_chain::builder::Witness;
 use beacon_chain::eth1_chain::CachingEth1Backend;
-use beacon_chain::test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType};
+use beacon_chain::test_utils::{
+    build_log, generate_rand_block_and_blobs, BeaconChainHarness, EphemeralHarnessType, NumBlobs,
+};
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RPCResponseErrorCode;
 use lighthouse_network::{NetworkGlobals, Request};
-use rand::Rng;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::{
-    map_fork_name, map_fork_name_with,
-    test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconBlock, BlobSidecar, EthSpec, ForkName, FullPayloadDeneb, MinimalEthSpec as E,
-    SignedBeaconBlock,
+    test_utils::{SeedableRng, XorShiftRng},
+    BlobSidecar, EthSpec, ForkName, MinimalEthSpec as E, SignedBeaconBlock,
 };
 
 type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
@@ -35,11 +34,6 @@ struct TestRig {
 }
 
 const D: Duration = Duration::new(0, 0);
-
-enum NumBlobs {
-    Random,
-    None,
-}
 
 impl TestRig {
     fn test_setup(enable_log: bool) -> (BlockLookups<T>, SyncNetworkContext<T>, Self) {
@@ -97,59 +91,10 @@ impl TestRig {
         fork_name: ForkName,
         num_blobs: NumBlobs,
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
-        let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(&mut self.rng));
-        let mut block =
-            SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(&mut self.rng));
-        let mut blob_sidecars = vec![];
-        if let Ok(message) = block.message_deneb_mut() {
-            // get random number between 0 and Max Blobs
-            let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
-            let num_blobs = match num_blobs {
-                NumBlobs::Random => 1 + self.rng.gen::<usize>() % E::max_blobs_per_block(),
-                NumBlobs::None => 0,
-            };
-            let (bundle, transactions) =
-                execution_layer::test_utils::generate_random_blobs::<E, _>(
-                    num_blobs,
-                    self.harness.chain.kzg.as_ref().unwrap(),
-                    &mut self.rng,
-                )
-                .unwrap();
+        let kzg = self.harness.chain.kzg.as_ref().unwrap();
+        let rng = &mut self.rng;
 
-            payload.execution_payload.transactions = <_>::default();
-            for tx in Vec::from(transactions) {
-                payload.execution_payload.transactions.push(tx).unwrap();
-            }
-            message.body.blob_kzg_commitments = bundle.commitments.clone();
-
-            let eth2::types::BlobsBundle {
-                commitments,
-                proofs,
-                blobs,
-            } = bundle;
-
-            let block_root = block.canonical_root();
-
-            for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
-                .into_iter()
-                .zip(commitments.into_iter())
-                .zip(proofs.into_iter())
-                .enumerate()
-            {
-                blob_sidecars.push(BlobSidecar {
-                    block_root,
-                    index: index as u64,
-                    slot: block.slot(),
-                    block_parent_root: block.parent_root(),
-                    proposer_index: block.message().proposer_index(),
-                    blob: blob.clone(),
-                    kzg_commitment,
-                    kzg_proof,
-                });
-            }
-        }
-
-        (block, blob_sidecars)
+        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, kzg.as_ref(), rng)
     }
 
     #[track_caller]
@@ -292,7 +237,11 @@ fn test_single_block_lookup_happy_path() {
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
     // Trigger the request
-    bl.search_block(block_root, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
+    bl.search_block(
+        block_root,
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
+        &mut cx,
+    );
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -340,7 +289,11 @@ fn test_single_block_lookup_empty_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
+    bl.search_block(
+        block_hash,
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
+        &mut cx,
+    );
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -368,7 +321,11 @@ fn test_single_block_lookup_wrong_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
+    bl.search_block(
+        block_hash,
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
+        &mut cx,
+    );
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -406,7 +363,11 @@ fn test_single_block_lookup_failure() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
+    bl.search_block(
+        block_hash,
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
+        &mut cx,
+    );
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -440,7 +401,7 @@ fn test_single_block_lookup_becomes_parent_request() {
     // Trigger the request
     bl.search_block(
         block.canonical_root(),
-        PeerShouldHave::BlockAndBlobs(peer_id),
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
         &mut cx,
     );
     let id = rig.expect_lookup_request(response_type);
@@ -469,7 +430,7 @@ fn test_single_block_lookup_becomes_parent_request() {
     // parent request after processing.
     bl.single_block_component_processed::<BlockRequestState<Current>>(
         id.id,
-        BlockError::ParentUnknown(block.into()).into(),
+        BlockError::ParentUnknown(RpcBlock::new_without_blobs(None, block)).into(),
         &mut cx,
     );
     assert_eq!(bl.single_block_lookups.len(), 1);
@@ -978,7 +939,7 @@ fn test_parent_lookup_too_deep() {
         // the processing result
         bl.parent_block_processed(
             chain_hash,
-            BlockError::ParentUnknown(block.into()).into(),
+            BlockError::ParentUnknown(RpcBlock::new_without_blobs(None, block)).into(),
             &mut cx,
         )
     }
@@ -1026,7 +987,7 @@ fn test_single_block_lookup_ignored_response() {
     // Trigger the request
     bl.search_block(
         block.canonical_root(),
-        PeerShouldHave::BlockAndBlobs(peer_id),
+        &[PeerShouldHave::BlockAndBlobs(peer_id)],
         &mut cx,
     );
     let id = rig.expect_lookup_request(response_type);
@@ -1188,7 +1149,7 @@ fn test_same_chain_race_condition() {
         } else {
             bl.parent_block_processed(
                 chain_hash,
-                BlockError::ParentUnknown(block.into()).into(),
+                BlockError::ParentUnknown(RpcBlock::new_without_blobs(None, block)).into(),
                 &mut cx,
             )
         }
@@ -1223,6 +1184,7 @@ mod deneb_only {
     use super::*;
     use crate::sync::block_lookups::common::ResponseType;
     use beacon_chain::data_availability_checker::AvailabilityCheckError;
+    use beacon_chain::test_utils::NumBlobs;
     use std::ops::IndexMut;
     use std::str::FromStr;
 
@@ -1278,7 +1240,7 @@ mod deneb_only {
                     RequestTrigger::AttestationUnknownBlock => {
                         bl.search_block(
                             block_root,
-                            PeerShouldHave::BlockAndBlobs(peer_id),
+                            &[PeerShouldHave::BlockAndBlobs(peer_id)],
                             &mut cx,
                         );
                         let block_req_id = rig.expect_lookup_request(ResponseType::Block);
@@ -1302,8 +1264,8 @@ mod deneb_only {
                         block_root = child_root;
                         bl.search_child_block(
                             child_root,
-                            CachedChildComponents::new(Some(child_block), None),
-                            PeerShouldHave::Neither(peer_id),
+                            ChildComponents::new(child_root, Some(child_block), None),
+                            &[PeerShouldHave::Neither(peer_id)],
                             &mut cx,
                         );
 
@@ -1340,8 +1302,8 @@ mod deneb_only {
                         *blobs.index_mut(0) = Some(child_blob);
                         bl.search_child_block(
                             child_root,
-                            CachedChildComponents::new(None, Some(blobs)),
-                            PeerShouldHave::Neither(peer_id),
+                            ChildComponents::new(child_root, None, Some(blobs)),
+                            &[PeerShouldHave::Neither(peer_id)],
                             &mut cx,
                         );
 
@@ -1359,7 +1321,7 @@ mod deneb_only {
                         )
                     }
                     RequestTrigger::GossipUnknownBlockOrBlob => {
-                        bl.search_block(block_root, PeerShouldHave::Neither(peer_id), &mut cx);
+                        bl.search_block(block_root, &[PeerShouldHave::Neither(peer_id)], &mut cx);
                         let block_req_id = rig.expect_lookup_request(ResponseType::Block);
                         let blob_req_id = rig.expect_lookup_request(ResponseType::Blob);
                         (Some(block_req_id), Some(blob_req_id), None, None)
@@ -1563,6 +1525,7 @@ mod deneb_only {
             self.bl.parent_block_processed(
                 self.block_root,
                 BlockProcessingResult::Err(BlockError::ParentUnknown(RpcBlock::new_without_blobs(
+                    Some(self.block_root),
                     self.parent_block.clone().expect("parent block"),
                 ))),
                 &mut self.cx,

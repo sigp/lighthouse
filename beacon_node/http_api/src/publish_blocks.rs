@@ -198,7 +198,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
 
     if let Some(gossip_verified_blobs) = gossip_verified_blobs {
         for blob in gossip_verified_blobs {
-            if let Err(e) = chain.process_blob(blob).await {
+            if let Err(e) = chain.process_gossip_blob(blob).await {
                 return Err(warp_utils::reject::custom_bad_request(format!(
                     "Invalid blob: {e}"
                 )));

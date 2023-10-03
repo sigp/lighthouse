@@ -3,7 +3,7 @@ use crate::block_verification::BlockError;
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
-use crate::{data_availability_checker, GossipVerifiedBlock, PayloadVerificationOutcome};
+use crate::{get_block_root, GossipVerifiedBlock, PayloadVerificationOutcome};
 use derivative::Derivative;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
@@ -35,7 +35,14 @@ use types::{
 #[derive(Debug, Clone, Derivative)]
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub struct RpcBlock<E: EthSpec> {
+    block_root: Hash256,
     block: RpcBlockInner<E>,
+}
+
+impl<E: EthSpec> RpcBlock<E> {
+    pub fn block_root(&self) -> Hash256 {
+        self.block_root
+    }
 }
 
 /// Note: This variant is intentionally private because we want to safely construct the
@@ -53,8 +60,14 @@ enum RpcBlockInner<E: EthSpec> {
 
 impl<E: EthSpec> RpcBlock<E> {
     /// Constructs a `Block` variant.
-    pub fn new_without_blobs(block: Arc<SignedBeaconBlock<E>>) -> Self {
+    pub fn new_without_blobs(
+        block_root: Option<Hash256>,
+        block: Arc<SignedBeaconBlock<E>>,
+    ) -> Self {
+        let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
+
         Self {
+            block_root,
             block: RpcBlockInner::Block(block),
         }
     }
@@ -62,20 +75,48 @@ impl<E: EthSpec> RpcBlock<E> {
     /// Constructs a new `BlockAndBlobs` variant after making consistency
     /// checks between the provided blocks and blobs.
     pub fn new(
+        block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
     ) -> Result<Self, AvailabilityCheckError> {
-        if let Some(blobs) = blobs.as_ref() {
-            data_availability_checker::consistency_checks(&block, blobs)?;
+        let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
+
+        if let (Some(blobs), Ok(block_commitments)) = (
+            blobs.as_ref(),
+            block.message().body().blob_kzg_commitments(),
+        ) {
+            if blobs.len() != block_commitments.len() {
+                return Err(AvailabilityCheckError::MissingBlobs);
+            }
+            for (blob, &block_commitment) in blobs.iter().zip(block_commitments.iter()) {
+                let blob_block_root = blob.block_root;
+                if blob_block_root != block_root {
+                    return Err(AvailabilityCheckError::InconsistentBlobBlockRoots {
+                        block_root,
+                        blob_block_root,
+                    });
+                }
+                let blob_commitment = blob.kzg_commitment;
+                if blob_commitment != block_commitment {
+                    return Err(AvailabilityCheckError::KzgCommitmentMismatch {
+                        block_commitment,
+                        blob_commitment,
+                    });
+                }
+            }
         }
         let inner = match blobs {
             Some(blobs) => RpcBlockInner::BlockAndBlobs(block, blobs),
             None => RpcBlockInner::Block(block),
         };
-        Ok(Self { block: inner })
+        Ok(Self {
+            block_root,
+            block: inner,
+        })
     }
 
     pub fn new_from_fixed(
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: FixedBlobSidecarList<E>,
     ) -> Result<Self, AvailabilityCheckError> {
@@ -88,13 +129,20 @@ impl<E: EthSpec> RpcBlock<E> {
         } else {
             Some(VariableList::from(filtered))
         };
-        Self::new(block, blobs)
+        Self::new(Some(block_root), block, blobs)
     }
 
-    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<BlobSidecarList<E>>) {
+    pub fn deconstruct(
+        self,
+    ) -> (
+        Hash256,
+        Arc<SignedBeaconBlock<E>>,
+        Option<BlobSidecarList<E>>,
+    ) {
+        let block_root = self.block_root();
         match self.block {
-            RpcBlockInner::Block(block) => (block, None),
-            RpcBlockInner::BlockAndBlobs(block, blobs) => (block, Some(blobs)),
+            RpcBlockInner::Block(block) => (block_root, block, None),
+            RpcBlockInner::BlockAndBlobs(block, blobs) => (block_root, block, Some(blobs)),
         }
     }
     pub fn n_blobs(&self) -> usize {
@@ -102,18 +150,6 @@ impl<E: EthSpec> RpcBlock<E> {
             RpcBlockInner::Block(_) => 0,
             RpcBlockInner::BlockAndBlobs(_, blobs) => blobs.len(),
         }
-    }
-}
-
-impl<E: EthSpec> From<Arc<SignedBeaconBlock<E>>> for RpcBlock<E> {
-    fn from(value: Arc<SignedBeaconBlock<E>>) -> Self {
-        Self::new_without_blobs(value)
-    }
-}
-
-impl<E: EthSpec> From<SignedBeaconBlock<E>> for RpcBlock<E> {
-    fn from(value: SignedBeaconBlock<E>) -> Self {
-        Self::new_without_blobs(Arc::new(value))
     }
 }
 
@@ -146,13 +182,14 @@ impl<E: EthSpec> ExecutedBlock<E> {
                     payload_verification_outcome,
                 ))
             }
-            MaybeAvailableBlock::AvailabilityPending(pending_block) => {
-                Self::AvailabilityPending(AvailabilityPendingExecutedBlock::new(
-                    pending_block,
-                    import_data,
-                    payload_verification_outcome,
-                ))
-            }
+            MaybeAvailableBlock::AvailabilityPending {
+                block_root: _,
+                block: pending_block,
+            } => Self::AvailabilityPending(AvailabilityPendingExecutedBlock::new(
+                pending_block,
+                import_data,
+                payload_verification_outcome,
+            )),
         }
     }
 
@@ -235,26 +272,16 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
         }
     }
 
+    pub fn as_block(&self) -> &SignedBeaconBlock<E> {
+        &self.block
+    }
+
     pub fn num_blobs_expected(&self) -> usize {
         self.block
             .message()
             .body()
             .blob_kzg_commitments()
             .map_or(0, |commitments| commitments.len())
-    }
-
-    pub fn get_all_blob_ids(&self) -> Vec<BlobIdentifier> {
-        let block_root = self.import_data.block_root;
-        self.block
-            .get_filtered_blob_ids(Some(block_root), |_, _| true)
-    }
-
-    pub fn get_filtered_blob_ids(
-        &self,
-        filter: impl Fn(usize, Hash256) -> bool,
-    ) -> Vec<BlobIdentifier> {
-        self.block
-            .get_filtered_blob_ids(Some(self.import_data.block_root), filter)
     }
 }
 
@@ -358,7 +385,7 @@ impl<E: EthSpec> AsBlock<E> for Arc<SignedBeaconBlock<E>> {
     }
 
     fn into_rpc_block(self) -> RpcBlock<E> {
-        RpcBlock::new_without_blobs(self)
+        RpcBlock::new_without_blobs(None, self)
     }
 }
 
@@ -384,13 +411,19 @@ impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self {
             MaybeAvailableBlock::Available(block) => block.as_block(),
-            MaybeAvailableBlock::AvailabilityPending(block) => block,
+            MaybeAvailableBlock::AvailabilityPending {
+                block_root: _,
+                block,
+            } => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self {
             MaybeAvailableBlock::Available(block) => block.block_cloned(),
-            MaybeAvailableBlock::AvailabilityPending(block) => block.clone(),
+            MaybeAvailableBlock::AvailabilityPending {
+                block_root: _,
+                block,
+            } => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {
@@ -400,7 +433,9 @@ impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
     fn into_rpc_block(self) -> RpcBlock<E> {
         match self {
             MaybeAvailableBlock::Available(available_block) => available_block.into_rpc_block(),
-            MaybeAvailableBlock::AvailabilityPending(block) => RpcBlock::new_without_blobs(block),
+            MaybeAvailableBlock::AvailabilityPending { block_root, block } => {
+                RpcBlock::new_without_blobs(Some(block_root), block)
+            }
         }
     }
 }
@@ -443,14 +478,17 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     }
 
     fn into_rpc_block(self) -> RpcBlock<E> {
-        let (block, blobs_opt) = self.deconstruct();
+        let (block_root, block, blobs_opt) = self.deconstruct();
         // Circumvent the constructor here, because an Available block will have already had
         // consistency checks performed.
         let inner = match blobs_opt {
             None => RpcBlockInner::Block(block),
             Some(blobs) => RpcBlockInner::BlockAndBlobs(block, blobs),
         };
-        RpcBlock { block: inner }
+        RpcBlock {
+            block_root,
+            block: inner,
+        }
     }
 }
 

@@ -827,7 +827,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         drop(fork_choice_read_lock);
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-        let (parent_block, block) = verify_parent_block_is_known(chain, block)?;
+        let (parent_block, block) = verify_parent_block_is_known(block_root, chain, block)?;
 
         // Track the number of skip slots between the block and its parent.
         metrics::set_gauge(
@@ -1085,7 +1085,10 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         if signature_verifier.verify().is_ok() {
             Ok(Self {
-                block: MaybeAvailableBlock::AvailabilityPending(block),
+                block: MaybeAvailableBlock::AvailabilityPending {
+                    block_root: from.block_root,
+                    block,
+                },
                 block_root: from.block_root,
                 parent: Some(parent),
                 consensus_context,
@@ -1156,7 +1159,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
         let maybe_available = chain
             .data_availability_checker
-            .check_rpc_block_availability(RpcBlock::new_without_blobs(self.clone()))
+            .check_rpc_block_availability(RpcBlock::new_without_blobs(
+                Some(block_root),
+                self.clone(),
+            ))
             .map_err(|e| {
                 BlockSlashInfo::SignatureNotChecked(
                     self.signed_block_header(),
@@ -1756,6 +1762,7 @@ pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
 /// fork choice.
 #[allow(clippy::type_complexity)]
 fn verify_parent_block_is_known<T: BeaconChainTypes>(
+    block_root: Hash256,
     chain: &BeaconChain<T>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError<T::EthSpec>> {
@@ -1767,6 +1774,7 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
         Ok((proto_block, block))
     } else {
         Err(BlockError::ParentUnknown(RpcBlock::new_without_blobs(
+            Some(block_root),
             block,
         )))
     }

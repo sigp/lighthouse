@@ -106,10 +106,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
         for available_block in blocks_to_import.into_iter().rev() {
-            let (block, maybe_blobs) = available_block.deconstruct();
-
-            // Check chain integrity.
-            let block_root = block.canonical_root();
+            let (block_root, block, maybe_blobs) = available_block.deconstruct();
 
             if block_root != expected_block_root {
                 return Err(HistoricalBlockError::MismatchedBlockRoot {
