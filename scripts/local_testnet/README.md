@@ -15,7 +15,7 @@ The first step is to install Rust and dependencies. Refer to the [Lighthouse Boo
 Then, we clone the Lighthouse repository:
 ```bash
 cd ~
-https://github.com/sigp/lighthouse.git
+git clone https://github.com/sigp/lighthouse.git
 cd lighthouse
 ```
 We are now ready to build Lighthouse. Run the command:
