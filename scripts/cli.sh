@@ -77,6 +77,7 @@ else
     cp $2 $1
     changes=true
     update+=(true)
+    echo "$1 has been updated"
 fi
 }
 
