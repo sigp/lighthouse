@@ -74,7 +74,7 @@ if [[ -z $diff ]]; then # check for difference
     update+=(false)
     return 1 # exit a function (i.e., do nothing)
 else
-    cp $2 ./book/src
+    cp $2 $1
     changes=true
     update+=(true)
 fi
