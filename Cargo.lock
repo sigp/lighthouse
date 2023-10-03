@@ -1700,7 +1700,7 @@ dependencies = [
  "aes-gcm",
  "arrayvec",
  "delay_map",
- "enr 0.9.1",
+ "enr",
  "fnv",
  "futures",
  "hashlink 0.7.0",
@@ -5263,15 +5263,6 @@ name = "openssl-probe"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
-
-[[package]]
-name = "openssl-src"
-version = "300.1.5+3.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "559068e4c12950d7dcaa1857a61725c0d38d4fc03ff8e070ab31a75d6e316491"
-dependencies = [
- "cc",
-]
 
 [[package]]
 name = "openssl-sys"

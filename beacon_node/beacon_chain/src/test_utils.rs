@@ -634,7 +634,7 @@ where
         let mock_el_builder = mock_el.el.builder().unwrap();
         assert!(Arc::ptr_eq(&el_builder, &mock_el_builder));
 
-        mock_builder_server
+        mock_builder_server.await
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
