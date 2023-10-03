@@ -786,7 +786,7 @@ mod test {
     async fn get_deneb_chain<E: EthSpec>(
         log: Logger,
         db_path: &TempDir,
-    ) -> BeaconChainHarness<BaseHarnessType<E, LevelDB<E>, LevelDB<E>>> {
+    ) -> BeaconChainHarness<DiskHarnessType<E>> {
         let altair_fork_epoch = Epoch::new(1);
         let bellatrix_fork_epoch = Epoch::new(2);
         let bellatrix_fork_slot = bellatrix_fork_epoch.start_slot(E::slots_per_epoch());
@@ -953,7 +953,6 @@ mod test {
 
     async fn availability_pending_block<E, Hot, Cold>(
         harness: &BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>,
-        log: Logger,
     ) -> (
         AvailabilityPendingExecutedBlock<E>,
         Vec<GossipVerifiedBlob<BaseHarnessType<E, Hot, Cold>>>,
@@ -964,6 +963,7 @@ mod test {
         Cold: ItemStore<E>,
     {
         let chain = &harness.chain;
+        let log = chain.log.clone();
         let head = chain.head_snapshot();
         let parent_state = head.beacon_state.clone_with_only_committee_caches();
 
@@ -1042,22 +1042,36 @@ mod test {
         (availability_pending_block, gossip_verified_blobs)
     }
 
-    #[tokio::test]
-    async fn overflow_cache_test_insert_components() {
-        type E = MinimalEthSpec;
-        type T = DiskHarnessType<E>;
+    async fn setup_harness_and_cache<E, T>(
+        capacity: usize,
+    ) -> (
+        BeaconChainHarness<DiskHarnessType<E>>,
+        Arc<OverflowLRUCache<T>>,
+    )
+    where
+        E: EthSpec,
+        T: BeaconChainTypes<HotStore = LevelDB<E>, ColdStore = LevelDB<E>, EthSpec = E>,
+    {
         let log = test_logger();
         let chain_db_path = tempdir().expect("should get temp dir");
-        let harness: BeaconChainHarness<T> = get_deneb_chain(log.clone(), &chain_db_path).await;
+        let harness = get_deneb_chain(log.clone(), &chain_db_path).await;
         let spec = harness.spec.clone();
-        let capacity = 4;
         let test_store = harness.chain.store.clone();
         let cache = Arc::new(
             OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
                 .expect("should create cache"),
         );
+        (harness, cache)
+    }
 
-        let (pending_block, blobs) = availability_pending_block(&harness, log.clone()).await;
+    #[tokio::test]
+    async fn overflow_cache_test_insert_components() {
+        type E = MinimalEthSpec;
+        type T = DiskHarnessType<E>;
+        let capacity = 4;
+        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+
+        let (pending_block, blobs) = availability_pending_block(&harness).await;
         let root = pending_block.import_data.block_root;
 
         let blobs_expected = pending_block.num_blobs_expected();
@@ -1125,7 +1139,7 @@ mod test {
             "cache should be empty now that all components available"
         );
 
-        let (pending_block, blobs) = availability_pending_block(&harness, log.clone()).await;
+        let (pending_block, blobs) = availability_pending_block(&harness).await;
         let blobs_expected = pending_block.num_blobs_expected();
         assert_eq!(
             blobs.len(),
@@ -1166,22 +1180,14 @@ mod test {
     async fn overflow_cache_test_overflow() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
-        let log = test_logger();
-        let chain_db_path = tempdir().expect("should get temp dir");
-        let harness: BeaconChainHarness<T> = get_deneb_chain(log.clone(), &chain_db_path).await;
-        let spec = harness.spec.clone();
         let capacity = 4;
-        let test_store = harness.chain.store.clone();
-        let cache = Arc::new(
-            OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
-                .expect("should create cache"),
-        );
+        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let mut pending_blocks = VecDeque::new();
         let mut pending_blobs = VecDeque::new();
         let mut roots = VecDeque::new();
         while pending_blobs.len() < capacity + 1 {
-            let (pending_block, blobs) = availability_pending_block(&harness, log.clone()).await;
+            let (pending_block, blobs) = availability_pending_block(&harness).await;
             if pending_block.num_blobs_expected() == 0 {
                 // we need blocks with blobs
                 continue;
@@ -1325,24 +1331,16 @@ mod test {
     async fn overflow_cache_test_maintenance() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
-        let log = test_logger();
-        let chain_db_path = tempdir().expect("should get temp dir");
-        let harness: BeaconChainHarness<T> = get_deneb_chain(log.clone(), &chain_db_path).await;
-        let spec = harness.spec.clone();
-        let n_epochs = 4;
         let capacity = E::slots_per_epoch() as usize;
-        let test_store = harness.chain.store.clone();
-        let cache = Arc::new(
-            OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
-                .expect("should create cache"),
-        );
+        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
 
+        let n_epochs = 4;
         let mut pending_blocks = VecDeque::new();
         let mut pending_blobs = VecDeque::new();
         let mut roots = VecDeque::new();
         let mut epoch_count = BTreeMap::new();
         while pending_blobs.len() < n_epochs * capacity {
-            let (pending_block, blobs) = availability_pending_block(&harness, log.clone()).await;
+            let (pending_block, blobs) = availability_pending_block(&harness).await;
             if pending_block.num_blobs_expected() == 0 {
                 // we need blocks with blobs
                 continue;
@@ -1456,7 +1454,7 @@ mod test {
             let mem_keys = cache.critical.read().in_memory.len();
             expected_length -= count;
             info!(
-                log,
+                harness.chain.log,
                 "EPOCH: {} DISK KEYS: {} MEM KEYS: {} TOTAL: {} EXPECTED: {}",
                 epoch,
                 disk_keys,
@@ -1476,24 +1474,16 @@ mod test {
     async fn overflow_cache_test_persist_recover() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
-        let log = test_logger();
-        let chain_db_path = tempdir().expect("should get temp dir");
-        let harness: BeaconChainHarness<T> = get_deneb_chain(log.clone(), &chain_db_path).await;
-        let spec = harness.spec.clone();
-        let n_epochs = 4;
         let capacity = E::slots_per_epoch() as usize;
-        let test_store = harness.chain.store.clone();
-        let cache = Arc::new(
-            OverflowLRUCache::<T>::new(capacity, test_store.clone(), spec.clone())
-                .expect("should create cache"),
-        );
+        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
 
+        let n_epochs = 4;
         let mut pending_blocks = VecDeque::new();
         let mut pending_blobs = VecDeque::new();
         let mut roots = VecDeque::new();
         let mut epoch_count = BTreeMap::new();
         while pending_blobs.len() < n_epochs * capacity {
-            let (pending_block, blobs) = availability_pending_block(&harness, log.clone()).await;
+            let (pending_block, blobs) = availability_pending_block(&harness).await;
             if pending_block.num_blobs_expected() == 0 {
                 // we need blocks with blobs
                 continue;
@@ -1612,8 +1602,12 @@ mod test {
         drop(cache);
 
         // create a new cache with the same store
-        let recovered_cache = OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
-            .expect("should recover cache");
+        let recovered_cache = OverflowLRUCache::<T>::new(
+            capacity,
+            harness.chain.store.clone(),
+            harness.chain.spec.clone(),
+        )
+        .expect("should recover cache");
         // again, everything should be on disk
         assert_eq!(
             recovered_cache
