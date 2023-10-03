@@ -124,7 +124,7 @@ OPTIONS:
             recommended in production). If no value is supplied, the CORS allowed origin is set to the listen address of
             this server (e.g., http://localhost:5062).
         --http-port <PORT>
-            Set the listen TCP port for the RESTful HTTP API server. [default: 5062]
+            Set the listen TCP port for the RESTful HTTP API server.
 
         --latency-measurement-service <BOOLEAN>
             Set to 'true' to enable a service that periodically attempts to measure latency to BNs. Set to 'false' to
@@ -149,14 +149,14 @@ OPTIONS:
             The maximum size (in MB) each log file can grow to before rotating. If set to 0, background file logging is
             disabled. [default: 200]
         --metrics-address <ADDRESS>
-            Set the listen address for the Prometheus metrics HTTP server. [default: 127.0.0.1]
+            Set the listen address for the Prometheus metrics HTTP server.
 
         --metrics-allow-origin <ORIGIN>
             Set the value of the Access-Control-Allow-Origin response HTTP header. Use * to allow any origin (not
             recommended in production). If no value is supplied, the CORS allowed origin is set to the listen address of
             this server (e.g., http://localhost:5064).
         --metrics-port <PORT>
-            Set the listen TCP port for the Prometheus metrics HTTP server. [default: 5064]
+            Set the listen TCP port for the Prometheus metrics HTTP server.
 
         --monitoring-endpoint <ADDRESS>
             Enables the monitoring service for sending system metrics to a remote endpoint. This can be used to monitor
