@@ -55,7 +55,7 @@ To start a testnet using the predetermined settings:
 
 ```bash
 cd ~
-cd /lighthouse/scripts/local_testnet
+cd ./lighthouse/scripts/local_testnet
 ./start_local_testnet.sh genesis.json
 ```
 
