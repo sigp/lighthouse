@@ -17,12 +17,13 @@ fn get_slot_clock<T: BeaconChainTypes>(
     log: &Logger,
 ) -> Result<Option<T::SlotClock>, Error> {
     let spec = db.get_chain_spec();
-    let genesis_block = if let Some(block) = db.get_blinded_block(&Hash256::zero())? {
-        block
-    } else {
-        error!(log, "Missing genesis block");
-        return Ok(None);
-    };
+    let genesis_block =
+        if let Some(block) = db.get_blinded_block(&Hash256::zero(), Some(Slot::new(0)))? {
+            block
+        } else {
+            error!(log, "Missing genesis block");
+            return Ok(None);
+        };
     let genesis_state =
         if let Some(state) = db.get_state(&genesis_block.state_root(), Some(Slot::new(0)))? {
             state

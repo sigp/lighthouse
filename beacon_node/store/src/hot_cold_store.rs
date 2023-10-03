@@ -26,7 +26,7 @@ use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
-use slog::{debug, error, info, warn, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -213,7 +213,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             cold_db: MemoryStore::open(),
             blobs_db: Some(MemoryStore::open()),
             hot_db: MemoryStore::open(),
-            block_cache: Mutex::new(BlockCache::new(config.block_cache_size.get())),
+            block_cache: Mutex::new(BlockCache::new(block_cache_size.get())),
             state_cache: Mutex::new(StateCache::new(state_cache_size)),
             immutable_validators: Arc::new(RwLock::new(Default::default())),
             historic_state_cache: Mutex::new(LruCache::new(historic_state_cache_size.get())),
@@ -256,14 +256,14 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         let diff_buffer_cache_size =
             NonZeroUsize::new(config.diff_buffer_cache_size).ok_or(Error::ZeroCacheSize)?;
 
-        let db = HotColdDB {
+        let mut db = HotColdDB {
             split: RwLock::new(Split::default()),
             anchor_info: RwLock::new(None),
             blob_info: RwLock::new(BlobInfo::default()),
             cold_db: LevelDB::open(cold_path)?,
             blobs_db: None,
             hot_db: LevelDB::open(hot_path)?,
-            block_cache: Mutex::new(BlockCache::new(config.block_cache_size.get())),
+            block_cache: Mutex::new(BlockCache::new(block_cache_size.get())),
             state_cache: Mutex::new(StateCache::new(state_cache_size)),
             immutable_validators: Arc::new(RwLock::new(Default::default())),
             historic_state_cache: Mutex::new(LruCache::new(historic_state_cache_size.get())),
@@ -950,7 +950,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// (which are frozen, and won't be deleted), or valid descendents of the finalized checkpoint
     /// (which will be deleted by this function but shouldn't be).
     pub fn delete_state(&self, state_root: &Hash256, slot: Slot) -> Result<(), Error> {
-        self.do_atomically(vec![StoreOp::DeleteState(*state_root, Some(slot))])
+        self.do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeleteState(
+            *state_root,
+            Some(slot),
+        )])
     }
 
     pub fn forwards_block_roots_iterator(
@@ -1184,25 +1187,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                 StoreOp::DeleteBlock(block_root) => {
                     guard.delete_block(&block_root);
-                    self.state_cache.lock().delete_block_states(block_root);
+                    self.state_cache.lock().delete_block_states(&block_root);
                 }
 
                 StoreOp::DeleteState(state_root, _) => {
-                    self.state_cache.lock().delete_state(state_root)
+                    self.state_cache.lock().delete_state(&state_root)
                 }
 
                 StoreOp::DeleteBlobs(_) => (),
-
-                StoreOp::DeleteState(_, _) => (),
 
                 StoreOp::DeleteExecutionPayload(_) => (),
 
                 StoreOp::KeyValueOp(_) => (),
             }
         }
-
-        self.hot_db
-            .do_atomically(self.convert_to_kv_batch(batch)?)?;
 
         for op in blob_cache_ops {
             match op {
@@ -2205,7 +2203,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<KeyValueStoreOp, Error> {
         let mut blob_info = self.blob_info.write();
         if *blob_info == prev_value {
-            let kv_op = self.store_blob_info_in_batch(&new_value);
+            let kv_op = self.store_blob_info_in_batch(&new_value)?;
             *blob_info = new_value;
             Ok(kv_op)
         } else {
@@ -2232,7 +2230,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// The argument is intended to be `self.blob_info`, but is passed manually to avoid issues
     /// with recursive locking.
-    fn store_blob_info_in_batch(&self, blob_info: &BlobInfo) -> KeyValueStoreOp {
+    fn store_blob_info_in_batch(&self, blob_info: &BlobInfo) -> Result<KeyValueStoreOp, Error> {
         blob_info.as_kv_store_op(BLOB_INFO_KEY)
     }
 
@@ -2677,21 +2675,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
 
-        for res in self.forwards_block_roots_iterator_until(
-            oldest_blob_slot,
-            end_slot,
-            || {
-                let (_, split_state) = self
-                    .get_advanced_hot_state(split.block_root, split.slot, split.state_root)?
-                    .ok_or(HotColdDBError::MissingSplitState(
-                        split.state_root,
-                        split.slot,
-                    ))?;
+        for res in self.forwards_block_roots_iterator_until(oldest_blob_slot, end_slot, || {
+            let (_, split_state) = self
+                .get_advanced_hot_state(split.block_root, split.slot, split.state_root)?
+                .ok_or(HotColdDBError::MissingSplitState(
+                    split.state_root,
+                    split.slot,
+                ))?;
 
-                Ok((split_state, split.block_root))
-            },
-            &self.spec,
-        )? {
+            Ok((split_state, split.block_root))
+        })? {
             let (block_root, slot) = match res {
                 Ok(tuple) => tuple,
                 Err(e) => {

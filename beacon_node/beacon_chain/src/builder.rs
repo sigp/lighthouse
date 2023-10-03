@@ -813,7 +813,7 @@ where
             .import_new_pubkeys(&head_snapshot.beacon_state)
             .map_err(|e| format!("error initializing pubkey cache: {e:?}"))?;
         store
-            .do_atomically(store_ops)
+            .do_atomically_with_block_and_blobs_cache(store_ops)
             .map_err(|e| format!("error writing validator store: {e:?}"))?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();

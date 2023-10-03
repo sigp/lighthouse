@@ -313,6 +313,9 @@ impl<'a, T: EthSpec> ExecutionPayloadHeaderRefMut<'a, T> {
             ExecutionPayloadHeaderRefMut::Capella(mut_ref) => {
                 *mut_ref = header.try_into()?;
             }
+            ExecutionPayloadHeaderRefMut::Deneb(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
         }
         Ok(())
     }

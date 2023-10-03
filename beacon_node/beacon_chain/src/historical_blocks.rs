@@ -9,7 +9,7 @@ use state_processing::{
 use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
-use store::{get_key_for_col, AnchorInfo, DBColumn, KeyValueStore, KeyValueStoreOp};
+use store::{get_key_for_col, AnchorInfo, BlobInfo, DBColumn, KeyValueStore, KeyValueStoreOp};
 use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -160,7 +160,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             signed_blocks.push(block);
         }
-        chunk_writer.write(&mut cold_batch)?;
         // these were pushed in reverse order so we reverse again
         signed_blocks.reverse();
 

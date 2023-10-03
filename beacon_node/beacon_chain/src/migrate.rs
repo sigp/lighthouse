@@ -136,6 +136,7 @@ pub struct FinalizationNotification {
     genesis_block_root: Hash256,
 }
 
+/*
 impl Notification {
     pub fn epoch(&self) -> Option<Epoch> {
         match self {
@@ -144,9 +145,11 @@ impl Notification {
                 ..
             }) => Some(finalized_checkpoint.epoch),
             Notification::Reconstruction => None,
+            Notification::PruneBlobs => None,
         }
     }
 }
+*/
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Hot, Cold> {
     /// Create a new `BackgroundMigrator` and spawn its thread if necessary.
@@ -441,11 +444,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                         Notification::Finalization(f) => Some(f),
                         _ => None,
                     })
-                    .max_by_key(|f| f.finalized_checkpoint.epoch);
+                    .max_by_key(|f| f.finalized_checkpoint.epoch)
+                    .cloned();
                 let prune_blobs_notif = queue
                     .iter()
                     .filter_map(|n| match n {
-                        Notification::PruneBlobs(dab) => Some(dab),
+                        Notification::PruneBlobs(dab) => Some(*dab),
                         _ => None,
                     })
                     .max();
@@ -736,7 +740,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             store.pruning_checkpoint_store_op(new_finalized_checkpoint)?,
         ));
 
-        store.do_atomically_with_blocks_and_blob_cache(batch)?;
+        store.do_atomically_with_block_and_blobs_cache(batch)?;
         debug!(
             log,
             "Database block pruning complete";
@@ -768,7 +772,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             }
         }
         let num_deleted_states = state_delete_batch.len();
-        store.do_atomically(state_delete_batch)?;
+        store.do_atomically_with_block_and_blobs_cache(state_delete_batch)?;
         debug!(
             log,
             "Database state pruning complete";

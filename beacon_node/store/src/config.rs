@@ -161,10 +161,7 @@ impl StoreConfig {
 
     /// Check that epochs_per_blob_prune is at least 1 epoch to avoid attempting to prune the same
     /// epochs over and over again.
-    fn verify_epochs_per_blob_prune(
-        &self,
-        epochs_per_blob_prune: u64,
-    ) -> Result<(), StoreConfigError> {
+    fn verify_epochs_per_blob_prune(&self) -> Result<(), StoreConfigError> {
         if self.epochs_per_blob_prune > 0 {
             Ok(())
         } else {

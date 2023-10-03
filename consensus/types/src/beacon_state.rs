@@ -280,6 +280,19 @@ impl From<BeaconStateHash> for Hash256 {
             )),
             num_fields(all()),
         )),
+        Deneb(metastruct(
+            mappings(
+                map_beacon_state_deneb_fields(),
+                map_beacon_state_deneb_tree_list_fields(mutable, fallible, groups(tree_lists)),
+            ),
+            bimappings(bimap_beacon_state_deneb_tree_list_fields(
+                other_type = "BeaconStateDeneb",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
+            num_fields(all()),
+        )),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -414,6 +427,7 @@ where
         only(Deneb),
         partial_getter(rename = "latest_execution_payload_header_deneb")
     )]
+    #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<T>,
 
     // Capella
@@ -568,31 +582,6 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Capella { .. } => ForkName::Capella,
             BeaconState::Deneb { .. } => ForkName::Deneb,
         }
-    }
-
-    /// Specialised deserialisation method that uses the `ChainSpec` as context.
-    #[allow(clippy::arithmetic_side_effects)]
-    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
-        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
-        let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
-        let slot_end = slot_start + <Slot as Decode>::ssz_fixed_len();
-
-        let slot_bytes = bytes
-            .get(slot_start..slot_end)
-            .ok_or(DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: slot_end,
-            })?;
-
-        let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
-
-        Ok(map_fork_name!(
-            fork_at_slot,
-            Self,
-            <_>::from_ssz_bytes(bytes)?
-        ))
->>>>>>> origin/deneb-free-blobs
     }
 
     /// Returns the `tree_hash_root` of the state.
@@ -1404,6 +1393,16 @@ impl<T: EthSpec> BeaconState<T> {
                 &mut state.exit_cache,
                 &mut state.epoch_cache,
             )),
+            BeaconState::Deneb(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
         }
     }
 
@@ -2144,6 +2143,9 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
             Self::Capella(inner) => {
                 map_beacon_state_capella_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
+            Self::Deneb(inner) => {
+                map_beacon_state_deneb_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
         }
         self.eth1_data_votes_mut().apply_updates()?;
         Ok(())
@@ -2196,6 +2198,11 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
             }
             BeaconState::Capella(state) => {
                 map_beacon_state_capella_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Deneb(state) => {
+                map_beacon_state_deneb_fields!(state, |_, field| {
                     leaves.push(field.tree_hash_root());
                 });
             }

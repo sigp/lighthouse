@@ -320,7 +320,7 @@ impl ChainSpec {
             ForkName::Altair => self.inactivity_penalty_quotient_altair,
             ForkName::Merge => self.inactivity_penalty_quotient_bellatrix,
             ForkName::Capella => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Deneb => self.inactivity_penalty_quotient_bellatrix,
+            ForkName::Deneb => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 

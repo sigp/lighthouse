@@ -3,8 +3,8 @@ use crate::{test_utils::*, ForkName};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
     test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateCapella,
-    BeaconStateError, BeaconStateMerge, ChainSpec, Domain, Epoch, EthSpec, FixedVector, Hash256,
-    Keypair, MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot,
+    BeaconStateDeneb, BeaconStateError, BeaconStateMerge, ChainSpec, Domain, Epoch, EthSpec,
+    FixedVector, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot,
 };
 use ssz::Encode;
 use std::ops::Mul;
@@ -416,6 +416,7 @@ fn check_num_fields_pow2() {
             ForkName::Altair => BeaconStateAltair::<E>::NUM_FIELDS,
             ForkName::Merge => BeaconStateMerge::<E>::NUM_FIELDS,
             ForkName::Capella => BeaconStateCapella::<E>::NUM_FIELDS,
+            ForkName::Deneb => BeaconStateDeneb::<E>::NUM_FIELDS,
         };
         assert_eq!(
             num_fields.next_power_of_two(),

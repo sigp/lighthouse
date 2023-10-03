@@ -727,7 +727,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let iter =
                 self.store
                     .forwards_block_roots_iterator_until(start_slot, end_slot, || {
-                        (head.beacon_state.clone(), head.beacon_block_root)
+                        Ok((head.beacon_state.clone(), head.beacon_block_root))
                     })?;
             Ok(iter
                 .map(|result| result.map_err(Into::into))
@@ -817,7 +817,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let iter =
                 self.store
                     .forwards_state_roots_iterator_until(start_slot, end_slot, || {
-                        (head.beacon_state.clone(), head.beacon_state_root())
+                        Ok((head.beacon_state.clone(), head.beacon_state_root()))
                     })?;
             Ok(iter
                 .map(|result| result.map_err(Into::into))
