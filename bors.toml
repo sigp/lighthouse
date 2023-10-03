@@ -1,5 +1,4 @@
 status = [
-    "cargo-fmt",
     "release-tests-ubuntu",
     "release-tests-windows",
     "debug-tests-ubuntu",
@@ -9,20 +8,15 @@ status = [
     "eth1-simulator-ubuntu",
     "merge-transition-ubuntu",
     "no-eth1-simulator-ubuntu",
-    "check-benchmarks",
-    "clippy",
-    "arbitrary-check",
-    "cargo-audit",
     "cargo-udeps",
     "beacon-chain-tests",
     "op-pool-tests",
     "doppelganger-protection-test",
     "execution-engine-integration-ubuntu",
-    "cargo-vendor",
     "check-msrv",
     "slasher-tests",
     "syncing-simulator-ubuntu",
-    "compile-with-beta-compiler"
+    "compile-with-beta-compiler",
 ]
 use_squash_merge = true
 timeout_sec = 10800
