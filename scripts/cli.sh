@@ -48,62 +48,49 @@ write_to_file "$vc_cli" "$vc" "Validator Client"
 write_to_file "$am_cli" "$am" "Account Manager"
 write_to_file "$vm_cli" "$vm" "Validator Manager"
 
-#input 1 = $1 = old files; input 2 = $2 = new files
-old_files=(./book/src/help_general.md ./book/src/help_bn.md ./book/src/help_vc.md ./book/src/help_am.md ./book/src/help_vm.md)
+#input 1 = $1 = files; input 2 = $2 = new files
+files=(./book/src/help_general.md ./book/src/help_bn.md ./book/src/help_vc.md ./book/src/help_am.md ./book/src/help_vm.md)
 new_files=($general $bn $vc $am $vm)
-
-# store for troubleshooting purpose
-exist=()
-update=() 
-diff=()
 
 # function to check
 check() {
-if [[ -f $1 ]]; then # check for existence of file 
-    diff=$(diff $1 $2)
-    diff+=($diff)
-    exist+=(false)
+    local file="$1"
+    local new_file="$2"
+    
+if [[ -f $file ]]; then # check for existence of file 
+    diff=$(diff $file $new_file)
 else
-    cp $2 ./book/src
+    cp $new_file $file
     changes=true
-    exist+=(true)
-    echo "$1 is not found, it has just been created" 
+    echo "$file is not found, it has just been created"
 fi
 
 if [[ -z $diff ]]; then # check for difference 
-    update+=(false)
     return 1 # exit a function (i.e., do nothing)
 else
-    cp $2 $1
+    cp $new_file $file
     changes=true
-    update+=(true)
-    echo "$1 has been updated"
+    echo "$file has been updated"
 fi
 }
 
 # define changes as false
 changes=false
 # call check function to check for each help file
-check ${old_files[0]} ${new_files[0]}
-check ${old_files[1]} ${new_files[1]}
-check ${old_files[2]} ${new_files[2]}
-check ${old_files[3]} ${new_files[3]}
-check ${old_files[4]} ${new_files[4]}
+check ${files[0]} ${new_files[0]}
+check ${files[1]} ${new_files[1]}
+check ${files[2]} ${new_files[2]}
+check ${files[3]} ${new_files[3]}
+check ${files[4]} ${new_files[4]}
 
 # remove help files
 rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md
 
-# used for troubleshooting to show status
-echo "exist = ${exist[@]}"
-echo "update = ${update[@]}"
-echo "difference = ${diff[@]}"
-
 # only exit at the very end
 if [[ $changes == true ]]; then
-    echo "CLI parameters are not up to date. Run \"make cli\" to update, then commit the changes"
+    echo "CLI parameters were not up to date. Run \"make cli\" to update, then commit the changes"
     exit 1
 else
     echo "CLI parameters are up to date."
     exit 0
 fi
-
