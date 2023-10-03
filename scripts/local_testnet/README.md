@@ -86,7 +86,7 @@ where `beacon_node_1` can be changed to `beacon_node_2`, `beacon_node_3` or `bea
 
 ## Stopping the testnet
 
-To stop the testnet, navigate to the directory `cd /lighthouse/scripts/local_testnet`, then run the command:
+To stop the testnet, navigate to the directory `cd ~/lighthouse/scripts/local_testnet`, then run the command:
 
 ```bash
 ./stop_local_testnet.sh
