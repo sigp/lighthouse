@@ -10,7 +10,7 @@ write_to_file() {
     cmd=${cmd#*$'\n'}
 
     # We need to add the header and the backticks to create the code block.
-     printf "# %s\n\n\`\`\`\n%s\n\`\`\`" "$program" "$cmd" > "$file"
+    printf "# %s\n\n\`\`\`\n%s\n\`\`\`" "$program" "$cmd" > "$file"
 }
 
 # Check if a lighthouse binary exists in the current branch.
@@ -66,7 +66,8 @@ if [[ -f $1 ]]; then # check for existence of file
 else
     cp $2 ./book/src
     changes=true
-    exist+=(true) 
+    exist+=(true)
+    echo "$1 is not found, it has just been created" 
 fi
 
 if [[ -z $diff ]]; then # check for difference 
