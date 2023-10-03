@@ -1248,7 +1248,7 @@ impl Config {
             deposit_network_id,
             deposit_contract_address,
             gossip_max_size,
-            max_request_blocks,
+            max_request_blocks: _,
             min_epochs_for_block_requests,
             max_chunk_size,
             ttfb_timeout,
