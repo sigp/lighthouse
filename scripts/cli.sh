@@ -1,4 +1,4 @@
-#! /bin/bash
+#! /usr/bin/env bash
 
 # A function to generate formatted .md files
 write_to_file() {
