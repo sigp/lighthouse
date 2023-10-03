@@ -1637,12 +1637,11 @@ pub fn serve<T: BeaconChainTypes>(
                     Priority::P1
                 };
                 task_spawner.blocking_json_task(priority, move || {
-                    let (block, execution_optimistic, finalized) =
-                        block_id.blinded_block(&chain)?;
-                    Ok(api_types::GenericResponse::from(api_types::RootData::from(
-                        block.canonical_root(),
-                    ))
-                    .add_execution_optimistic_finalized(execution_optimistic, finalized))
+                    let (block_root, execution_optimistic, finalized) = block_id.root(&chain)?;
+                    Ok(
+                        api_types::GenericResponse::from(api_types::RootData::from(block_root))
+                            .add_execution_optimistic_finalized(execution_optimistic, finalized),
+                    )
                 })
             },
         );
