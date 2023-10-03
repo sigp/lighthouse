@@ -8,6 +8,7 @@ status = [
     "eth1-simulator-ubuntu",
     "merge-transition-ubuntu",
     "no-eth1-simulator-ubuntu",
+    "check-code",
     "cargo-udeps",
     "beacon-chain-tests",
     "op-pool-tests",
