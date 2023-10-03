@@ -17,8 +17,8 @@ use bls::get_withdrawal_credentials;
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
-        ExecutionBlockGenerator, MockBuilder, MockBuilderServer, MockExecutionLayer,
-        DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK,
+        ExecutionBlockGenerator, MockBuilder, MockExecutionLayer, DEFAULT_JWT_SECRET,
+        DEFAULT_TERMINAL_BLOCK,
     },
     ExecutionLayer,
 };
@@ -595,7 +595,10 @@ where
             .execution_block_generator()
     }
 
-    pub fn set_mock_builder(&mut self, beacon_url: SensitiveUrl) -> MockBuilderServer {
+    pub fn set_mock_builder(
+        &mut self,
+        beacon_url: SensitiveUrl,
+    ) -> impl futures::Future<Output = ()> {
         let mock_el = self
             .mock_execution_layer
             .as_ref()
@@ -604,7 +607,7 @@ where
         let mock_el_url = SensitiveUrl::parse(mock_el.server.url().as_str()).unwrap();
 
         // Create the builder, listening on a free port.
-        let (mock_builder, mock_builder_server) = MockBuilder::new_for_testing(
+        let (mock_builder, (addr, mock_builder_server)) = MockBuilder::new_for_testing(
             mock_el_url,
             beacon_url,
             self.spec.clone(),
@@ -612,8 +615,7 @@ where
         );
 
         // Set the builder URL in the execution layer now that its port is known.
-        let builder_listen_addr = mock_builder_server.local_addr();
-        let port = builder_listen_addr.port();
+        let port = addr.port();
         mock_el
             .el
             .set_builder_url(

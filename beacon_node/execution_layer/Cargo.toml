@@ -41,11 +41,6 @@ lazy_static = { workspace = true }
 ethers-core = { workspace = true }
 builder_client = { path = "../builder_client" }
 fork_choice = { workspace = true }
-mev-rs = { git = "https://github.com/ralexstokes/mev-rs", rev = "216657016d5c0889b505857c89ae42c7aa2764af" }
-axum = "0.6"
-hyper = "0.14"
-ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "e380108" }
-ssz_rs = "0.9.0"
 tokio-stream = { workspace = true }
 strum = { workspace = true }
 keccak-hash = "0.10.0"

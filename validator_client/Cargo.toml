@@ -56,7 +56,7 @@ itertools = { workspace = true }
 monitoring_api = { workspace = true }
 sensitive_url = { workspace = true }
 task_executor = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["native-tls"] }
 url = { workspace = true }
 malloc_utils = { workspace = true }
 sysinfo = { workspace = true }
