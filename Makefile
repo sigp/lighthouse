@@ -188,6 +188,7 @@ test: test-release
 # Updates the CLI help text pages in the Lighthouse book.
 cli:
 	./scripts/cli.sh
+	
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
