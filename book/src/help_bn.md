@@ -278,28 +278,28 @@ OPTIONS:
             Specifies how many states from the freezer database should cache in memory [default: 1]
 
         --http-address <ADDRESS>
-            Set the listen address for the RESTful HTTP API server. [default: 127.0.0.1]
+            Set the listen address for the RESTful HTTP API server.
 
         --http-allow-origin <ORIGIN>
             Set the value of the Access-Control-Allow-Origin response HTTP header. Use * to allow any origin (not
             recommended in production). If no value is supplied, the CORS allowed origin is set to the listen address of
             this server (e.g., http://localhost:5052).
         --http-duplicate-block-status <STATUS_CODE>
-            Status code to send when a block that is already known is POSTed to the HTTP API. [default: 202]
+            Status code to send when a block that is already known is POSTed to the HTTP API.
 
         --http-enable-beacon-processor <BOOLEAN>
             The beacon processor is a scheduler which provides quality-of-service and DoS protection. When set to
             "true", HTTP API requests will be queued and scheduled alongside other tasks. When set to "false", HTTP API
-            responses will be executed immediately. [default: true]
+            responses will be executed immediately.
         --http-port <PORT>
-            Set the listen TCP port for the RESTful HTTP API server. [default: 5052]
+            Set the listen TCP port for the RESTful HTTP API server.
 
         --http-spec-fork <FORK>
             Serve the spec for a specific hard fork on /eth/v1/config/spec. It should not be necessary to set this flag.
 
         --http-sse-capacity-multiplier <N>
             Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. Increasing this value can
-            prevent messages from being dropped. [default: 1]
+            prevent messages from being dropped.
         --http-tls-cert <http-tls-cert>
             The path of the certificate to be used when serving the HTTP API server over TLS.
 
@@ -346,14 +346,14 @@ OPTIONS:
             forks from wasting our time and disk space, but could also cause unnecessary consensus failures, so is
             disabled by default.
         --metrics-address <ADDRESS>
-            Set the listen address for the Prometheus metrics HTTP server. [default: 127.0.0.1]
+            Set the listen address for the Prometheus metrics HTTP server.
 
         --metrics-allow-origin <ORIGIN>
             Set the value of the Access-Control-Allow-Origin response HTTP header. Use * to allow any origin (not
             recommended in production). If no value is supplied, the CORS allowed origin is set to the listen address of
             this server (e.g., http://localhost:5054).
         --metrics-port <PORT>
-            Set the listen TCP port for the Prometheus metrics HTTP server. [default: 5054]
+            Set the listen TCP port for the Prometheus metrics HTTP server.
 
         --monitoring-endpoint <ADDRESS>
             Enables the monitoring service for sending system metrics to a remote endpoint. This can be used to monitor
