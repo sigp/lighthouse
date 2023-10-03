@@ -1,4 +1,4 @@
-#![cfg(all(test, not(feature = "fake_crypto")))]
+#![cfg(all(test, not(feature = "fake_crypto"), not(debug_assertions)))]
 
 use crate::per_block_processing::errors::{
     AttestationInvalid, AttesterSlashingInvalid, BlockOperationError, BlockProcessingError,

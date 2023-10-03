@@ -2,45 +2,46 @@
 name = "client"
 version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dev-dependencies]
-serde_yaml = "0.8.13"
-operation_pool = { path = "../operation_pool" }
-tokio = "1.14.0"
+serde_yaml = { workspace = true }
+state_processing = { workspace = true }
+operation_pool = { workspace = true }
+tokio = { workspace = true }
 
 [dependencies]
-state_processing = { path = "../../consensus/state_processing" }
-beacon_chain = { path = "../beacon_chain" }
-store = { path = "../store" }
-network = { path = "../network" }
+beacon_chain = { workspace = true }
+store = { workspace = true }
+network = { workspace = true }
 timer = { path = "../timer" }
-lighthouse_network = { path = "../lighthouse_network" }
-logging = { path = "../../common/logging" }
-parking_lot = "0.12.0"
-types = { path = "../../consensus/types" }
-eth2_config = { path = "../../common/eth2_config" }
-slot_clock = { path = "../../common/slot_clock" }
-serde = "1.0.116"
+lighthouse_network = { workspace = true }
+logging = { workspace = true }
+parking_lot = { workspace = true }
+types = { workspace = true }
+eth2_config = { workspace = true }
+slot_clock = { workspace = true }
+serde = { workspace = true }
 serde_derive = "1.0.116"
-error-chain = "0.12.4"
-slog = { version = "2.5.2", features = ["max_level_trace"] }
-tokio = "1.14.0"
-dirs = "3.0.1"
-eth1 = { path = "../eth1" }
-eth2 = { path = "../../common/eth2" }
-sensitive_url = { path = "../../common/sensitive_url" }
-genesis = { path = "../genesis" }
-task_executor = { path = "../../common/task_executor" }
-environment = { path = "../../lighthouse/environment" }
-lazy_static = "1.4.0"
-lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
+error-chain = { workspace = true }
+slog = { workspace = true }
+tokio = { workspace = true }
+dirs = { workspace = true }
+eth1 = { workspace = true }
+eth2 = { workspace = true }
+sensitive_url = { workspace = true }
+genesis = { workspace = true }
+task_executor = { workspace = true }
+environment = { workspace = true }
+lazy_static = { workspace = true }
+lighthouse_metrics = { workspace = true }
 time = "0.3.5"
-directory = {path = "../../common/directory"}
-http_api = { path = "../http_api" }
+directory = { workspace = true }
+http_api = { workspace = true }
 http_metrics = { path = "../http_metrics" }
-slasher = { path = "../../slasher" }
+slasher = { workspace = true }
 slasher_service = { path = "../../slasher/service" }
-monitoring_api = {path = "../../common/monitoring_api"}
-execution_layer = { path = "../execution_layer" }
-beacon_processor =  { path = "../beacon_processor" }
+monitoring_api = { workspace = true }
+execution_layer = { workspace = true }
+beacon_processor = { workspace = true }
+num_cpus = { workspace = true }

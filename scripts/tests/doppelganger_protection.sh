@@ -43,23 +43,23 @@ sleep 10
 
 echo "Starting local execution nodes"
 
-exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir1 7000 6000 5000 $genesis_file &> geth.log &
-exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir2 7100 6100 5100 $genesis_file &> /dev/null &
-exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir3 7200 6200 5200 $genesis_file &> /dev/null &
+exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir1 6000 5000 4000 $genesis_file &> geth.log &
+exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir2 6100 5100 4100 $genesis_file &> /dev/null &
+exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir3 6200 5200 4200 $genesis_file &> /dev/null &
 
 sleep 20
 
 echo "Starting local beacon nodes"
 
-exit_if_fails ../local_testnet/beacon_node.sh -d debug $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:5000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> beacon1.log &
-exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 9100 8100 http://localhost:5100 $HOME/.lighthouse/local-testnet/geth_datadir2/geth/jwtsecret &> /dev/null &
-exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_3 9200 8200 http://localhost:5200 $HOME/.lighthouse/local-testnet/geth_datadir3/geth/jwtsecret &> /dev/null &
+exit_if_fails ../local_testnet/beacon_node.sh -d debug $HOME/.lighthouse/local-testnet/node_1 8000 7000 9000 http://localhost:4000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> /dev/null &
+exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 8100 7100 9100 http://localhost:4100 $HOME/.lighthouse/local-testnet/geth_datadir2/geth/jwtsecret &> /dev/null &
+exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_3 8200 7200 9200 http://localhost:4200 $HOME/.lighthouse/local-testnet/geth_datadir3/geth/jwtsecret &> /dev/null &
 
 echo "Starting local validator clients"
 
-exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8000 &> /dev/null &
-exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_2 http://localhost:8100 &> /dev/null &
-exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_3 http://localhost:8200 &> /dev/null &
+exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:9000 &> /dev/null &
+exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_2 http://localhost:9100 &> /dev/null &
+exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_3 http://localhost:9200 &> /dev/null &
 
 echo "Waiting an epoch before starting the next validator client"
 sleep $(( $SECONDS_PER_SLOT * 32 ))
@@ -70,7 +70,7 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
 
     # Use same keys as keys from VC1 and connect to BN2
     # This process should not last longer than 2 epochs
-    timeout $(( $SECONDS_PER_SLOT * 32 * 2 )) ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
+    timeout $(( $SECONDS_PER_SLOT * 32 * 2 )) ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:9100
     DOPPELGANGER_EXIT=$?
 
     echo "Shutting down"
@@ -96,7 +96,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     echo "Starting the last validator client"
 
-    ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:8100 &
+    ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:9100 &
     DOPPELGANGER_FAILURE=0
 
     # Sleep three epochs, then make sure all validators were active in epoch 2. Use
@@ -110,7 +110,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     cd $HOME/.lighthouse/local-testnet/node_4/validators
     for val in 0x*; do
         [[ -e $val ]] || continue
-        curl -s localhost:8100/lighthouse/validator_inclusion/3/$val | jq | grep -q '"is_previous_epoch_target_attester": false'
+        curl -s localhost:9100/lighthouse/validator_inclusion/3/$val | jq | grep -q '"is_previous_epoch_target_attester": false'
         IS_ATTESTER=$?
         if [[ $IS_ATTESTER -eq 0 ]]; then
             echo "$val did not attest in epoch 2."
@@ -128,7 +128,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
     for val in 0x*; do
         [[ -e $val ]] || continue
-        curl -s localhost:8100/lighthouse/validator_inclusion/5/$val | jq | grep -q '"is_previous_epoch_target_attester": true'
+        curl -s localhost:9100/lighthouse/validator_inclusion/5/$val | jq | grep -q '"is_previous_epoch_target_attester": true'
         IS_ATTESTER=$?
         if [[ $IS_ATTESTER -eq 0 ]]; then
             echo "$val attested in epoch 4."

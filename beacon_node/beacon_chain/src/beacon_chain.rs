@@ -809,10 +809,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// May return a database error.
     pub fn state_root_at_slot(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
-        if request_slot > self.slot()? {
-            return Ok(None);
-        } else if request_slot == self.spec.genesis_slot {
+        if request_slot == self.spec.genesis_slot {
             return Ok(Some(self.genesis_state_root));
+        } else if request_slot > self.slot()? {
+            return Ok(None);
         }
 
         // Check limits w.r.t historic state bounds.
@@ -889,10 +889,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// May return a database error.
     fn block_root_at_slot_skips_none(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
-        if request_slot > self.slot()? {
-            return Ok(None);
-        } else if request_slot == self.spec.genesis_slot {
+        if request_slot == self.spec.genesis_slot {
             return Ok(Some(self.genesis_block_root));
+        } else if request_slot > self.slot()? {
+            return Ok(None);
         }
 
         let prev_slot = request_slot.saturating_sub(1_u64);
@@ -952,10 +952,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// May return a database error.
     fn block_root_at_slot_skips_prev(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
-        if request_slot > self.slot()? {
-            return Ok(None);
-        } else if request_slot == self.spec.genesis_slot {
+        if request_slot == self.spec.genesis_slot {
             return Ok(Some(self.genesis_block_root));
+        } else if request_slot > self.slot()? {
+            return Ok(None);
         }
 
         // Try an optimized path of reading the root directly from the head state.
