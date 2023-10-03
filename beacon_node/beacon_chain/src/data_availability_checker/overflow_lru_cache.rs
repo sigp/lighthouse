@@ -670,6 +670,12 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         drop(maintenance_lock);
         Ok(())
     }
+
+    #[cfg(test)]
+    /// get the state cache for inspection (used only for tests)
+    pub fn state_lru_cache(&self) -> &StateLRUCache<T> {
+        &self.state_cache
+    }
 }
 
 impl ssz::Encode for OverflowKey {
@@ -738,6 +744,7 @@ impl ssz::Decode for OverflowKey {
 mod test {
     use super::*;
     use crate::block_verification_types::AsBlock;
+    use crate::data_availability_checker::STATE_LRU_CAPACITY;
     use crate::{
         blob_verification::{
             validate_blob_sidecar_for_gossip, verify_kzg_for_blob, GossipVerifiedBlob,
@@ -1337,7 +1344,6 @@ mod test {
         let n_epochs = 4;
         let mut pending_blocks = VecDeque::new();
         let mut pending_blobs = VecDeque::new();
-        let mut roots = VecDeque::new();
         let mut epoch_count = BTreeMap::new();
         while pending_blobs.len() < n_epochs * capacity {
             let (pending_block, blobs) = availability_pending_block(&harness).await;
@@ -1345,7 +1351,6 @@ mod test {
                 // we need blocks with blobs
                 continue;
             }
-            let root = pending_block.block.canonical_root();
             let epoch = pending_block
                 .block
                 .as_block()
@@ -1355,7 +1360,6 @@ mod test {
 
             pending_blocks.push_back(pending_block);
             pending_blobs.push_back(blobs);
-            roots.push_back(root);
         }
 
         let kzg = harness
@@ -1480,7 +1484,6 @@ mod test {
         let n_epochs = 4;
         let mut pending_blocks = VecDeque::new();
         let mut pending_blobs = VecDeque::new();
-        let mut roots = VecDeque::new();
         let mut epoch_count = BTreeMap::new();
         while pending_blobs.len() < n_epochs * capacity {
             let (pending_block, blobs) = availability_pending_block(&harness).await;
@@ -1488,7 +1491,6 @@ mod test {
                 // we need blocks with blobs
                 continue;
             }
-            let root = pending_block.block.as_block().canonical_root();
             let epoch = pending_block
                 .block
                 .as_block()
@@ -1498,7 +1500,6 @@ mod test {
 
             pending_blocks.push_back(pending_block);
             pending_blobs.push_back(blobs);
-            roots.push_back(root);
         }
 
         let kzg = harness
@@ -1647,5 +1648,117 @@ mod test {
                 }
             }
         }
+    }
+
+    #[tokio::test]
+    // ensure the state cache keeps memory usage low and that it can properly recover states
+    // THIS TEST CAN BE DELETED ONCE TREE STATES IS MERGED AND WE RIP OUT THE STATE CACHE
+    async fn overflow_cache_test_state_cache() {
+        type E = MinimalEthSpec;
+        type T = DiskHarnessType<E>;
+        let capacity = STATE_LRU_CAPACITY * 2;
+        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+
+        let mut pending_blocks = VecDeque::new();
+        let mut states = Vec::new();
+        let mut state_roots = Vec::new();
+        // Get enough blocks to fill the cache to capacity, ensuring all blocks have blobs
+        while pending_blocks.len() < capacity {
+            let (pending_block, _) = availability_pending_block(&harness).await;
+            if pending_block.num_blobs_expected() == 0 {
+                // we need blocks with blobs
+                continue;
+            }
+            let state_root = pending_block.import_data.state.canonical_root();
+            states.push(pending_block.import_data.state.clone());
+            pending_blocks.push_back(pending_block);
+            state_roots.push(state_root);
+        }
+
+        let state_cache = cache.state_lru_cache().lru_cache();
+        let mut pushed_blocks = VecDeque::new();
+
+        for i in 0..capacity {
+            let pending_block = pending_blocks.pop_front().expect("should have block");
+            pushed_blocks.push_back(pending_block.clone());
+
+            assert_eq!(
+                state_cache.read().len(),
+                std::cmp::min(i, STATE_LRU_CAPACITY),
+                "state cache should be empty at start"
+            );
+
+            if i >= STATE_LRU_CAPACITY {
+                let lru_root = state_roots[i - STATE_LRU_CAPACITY];
+                assert_eq!(
+                    state_cache.read().peek_lru().map(|(root, _)| root),
+                    Some(&lru_root),
+                    "lru block should be in cache"
+                );
+            }
+
+            // put the block in the cache
+            let availability = cache
+                .put_pending_executed_block(pending_block)
+                .expect("should put block");
+            // should be unavailable since we made sure all blocks had blobs
+            assert!(
+                matches!(availability, Availability::MissingComponents(_)),
+                "should be pending blobs"
+            );
+
+            if i >= STATE_LRU_CAPACITY {
+                let evicted_index = i - STATE_LRU_CAPACITY;
+                let evicted_root = state_roots[evicted_index];
+                assert!(
+                    state_cache.read().peek(&evicted_root).is_none(),
+                    "lru root should be evicted"
+                );
+                // get the diet block via direct conversion (testing only)
+                let diet_block = pushed_blocks.pop_front().expect("should have block").into();
+                // reconstruct the pending block by replaying the block on the parent state
+                let recovered_pending_block = cache
+                    .state_lru_cache()
+                    .reconstruct_pending_executed_block(diet_block)
+                    .expect("should reconstruct pending block");
+
+                // assert the recovered state is the same as the original
+                assert_eq!(
+                    recovered_pending_block.import_data.state, states[evicted_index],
+                    "recovered state should be the same as the original"
+                );
+            }
+        }
+
+        // now check the last block
+        let last_block = pushed_blocks.pop_back().expect("should exist").clone();
+        // the state should still be in the cache
+        assert!(
+            state_cache
+                .read()
+                .peek(&last_block.import_data.state.canonical_root())
+                .is_some(),
+            "last block state should still be in cache"
+        );
+        // get the diet block via direct conversion (testing only)
+        let diet_block = last_block.clone().into();
+        // recover the pending block from the cache
+        let recovered_pending_block = cache
+            .state_lru_cache()
+            .recover_pending_executed_block(diet_block)
+            .expect("should reconstruct pending block");
+        // assert the recovered state is the same as the original
+        assert_eq!(
+            recovered_pending_block.import_data.state, last_block.import_data.state,
+            "recovered state should be the same as the original"
+        );
+        // the state should no longer be in the cache
+        assert!(
+            state_cache
+                .read()
+                .peek(&last_block.import_data.state.canonical_root())
+                .is_none(),
+            "last block state should no longer be in cache"
+        );
     }
 }

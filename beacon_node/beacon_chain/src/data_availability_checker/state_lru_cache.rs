@@ -189,6 +189,12 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
                 Ok(state)
             })
     }
+
+    /// returns the state cache for inspection in tests
+    #[cfg(test)]
+    pub fn lru_cache(&self) -> &RwLock<LruCache<Hash256, BeaconState<T::EthSpec>>> {
+        &self.states
+    }
 }
 
 /// This can only be used during testing. The intended way to
