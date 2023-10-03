@@ -108,10 +108,20 @@ build-release-tarballs:
 test-release:
 	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher
 
+# Runs the full workspace tests in **release**, without downloading any additional
+# test vectors, using nextest.
+nextest-release:
+	cargo nextest run --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher
+
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
 	cargo test --workspace --exclude ef_tests --exclude beacon_chain
+
+# Runs the full workspace tests in **debug**, without downloading any additional test
+# vectors, using nextest.
+nextest-debug:
+	cargo nextest run --workspace --exclude ef_tests --exclude beacon_chain
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -129,25 +139,33 @@ run-ef-tests:
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
+# Runs EF test vectors with nextest
+nextest-run-ef-tests:
+	rm -rf $(EF_TESTS)/.accessed_file_log.txt
+	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
+	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
+	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
+	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
+
 # Run the tests in the `beacon_chain` crate for all known forks.
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo test --release --features fork_from_env,slasher/lmdb -p beacon_chain
+	env FORK_NAME=$* cargo nextest run --release --features fork_from_env,slasher/lmdb -p beacon_chain
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
 
 test-op-pool-%:
-	env FORK_NAME=$* cargo test --release \
+	env FORK_NAME=$* cargo nextest run --release \
 		--features 'beacon_chain/fork_from_env'\
 		-p operation_pool
 
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
-	cargo test --release -p slasher --features lmdb
-	cargo test --release -p slasher --no-default-features --features mdbx
-	cargo test --release -p slasher --features lmdb,mdbx # both backends enabled
+	cargo nextest run --release -p slasher --features lmdb
+	cargo nextest run --release -p slasher --no-default-features --features mdbx
+	cargo nextest run --release -p slasher --features lmdb,mdbx # both backends enabled
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
@@ -155,6 +173,9 @@ run-state-transition-tests:
 
 # Downloads and runs the EF test vectors.
 test-ef: make-ef-tests run-ef-tests
+
+# Downloads and runs the EF test vectors with nextest.
+nextest-ef: make-ef-tests nextest-run-ef-tests
 
 # Runs tests checking interop between Lighthouse and execution clients.
 test-exec-engine:
@@ -208,8 +229,12 @@ arbitrary-fuzz:
 	cargo check -p slashing_protection --features arbitrary-fuzz
 
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
-audit:
+audit: install-audit audit-CI
+
+install-audit:
 	cargo install --force cargo-audit
+
+audit-CI:
 	cargo audit
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
