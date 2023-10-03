@@ -2,18 +2,18 @@
 name = "proto_array"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [[bin]]
 name = "proto_array"
 path = "src/bin.rs"
 
 [dependencies]
-types = { path = "../types" }
-ethereum_ssz = "0.5.0"
-ethereum_ssz_derive = "0.5.0"
-serde = "1.0.116"
+types = { workspace = true }
+ethereum_ssz = { workspace = true }
+ethereum_ssz_derive = { workspace = true }
+serde = { workspace = true }
 serde_derive = "1.0.116"
-serde_yaml = "0.8.13"
-safe_arith = { path = "../safe_arith" }
-superstruct = "0.5.0"
+serde_yaml = { workspace = true }
+safe_arith = { workspace = true }
+superstruct = { workspace = true }

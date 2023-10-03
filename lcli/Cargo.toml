@@ -1,9 +1,9 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "4.4.1"
+version = "4.5.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [features]
 portable = ["bls/supranational-portable"]
@@ -11,38 +11,38 @@ fake_crypto = ['bls/fake_crypto']
 jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
-bls = { path = "../crypto/bls" }
-clap = "2.33.3"
-log = "0.4.11"
-serde = "1.0.116"
-serde_yaml = "0.8.13"
-serde_json = "1.0.66"
-env_logger = "0.9.0"
-types = { path = "../consensus/types" }
-state_processing = { path = "../consensus/state_processing" }
-int_to_bytes = { path = "../consensus/int_to_bytes" }
-ethereum_hashing = "1.0.0-beta.2"
-ethereum_ssz = "0.5.0"
-environment = { path = "../lighthouse/environment" }
-eth2_network_config = { path = "../common/eth2_network_config" }
-genesis = { path = "../beacon_node/genesis" }
-deposit_contract = { path = "../common/deposit_contract" }
-tree_hash = "0.5.0"
-clap_utils = { path = "../common/clap_utils" }
-lighthouse_network = { path = "../beacon_node/lighthouse_network" }
-validator_dir = { path = "../common/validator_dir", features = ["insecure_keys"] }
-lighthouse_version = { path = "../common/lighthouse_version" }
-directory = { path = "../common/directory" }
-account_utils = { path = "../common/account_utils" }
-eth2_wallet = { path = "../crypto/eth2_wallet" }
-eth1_test_rig = { path = "../testing/eth1_test_rig" }
-sensitive_url = { path = "../common/sensitive_url" }
-eth2 = { path = "../common/eth2" }
-snap = "1.0.1"
-beacon_chain = { path = "../beacon_node/beacon_chain" }
-store = { path = "../beacon_node/store" }
-malloc_utils = { path = "../common/malloc_utils" }
-rayon = "1.7.0"
+bls = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+serde_json = { workspace = true }
+env_logger = { workspace = true }
+types = { workspace = true }
+state_processing = { workspace = true }
+int_to_bytes = { workspace = true }
+ethereum_hashing = { workspace = true }
+ethereum_ssz = { workspace = true }
+environment = { workspace = true }
+eth2_network_config = { workspace = true }
+genesis = { workspace = true }
+deposit_contract = { workspace = true }
+tree_hash = { workspace = true }
+clap_utils = { workspace = true }
+lighthouse_network = { workspace = true }
+validator_dir = { workspace = true, features = ["insecure_keys"] }
+lighthouse_version = { workspace = true }
+directory = { workspace = true }
+account_utils = { workspace = true }
+eth2_wallet = { workspace = true }
+eth1_test_rig = { workspace = true }
+sensitive_url = { workspace = true }
+eth2 = { workspace = true }
+snap = { workspace = true }
+beacon_chain = { workspace = true }
+store = { workspace = true }
+malloc_utils = { workspace = true }
+rayon = { workspace = true }
 
 [package.metadata.cargo-udeps.ignore]
 normal = ["malloc_utils"]

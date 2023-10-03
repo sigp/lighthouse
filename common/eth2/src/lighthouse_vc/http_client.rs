@@ -666,7 +666,7 @@ impl ValidatorClientHttpClient {
         &self,
         pubkey: &PublicKeyBytes,
         epoch: Option<Epoch>,
-    ) -> Result<SignedVoluntaryExit, Error> {
+    ) -> Result<GenericResponse<SignedVoluntaryExit>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()

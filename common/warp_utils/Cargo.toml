@@ -2,20 +2,20 @@
 name = "warp_utils"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-warp = "0.3.2"
-eth2 = { path = "../eth2" }
-types = { path = "../../consensus/types" }
-beacon_chain = { path = "../../beacon_node/beacon_chain" }
-state_processing = { path = "../../consensus/state_processing" }
-safe_arith = { path = "../../consensus/safe_arith" }
-serde = { version = "1.0.116", features = ["derive"] }
-tokio = { version = "1.14.0", features = ["sync"] }
+warp = { workspace = true }
+eth2 = { workspace = true }
+types = { workspace = true }
+beacon_chain = { workspace = true }
+state_processing = { workspace = true }
+safe_arith = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
 headers = "0.3.2"
-lighthouse_metrics = { path = "../lighthouse_metrics" }
-lazy_static = "1.4.0"
+lighthouse_metrics = { workspace = true }
+lazy_static = { workspace = true }
 serde_array_query = "0.1.0"
