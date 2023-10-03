@@ -15,13 +15,10 @@ write_to_file() {
 
 # Check if a lighthouse binary exists in the current branch.
 # -f means check if the file exists, to see all options, type "bash test" in a terminal
-maxperf=./target/maxperf/lighthouse
 release=./target/release/lighthouse
 debug=./target/debug/lighthouse
 
-if [[ -f "$maxperf" ]]; then
-    CMD="$maxperf"
-elif [[ -f "$release" ]]; then
+if [[ -f "$release" ]]; then
     CMD="$release"
 elif [[ -f "$debug" ]]; then
     CMD="$debug"
