@@ -524,6 +524,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         self.maintain_threshold(threshold, cutoff_epoch)?;
         // clean up any keys on the disk that shouldn't be there
         self.prune_disk(cutoff_epoch)?;
+        // clean up any lingering states in the state cache
+        self.state_cache.do_maintenance(cutoff_epoch);
         Ok(())
     }
 
@@ -743,14 +745,13 @@ impl ssz::Decode for OverflowKey {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::block_verification_types::AsBlock;
-    use crate::data_availability_checker::STATE_LRU_CAPACITY;
     use crate::{
         blob_verification::{
             validate_blob_sidecar_for_gossip, verify_kzg_for_blob, GossipVerifiedBlob,
         },
         block_verification::PayloadVerificationOutcome,
-        block_verification_types::BlockImportData,
+        block_verification_types::{AsBlock, BlockImportData},
+        data_availability_checker::STATE_LRU_CAPACITY,
         eth1_finalization_cache::Eth1FinalizationData,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };

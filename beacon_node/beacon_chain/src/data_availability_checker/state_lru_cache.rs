@@ -1,7 +1,7 @@
-use crate::block_verification_types::BlockImportData;
-use crate::data_availability_checker::{AvailabilityCheckError, STATE_LRU_CAPACITY};
-use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{
+    block_verification_types::BlockImportData,
+    data_availability_checker::{AvailabilityCheckError, STATE_LRU_CAPACITY},
+    eth1_finalization_cache::Eth1FinalizationData,
     AvailabilityPendingExecutedBlock, BeaconChainTypes, BeaconStore, PayloadVerificationOutcome,
 };
 use lru::LruCache;
@@ -10,7 +10,7 @@ use ssz_derive::{Decode, Encode};
 use state_processing::{BlockReplayer, ConsensusContext, StateProcessingStrategy};
 use std::sync::Arc;
 use types::{ssz_tagged_signed_beacon_block, ssz_tagged_signed_beacon_block_arc};
-use types::{BeaconState, BlindedPayload, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// This mirrors everything in the `AvailabilityPendingExecutedBlock`, except
 /// that it is much smaller because it contains only a state root instead of
@@ -194,6 +194,18 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
     #[cfg(test)]
     pub fn lru_cache(&self) -> &RwLock<LruCache<Hash256, BeaconState<T::EthSpec>>> {
         &self.states
+    }
+
+    /// remove any states from the cache from before the given epoch
+    pub fn do_maintenance(&self, cutoff_epoch: Epoch) {
+        let mut write_lock = self.states.write();
+        while let Some((_, state)) = write_lock.peek_lru() {
+            if state.slot().epoch(T::EthSpec::slots_per_epoch()) < cutoff_epoch {
+                write_lock.pop_lru();
+            } else {
+                break;
+            }
+        }
     }
 }
 
