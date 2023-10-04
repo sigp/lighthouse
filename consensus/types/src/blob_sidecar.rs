@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
 use derivative::Derivative;
-use kzg::{Kzg, KzgCommitment, KzgPreset, KzgProof, BYTES_PER_FIELD_ELEMENT};
+use kzg::{Kzg, KzgCommitment, KzgProof, BYTES_PER_FIELD_ELEMENT};
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
@@ -142,12 +142,12 @@ impl<T: EthSpec> BlobSidecar<T> {
         }
     }
 
-    pub fn random_valid<R: Rng>(rng: &mut R, kzg: &Kzg<T::Kzg>) -> Result<Self, String> {
-        let mut blob_bytes = vec![0u8; T::Kzg::BYTES_PER_BLOB];
+    pub fn random_valid<R: Rng>(rng: &mut R, kzg: &Kzg) -> Result<Self, String> {
+        let mut blob_bytes = vec![0u8; kzg.bytes_per_blob()];
         rng.fill_bytes(&mut blob_bytes);
         // Ensure that the blob is canonical by ensuring that
         // each field element contained in the blob is < BLS_MODULUS
-        for i in 0..T::Kzg::FIELD_ELEMENTS_PER_BLOB {
+        for i in 0..kzg.field_elements_per_blob() {
             let Some(byte) = blob_bytes.get_mut(
                 i.checked_mul(BYTES_PER_FIELD_ELEMENT)
                     .ok_or("overflow".to_string())?,
@@ -159,7 +159,7 @@ impl<T: EthSpec> BlobSidecar<T> {
 
         let blob = Blob::<T>::new(blob_bytes)
             .map_err(|e| format!("error constructing random blob: {:?}", e))?;
-        let kzg_blob = T::blob_from_bytes(&blob).unwrap();
+        let kzg_blob = kzg.blob_from_bytes(&blob).unwrap();
 
         let commitment = kzg
             .blob_to_kzg_commitment(&kzg_blob)

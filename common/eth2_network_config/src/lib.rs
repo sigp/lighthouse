@@ -14,7 +14,6 @@
 use bytes::Bytes;
 use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
-use kzg::{KzgPreset, KzgPresetId, TrustedSetup};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
@@ -55,27 +54,26 @@ const TRUSTED_SETUP: &[u8] =
 const TRUSTED_SETUP_MINIMAL: &[u8] =
     include_bytes!("../built_in_network_configs/minimal_testing_trusted_setups.json");
 
-pub fn get_trusted_setup<P: KzgPreset>() -> &'static [u8] {
-    get_trusted_setup_from_id(P::spec_name())
+pub fn get_trusted_setup<E: EthSpec>() -> &'static [u8] {
+    get_trusted_setup_from_id(E::spec_name())
 }
 
-pub fn get_trusted_setup_from_id(id: KzgPresetId) -> &'static [u8] {
-    match id {
-        KzgPresetId::Mainnet => TRUSTED_SETUP,
-        KzgPresetId::Minimal => TRUSTED_SETUP_MINIMAL,
+pub fn get_trusted_setup_from_id(spec_id: EthSpecId) -> &'static [u8] {
+    match spec_id {
+        EthSpecId::Mainnet | EthSpecId::Gnosis => TRUSTED_SETUP,
+        EthSpecId::Minimal => TRUSTED_SETUP_MINIMAL,
     }
 }
 
-fn get_trusted_setup_from_config(config: &Config) -> Result<Option<TrustedSetup>, String> {
+fn get_trusted_setup_from_config(config: &Config) -> Result<Option<Vec<u8>>, String> {
     config
         .deneb_fork_epoch
         .filter(|epoch| epoch.value != Epoch::max_value())
         .map(|_| {
-            let id = KzgPresetId::from_str(&config.preset_base)
-                .map_err(|e| format!("Unable to parse preset_base as KZG preset: {:?}", e))?;
-            let trusted_setup_bytes = get_trusted_setup_from_id(id);
-            serde_json::from_reader(trusted_setup_bytes)
-                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+            let id = config
+                .eth_spec_id()
+                .ok_or_else(|| "Unable to parse preset_base as KZG preset".to_string())?;
+            Ok(get_trusted_setup_from_id(id).to_vec())
         })
         .transpose()
 }
@@ -121,7 +119,7 @@ pub struct Eth2NetworkConfig {
     pub genesis_state_source: GenesisStateSource,
     pub genesis_state_bytes: Option<GenesisStateBytes>,
     pub config: Config,
-    pub kzg_trusted_setup: Option<TrustedSetup>,
+    pub kzg_trusted_setup: Option<Vec<u8>>,
 }
 
 impl Eth2NetworkConfig {

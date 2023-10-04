@@ -481,7 +481,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// they are collected and combined.
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     /// The KZG trusted setup used by this chain.
-    pub kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
+    pub kzg: Option<Arc<Kzg>>,
 }
 
 type BeaconBlockAndState<T, Payload> = (

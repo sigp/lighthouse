@@ -389,7 +389,8 @@ pub fn get_config<E: EthSpec>(
     client_config.trusted_setup = context
         .eth2_network_config
         .as_ref()
-        .and_then(|config| config.kzg_trusted_setup.clone());
+        .and_then(|config| config.kzg_trusted_setup.clone())
+        .and_then(|trusted_setup_bytes| serde_json::from_slice(trusted_setup_bytes.as_ref()).ok());
 
     // Override default trusted setup file if required
     // TODO: consider removing this when we get closer to launch

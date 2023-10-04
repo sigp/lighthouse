@@ -32,7 +32,7 @@ impl<E: EthSpec> Case for KZGBlobToKZGCommitment<E> {
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-        let kzg = get_kzg::<E::Kzg>()?;
+        let kzg = get_kzg::<E>()?;
 
         let commitment = parse_blob::<E>(&self.input.blob).and_then(|blob| {
             blob_to_kzg_commitment::<E>(&kzg, &blob).map_err(|e| {

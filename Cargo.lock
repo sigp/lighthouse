@@ -866,10 +866,11 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/pawanjay176/c-kzg-4844?rev=d5ae835732571a5e9b5caa73f50694e02b29ad77#d5ae835732571a5e9b5caa73f50694e02b29ad77"
+source = "git+https://github.com/jtraglia/c-kzg-4844?rev=968798a1c17f2ac3633f26cdb833de4244eed2a8#968798a1c17f2ac3633f26cdb833de4244eed2a8"
 dependencies = [
  "bindgen 0.66.1",
  "blst",
+ "bytes",
  "cc",
  "glob",
  "hex",
@@ -2193,7 +2194,6 @@ dependencies = [
  "discv5",
  "eth2_config",
  "ethereum_ssz",
- "kzg",
  "logging",
  "pretty_reqwest_error",
  "reqwest",
@@ -3872,7 +3872,6 @@ dependencies = [
  "ethereum_ssz",
  "genesis",
  "int_to_bytes",
- "kzg",
  "lighthouse_network",
  "lighthouse_version",
  "log",

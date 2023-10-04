@@ -107,7 +107,7 @@ impl<T: EthSpec> MockServer<T> {
     pub fn new_with_config(
         handle: &runtime::Handle,
         config: MockExecutionConfig,
-        kzg: Option<Kzg<T::Kzg>>,
+        kzg: Option<Kzg>,
     ) -> Self {
         let MockExecutionConfig {
             jwt_key,
@@ -188,7 +188,7 @@ impl<T: EthSpec> MockServer<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
-        kzg: Option<Kzg<T::Kzg>>,
+        kzg: Option<Kzg>,
     ) -> Self {
         Self::new_with_config(
             handle,

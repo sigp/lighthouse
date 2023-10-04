@@ -14,7 +14,7 @@ use beacon_chain::{
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
-use eth2_network_config::get_trusted_setup;
+use eth2_network_config::get_trusted_setup_from_id;
 use kzg::TrustedSetup;
 use lazy_static::lazy_static;
 use logging::test_logger;
@@ -2155,7 +2155,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
     let trusted_setup: TrustedSetup =
-        serde_json::from_reader(get_trusted_setup::<<E as EthSpec>::Kzg>())
+        serde_json::from_reader(get_trusted_setup::<E>())
             .map_err(|e| println!("Unable to read trusted setup file: {}", e))
             .unwrap();
 
