@@ -39,7 +39,6 @@ use task_executor::TaskExecutor;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
-use warp::reply::Response as resp;
 use warp::{
     http::{
         header::{HeaderValue, CONTENT_TYPE},
@@ -1228,53 +1227,50 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 ///
 /// This function should *always* be used to convert rejections into responses. This prevents warp
 /// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
-pub async fn convert_with_header<T: Serialize>(
-    res: Result<T, warp::Rejection>,
-) -> Response<hyper::Body> {
+
+pub async fn convert_rejection<T>(res: Result<T, warp::Rejection>) -> Response<Vec<u8>>
+where
+    T: Serialize + Send + 'static,
+{
     match res {
-        Ok(response) => match serde_json::to_vec(&response) {
-            Ok(body) => {
-                let mut res = Response::new(hyper::Body::from(body));
-                res.headers_mut()
-                    .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-                res
-            }
-            Err(_) => {
-                let error = Response::builder()
+        Ok(func_output) => {
+            let response = match serde_json::to_vec(&func_output) {
+                Ok(body) => {
+                    let mut res = Response::new(body);
+                    res.headers_mut()
+                        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                    res
+                }
+                Err(_) => Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(hyper::Body::from(vec![]))
-                    .expect("can produce simple response from static values");
-                error
-            }
-        },
-        Err(_) => {
-            let error = Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(hyper::Body::from(vec![]))
-                .expect("can produce simple response from static values");
-            error
+                    .body(vec![])
+                    .expect("can produce simple response from static values"),
+            };
+            response
         }
+        Err(_) => Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            // Try what happen if you change the body in order to be the Rejection inside the bdoy instead of empty body
+            .body(vec![])
+            .expect("can produce simple response from static values"),
     }
 }
-
 /// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
 /// JSON-encodes the return value of `func`, using the `signer` function to produce a signature of
 /// those bytes.
-pub async fn blocking_signed_json_task<S, F, T>(signer: S, func: F) -> resp
+pub async fn blocking_signed_json_task<S, F, T>(signer: S, func: F) -> Response<Vec<u8>>
 where
     S: Fn(&[u8]) -> String,
     F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
-    T: Serialize + Send + 'static, // Check the closure of ur FnOnce
+    T: Serialize + Send + 'static,
 {
-    let result = warp_utils::task::blocking_task(func).await; // This produce a result
-    let mut conversion = convert_with_header(result).await; // We need to serialize it and turn it into a response
-    let body = conversion.body_mut();
-    let bytes = hyper::body::to_bytes(body)
-        .await
-        .expect("Failed to read body");
-    let body_vec = bytes.to_vec();
-    let signature = signer(&body_vec);
+    let response = warp_utils::task::blocking_task(func).await;
+    // Ownership cause you transform it to vec![u8]
+    let mut conv_res = convert_rejection(response).await;
+    // Here i should handle both of that shit
+    let body: &Vec<u8> = conv_res.body();
+    let signature = signer(body);
     let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
-    conversion.headers_mut().append("Signature", header_value);
-    conversion
+    conv_res.headers_mut().append("Signature", header_value);
+    conv_res
 }
