@@ -529,14 +529,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
         // add to the total missed blocks by monitored validator
         self.total_missed_blocks
-            .to_owned()
-            .into_iter()
+            .iter()
             .for_each(|(i, c)| {
                 self.aggregatable_metric(i.to_string().as_str(), | label| {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
                         &[label],
-                        c as i64,
+                        *c as i64,
                     );
                 });
             });
