@@ -15,7 +15,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella),
+    variants(Base, Altair, Merge, Capella, Deneb),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -67,9 +67,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -79,13 +79,13 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
@@ -99,15 +99,20 @@ where
         partial_getter(rename = "latest_execution_payload_header_capella")
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<T>,
+    #[superstruct(
+        only(Deneb),
+        partial_getter(rename = "latest_execution_payload_header_deneb")
+    )]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<T>,
 
     // Capella
-    #[superstruct(only(Capella))]
+    #[superstruct(only(Capella, Deneb))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella))]
+    #[superstruct(only(Capella, Deneb))]
     pub next_withdrawal_validator_index: u64,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    #[superstruct(only(Capella))]
+    #[superstruct(only(Capella, Deneb))]
     pub historical_summaries: Option<VariableList<HistoricalSummary, T::HistoricalRootsLimit>>,
 }
 
@@ -210,6 +215,23 @@ impl<T: EthSpec> PartialBeaconState<T> {
                 outer,
                 Capella,
                 PartialBeaconStateCapella,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index
+                ],
+                [historical_summaries]
+            ),
+            BeaconState::Deneb(s) => impl_from_state_forgetful!(
+                s,
+                outer,
+                Deneb,
+                PartialBeaconStateDeneb,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -439,6 +461,22 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 inner,
                 Capella,
                 BeaconStateCapella,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index
+                ],
+                [historical_summaries]
+            ),
+            PartialBeaconState::Deneb(inner) => impl_try_into_beacon_state!(
+                inner,
+                Deneb,
+                BeaconStateDeneb,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

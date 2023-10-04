@@ -44,8 +44,21 @@ pub fn get_attestation_participation_flag_indices<T: EthSpec>(
     if is_matching_source && inclusion_delay <= T::slots_per_epoch().integer_sqrt() {
         participation_flag_indices.push(TIMELY_SOURCE_FLAG_INDEX);
     }
-    if is_matching_target && inclusion_delay <= T::slots_per_epoch() {
-        participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
+    match state {
+        &BeaconState::Base(_)
+        | &BeaconState::Altair(_)
+        | &BeaconState::Merge(_)
+        | &BeaconState::Capella(_) => {
+            if is_matching_target && inclusion_delay <= T::slots_per_epoch() {
+                participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
+            }
+        }
+        &BeaconState::Deneb(_) => {
+            if is_matching_target {
+                // [Modified in Deneb:EIP7045]
+                participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
+            }
+        }
     }
     if is_matching_head && inclusion_delay == spec.min_attestation_inclusion_delay {
         participation_flag_indices.push(TIMELY_HEAD_FLAG_INDEX);

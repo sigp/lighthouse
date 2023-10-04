@@ -2,6 +2,7 @@ use beacon_chain::chain_config::{
     DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
 };
+use beacon_chain::TrustedSetup;
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::parse_required;
@@ -356,7 +357,8 @@ pub fn get_config<E: EthSpec>(
             clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
         el_config.always_prefer_builder_payload =
             cli_args.is_present("always-prefer-builder-payload");
-
+        el_config.ignore_builder_override_suggestion_threshold =
+            clap_utils::parse_required(cli_args, "ignore-builder-override-suggestion-threshold")?;
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
@@ -382,8 +384,28 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_layer = Some(el_config);
     }
 
+    // 4844 params
+    client_config.trusted_setup = context
+        .eth2_network_config
+        .as_ref()
+        .and_then(|config| config.kzg_trusted_setup.clone());
+
+    // Override default trusted setup file if required
+    // TODO: consider removing this when we get closer to launch
+    if let Some(trusted_setup_file_path) = cli_args.value_of("trusted-setup-file-override") {
+        let file = std::fs::File::open(trusted_setup_file_path)
+            .map_err(|e| format!("Failed to open trusted setup file: {}", e))?;
+        let trusted_setup: TrustedSetup = serde_json::from_reader(file)
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
+        client_config.trusted_setup = Some(trusted_setup);
+    }
+
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
+    }
+
+    if let Some(blobs_db_dir) = cli_args.value_of("blobs-dir") {
+        client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
     }
 
     let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
@@ -417,6 +439,22 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_optional(cli_args, "epochs-per-migration")?
     {
         client_config.chain.epochs_per_migration = epochs_per_migration;
+    }
+
+    if let Some(prune_blobs) = clap_utils::parse_optional(cli_args, "prune-blobs")? {
+        client_config.store.prune_blobs = prune_blobs;
+    }
+
+    if let Some(epochs_per_blob_prune) =
+        clap_utils::parse_optional(cli_args, "epochs-per-blob-prune")?
+    {
+        client_config.store.epochs_per_blob_prune = epochs_per_blob_prune;
+    }
+
+    if let Some(blob_prune_margin_epochs) =
+        clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
+    {
+        client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
     }
 
     /*

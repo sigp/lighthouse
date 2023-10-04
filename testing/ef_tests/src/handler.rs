@@ -210,10 +210,6 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Altair])
     }
 
-    pub fn altair_and_later() -> Self {
-        Self::for_forks(ForkName::list_all()[1..].to_vec())
-    }
-
     pub fn merge_only() -> Self {
         Self::for_forks(vec![ForkName::Merge])
     }
@@ -222,8 +218,20 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Capella])
     }
 
+    pub fn deneb_only() -> Self {
+        Self::for_forks(vec![ForkName::Deneb])
+    }
+
+    pub fn altair_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[1..].to_vec())
+    }
+
     pub fn merge_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[2..].to_vec())
+    }
+
+    pub fn capella_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[3..].to_vec())
     }
 }
 
@@ -631,6 +639,126 @@ impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
+pub struct KZGBlobToKZGCommitmentHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGBlobToKZGCommitmentHandler<E> {
+    type Case = cases::KZGBlobToKZGCommitment<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "blob_to_kzg_commitment".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KZGComputeBlobKZGProofHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGComputeBlobKZGProofHandler<E> {
+    type Case = cases::KZGComputeBlobKZGProof<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "compute_blob_kzg_proof".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KZGComputeKZGProofHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGComputeKZGProofHandler<E> {
+    type Case = cases::KZGComputeKZGProof<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "compute_kzg_proof".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KZGVerifyBlobKZGProofHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofHandler<E> {
+    type Case = cases::KZGVerifyBlobKZGProof<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "verify_blob_kzg_proof".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KZGVerifyBlobKZGProofBatchHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofBatchHandler<E> {
+    type Case = cases::KZGVerifyBlobKZGProofBatch<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "verify_blob_kzg_proof_batch".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KZGVerifyKZGProofHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
+    type Case = cases::KZGVerifyKZGProof<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "verify_kzg_proof".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct MerkleProofValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
@@ -654,7 +782,7 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
             // spec.
             //
             // https://github.com/sigp/lighthouse/issues/4022
-            && fork_name != ForkName::Capella
+            && fork_name != ForkName::Capella && fork_name != ForkName::Deneb
     }
 }
 

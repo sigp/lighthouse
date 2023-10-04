@@ -6,6 +6,7 @@ use crate::{
     Config,
 };
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
+use eth2::types::VariableList;
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
@@ -17,11 +18,13 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use types::sidecar::Sidecar;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
+    Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, Keypair, PublicKeyBytes,
+    SelectionProof, SidecarList, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedRoot, SignedSidecar, SignedSidecarList,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
     ValidatorRegistrationData, VoluntaryExit,
@@ -369,11 +372,35 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     fn signing_context(&self, domain: Domain, signing_epoch: Epoch) -> SigningContext {
-        SigningContext {
-            domain,
-            epoch: signing_epoch,
-            fork: self.fork(signing_epoch),
-            genesis_validators_root: self.genesis_validators_root,
+        if domain == Domain::VoluntaryExit {
+            match self.spec.fork_name_at_epoch(signing_epoch) {
+                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                    SigningContext {
+                        domain,
+                        epoch: signing_epoch,
+                        fork: self.fork(signing_epoch),
+                        genesis_validators_root: self.genesis_validators_root,
+                    }
+                }
+                // EIP-7044
+                ForkName::Deneb => SigningContext {
+                    domain,
+                    epoch: signing_epoch,
+                    fork: Fork {
+                        previous_version: self.spec.capella_fork_version,
+                        current_version: self.spec.capella_fork_version,
+                        epoch: signing_epoch,
+                    },
+                    genesis_validators_root: self.genesis_validators_root,
+                },
+            }
+        } else {
+            SigningContext {
+                domain,
+                epoch: signing_epoch,
+                fork: self.fork(signing_epoch),
+                genesis_validators_root: self.genesis_validators_root,
+            }
         }
     }
 
@@ -538,6 +565,39 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Err(Error::Slashable(e))
             }
         }
+    }
+
+    pub async fn sign_blobs<Payload: AbstractExecPayload<E>>(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        blob_sidecars: SidecarList<E, Payload::Sidecar>,
+    ) -> Result<SignedSidecarList<E, Payload::Sidecar>, Error> {
+        let mut signed_blob_sidecars = Vec::new();
+        for blob_sidecar in blob_sidecars.into_iter() {
+            let slot = blob_sidecar.slot();
+            let signing_epoch = slot.epoch(E::slots_per_epoch());
+            let signing_context = self.signing_context(Domain::BlobSidecar, signing_epoch);
+            let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
+            let signature = signing_method
+                .get_signature::<E, Payload>(
+                    SignableMessage::BlobSidecar(blob_sidecar.as_ref()),
+                    signing_context,
+                    &self.spec,
+                    &self.task_executor,
+                )
+                .await?;
+
+            metrics::inc_counter_vec(&metrics::SIGNED_BLOBS_TOTAL, &[metrics::SUCCESS]);
+
+            signed_blob_sidecars.push(SignedSidecar {
+                message: blob_sidecar,
+                signature,
+                _phantom: PhantomData,
+            });
+        }
+
+        Ok(VariableList::from(signed_blob_sidecars))
     }
 
     pub async fn sign_attestation(
