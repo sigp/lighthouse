@@ -7,8 +7,8 @@ use beacon_chain::{
 use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
 use lighthouse_network::{
-    peer_manager::peerdb::client::ClientKind, types::GossipKind, BandwidthSinks, GossipTopic,
-    Gossipsub, NetworkGlobals,
+    metrics::AgregatedBandwithSinks, peer_manager::peerdb::client::ClientKind, types::GossipKind,
+    GossipTopic, Gossipsub, NetworkGlobals,
 };
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -218,6 +218,12 @@ lazy_static! {
     /*
      * Bandwidth metrics
      */
+    pub static ref INBOUND_LIBP2P_QUIC_BYTES: Result<IntGauge> =
+        try_create_int_gauge("libp2p_inbound_quic_bytes", "The inbound quic bandwidth over libp2p");
+
+    pub static ref INBOUND_LIBP2P_TCP_BYTES: Result<IntGauge> =
+        try_create_int_gauge("libp2p_inbound_tcp_bytes", "The inbound tcp bandwidth over libp2p");
+
     pub static ref INBOUND_LIBP2P_BYTES: Result<IntGauge> =
         try_create_int_gauge("libp2p_inbound_bytes", "The inbound bandwidth over libp2p");
 
@@ -225,6 +231,17 @@ lazy_static! {
         "libp2p_outbound_bytes",
         "The outbound bandwidth over libp2p"
     );
+
+    pub static ref OUTBOUND_LIBP2P_QUIC_BYTES: Result<IntGauge> = try_create_int_gauge(
+        "libp2p_quic_outbound_bytes",
+        "The outbound quic bandwidth over libp2p"
+    );
+
+    pub static ref OUTBOUND_LIBP2P_TCP_BYTES: Result<IntGauge> = try_create_int_gauge(
+        "libp2p_tcp_outbound_bytes",
+        "The outbound tcp bandwidth over libp2p"
+    );
+
     pub static ref TOTAL_LIBP2P_BANDWIDTH: Result<IntGauge> = try_create_int_gauge(
         "libp2p_total_bandwidth",
         "The total inbound/outbound bandwidth over libp2p"
@@ -291,13 +308,28 @@ lazy_static! {
     );
 }
 
-pub fn update_bandwidth_metrics(bandwidth: Arc<BandwidthSinks>) {
+pub fn update_bandwidth_metrics(bandwidth: &AgregatedBandwithSinks) {
     set_gauge(&INBOUND_LIBP2P_BYTES, bandwidth.total_inbound() as i64);
+    set_gauge(
+        &INBOUND_LIBP2P_TCP_BYTES,
+        bandwidth.total_tcp_inbound() as i64,
+    );
+    set_gauge(
+        &INBOUND_LIBP2P_QUIC_BYTES,
+        bandwidth.total_quic_inbound() as i64,
+    );
+    set_gauge(&TOTAL_LIBP2P_BANDWIDTH, bandwidth.total() as i64);
     set_gauge(&OUTBOUND_LIBP2P_BYTES, bandwidth.total_outbound() as i64);
     set_gauge(
-        &TOTAL_LIBP2P_BANDWIDTH,
-        (bandwidth.total_inbound() + bandwidth.total_outbound()) as i64,
+        &OUTBOUND_LIBP2P_TCP_BYTES,
+        bandwidth.total_tcp_outbound() as i64,
     );
+    set_gauge(
+        &OUTBOUND_LIBP2P_QUIC_BYTES,
+        bandwidth.total_quic_outbound() as i64,
+    );
+    set_gauge(&INBOUND_LIBP2P_BYTES, bandwidth.total_inbound() as i64);
+    set_gauge(&OUTBOUND_LIBP2P_BYTES, bandwidth.total_outbound() as i64);
 }
 
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
