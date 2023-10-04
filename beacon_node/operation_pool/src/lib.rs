@@ -268,7 +268,6 @@ impl<T: EthSpec> OperationPool<T> {
                             res_att
                         })
                         .collect();
-
                     let mut indices_to_remove = Vec::new();
                     clique_aggregates
                         .sort_by(|a, b| a.attesting_indices.len().cmp(&b.attesting_indices.len()));
@@ -283,10 +282,10 @@ impl<T: EthSpec> OperationPool<T> {
                             }
                         }
                     }
+
                     for index in indices_to_remove.iter().rev() {
                         clique_aggregates.remove(*index);
                     }
-                    let mut clique_aggregates = clique_aggregates.into_iter();
 
                     // aggregate unaggregate attestations into the clique aggregates
                     // if compatible
@@ -299,7 +298,7 @@ impl<T: EthSpec> OperationPool<T> {
                             })
                         }) {
                             *num_valid += 1;
-                            for mut clique_aggregate in &mut clique_aggregates {
+                            for clique_aggregate in &mut clique_aggregates {
                                 if !clique_aggregate
                                     .attesting_indices
                                     .contains(&attestation.attesting_indices[0])
@@ -310,7 +309,8 @@ impl<T: EthSpec> OperationPool<T> {
                         }
                     }
 
-                    cliqued_atts.extend(clique_aggregates.map(|indexed| (data, indexed)));
+                    cliqued_atts
+                        .extend(clique_aggregates.into_iter().map(|indexed| (data, indexed)));
                 }
             }
             // include aggregated attestations from unaggregated attestations whose
