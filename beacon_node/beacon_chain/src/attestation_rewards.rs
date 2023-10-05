@@ -193,6 +193,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             if eligible {
                 let effective_balance = state.get_effective_balance(*validator_index)?;
+
                 for flag_index in 0..PARTICIPATION_FLAG_WEIGHTS.len() {
                     let (ideal_reward, penalty) = ideal_rewards_hashmap
                         .get(&(flag_index, effective_balance))
@@ -214,21 +215,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         head_reward = 0;
                     } else if flag_index == TIMELY_TARGET_FLAG_INDEX {
                         target_reward = *penalty;
+
+                        let penalty_numerator = effective_balance
+                            .safe_mul(state.get_inactivity_score(*validator_index)?)?;
+                        let penalty_denominator = spec
+                            .inactivity_score_bias
+                            .safe_mul(spec.inactivity_penalty_quotient_for_state(&state))?;
+                        inactivity_penalty =
+                            penalty_numerator.safe_div(penalty_denominator)? as i64;
                     } else if flag_index == TIMELY_SOURCE_FLAG_INDEX {
                         source_reward = *penalty;
                     }
                 }
-
-                let inactivity_score = state.get_inactivity_score(*validator_index)?;
-                let penalty_numerator = effective_balance.safe_mul(inactivity_score)?;
-                let penalty_denominator = spec
-                    .inactivity_score_bias
-                    .safe_mul(spec.inactivity_penalty_quotient_for_state(&state))?;
-                inactivity_penalty = penalty_numerator.safe_div(penalty_denominator)? as i64;
-                println!(
-                    "Inactivity penalty info {:#?} | {:#?} | {:#?} | {:#?}",
-                    penalty_numerator, penalty_denominator, inactivity_penalty, inactivity_score
-                );
             }
             total_rewards.push(TotalAttestationRewards {
                 validator_index: *validator_index as u64,
