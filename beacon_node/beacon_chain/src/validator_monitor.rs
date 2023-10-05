@@ -640,7 +640,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         } else {
                             debug!(
                                 self.log,
-                                "Could not get proposers for epoch {slot_epoch:?} from cache"
+                                "Could not get proposers for from cache";
+                                "epoch" => ?slot_epoch
                             );
                         }
                     }
