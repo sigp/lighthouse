@@ -34,15 +34,6 @@ use sync::SyncDutiesMap;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
 
-/// Since the BN does not like it when we subscribe to slots that are close to the current time, we
-/// will only subscribe to slots which are further than `SUBSCRIPTION_BUFFER_SLOTS` away.
-///
-/// This number is based upon `MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD` value in the
-/// `beacon_node::network::attestation_service` crate. It is not imported directly to avoid
-/// bringing in the entire crate.
-// FIXME(sproul): delete or add a const assert
-const _SUBSCRIPTION_BUFFER_SLOTS: u64 = 2;
-
 /// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.
 const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
 
@@ -66,12 +57,33 @@ const INITIAL_DUTIES_QUERY_SIZE: usize = 1;
 
 /// Offsets from the attestation duty slot at which a subscription should be sent.
 const ATTESTATION_SUBSCRIPTION_OFFSETS: [u64; 8] = [3, 4, 5, 6, 7, 8, 16, 32];
-/*
-const _: bool = {
-    let mut sorted = true;
-    for slot in
-};
-*/
+
+/// Check that `ATTESTATION_SUBSCRIPTION_OFFSETS` is sorted ascendingly.
+const _: () = assert!({
+    let mut i = 0;
+    loop {
+        let prev = if i > 0 {
+            ATTESTATION_SUBSCRIPTION_OFFSETS[i - 1]
+        } else {
+            0
+        };
+        let curr = ATTESTATION_SUBSCRIPTION_OFFSETS[i];
+        if curr < prev {
+            break false;
+        }
+        i += 1;
+        if i == ATTESTATION_SUBSCRIPTION_OFFSETS.len() {
+            break true;
+        }
+    }
+});
+/// Since the BN does not like it when we subscribe to slots that are close to the current time, we
+/// will only subscribe to slots which are further than 2 slots away.
+///
+/// This number is based upon `MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD` value in the
+/// `beacon_node::network::attestation_service` crate. It is not imported directly to avoid
+/// bringing in the entire crate.
+const _: () = assert!(ATTESTATION_SUBSCRIPTION_OFFSETS[0] > 2);
 
 #[derive(Debug)]
 pub enum Error {
@@ -1277,5 +1289,69 @@ async fn notify_block_production_service<T: SlotClock + 'static, E: EthSpec>(
                 "error" => %e
             );
         };
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn subscription_slots_exact() {
+        for duty_slot in [
+            Slot::new(32),
+            Slot::new(47),
+            Slot::new(99),
+            Slot::new(1002003),
+        ] {
+            let subscription_slots = SubscriptionSlots::new(duty_slot);
+
+            // Run twice to check idempotence (subscription slots shouldn't be marked as done until
+            // we mark them manually).
+            for _ in 0..2 {
+                for offset in ATTESTATION_SUBSCRIPTION_OFFSETS {
+                    assert!(subscription_slots.should_send_subscription_at(duty_slot - offset));
+                }
+            }
+
+            // Mark each slot as complete and check that all prior slots are still marked
+            // incomplete.
+            for (i, offset) in ATTESTATION_SUBSCRIPTION_OFFSETS
+                .into_iter()
+                .rev()
+                .enumerate()
+            {
+                subscription_slots.record_successful_subscription_at(duty_slot - offset);
+                for lower_offset in ATTESTATION_SUBSCRIPTION_OFFSETS
+                    .into_iter()
+                    .rev()
+                    .skip(i + 1)
+                {
+                    assert!(lower_offset < offset);
+                    assert!(
+                        subscription_slots.should_send_subscription_at(duty_slot - lower_offset)
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn subscription_slots_mark_multiple() {
+        for (i, offset) in ATTESTATION_SUBSCRIPTION_OFFSETS.into_iter().enumerate() {
+            let duty_slot = Slot::new(64);
+            let subscription_slots = SubscriptionSlots::new(duty_slot);
+
+            subscription_slots.record_successful_subscription_at(duty_slot - offset);
+
+            // All past offsets (earlier slots) should be marked as complete.
+            for (j, other_offset) in ATTESTATION_SUBSCRIPTION_OFFSETS.into_iter().enumerate() {
+                let past = j >= i;
+                assert_eq!(other_offset >= offset, past);
+                assert_eq!(
+                    subscription_slots.should_send_subscription_at(duty_slot - other_offset),
+                    !past
+                );
+            }
+        }
     }
 }
