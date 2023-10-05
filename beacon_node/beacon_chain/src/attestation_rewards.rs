@@ -189,10 +189,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let mut head_reward = 0i64;
             let mut target_reward = 0i64;
             let mut source_reward = 0i64;
+            let mut inactivity_penalty = 0i64;
 
             if eligible {
                 let effective_balance = state.get_effective_balance(*validator_index)?;
-
                 for flag_index in 0..PARTICIPATION_FLAG_WEIGHTS.len() {
                     let (ideal_reward, penalty) = ideal_rewards_hashmap
                         .get(&(flag_index, effective_balance))
@@ -218,6 +218,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         source_reward = *penalty;
                     }
                 }
+
+                let inactivity_score = state.get_inactivity_score(*validator_index)?;
+                let penalty_numerator = effective_balance.safe_mul(inactivity_score)?;
+                let penalty_denominator = spec
+                    .inactivity_score_bias
+                    .safe_mul(spec.inactivity_penalty_quotient_for_state(&state))?;
+                inactivity_penalty = penalty_numerator.safe_div(penalty_denominator)? as i64;
+                println!(
+                    "Inactivity penalty info {:#?} | {:#?} | {:#?} | {:#?}",
+                    penalty_numerator, penalty_denominator, inactivity_penalty, inactivity_score
+                );
             }
             total_rewards.push(TotalAttestationRewards {
                 validator_index: *validator_index as u64,
@@ -225,8 +236,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 target: target_reward,
                 source: source_reward,
                 inclusion_delay: None,
-                // TODO: altair calculation logic needs to be updated to include inactivity penalty
-                inactivity: 0,
+                inactivity: inactivity_penalty * -1,
             });
         }
 
@@ -249,7 +259,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             target: 0,
                             source: 0,
                             inclusion_delay: None,
-                            // TODO: altair calculation logic needs to be updated to include inactivity penalty
                             inactivity: 0,
                         });
                     match *flag_index {

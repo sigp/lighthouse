@@ -14,7 +14,7 @@ use eth2::lighthouse::StandardAttestationRewards;
 use eth2::types::ValidatorId;
 use lazy_static::lazy_static;
 use types::beacon_state::Error as BeaconStateError;
-use types::{BeaconState, ChainSpec};
+use types::{BeaconState, ChainSpec, ForkName};
 
 pub const VALIDATOR_COUNT: usize = 64;
 
@@ -216,6 +216,75 @@ async fn test_verify_attestation_rewards_base_inactivity_leak() {
 
     // verify expected balances against actual balances
     let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+    assert_eq!(expected_balances, balances);
+}
+
+#[tokio::test]
+async fn test_verify_attestation_rewards_altair_inactivity_leak() {
+    let spec = ForkName::Altair.make_genesis_spec(E::default_spec());
+    let harness = get_harness(spec.clone());
+
+    let half = VALIDATOR_COUNT / 2;
+    let half_validators: Vec<usize> = (0..half).collect();
+    // target epoch is the epoch where the chain enters inactivity leak
+    let target_epoch = &spec.min_epochs_to_inactivity_penalty + 2;
+
+    // advance until beginning of epoch N + 1 and get balances
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * (target_epoch + 1)) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(half_validators.clone()),
+        )
+        .await;
+    let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+
+    // extend slots to beginning of epoch N + 2
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(half_validators),
+        )
+        .await;
+    let _slot = harness.get_current_slot();
+
+    // compute reward deltas for all validators in epoch N
+    let StandardAttestationRewards {
+        ideal_rewards,
+        total_rewards,
+    } = harness
+        .chain
+        .compute_attestation_rewards(Epoch::new(target_epoch), vec![])
+        .unwrap();
+
+    // assert inactivity penalty for both ideal rewards and individual validators
+    assert!(ideal_rewards.iter().all(|reward| reward.inactivity == 0));
+    assert!(total_rewards[..half]
+        .iter()
+        .all(|reward| reward.inactivity == 0));
+    assert!(total_rewards[half..]
+        .iter()
+        .all(|reward| reward.inactivity < 0));
+
+    // apply attestation rewards to initial balances
+    let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
+
+    for initial_balance in &initial_balances {
+        println!("initial {initial_balance}");
+    }
+
+    for expected_balance in &expected_balances {
+        println!("expected {expected_balance}");
+    }
+    // verify expected balances against actual balances
+    let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+
+    for balance in &balances {
+        println!("actual {balance}");
+    }
+    // Failing test statement
     assert_eq!(expected_balances, balances);
 }
 
