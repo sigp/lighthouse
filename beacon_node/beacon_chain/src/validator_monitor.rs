@@ -569,7 +569,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         // Define range variables
         let current_slot = state.slot();
         let range_of_slots = T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS;
-        let start_slot = current_slot - Slot::new(range_of_slots as u64);
+        let start_slot = current_slot - Slot::new(MISSED_BLOCK_LAG_SLOTS as u64);
 
         // As we are skipping the genesis slot, we can simply pass Hash256::zero() as the shuffling decision block
         // cf. state.proposer_shuffling_decision_root_at_epoch implementation
@@ -577,12 +577,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
         // List of proposers per epoch from the beacon_proposer_cache
         let mut proposers_per_epoch: Option<SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> = None;
-        for n in 1..range_of_slots {
-            let slot = start_slot + n as u64;
+        for n in 0..range_of_slots {
+            let slot = start_slot - Slot::new(n as u64);
             let prev_slot = slot - 1;
 
-            // Safeguard to respect the MISSED_BLOCK_LAG_SLOTS
-            if slot.as_usize() >= (current_slot.as_usize() - MISSED_BLOCK_LAG_SLOTS) {
+            // Genesis cannot be skipped
+            if slot == 0 {
                 break;
             }
 
