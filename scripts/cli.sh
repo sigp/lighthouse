@@ -96,6 +96,6 @@ if [[ $changes == true ]]; then
     echo "Exiting with error to indicate changes occurred..."
     exit 1
 else
-    echo "CLI parameters are up to date."
+    echo "CLI help texts are up to date."
     exit 0
 fi
