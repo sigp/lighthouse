@@ -645,14 +645,15 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::SUBSCRIPTIONS]);
 
     // This vector is likely to be a little oversized, but it won't reallocate.
-    // The calculation is based on the logic that every validator has
-    // `ATTESTATION_SUBSCRIPTION_OFFSETS.len()` subscriptions to send for each of the two epochs
-    // where it is attesting (current and next). We assume these subscriptions are distributed
-    // roughly evenly across the slots, but include an extra fudge factor of 2 to prevent
-    // reallocations due to an imbalanced distribution.
-    let num_expected_subscriptions =
-        (4 * local_pubkeys.len() * ATTESTATION_SUBSCRIPTION_OFFSETS.len())
-            / E::slots_per_epoch() as usize;
+    // The calculation is based on the fact that every validator has
+    // `ATTESTATION_SUBSCRIPTION_OFFSETS.len()` subscriptions to send each epoch. We assume these
+    // subscriptions are distributed roughly evenly across the slots, but include an extra margin of
+    // 1/4 to hedge against imbalances.
+    let num_expected_subscriptions = std::cmp::max(
+        1,
+        5 * local_pubkeys.len() * ATTESTATION_SUBSCRIPTION_OFFSETS.len()
+            / (4 * E::slots_per_epoch() as usize),
+    );
     let mut subscriptions = Vec::with_capacity(num_expected_subscriptions);
     let mut subscription_slots_to_confirm = Vec::with_capacity(num_expected_subscriptions);
 
