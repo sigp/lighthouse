@@ -491,6 +491,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     ) -> Result<(), String> {
         let log = self.context.log();
 
+        if !validator_duties
+            .iter()
+            .any(|duty_and_proof| duty_and_proof.selection_proof.is_some())
+        {
+            // Exit early if no validator is aggregator
+            return Ok(());
+        }
+
         let aggregated_attestation = &self
             .beacon_nodes
             .first_success(
