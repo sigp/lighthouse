@@ -25,6 +25,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         block_root: Hash256,
         state: &mut BeaconState<T::EthSpec>,
+        set_participation_flag: bool,
     ) -> Result<StandardBlockReward, BeaconChainError> {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
@@ -71,15 +72,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     BeaconChainError::BlockRewardAttestationError
                 })?
         } else {
-            self.compute_beacon_block_attestation_reward_altair(block, state)
-                .map_err(|e| {
-                    error!(
-                    self.log,
-                    "Error calculating altair block attestation reward";
-                    "error" => ?e
-                    );
-                    BeaconChainError::BlockRewardAttestationError
-                })?
+            self.compute_beacon_block_attestation_reward_altair(
+                block,
+                state,
+                set_participation_flag,
+            )
+            .map_err(|e| {
+                error!(
+                self.log,
+                "Error calculating altair block attestation reward";
+                "error" => ?e
+                );
+                BeaconChainError::BlockRewardAttestationError
+            })?
         };
 
         let total_reward = sync_aggregate_reward
@@ -177,6 +182,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &mut BeaconState<T::EthSpec>,
+        set_participation_flag: bool,
     ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
         let total_active_balance = state.get_total_active_balance()?;
         let base_reward_per_increment =
@@ -214,7 +220,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     if participation_flag_indices.contains(&flag_index)
                         && !validator_participation.has_flag(flag_index)?
                     {
-                        validator_participation.add_flag(flag_index)?;
+                        if set_participation_flag {
+                            validator_participation.add_flag(flag_index)?;
+                        }
                         proposer_reward_numerator.safe_add_assign(
                             altair::get_base_reward(
                                 state,
