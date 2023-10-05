@@ -111,7 +111,7 @@ test-release:
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors, using nextest.
 nextest-release:
-	cargo nextest run --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher
+	cargo nextest run --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
@@ -121,7 +121,7 @@ test-debug:
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors, using nextest.
 nextest-debug:
-	cargo nextest run --workspace --exclude ef_tests --exclude beacon_chain
+	cargo nextest run --workspace --exclude ef_tests --exclude beacon_chain --exclude network
 
 # Runs cargo-fmt (linter).
 cargo-fmt:

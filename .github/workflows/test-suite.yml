@@ -304,7 +304,8 @@ jobs:
       run: |
           make
     - name: Install lcli
-      if: env.SELF_HOSTED_RUNNERS == 'false'
+# TODO(jimmy): re-enable this once we merge deneb into unstable
+#      if: env.SELF_HOSTED_RUNNERS == 'false'
       run: make install-lcli
     - name: Run the doppelganger protection failure test script
       run: |
