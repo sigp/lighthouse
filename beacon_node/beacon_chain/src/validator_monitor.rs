@@ -543,7 +543,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 let missed_blocks_count = group.count();
                 self.aggregatable_metric(validator_index.to_string().as_str(), | label| {
                     metrics::set_int_gauge(
-                        &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_AT_NON_FINALIZED_EPOCH_TOTAL,
+                        &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
                         &[label],
                         u64_to_i64(missed_blocks_count as u64),
                     );
@@ -556,7 +556,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .for_each(|(i, c)| {
                 self.aggregatable_metric(i.to_string().as_str(), |label| {
                     metrics::set_int_gauge(
-                        &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
+                        &metrics::VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL,
                         &[label],
                         *c as i64,
                     );
