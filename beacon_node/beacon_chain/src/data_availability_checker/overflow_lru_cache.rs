@@ -54,7 +54,6 @@ use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256};
 pub struct PendingComponents<T: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
-    /// FIXME: change this back to `AvailabilityPendingExecutedBlock` once tree-states is merged
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<T>>,
 }
 
@@ -755,7 +754,6 @@ mod test {
         eth1_finalization_cache::Eth1FinalizationData,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
-    use execution_layer::test_utils::DEFAULT_TERMINAL_BLOCK;
     use fork_choice::PayloadVerificationStatus;
     use logging::test_logger;
     use slog::{info, Logger};
@@ -764,7 +762,6 @@ mod test {
     use std::ops::AddAssign;
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
     use tempfile::{tempdir, TempDir};
-    use types::beacon_state::ssz_tagged_beacon_state;
     use types::{ChainSpec, ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
@@ -875,88 +872,6 @@ mod test {
             let decoded = OverflowKey::from_ssz_bytes(&encoded).expect("should decode");
             assert_eq!(key, decoded, "Encoded and decoded keys should be equal");
         }
-    }
-
-    #[tokio::test]
-    async fn ssz_tagged_beacon_state_encode_decode_equality() {
-        type E = MinimalEthSpec;
-        let altair_fork_epoch = Epoch::new(1);
-        let altair_fork_slot = altair_fork_epoch.start_slot(E::slots_per_epoch());
-        let bellatrix_fork_epoch = Epoch::new(2);
-        let merge_fork_slot = bellatrix_fork_epoch.start_slot(E::slots_per_epoch());
-        let capella_fork_epoch = Epoch::new(3);
-        let capella_fork_slot = capella_fork_epoch.start_slot(E::slots_per_epoch());
-        let deneb_fork_epoch = Epoch::new(4);
-        let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
-
-        let mut spec = E::default_spec();
-        spec.altair_fork_epoch = Some(altair_fork_epoch);
-        spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
-        spec.capella_fork_epoch = Some(capella_fork_epoch);
-        spec.deneb_fork_epoch = Some(deneb_fork_epoch);
-        let genesis_block = execution_layer::test_utils::generate_genesis_block(
-            spec.terminal_total_difficulty,
-            DEFAULT_TERMINAL_BLOCK,
-        )
-        .unwrap();
-        spec.terminal_block_hash = genesis_block.block_hash;
-        spec.terminal_block_hash_activation_epoch = bellatrix_fork_epoch;
-
-        let harness = BeaconChainHarness::builder(E::default())
-            .spec(spec)
-            .logger(logging::test_logger())
-            .deterministic_keypairs(LOW_VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .mock_execution_layer()
-            .build();
-
-        let mut state = harness.get_current_state();
-        assert!(state.as_base().is_ok());
-        let encoded = ssz_tagged_beacon_state::encode::as_ssz_bytes(&state);
-        let decoded =
-            ssz_tagged_beacon_state::decode::from_ssz_bytes(&encoded).expect("should decode");
-        state.drop_all_caches().expect("should drop caches");
-        assert_eq!(state, decoded, "Encoded and decoded states should be equal");
-
-        harness.extend_to_slot(altair_fork_slot).await;
-
-        let mut state = harness.get_current_state();
-        assert!(state.as_altair().is_ok());
-        let encoded = ssz_tagged_beacon_state::encode::as_ssz_bytes(&state);
-        let decoded =
-            ssz_tagged_beacon_state::decode::from_ssz_bytes(&encoded).expect("should decode");
-        state.drop_all_caches().expect("should drop caches");
-        assert_eq!(state, decoded, "Encoded and decoded states should be equal");
-
-        harness.extend_to_slot(merge_fork_slot).await;
-
-        let mut state = harness.get_current_state();
-        assert!(state.as_merge().is_ok());
-        let encoded = ssz_tagged_beacon_state::encode::as_ssz_bytes(&state);
-        let decoded =
-            ssz_tagged_beacon_state::decode::from_ssz_bytes(&encoded).expect("should decode");
-        state.drop_all_caches().expect("should drop caches");
-        assert_eq!(state, decoded, "Encoded and decoded states should be equal");
-
-        harness.extend_to_slot(capella_fork_slot).await;
-
-        let mut state = harness.get_current_state();
-        assert!(state.as_capella().is_ok());
-        let encoded = ssz_tagged_beacon_state::encode::as_ssz_bytes(&state);
-        let decoded =
-            ssz_tagged_beacon_state::decode::from_ssz_bytes(&encoded).expect("should decode");
-        state.drop_all_caches().expect("should drop caches");
-        assert_eq!(state, decoded, "Encoded and decoded states should be equal");
-
-        harness.extend_to_slot(deneb_fork_slot).await;
-
-        let mut state = harness.get_current_state();
-        assert!(state.as_deneb().is_ok());
-        let encoded = ssz_tagged_beacon_state::encode::as_ssz_bytes(&state);
-        let decoded =
-            ssz_tagged_beacon_state::decode::from_ssz_bytes(&encoded).expect("should decode");
-        state.drop_all_caches().expect("should drop caches");
-        assert_eq!(state, decoded, "Encoded and decoded states should be equal");
     }
 
     async fn availability_pending_block<E, Hot, Cold>(
@@ -1677,11 +1592,11 @@ mod test {
         }
 
         let state_cache = cache.state_lru_cache().lru_cache();
-        let mut pushed_blocks = VecDeque::new();
+        let mut pushed_diet_blocks = VecDeque::new();
 
         for i in 0..capacity {
             let pending_block = pending_blocks.pop_front().expect("should have block");
-            pushed_blocks.push_back(pending_block.clone());
+            let block_root = pending_block.as_block().canonical_root();
 
             assert_eq!(
                 state_cache.read().len(),
@@ -1702,6 +1617,22 @@ mod test {
             let availability = cache
                 .put_pending_executed_block(pending_block)
                 .expect("should put block");
+
+            // grab the diet block from the cache for later testing
+            let diet_block = cache
+                .critical
+                .read()
+                .in_memory
+                .peek(&block_root)
+                .map(|pending_components| {
+                    pending_components
+                        .executed_block
+                        .clone()
+                        .expect("should exist")
+                })
+                .expect("should exist");
+            pushed_diet_blocks.push_back(diet_block);
+
             // should be unavailable since we made sure all blocks had blobs
             assert!(
                 matches!(availability, Availability::MissingComponents(_)),
@@ -1716,7 +1647,7 @@ mod test {
                     "lru root should be evicted"
                 );
                 // get the diet block via direct conversion (testing only)
-                let diet_block = pushed_blocks.pop_front().expect("should have block").into();
+                let diet_block = pushed_diet_blocks.pop_front().expect("should have block");
                 // reconstruct the pending block by replaying the block on the parent state
                 let recovered_pending_block = cache
                     .state_lru_cache()
@@ -1732,12 +1663,12 @@ mod test {
         }
 
         // now check the last block
-        let last_block = pushed_blocks.pop_back().expect("should exist").clone();
+        let last_block = pushed_diet_blocks.pop_back().expect("should exist").clone();
         // the state should still be in the cache
         assert!(
             state_cache
                 .read()
-                .peek(&last_block.import_data.state.canonical_root())
+                .peek(&last_block.as_block().state_root())
                 .is_some(),
             "last block state should still be in cache"
         );
@@ -1750,14 +1681,15 @@ mod test {
             .expect("should reconstruct pending block");
         // assert the recovered state is the same as the original
         assert_eq!(
-            recovered_pending_block.import_data.state, last_block.import_data.state,
+            Some(&recovered_pending_block.import_data.state),
+            states.last(),
             "recovered state should be the same as the original"
         );
         // the state should no longer be in the cache
         assert!(
             state_cache
                 .read()
-                .peek(&last_block.import_data.state.canonical_root())
+                .peek(&last_block.as_block().state_root())
                 .is_none(),
             "last block state should no longer be in cache"
         );

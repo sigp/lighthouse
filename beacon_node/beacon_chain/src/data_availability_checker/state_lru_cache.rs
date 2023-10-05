@@ -1,3 +1,4 @@
+use crate::block_verification_types::AsBlock;
 use crate::{
     block_verification_types::BlockImportData,
     data_availability_checker::{AvailabilityCheckError, STATE_LRU_CAPACITY},
@@ -74,7 +75,7 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> DietAvailabilityPendingExecutedBlock<T::EthSpec> {
         let state = executed_block.import_data.state;
-        let state_root = state.canonical_root();
+        let state_root = executed_block.block.state_root();
         self.states.write().put(state_root, state);
 
         DietAvailabilityPendingExecutedBlock {
@@ -146,13 +147,15 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
         &self,
         diet_executed_block: &DietAvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<BeaconState<T::EthSpec>, AvailabilityCheckError> {
+        let parent_block_root = diet_executed_block.parent_block.canonical_root();
         let parent_state_root = diet_executed_block.parent_block.state_root();
         // TODO: check these options
-        let parent_state = self
+        let (_, parent_state) = self
             .store
-            .get_state(
-                &parent_state_root,
-                Some(diet_executed_block.parent_block.slot()),
+            .get_advanced_hot_state(
+                parent_block_root,
+                diet_executed_block.parent_block.slot(),
+                parent_state_root,
             )
             .map_err(AvailabilityCheckError::StoreError)?
             .ok_or(AvailabilityCheckError::ParentStateMissing(
@@ -167,7 +170,6 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
             )),
         ];
 
-        // TODO: check these options
         let block_replayer: BlockReplayer<'_, T::EthSpec, AvailabilityCheckError, _> =
             BlockReplayer::new(parent_state, &self.spec)
                 .no_signature_verification()
@@ -179,7 +181,6 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
             .apply_blocks(vec![diet_executed_block.block.clone_as_blinded()], None)
             .map(|block_replayer| block_replayer.into_state())
             .and_then(|mut state| {
-                // TODO: check this
                 state
                     .build_caches(&self.spec)
                     .map_err(AvailabilityCheckError::RebuildingStateCaches)?;
