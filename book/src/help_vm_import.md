@@ -1,10 +1,11 @@
-# Validator Manager
+# Validator Manager Import
 
 ```
-Utilities for managing a Lighthouse validator client via the HTTP API.
+Uploads validators to a validator client using the HTTP API. The validators are defined in a JSON file which can be
+generated using the "create-validators" command.
 
 USAGE:
-    lighthouse validator_manager [FLAGS] [OPTIONS] [SUBCOMMAND]
+    lighthouse validator_manager import [FLAGS] [OPTIONS] --validators-file <PATH_TO_JSON_FILE>
 
 FLAGS:
         --disable-log-timestamp          If present, do not include timestamps in logging output.
@@ -12,6 +13,12 @@ FLAGS:
                                          generally increase memory usage, it should only be provided when debugging
                                          specific memory allocation issues.
     -h, --help                           Prints help information
+        --ignore-duplicates              If present, ignore any validators which already exist on the VC. Without this
+                                         flag, the process will terminate without making any changes. This flag should
+                                         be used with caution, whilst it does not directly cause slashable conditions,
+                                         it might be an indicator that something is amiss. Users should also be careful
+                                         to avoid submitting duplicate deposits for validators that already exist on the
+                                         VC.
         --log-color                      Force outputting colors when emitting logs to the terminal.
         --logfile-compress               If present, compress old log files. This can help reduce the space needed to
                                          store old logs.
@@ -85,16 +92,13 @@ OPTIONS:
     -t, --testnet-dir <DIR>
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.
+        --validators-file <PATH_TO_JSON_FILE>
+            The path to a JSON file containing a list of validators to be imported to the validator client. This file is
+            usually named "validators.json".
+        --vc-token <PATH>
+            The file containing a token required by the validator client.
 
-SUBCOMMANDS:
-    create    Creates new validators from BIP-39 mnemonic. A JSON file will be created which contains all the
-              validator keystores and other validator data. This file can then be imported to a validator client
-              using the "import-validators" command. Another, optional JSON file is created which contains a list of
-              validator deposits in the same format as the "ethereum/staking-deposit-cli" tool.
-    help      Prints this message or the help of the given subcommand(s)
-    import    Uploads validators to a validator client using the HTTP API. The validators are defined in a JSON file
-              which can be generated using the "create-validators" command.
-    move      Uploads validators to a validator client using the HTTP API. The validators are defined in a JSON file
-              which can be generated using the "create-validators" command. This command only supports validators
-              signing via a keystore on the local file system (i.e., not Web3Signer validators).
+        --vc-url <HTTP_ADDRESS>
+            A HTTP(S) address of a validator client using the keymanager-API. If this value is not supplied then a 'dry
+            run' will be conducted where no changes are made to the validator client. [default: http://localhost:5062]
 ```
