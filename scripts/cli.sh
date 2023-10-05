@@ -32,25 +32,29 @@ fi
 general_cli=$($CMD --help)
 bn_cli=$($CMD bn --help)
 vc_cli=$($CMD vc --help)
-am_cli=$($CMD am --help)
-vm_cli=$($CMD vm --help)
+vm_cli_create=$($CMD vm create --help)
+vm_cli_import=$($CMD vm import --help)
+vm_cli_move=$($CMD vm move --help)
 
 general=./help_general.md
 bn=./help_bn.md
 vc=./help_vc.md
 am=./help_am.md
-vm=./help_vm.md
+vm_create=./help_vm_create.md
+vm_import=./help_vm_import.md
+vm_move=./help_vm_move.md
 
 # create .md files
 write_to_file "$general_cli" "$general" "Lighthouse General Commands"
 write_to_file "$bn_cli" "$bn" "Beacon Node"
 write_to_file "$vc_cli" "$vc" "Validator Client"
-write_to_file "$am_cli" "$am" "Account Manager"
-write_to_file "$vm_cli" "$vm" "Validator Manager"
+write_to_file "$vm_cli_create" "$vm_create" "Validator Manager Create"
+write_to_file "$vm_cli_import" "$vm_import" "Validator Manager Import"
+write_to_file "$vm_cli_move" "$vm_move" "Validator Manager Move"
 
 #input 1 = $1 = files; input 2 = $2 = new files
-files=(./book/src/help_general.md ./book/src/help_bn.md ./book/src/help_vc.md ./book/src/help_am.md ./book/src/help_vm.md)
-new_files=($general $bn $vc $am $vm)
+files=(./book/src/help_general.md ./book/src/help_bn.md ./book/src/help_vc.md ./book/src/help_vm_create.md ./book/src/help_vm_import.md ./book/src/help_vm_move.md)
+new_files=($general $bn $vc $vm_create $vm_import $vm_move)
 
 # function to check
 check() {
@@ -82,9 +86,10 @@ check ${files[1]} ${new_files[1]}
 check ${files[2]} ${new_files[2]}
 check ${files[3]} ${new_files[3]}
 check ${files[4]} ${new_files[4]}
+check ${files[5]} ${new_files[5]}
 
 # remove help files
-rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md
+rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm_create.md help_vm_import.md help_mv_move.md
 
 # only exit at the very end
 if [[ $changes == true ]]; then

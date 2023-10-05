@@ -1,10 +1,12 @@
-# Account Manager
+# Validator Manager Move
 
 ```
-Utilities for generating and managing Ethereum 2.0 accounts.
+Uploads validators to a validator client using the HTTP API. The validators are defined in a JSON file which can be
+generated using the "create-validators" command. This command only supports validators signing via a keystore on the
+local file system (i.e., not Web3Signer validators).
 
 USAGE:
-    lighthouse account_manager [FLAGS] [OPTIONS] [SUBCOMMAND]
+    lighthouse validator_manager move [FLAGS] [OPTIONS] --dest-vc-token <PATH> --dest-vc-url <HTTP_ADDRESS> --src-vc-token <PATH> --src-vc-url <HTTP_ADDRESS>
 
 FLAGS:
         --disable-log-timestamp          If present, do not include timestamps in logging output.
@@ -20,9 +22,14 @@ FLAGS:
                                          information about your validator and so this flag should be used with caution.
                                          For Windows users, the log file permissions will be inherited from the parent
                                          folder.
+        --stdin-inputs                   If present, read all user inputs from stdin instead of tty.
     -V, --version                        Prints version information
 
 OPTIONS:
+        --builder-proposals <builder-proposals>
+            When provided, all created validators will attempt to create blocks via builder rather than the local EL.
+            [possible values: true, false]
+        --count <VALIDATOR_COUNT>                               The number of validators to move.
     -d, --datadir <DIR>
             Used to specify a custom root data directory for lighthouse keys and databases. Defaults to
             $HOME/.lighthouse/{network} where network is the value of the `network` flag Note: Users should specify
@@ -30,6 +37,15 @@ OPTIONS:
         --debug-level <LEVEL>
             Specifies the verbosity level used when emitting logs to the terminal. [default: info]  [possible values:
             info, debug, trace, warn, error, crit]
+        --dest-vc-token <PATH>
+            The file containing a token required by the destination validator client.
+
+        --dest-vc-url <HTTP_ADDRESS>
+            A HTTP(S) address of a validator client using the keymanager-API. This validator client is the "destination"
+            and will have new validators added as they are removed from the "source" validator client.
+        --gas-limit <UINT64>
+            All created validators will use this gas limit. It is recommended to leave this as the default value by not
+            specifying this flag.
         --genesis-state-url <URL>
             A URL of a beacon-API compatible server from which to download the genesis state. Checkpoint sync server
             URLs can generally be used with this flag. If not supplied, a default URL or the --checkpoint-sync-url may
@@ -67,6 +83,15 @@ OPTIONS:
     -s, --spec <DEPRECATED>
             This flag is deprecated, it will be disallowed in a future release. This value is now derived from the
             --network or --testnet-dir flags.
+        --src-vc-token <PATH>
+            The file containing a token required by the source validator client.
+
+        --src-vc-url <HTTP_ADDRESS>
+            A HTTP(S) address of a validator client using the keymanager-API. This validator client is the "source" and
+            contains the validators that are to be moved.
+        --suggested-fee-recipient <ETH1_ADDRESS>
+            All created validators will use this value for the suggested fee recipient. Omit this flag to use the
+            default value from the VC.
         --terminal-block-hash-epoch-override <EPOCH>
             Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH parameter. This flag should
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
@@ -85,9 +110,6 @@ OPTIONS:
     -t, --testnet-dir <DIR>
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.
-
-SUBCOMMANDS:
-    help         Prints this message or the help of the given subcommand(s)
-    validator    Provides commands for managing Eth2 validators.
-    wallet       Manage wallets, from which validator keys can be derived.
+        --validators <STRING>
+            The validators to be moved. Either a list of 0x-prefixed validator pubkeys or the keyword "all".
 ```
