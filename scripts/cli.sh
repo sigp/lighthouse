@@ -88,7 +88,7 @@ rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md
 
 # only exit at the very end
 if [[ $changes == true ]]; then
-    echo "CLI parameters were not up to date. Run \"make cli\" to update, then commit the changes"
+    echo "Exiting with error to indicate changes occurred..."
     exit 1
 else
     echo "CLI parameters are up to date."
