@@ -4746,7 +4746,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut ctxt = ConsensusContext::new(block.slot());
 
         let consensus_block_value = self
-            .compute_beacon_block_reward(inner_block.to_ref(), Hash256::zero(), &mut state, false)
+            .compute_beacon_block_reward(inner_block.to_ref(), Hash256::zero(), &mut state)
             .unwrap_or(StandardBlockReward {
                 proposer_index: 0,
                 total: 0,
