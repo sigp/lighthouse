@@ -5,7 +5,7 @@ use crate::per_block_processing::errors::{
     DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
     ProposerSlashingInvalid,
 };
-use crate::{per_block_processing, StateProcessingStrategy};
+use crate::{per_block_processing, BlockReplayError, BlockReplayer, StateProcessingStrategy};
 use crate::{
     per_block_processing::{process_operations, verify_exit::verify_exit},
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
@@ -1034,4 +1034,52 @@ async fn fork_spanning_exit() {
         &spec,
     )
     .expect_err("phase0 exit does not verify against bellatrix state");
+}
+
+/// Check that the block replayer does not consume state roots unnecessarily.
+#[tokio::test]
+async fn block_replayer_peeking_state_roots() {
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+
+    let target_state = harness.get_current_state();
+    let target_block_root = harness.head_block_root();
+    let target_block = harness
+        .chain
+        .get_blinded_block(&target_block_root)
+        .unwrap()
+        .unwrap();
+
+    let parent_block_root = target_block.parent_root();
+    let parent_block = harness
+        .chain
+        .get_blinded_block(&parent_block_root)
+        .unwrap()
+        .unwrap();
+    let parent_state = harness
+        .chain
+        .get_state(&parent_block.state_root(), Some(parent_block.slot()))
+        .unwrap()
+        .unwrap();
+
+    // Omit the state root for `target_state` but provide a dummy state root at the *next* slot.
+    // If the block replayer is peeking at the state roots rather than consuming them, then the
+    // dummy state should still be there after block replay completes.
+    let dummy_state_root = Hash256::repeat_byte(0xff);
+    let dummy_slot = target_state.slot() + 1;
+    let state_root_iter = vec![Ok::<_, BlockReplayError>((dummy_state_root, dummy_slot))];
+    let block_replayer = BlockReplayer::new(parent_state, &harness.chain.spec)
+        .state_root_iter(state_root_iter.into_iter())
+        .no_signature_verification()
+        .apply_blocks(vec![target_block], None)
+        .unwrap();
+
+    assert_eq!(
+        block_replayer
+            .state_root_iter
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap(),
+        (dummy_state_root, dummy_slot)
+    );
 }
