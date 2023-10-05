@@ -7,7 +7,7 @@ use crate::metrics;
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, info, Logger};
+use slog::{crit, debug, info, Logger, warn};
 use slot_clock::SlotClock;
 use smallvec::SmallVec;
 use state_processing::per_epoch_processing::{
@@ -628,6 +628,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                         i,
                                         self.total_missed_blocks.get(&i).unwrap_or(&0) + 1,
                                     );
+                                } else {
+                                    warn!(
+                                        self.log,
+                                        "Missing validator index";
+                                        "info" => "potentially inconsistency in the validator manager",
+                                        "index" => i,
+                                    )
                                 }
                             }
                         } else {
