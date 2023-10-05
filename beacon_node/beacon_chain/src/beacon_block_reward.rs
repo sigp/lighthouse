@@ -71,18 +71,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     BeaconChainError::BlockRewardAttestationError
                 })?
         } else {
-            self.compute_beacon_block_attestation_reward_altair(
-                block,
-                state,
-            )
-            .map_err(|e| {
-                error!(
-                self.log,
-                "Error calculating altair block attestation reward";
-                "error" => ?e
-                );
-                BeaconChainError::BlockRewardAttestationError
-            })?
+            self.compute_beacon_block_attestation_reward_altair(block, state)
+                .map_err(|e| {
+                    error!(
+                    self.log,
+                    "Error calculating altair block attestation reward";
+                    "error" => ?e
+                    );
+                    BeaconChainError::BlockRewardAttestationError
+                })?
         };
 
         let total_reward = sync_aggregate_reward
@@ -210,7 +207,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                     let mut epoch_participation =
                         state.get_epoch_participation(data.target.epoch)?.clone();
-                    
+
                     let validator_participation = epoch_participation
                         .get_mut(index)
                         .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
