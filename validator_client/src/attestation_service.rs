@@ -193,7 +193,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .fold(HashMap::new(), |mut map, duty_and_proof| {
                 map.entry(duty_and_proof.duty.committee_index)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(duty_and_proof);
                 map
             });
