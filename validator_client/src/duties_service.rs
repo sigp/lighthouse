@@ -115,6 +115,7 @@ pub struct DutyAndProof {
 
 /// Tracker containing the slots at which an attestation subscription should be sent.
 pub struct SubscriptionSlots {
+    /// Pairs of `(slot, already_sent)` in slot-descending order.
     slots: Vec<(Slot, AtomicBool)>,
 }
 
@@ -179,8 +180,8 @@ impl SubscriptionSlots {
         self.slots
             .iter()
             .rev()
-            .any(|(subscribe_slot, already_sent)| {
-                slot >= *subscribe_slot && !already_sent.load(Ordering::Relaxed)
+            .any(|(scheduled_slot, already_sent)| {
+                slot >= *scheduled_slot && !already_sent.load(Ordering::Relaxed)
             })
     }
 
@@ -644,16 +645,22 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     let subscriptions_timer =
         metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::SUBSCRIPTIONS]);
 
-    // This vector is likely to be a little oversized, but it won't reallocate.
-    // The calculation is based on the fact that every validator has
-    // `ATTESTATION_SUBSCRIPTION_OFFSETS.len()` subscriptions to send each epoch. We assume these
-    // subscriptions are distributed roughly evenly across the slots, but include an extra margin of
-    // 1/4 to hedge against imbalances.
-    let num_expected_subscriptions = std::cmp::max(
-        1,
-        5 * local_pubkeys.len() * ATTESTATION_SUBSCRIPTION_OFFSETS.len()
-            / (4 * E::slots_per_epoch() as usize),
-    );
+    // This vector is intentionally oversized by 10% so that it won't reallocate.
+    // Each validator has 2 attestation duties occuring in the current and next epoch, for which
+    // they must send `ATTESTATION_SUBSCRIPTION_OFFSETS.len()` subscriptions. These subscription
+    // slots are approximately evenly distributed over the two epochs, usually with a slight lag
+    // that balances out (some subscriptions for the current epoch were sent in the previous, and
+    // some subscriptions for the next next epoch will be sent in the next epoch but aren't included
+    // in our calculation). We cancel the factor of 2 from the formula for simplicity.
+    let overallocation_numerator = 110;
+    let overallocation_denominator = 100;
+    let num_expected_subscriptions = overallocation_numerator
+        * std::cmp::max(
+            1,
+            local_pubkeys.len() * ATTESTATION_SUBSCRIPTION_OFFSETS.len()
+                / E::slots_per_epoch() as usize,
+        )
+        / overallocation_denominator;
     let mut subscriptions = Vec::with_capacity(num_expected_subscriptions);
     let mut subscription_slots_to_confirm = Vec::with_capacity(num_expected_subscriptions);
 
@@ -717,9 +724,8 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             // Record that subscriptions were successfully sent.
             debug!(
                 log,
-                "Sent attestation subscriptions";
+                "Broadcast attestation subscriptions";
                 "count" => subscriptions.len(),
-                "expected" => num_expected_subscriptions
             );
             for subscription_slots in subscription_slots_to_confirm {
                 subscription_slots.record_successful_subscription_at(current_slot);
