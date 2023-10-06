@@ -17,7 +17,6 @@ pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::convert::TryFrom;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
@@ -26,14 +25,16 @@ pub use types::{
     ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions, Uint256, VariableList,
     Withdrawal, Withdrawals,
 };
-use types::{
-    BeaconStateError, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge,
-    KzgProofs, VersionedHash,
-};
+use types::{ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, KzgProofs};
 
 pub mod auth;
 pub mod http;
 pub mod json_structures;
+mod new_payload_request;
+
+pub use new_payload_request::{
+    NewPayloadRequest, NewPayloadRequestCapella, NewPayloadRequestDeneb, NewPayloadRequestMerge,
+};
 
 pub const LATEST_TAG: &str = "latest";
 
@@ -567,120 +568,6 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     ))
                 }
             }
-        }
-    }
-}
-
-#[superstruct(
-    variants(Merge, Capella, Deneb),
-    variant_attributes(derive(Clone, Debug, PartialEq),),
-    map_into(ExecutionPayload),
-    map_ref_into(ExecutionPayloadRef),
-    cast_error(
-        ty = "BeaconStateError",
-        expr = "BeaconStateError::IncorrectStateVariant"
-    ),
-    partial_getter_error(
-        ty = "BeaconStateError",
-        expr = "BeaconStateError::IncorrectStateVariant"
-    )
-)]
-#[derive(Clone, Debug, PartialEq)]
-pub struct NewPayloadRequest<'block, E: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload: &'block ExecutionPayloadMerge<E>,
-    #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload: &'block ExecutionPayloadCapella<E>,
-    #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload: &'block ExecutionPayloadDeneb<E>,
-    #[superstruct(only(Deneb))]
-    pub versioned_hashes: Vec<VersionedHash>,
-    #[superstruct(only(Deneb))]
-    pub parent_beacon_block_root: Hash256,
-}
-
-impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
-    pub fn parent_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Merge(payload) => payload.execution_payload.parent_hash,
-            Self::Capella(payload) => payload.execution_payload.parent_hash,
-            Self::Deneb(payload) => payload.execution_payload.parent_hash,
-        }
-    }
-
-    pub fn block_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Merge(payload) => payload.execution_payload.block_hash,
-            Self::Capella(payload) => payload.execution_payload.block_hash,
-            Self::Deneb(payload) => payload.execution_payload.block_hash,
-        }
-    }
-
-    pub fn block_number(&self) -> u64 {
-        match self {
-            Self::Merge(payload) => payload.execution_payload.block_number,
-            Self::Capella(payload) => payload.execution_payload.block_number,
-            Self::Deneb(payload) => payload.execution_payload.block_number,
-        }
-    }
-
-    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'block, E> {
-        match self {
-            Self::Merge(request) => ExecutionPayloadRef::Merge(request.execution_payload),
-            Self::Capella(request) => ExecutionPayloadRef::Capella(request.execution_payload),
-            Self::Deneb(request) => ExecutionPayloadRef::Deneb(request.execution_payload),
-        }
-    }
-
-    pub fn into_execution_payload(self) -> ExecutionPayload<E> {
-        match self {
-            Self::Merge(request) => ExecutionPayload::Merge(request.execution_payload.clone()),
-            Self::Capella(request) => ExecutionPayload::Capella(request.execution_payload.clone()),
-            Self::Deneb(request) => ExecutionPayload::Deneb(request.execution_payload.clone()),
-        }
-    }
-}
-
-impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<'a, E> {
-    type Error = BeaconStateError;
-
-    fn try_from(block: BeaconBlockRef<'a, E>) -> Result<Self, Self::Error> {
-        match block {
-            BeaconBlockRef::Base(_) | BeaconBlockRef::Altair(_) => {
-                Err(Self::Error::IncorrectStateVariant)
-            }
-            BeaconBlockRef::Merge(block_ref) => Ok(Self::Merge(NewPayloadRequestMerge {
-                execution_payload: &block_ref.body.execution_payload.execution_payload,
-            })),
-            BeaconBlockRef::Capella(block_ref) => Ok(Self::Capella(NewPayloadRequestCapella {
-                execution_payload: &block_ref.body.execution_payload.execution_payload,
-            })),
-            BeaconBlockRef::Deneb(block_ref) => Ok(Self::Deneb(NewPayloadRequestDeneb {
-                execution_payload: &block_ref.body.execution_payload.execution_payload,
-                versioned_hashes: block_ref
-                    .body
-                    .blob_kzg_commitments
-                    .iter()
-                    .map(kzg_commitment_to_versioned_hash)
-                    .collect(),
-                parent_beacon_block_root: block_ref.parent_root,
-            })),
-        }
-    }
-}
-
-impl<'a, E: EthSpec> TryFrom<ExecutionPayloadRef<'a, E>> for NewPayloadRequest<'a, E> {
-    type Error = BeaconStateError;
-
-    fn try_from(payload: ExecutionPayloadRef<'a, E>) -> Result<Self, Self::Error> {
-        match payload {
-            ExecutionPayloadRef::Merge(payload) => Ok(Self::Merge(NewPayloadRequestMerge {
-                execution_payload: payload,
-            })),
-            ExecutionPayloadRef::Capella(payload) => Ok(Self::Capella(NewPayloadRequestCapella {
-                execution_payload: payload,
-            })),
-            ExecutionPayloadRef::Deneb(_) => Err(Self::Error::IncorrectStateVariant),
         }
     }
 }
