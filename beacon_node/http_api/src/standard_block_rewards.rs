@@ -5,8 +5,8 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::lighthouse::StandardBlockReward;
 use std::sync::Arc;
 use warp_utils::reject::beacon_chain_error;
-//// The difference between block_rewards and beacon_block_rewards is the later returns block
-//// reward format that satisfies beacon-api specs
+/// The difference between block_rewards and beacon_block_rewards is the later returns block
+/// reward format that satisfies beacon-api specs
 pub fn compute_beacon_block_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_id: BlockId,
