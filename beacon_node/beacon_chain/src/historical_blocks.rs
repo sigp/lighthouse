@@ -172,20 +172,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let signature_set = signed_blocks
             .iter()
             .zip_eq(block_roots)
-            .filter_map(|(block, block_root)| {
-                (block_root != self.genesis_block_root).then(|| {
-                    block_proposal_signature_set_from_parts(
-                        block,
-                        Some(block_root),
-                        block.message().proposer_index(),
-                        &self.spec.fork_at_epoch(block.message().epoch()),
-                        self.genesis_validators_root,
-                        |validator_index| {
-                            pubkey_cache.get(validator_index).cloned().map(Cow::Owned)
-                        },
-                        &self.spec,
-                    )
-                })
+            .filter(|&(_block, block_root)| (block_root != self.genesis_block_root))
+            .map(|(block, block_root)| {
+                block_proposal_signature_set_from_parts(
+                    block,
+                    Some(block_root),
+                    block.message().proposer_index(),
+                    &self.spec.fork_at_epoch(block.message().epoch()),
+                    self.genesis_validators_root,
+                    |validator_index| pubkey_cache.get(validator_index).cloned().map(Cow::Owned),
+                    &self.spec,
+                )
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(HistoricalBlockError::SignatureSet)
