@@ -200,13 +200,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )?;
 
             let attesting_indices = get_attesting_indices_from_state(state, attestation)?;
-
+            let mut current_epoch_participation = state.current_epoch_participation()?.clone();
+            let mut previous_epoch_participation = state.previous_epoch_participation()?.clone();
             let mut proposer_reward_numerator = 0;
             for index in attesting_indices {
                 let index = index as usize;
                 for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                    let mut epoch_participation =
-                        state.get_epoch_participation(data.target.epoch)?.clone();
+                    let epoch_participation = if data.target.epoch == state.current_epoch() {
+                        &mut current_epoch_participation
+                    } else {
+                        &mut previous_epoch_participation
+                    };
 
                     let validator_participation = epoch_participation
                         .get_mut(index)
