@@ -586,20 +586,20 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
     )
 )]
 #[derive(Clone, Debug, PartialEq)]
-pub struct NewPayloadRequest<E: EthSpec> {
+pub struct NewPayloadRequest<'block, E: EthSpec> {
     #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload: ExecutionPayloadMerge<E>,
+    pub execution_payload: &'block ExecutionPayloadMerge<E>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload: ExecutionPayloadCapella<E>,
+    pub execution_payload: &'block ExecutionPayloadCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload: ExecutionPayloadDeneb<E>,
+    pub execution_payload: &'block ExecutionPayloadDeneb<E>,
     #[superstruct(only(Deneb))]
     pub versioned_hashes: Vec<VersionedHash>,
     #[superstruct(only(Deneb))]
     pub parent_beacon_block_root: Hash256,
 }
 
-impl<E: EthSpec> NewPayloadRequest<E> {
+impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     pub fn parent_hash(&self) -> ExecutionBlockHash {
         match self {
             Self::Merge(payload) => payload.execution_payload.parent_hash,
@@ -624,14 +624,24 @@ impl<E: EthSpec> NewPayloadRequest<E> {
         }
     }
 
+    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'block, E> {
+        match self {
+            Self::Merge(request) => ExecutionPayloadRef::Merge(request.execution_payload),
+            Self::Capella(request) => ExecutionPayloadRef::Capella(request.execution_payload),
+            Self::Deneb(request) => ExecutionPayloadRef::Deneb(request.execution_payload),
+        }
+    }
+
     pub fn into_execution_payload(self) -> ExecutionPayload<E> {
-        map_new_payload_request_into_execution_payload!(self, |request, cons| {
-            cons(request.execution_payload)
-        })
+        match self {
+            Self::Merge(request) => ExecutionPayload::Merge(request.execution_payload.clone()),
+            Self::Capella(request) => ExecutionPayload::Capella(request.execution_payload.clone()),
+            Self::Deneb(request) => ExecutionPayload::Deneb(request.execution_payload.clone()),
+        }
     }
 }
 
-impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<E> {
+impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<'a, E> {
     type Error = BeaconStateError;
 
     fn try_from(block: BeaconBlockRef<'a, E>) -> Result<Self, Self::Error> {
@@ -640,13 +650,13 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<E> {
                 Err(Self::Error::IncorrectStateVariant)
             }
             BeaconBlockRef::Merge(block_ref) => Ok(Self::Merge(NewPayloadRequestMerge {
-                execution_payload: block_ref.body.execution_payload.execution_payload.clone(),
+                execution_payload: &block_ref.body.execution_payload.execution_payload,
             })),
             BeaconBlockRef::Capella(block_ref) => Ok(Self::Capella(NewPayloadRequestCapella {
-                execution_payload: block_ref.body.execution_payload.execution_payload.clone(),
+                execution_payload: &block_ref.body.execution_payload.execution_payload,
             })),
             BeaconBlockRef::Deneb(block_ref) => Ok(Self::Deneb(NewPayloadRequestDeneb {
-                execution_payload: block_ref.body.execution_payload.execution_payload.clone(),
+                execution_payload: &block_ref.body.execution_payload.execution_payload,
                 versioned_hashes: block_ref
                     .body
                     .blob_kzg_commitments
@@ -659,18 +669,18 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<E> {
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for NewPayloadRequest<E> {
+impl<'a, E: EthSpec> TryFrom<ExecutionPayloadRef<'a, E>> for NewPayloadRequest<'a, E> {
     type Error = BeaconStateError;
 
-    fn try_from(payload: ExecutionPayload<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: ExecutionPayloadRef<'a, E>) -> Result<Self, Self::Error> {
         match payload {
-            ExecutionPayload::Merge(payload) => Ok(Self::Merge(NewPayloadRequestMerge {
+            ExecutionPayloadRef::Merge(payload) => Ok(Self::Merge(NewPayloadRequestMerge {
                 execution_payload: payload,
             })),
-            ExecutionPayload::Capella(payload) => Ok(Self::Capella(NewPayloadRequestCapella {
+            ExecutionPayloadRef::Capella(payload) => Ok(Self::Capella(NewPayloadRequestCapella {
                 execution_payload: payload,
             })),
-            ExecutionPayload::Deneb(_) => Err(Self::Error::IncorrectStateVariant),
+            ExecutionPayloadRef::Deneb(_) => Err(Self::Error::IncorrectStateVariant),
         }
     }
 }
