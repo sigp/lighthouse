@@ -38,7 +38,7 @@ impl BlobIdentifier {
 
 impl PartialOrd for BlobIdentifier {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.index.partial_cmp(&other.index)
+        Some(self.cmp(other))
     }
 }
 
@@ -109,7 +109,7 @@ impl<E: EthSpec> From<BlobSidecar<E>> for BlindedBlobSidecar {
 
 impl<T: EthSpec> PartialOrd for BlobSidecar<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.index.partial_cmp(&other.index)
+        Some(self.cmp(other))
     }
 }
 
