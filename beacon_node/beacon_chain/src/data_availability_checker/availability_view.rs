@@ -4,7 +4,6 @@ use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::AsBlock;
 use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
 use crate::data_availability_checker::ProcessingComponents;
-use crate::AvailabilityPendingExecutedBlock;
 use kzg::KzgCommitment;
 use ssz_types::FixedVector;
 use std::sync::Arc;
@@ -226,17 +225,6 @@ impl<E: EthSpec> GetCommitment<E> for KzgCommitment {
 }
 
 // These implementations are required to implement `AvailabilityView` for `PendingComponents`.
-impl<E: EthSpec> GetCommitments<E> for AvailabilityPendingExecutedBlock<E> {
-    fn get_commitments(&self) -> KzgCommitments<E> {
-        self.as_block()
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .cloned()
-            .unwrap_or_default()
-    }
-}
-
 impl<E: EthSpec> GetCommitments<E> for DietAvailabilityPendingExecutedBlock<E> {
     fn get_commitments(&self) -> KzgCommitments<E> {
         self.as_block()
@@ -277,6 +265,7 @@ pub mod tests {
     use crate::block_verification_types::BlockImportData;
     use crate::eth1_finalization_cache::Eth1FinalizationData;
     use crate::test_utils::{generate_rand_block_and_blobs, NumBlobs};
+    use crate::AvailabilityPendingExecutedBlock;
     use crate::PayloadVerificationOutcome;
     use eth2_network_config::get_trusted_setup;
     use fork_choice::PayloadVerificationStatus;
