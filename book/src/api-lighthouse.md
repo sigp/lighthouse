@@ -547,22 +547,6 @@ reconstruction has yet to be completed. For more information
 on the specific meanings of these fields see the docs on [Checkpoint
 Sync](./checkpoint-sync.md#reconstructing-states).
 
-### `/lighthouse/database/reconstruct`
-
-Instruct Lighthouse to begin reconstructing historic states, see
-[Reconstructing States](./checkpoint-sync.md#reconstructing-states). This is an alternative
-to the `--reconstruct-historic-states` flag.
-
-```
-curl -X POST "http://localhost:5052/lighthouse/database/reconstruct" | jq
-```
-
-```json
-"success"
-```
-
-The endpoint will return immediately. See the beacon node logs for an indication of progress.
-
 ### `/lighthouse/database/historical_blocks`
 
 Manually provide `SignedBeaconBlock`s to backfill the database. This is intended
