@@ -22,6 +22,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
+use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
@@ -1257,23 +1258,23 @@ pub fn set_network_config(
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
         config.enr_udp4_port = Some(
             enr_udp_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR discovery port: {}", enr_udp_port_str))?,
         );
     }
 
     if let Some(enr_quic_port_str) = cli_args.value_of("enr-quic-port") {
         config.enr_quic4_port = Some(
             enr_quic_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid quic port: {}", enr_quic_port_str))?,
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR quic port: {}", enr_quic_port_str))?,
         );
     }
 
     if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
         config.enr_tcp4_port = Some(
             enr_tcp_port_str
-                .parse::<u16>()
+                .parse::<NonZeroU16>()
                 .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
         );
     }
@@ -1281,23 +1282,23 @@ pub fn set_network_config(
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp6-port") {
         config.enr_udp6_port = Some(
             enr_udp_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR discovery port: {}", enr_udp_port_str))?,
         );
     }
 
     if let Some(enr_quic_port_str) = cli_args.value_of("enr-quic6-port") {
         config.enr_quic6_port = Some(
             enr_quic_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid quic port: {}", enr_quic_port_str))?,
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR quic port: {}", enr_quic_port_str))?,
         );
     }
 
     if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp6-port") {
         config.enr_tcp6_port = Some(
             enr_tcp_port_str
-                .parse::<u16>()
+                .parse::<NonZeroU16>()
                 .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
         );
     }
@@ -1305,25 +1306,38 @@ pub fn set_network_config(
     if cli_args.is_present("enr-match") {
         // Match the IP and UDP port in the ENR.
 
-        // Set the ENR address to localhost if the address is unspecified.
         if let Some(ipv4_addr) = config.listen_addrs().v4().cloned() {
+            // ensure the port is valid to be advertised
+            let disc_port = ipv4_addr
+                .disc_port
+                .try_into()
+                .map_err(|_| "enr-match can only be used with non-zero listening ports")?;
+
+            // Set the ENR address to localhost if the address is unspecified.
             let ipv4_enr_addr = if ipv4_addr.addr == Ipv4Addr::UNSPECIFIED {
                 Ipv4Addr::LOCALHOST
             } else {
                 ipv4_addr.addr
             };
             config.enr_address.0 = Some(ipv4_enr_addr);
-            config.enr_udp4_port = Some(ipv4_addr.disc_port);
+            config.enr_udp4_port = Some(disc_port);
         }
 
         if let Some(ipv6_addr) = config.listen_addrs().v6().cloned() {
+            // ensure the port is valid to be advertised
+            let disc_port = ipv6_addr
+                .disc_port
+                .try_into()
+                .map_err(|_| "enr-match can only be used with non-zero listening ports")?;
+
+            // Set the ENR address to localhost if the address is unspecified.
             let ipv6_enr_addr = if ipv6_addr.addr == Ipv6Addr::UNSPECIFIED {
                 Ipv6Addr::LOCALHOST
             } else {
                 ipv6_addr.addr
             };
             config.enr_address.1 = Some(ipv6_enr_addr);
-            config.enr_udp6_port = Some(ipv6_addr.disc_port);
+            config.enr_udp6_port = Some(disc_port);
         }
     }
 

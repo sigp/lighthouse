@@ -3,7 +3,7 @@ use crate::*;
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
+use ssz_types::{FixedVector, VariableList};
 use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -11,6 +11,8 @@ use tree_hash_derive::TreeHash;
 
 pub type KzgCommitments<T> =
     VariableList<KzgCommitment, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type KzgCommitmentOpts<T> =
+    FixedVector<Option<KzgCommitment>, <T as EthSpec>::MaxBlobsPerBlock>;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///

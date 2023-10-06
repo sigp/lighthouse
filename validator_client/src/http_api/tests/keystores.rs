@@ -2146,7 +2146,7 @@ async fn import_remotekey_web3signer_enabled() {
         assert_eq!(tester.vals_total(), 1);
         assert_eq!(tester.vals_enabled(), 1);
         let vals = tester.initialized_validators.read();
-        let web3_vals = vals.validator_definitions().clone();
+        let web3_vals = vals.validator_definitions();
 
         // Import remotekeys.
         let import_res = tester
@@ -2164,7 +2164,7 @@ async fn import_remotekey_web3signer_enabled() {
         assert_eq!(tester.vals_total(), 1);
         assert_eq!(tester.vals_enabled(), 1);
         let vals = tester.initialized_validators.read();
-        let remote_vals = vals.validator_definitions().clone();
+        let remote_vals = vals.validator_definitions();
 
         // Web3signer should not be overwritten since it is enabled.
         assert!(web3_vals == remote_vals);

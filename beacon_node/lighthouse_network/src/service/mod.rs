@@ -27,6 +27,7 @@ use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettin
 use libp2p::bandwidth::BandwidthSinks;
 use libp2p::gossipsub::{
     self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
+    TopicScoreParams,
 };
 use libp2p::identify;
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
@@ -353,11 +354,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             libp2p::connection_limits::Behaviour::new(limits)
         };
 
-        let banned_peers = libp2p::allow_block_list::Behaviour::default();
-
         let behaviour = {
             Behaviour {
-                banned_peers,
                 gossipsub,
                 eth2_rpc,
                 discovery,
@@ -635,6 +633,38 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         {
             self.unsubscribe(topic);
         }
+    }
+
+    /// Remove topic weight from all topics that don't have the given fork digest.
+    pub fn remove_topic_weight_except(&mut self, except: [u8; 4]) {
+        let new_param = TopicScoreParams {
+            topic_weight: 0.0,
+            ..Default::default()
+        };
+        let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
+        for topic in subscriptions
+            .iter()
+            .filter(|topic| topic.fork_digest != except)
+        {
+            let libp2p_topic: Topic = topic.clone().into();
+            match self
+                .gossipsub_mut()
+                .set_topic_params(libp2p_topic, new_param.clone())
+            {
+                Ok(_) => debug!(self.log, "Removed topic weight"; "topic" => %topic),
+                Err(e) => {
+                    warn!(self.log, "Failed to remove topic weight"; "topic" => %topic, "error" => e)
+                }
+            }
+        }
+    }
+
+    /// Returns the scoring parameters for a topic if set.
+    pub fn get_topic_params(&self, topic: GossipTopic) -> Option<&TopicScoreParams> {
+        self.swarm
+            .behaviour()
+            .gossipsub
+            .get_topic_params(&topic.into())
     }
 
     /// Subscribes to a gossipsub topic.
@@ -1445,15 +1475,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 Some(NetworkEvent::PeerDisconnected(peer_id))
             }
             PeerManagerEvent::Banned(peer_id, associated_ips) => {
-                self.swarm.behaviour_mut().banned_peers.block_peer(peer_id);
                 self.discovery_mut().ban_peer(&peer_id, associated_ips);
                 None
             }
             PeerManagerEvent::UnBanned(peer_id, associated_ips) => {
-                self.swarm
-                    .behaviour_mut()
-                    .banned_peers
-                    .unblock_peer(peer_id);
                 self.discovery_mut().unban_peer(&peer_id, associated_ips);
                 None
             }
@@ -1502,7 +1527,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let maybe_event = match swarm_event {
                 SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
                     // Handle sub-behaviour events.
-                    BehaviourEvent::BannedPeers(void) => void::unreachable(void),
                     BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
                     BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
                     // Inform the peer manager about discovered peers.

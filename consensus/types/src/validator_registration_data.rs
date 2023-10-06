@@ -21,3 +21,17 @@ pub struct ValidatorRegistrationData {
 }
 
 impl SignedRoot for ValidatorRegistrationData {}
+
+impl SignedValidatorRegistrationData {
+    pub fn verify_signature(&self, spec: &ChainSpec) -> bool {
+        self.message
+            .pubkey
+            .decompress()
+            .map(|pubkey| {
+                let domain = spec.get_builder_domain();
+                let message = self.message.signing_root(domain);
+                self.signature.verify(&pubkey, message)
+            })
+            .unwrap_or(false)
+    }
+}

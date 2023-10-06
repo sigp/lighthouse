@@ -958,7 +958,7 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(slot_clock, kzg.clone(), store, self.spec)
+                DataAvailabilityChecker::new(slot_clock, kzg.clone(), store, &log, self.spec)
                     .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
             ),
             kzg,
