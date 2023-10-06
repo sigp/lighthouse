@@ -127,7 +127,7 @@ curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "
 You can replace `1` in the above command with the validator index that you would like to query. Other API query can be done similarly by changing the link according to the Beacon API.
 
 ### Events API
-The [events API](https://ethereum.github.io/beacon-APIs/#/Events/eventstream) provides information such as the payload attributes that are of interests to block builders and relays. To query the payload attributes, it is necessary to run Lighthouse beacon node with the flag `--always-prepare-payload`. It is also recommended to add the flag `--prepare-payload-lookahead 8000` which configures the payload attributes to be sent at 4s into each slot (or 8s from the start of the next slot). An example of the command is:
+The [events API](https://ethereum.github.io/beacon-APIs/#/Events/eventstream) provides information such as the payload attributes that are of interest to block builders and relays. To query the payload attributes, it is necessary to run Lighthouse beacon node with the flag `--always-prepare-payload`. It is also recommended to add the flag `--prepare-payload-lookahead 8000` which configures the payload attributes to be sent at 4s into each slot (or 8s from the start of the next slot). An example of the command is:
 
 ```bash
 curl -X 'GET' \
