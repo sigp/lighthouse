@@ -148,18 +148,17 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
         diet_executed_block: &DietAvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<BeaconState<T::EthSpec>, AvailabilityCheckError> {
         let parent_block_root = diet_executed_block.parent_block.canonical_root();
-        let parent_state_root = diet_executed_block.parent_block.state_root();
-        // TODO: check these options
-        let (_, parent_state) = self
+        let parent_block_state_root = diet_executed_block.parent_block.state_root();
+        let (parent_state_root, parent_state) = self
             .store
             .get_advanced_hot_state(
                 parent_block_root,
                 diet_executed_block.parent_block.slot(),
-                parent_state_root,
+                parent_block_state_root,
             )
             .map_err(AvailabilityCheckError::StoreError)?
             .ok_or(AvailabilityCheckError::ParentStateMissing(
-                parent_state_root,
+                parent_block_state_root,
             ))?;
 
         let state_roots = vec![
