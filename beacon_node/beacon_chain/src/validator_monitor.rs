@@ -568,8 +568,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     fn add_validators_missed_blocks(&mut self, state: &BeaconState<T>) {
         // Define range variables
         let current_slot = state.slot();
-        let range_of_slots = T::slots_per_epoch() as usize - MISSED_BLOCK_LAG_SLOTS;
-        let start_slot = current_slot - Slot::new(MISSED_BLOCK_LAG_SLOTS as u64);
+        let start_slot = current_slot.saturating_sub(T::slots_per_epoch()).as_u64();
+        let end_slot = current_slot.saturating_sub(MISSED_BLOCK_LAG_SLOTS).as_u64();
 
         // As we are skipping the genesis slot, we can simply pass Hash256::zero() as the shuffling decision block
         // cf. state.proposer_shuffling_decision_root_at_epoch implementation
@@ -577,14 +577,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
         // List of proposers per epoch from the beacon_proposer_cache
         let mut proposers_per_epoch: Option<SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> = None;
-        for n in 0..range_of_slots {
-            let slot = start_slot - Slot::new(n as u64);
-            let prev_slot = slot - 1;
 
-            // Genesis cannot be skipped
-            if slot == 0 {
-                break;
-            }
+        for (prev_slot, slot) in (start_slot..=end_slot)
+            .map(Slot::new)
+            .tuple_windows() {
 
             // Condition for missed_block is defined such as block_root(slot) == block_root(slot - 1)
             // where the proposer who missed the block is the proposer of the block at block_root(slot)
