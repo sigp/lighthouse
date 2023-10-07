@@ -21,7 +21,7 @@ pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
     pub pubkey: PublicKeyBytes,
     #[serde(skip)]
     #[tree_hash(skip_hashing)]
-    _phantom_data: PhantomData<E>,
+    pub _phantom_data: PhantomData<E>,
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BuilderBid<E, Payload> {}

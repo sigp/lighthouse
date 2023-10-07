@@ -415,7 +415,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Reports if a peer is banned or not.
     ///
     /// This is used to determine if we should accept incoming connections.
-    pub fn ban_status(&self, peer_id: &PeerId) -> BanResult {
+    pub fn ban_status(&self, peer_id: &PeerId) -> Option<BanResult> {
         self.network_globals.peers.read().ban_status(peer_id)
     }
 
@@ -803,7 +803,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ) -> bool {
         {
             let mut peerdb = self.network_globals.peers.write();
-            if !matches!(peerdb.ban_status(peer_id), BanResult::NotBanned) {
+            if peerdb.ban_status(peer_id).is_some() {
                 // don't connect if the peer is banned
                 error!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => %peer_id);
             }
@@ -1043,7 +1043,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         Subnet::Attestation(_) => {
                             subnet_to_peer
                                 .entry(subnet)
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push((*peer_id, info.clone()));
                         }
                         Subnet::SyncCommittee(id) => {
