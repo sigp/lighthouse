@@ -163,7 +163,7 @@ impl SyncDutiesMap {
 
         committees_writer
             .entry(committee_period)
-            .or_insert_with(CommitteeDuties::default)
+            .or_default()
             .init(validator_indices);
 
         // Return shared reference

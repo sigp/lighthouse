@@ -343,7 +343,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         let block_hash = block.block_hash();
         self.block_hashes
             .entry(block.block_number())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(block_hash);
         self.blocks.insert(block_hash, block);
 

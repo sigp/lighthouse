@@ -265,11 +265,7 @@ impl ApiTester {
 
         // Start the mock builder service prior to building the chain out.
         harness.runtime.task_executor.spawn(
-            async move {
-                if let Err(e) = mock_builder_server.await {
-                    panic!("error in mock builder server: {e:?}");
-                }
-            },
+            async move { mock_builder_server.await },
             "mock_builder_server",
         );
 
