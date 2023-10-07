@@ -334,20 +334,30 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         }
 
-        for validator_pubkey in proposers {
-            let builder_proposals = self
-                .validator_store
-                .get_builder_proposals(&validator_pubkey);
-            let service = self.clone();
-            let log = log.clone();
-            self.inner.context.executor.spawn(
-                async move {
-                    if builder_proposals {
+        let deneb_fork_activated = self
+            .context
+            .eth2_config
+            .spec
+            .altair_fork_epoch
+            .and_then(|fork_epoch| {
+                let current_epoch = self.slot_clock.now()?.epoch(E::slots_per_epoch());
+                Some(current_epoch >= fork_epoch)
+            })
+            .unwrap_or(false);
+
+        if deneb_fork_activated {
+            for validator_pubkey in proposers {
+                let service = self.clone();
+                let log = log.clone();
+                self.inner.context.executor.spawn(
+                    async move {
                         let result = service
                             .clone()
-                            .publish_block::<BlindedPayload<E>>(slot, validator_pubkey)
+                            .publish_block_v3(slot, validator_pubkey)
                             .await;
+
                         match result {
+                            Ok(_) => {}
                             Err(BlockError::Recoverable(e)) => {
                                 error!(
                                     log,
@@ -356,52 +366,92 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     "block_slot" => ?slot,
                                     "info" => "blinded proposal failed, attempting full block"
                                 );
-                                if let Err(e) = service
-                                    .publish_block::<FullPayload<E>>(slot, validator_pubkey)
-                                    .await
-                                {
-                                    // Log a `crit` since a full block
-                                    // (non-builder) proposal failed.
-                                    crit!(
-                                        log,
-                                        "Error whilst producing block";
-                                        "error" => ?e,
-                                        "block_slot" => ?slot,
-                                        "info" => "full block attempted after a blinded failure",
-                                    );
-                                }
                             }
                             Err(BlockError::Irrecoverable(e)) => {
-                                // Only log an `error` since it's common for
-                                // builders to timeout on their response, only
-                                // to publish the block successfully themselves.
                                 error!(
                                     log,
                                     "Error whilst producing block";
                                     "error" => ?e,
                                     "block_slot" => ?slot,
                                     "info" => "this error may or may not result in a missed block",
-                                )
+                                );
                             }
-                            Ok(_) => {}
-                        };
-                    } else if let Err(e) = service
-                        .publish_block::<FullPayload<E>>(slot, validator_pubkey)
-                        .await
-                    {
-                        // Log a `crit` since a full block (non-builder)
-                        // proposal failed.
-                        crit!(
-                            log,
-                            "Error whilst producing block";
-                            "message" => ?e,
-                            "block_slot" => ?slot,
-                            "info" => "proposal did not use a builder",
-                        );
-                    }
-                },
-                "block service",
-            );
+                        }
+                    },
+                    "block service",
+                )
+            }
+        } else {
+            for validator_pubkey in proposers {
+                let builder_proposals = self
+                    .validator_store
+                    .get_builder_proposals(&validator_pubkey);
+                let service = self.clone();
+                let log = log.clone();
+                self.inner.context.executor.spawn(
+                    async move {
+                        if builder_proposals {
+                            let result = service
+                                .clone()
+                                .publish_block::<BlindedPayload<E>>(slot, validator_pubkey)
+                                .await;
+
+                            match result {
+                                Err(BlockError::Recoverable(e)) => {
+                                    error!(
+                                        log,
+                                        "Error whilst producing block";
+                                        "error" => ?e,
+                                        "block_slot" => ?slot,
+                                        "info" => "blinded proposal failed, attempting full block"
+                                    );
+                                    if let Err(e) = service
+                                        .publish_block::<FullPayload<E>>(slot, validator_pubkey)
+                                        .await
+                                    {
+                                        // Log a `crit` since a full block
+                                        // (non-builder) proposal failed.
+                                        crit!(
+                                            log,
+                                            "Error whilst producing block";
+                                            "error" => ?e,
+                                            "block_slot" => ?slot,
+                                            "info" => "full block attempted after a blinded failure",
+                                        );
+                                    }
+                                }
+                                Err(BlockError::Irrecoverable(e)) => {
+                                    // Only log an `error` since it's common for
+                                    // builders to timeout on their response, only
+                                    // to publish the block successfully themselves.
+                                    error!(
+                                        log,
+                                        "Error whilst producing block";
+                                        "error" => ?e,
+                                        "block_slot" => ?slot,
+                                        "info" => "this error may or may not result in a missed block",
+                                    )
+                                }
+                                Ok(_) => {}
+                            };
+                        } else if let Err(e) = service
+                            .publish_block::<FullPayload<E>>(slot, validator_pubkey)
+                            .await
+                            {
+                                // Log a `crit` since a full block (non-builder)
+                                // proposal failed.
+                                crit!(
+                                    log,
+                                    "Error whilst producing block";
+                                    "message" => ?e,
+                                    "block_slot" => ?slot,
+                                    "info" => "proposal did not use a builder",
+                                );
+                            }
+                    },
+                    "block service",
+                )
+            }
         }
 
         Ok(())
@@ -575,17 +625,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "slot" => slot.as_u64(),
         );
 
-        let deneb_fork_activated = self
-            .context
-            .eth2_config
-            .spec
-            .altair_fork_epoch
-            .and_then(|fork_epoch| {
-                let current_epoch = self.slot_clock.now()?.epoch(E::slots_per_epoch());
-                Some(current_epoch >= fork_epoch)
-            })
-            .unwrap_or(false);
-
         // Request block from first responsive beacon node.
         //
         // Try the proposer nodes last, since it's likely that they don't have a
@@ -599,7 +638,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         &metrics::BLOCK_SERVICE_TIMES,
                         &[metrics::BEACON_BLOCK_HTTP_GET],
                     );
-                    beacon_node
+                    let block_response = beacon_node
                         .get_validator_blocks_v3::<E>(slot, randao_reveal_ref, graffiti.as_ref())
                         .await
                         .map_err(|e| {
@@ -607,10 +646,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                 "Error from beacon node when producing block: {:?}",
                                 e
                             ))
-                        })
+                        });
+
+                    Ok::<_, BlockError>(block_response)
                 },
             )
-            .await?;
+            .await??;
 
         match block_response {
             eth2::types::ForkVersionedBeaconBlockType::Full(block_response) => {
