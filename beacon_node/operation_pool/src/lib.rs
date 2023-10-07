@@ -270,7 +270,7 @@ impl<T: EthSpec> OperationPool<T> {
                         .collect();
                     let mut indices_to_remove = Vec::new();
                     clique_aggregates
-                        .sort_by(|a, b| a.attesting_indices.len().cmp(&b.attesting_indices.len()));
+                        .sort_unstable_by(|a, b| a.attesting_indices.len().cmp(&b.attesting_indices.len()));
                     for (index, clique) in clique_aggregates.iter().enumerate() {
                         for bigger_clique in clique_aggregates.iter().skip(index + 1) {
                             if clique
