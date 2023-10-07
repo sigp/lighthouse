@@ -254,18 +254,14 @@ impl<T: EthSpec> OperationPool<T> {
                         .collect();
                     *num_valid += aggregates.len() as i64;
 
-                    // derive cliques for current attestation data
-                    let cliques = bron_kerbosch(&aggregates, is_compatible);
-
                     // aggregate each cliques corresponding attestaiions
-                    let mut clique_aggregates: Vec<CompactIndexedAttestation<_>> = cliques
+                    let mut clique_aggregates: Vec<CompactIndexedAttestation<_>> = bron_kerbosch(&aggregates, is_compatible)
                         .iter()
                         .map(|clique| {
-                            let mut res_att = aggregates[clique[0]].clone();
-                            for ind in clique.iter().skip(1) {
-                                res_att.aggregate(&aggregates[*ind]);
-                            }
-                            res_att
+                            clique.iter().skip(1).fold(aggregates[clique[0]].clone(), |mut acc, &ind| {
+                                acc.aggregate(&aggregates[ind]);
+                                acc
+                            }) 
                         })
                         .collect();
                     let mut indices_to_remove = Vec::new();
