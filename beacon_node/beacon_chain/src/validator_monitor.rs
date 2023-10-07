@@ -7,7 +7,7 @@ use crate::metrics;
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, info, Logger, warn};
+use slog::{crit, debug, info, warn, Logger};
 use slot_clock::SlotClock;
 use smallvec::SmallVec;
 use state_processing::per_epoch_processing::{
@@ -369,8 +369,8 @@ pub struct ValidatorMonitor<T> {
     /// large validator counts causing infeasibly high cardinailty for
     /// Prometheus and high log volumes.
     individual_tracking_threshold: usize,
-    /// A Map representing the count of (non-finalized) missed blocks by monitored validator
-    total_missed_blocks: HashMap<u64, u64>,
+    /// An Option representing the validator index of a monitored validator who may have missed a (non-finalized) block at current_epoch - MISSED_BLOCK_LAG_SLOTS
+    last_epoch_missed_block_validator: Option<u64>,
     /// A Map representing the (non-finalized) missed blocks by epoch, validator_index(state.validators) and slot
     missed_blocks: HashSet<(Epoch, u64, Slot)>,
     // A beacon proposer cache
@@ -396,7 +396,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             indices: <_>::default(),
             auto_register,
             individual_tracking_threshold,
-            total_missed_blocks: <_>::default(),
+            last_epoch_missed_block_validator: <_>::default(),
             missed_blocks: <_>::default(),
             beacon_proposer_cache,
             log,
@@ -541,7 +541,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .into_iter()
             .for_each(|(validator_index, group)| {
                 let missed_blocks_count = group.count();
-                self.aggregatable_metric(validator_index.to_string().as_str(), | label| {
+                self.aggregatable_metric(validator_index.to_string().as_str(), |label| {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
                         &[label],
@@ -551,17 +551,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             });
 
         // add to the total missed blocks by monitored validator
-        self.total_missed_blocks
-            .iter()
-            .for_each(|(i, c)| {
-                self.aggregatable_metric(i.to_string().as_str(), |label| {
-                    metrics::set_int_gauge(
-                        &metrics::VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL,
-                        &[label],
-                        *c as i64,
-                    );
-                });
+        if let Some(i) = self.last_epoch_missed_block_validator {
+            self.aggregatable_metric(i.to_string().as_str(), |label| {
+                metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL, &[label]);
             });
+            self.last_epoch_missed_block_validator = None;
+        };
     }
 
     /// Add missed non-finalized blocks for the monitored validators
@@ -578,10 +573,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         // List of proposers per epoch from the beacon_proposer_cache
         let mut proposers_per_epoch: Option<SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> = None;
 
-        for (prev_slot, slot) in (start_slot..=end_slot)
-            .map(Slot::new)
-            .tuple_windows() {
-
+        for (prev_slot, slot) in (start_slot..=end_slot).map(Slot::new).tuple_windows() {
             // Condition for missed_block is defined such as block_root(slot) == block_root(slot - 1)
             // where the proposer who missed the block is the proposer of the block at block_root(slot)
             if let (Ok(block_root), Ok(prev_block_root)) =
@@ -618,12 +610,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                 if self.validators.get(pub_key).is_some() {
                                     // Add to missed blocks
                                     self.missed_blocks.insert((slot_epoch, i, slot));
-                                    // In order to overcome the case where a validator misses a block and the cache gets pruned which might prove
-                                    // challenging for the user, we also want to keep track of all the missed blocks in total_missed_blocks
-                                    self.total_missed_blocks.insert(
-                                        i,
-                                        self.total_missed_blocks.get(&i).unwrap_or(&0) + 1,
-                                    );
+                                    // Add to validator that missed the block for the current epoch
+                                    if slot == end_slot {
+                                        self.last_epoch_missed_block_validator = Some(i);
+                                    }
                                 } else {
                                     warn!(
                                         self.log,

@@ -1014,7 +1014,7 @@ lazy_static! {
         "Number of non-finalized blocks missed at non-finalized epochs",
         &["src", "validator"]
     );
-    pub static ref VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL: Result<IntGaugeVec> = try_create_int_gauge_vec(
+    pub static ref VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "validator_monitor_missed_blocks_total",
         "Number of non-finalized blocks missed",
         &["src", "validator"]
