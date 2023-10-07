@@ -284,7 +284,7 @@ impl<T: EthSpec> OperationPool<T> {
                     }
 
                     for index in indices_to_remove.iter().rev() {
-                        clique_aggregates.remove(*index);
+                        clique_aggregates.swap_remove(*index);
                     }
 
                     // aggregate unaggregate attestations into the clique aggregates
