@@ -39,6 +39,7 @@ use task_executor::TaskExecutor;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
+use warp::reply::Reply;
 use warp::{
     http::{
         header::{HeaderValue, CONTENT_TYPE},
@@ -1248,11 +1249,27 @@ where
             };
             response
         }
-        Err(_) => Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            // Try what happen if you change the body in order to be the Rejection inside the bdoy instead of empty body
-            .body(vec![])
-            .expect("can produce simple response from static values"),
+        Err(e) => {
+            let resp = warp_utils::reject::handle_rejection(e).await;
+            match resp {
+                Ok(reply) => {
+                    let mut response = reply.into_response();
+                    let (parts, body) = response.into_parts();
+                    let body_bytes = hyper::body::to_bytes(body).await.unwrap();
+                    Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        // Try what happen if you change the body in order to be the Rejection inside the bdoy instead of empty body
+                        .body(body_bytes.to_vec())
+                        .expect("can produce simple response from static values")
+                    // Delete the bytes import
+                }
+                Err(_) => Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    // Try what happen if you change the body in order to be the Rejection inside the bdoy instead of empty body
+                    .body(vec![])
+                    .expect("can produce simple response from static values"),
+            }
+        }
     }
 }
 /// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
