@@ -1284,9 +1284,7 @@ where
     T: Serialize + Send + 'static,
 {
     let response = warp_utils::task::blocking_task(func).await;
-    // Ownership cause you transform it to vec![u8]
     let mut conv_res = convert_rejection(response).await;
-    // Here i should handle both of that shit
     let body: &Vec<u8> = conv_res.body();
     let signature = signer(body);
     let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
