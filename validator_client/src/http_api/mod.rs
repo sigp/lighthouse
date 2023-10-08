@@ -1251,23 +1251,21 @@ where
         }
         Err(e) => {
             let resp = warp_utils::reject::handle_rejection(e).await;
+            //Building the response with the Rejection
             match resp {
                 Ok(reply) => {
-                    let mut response = reply.into_response();
-                    let (parts, body) = response.into_parts();
+                    let response = reply.into_response();
+                    let (_parts, body) = response.into_parts();
                     let body_bytes = hyper::body::to_bytes(body).await.unwrap();
                     Response::builder()
                         .status(StatusCode::BAD_REQUEST)
-                        // Try what happen if you change the body in order to be the Rejection inside the bdoy instead of empty body
                         .body(body_bytes.to_vec())
-                        .expect("can produce simple response from static values")
-                    // Delete the bytes import
+                        .expect("can't produce response from rejection")
                 }
                 Err(_) => Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    // Try what happen if you change the body in order to be the Rejection inside the bdoy instead of empty body
                     .body(vec![])
-                    .expect("can produce simple response from static values"),
+                    .expect("unhandled error in blocking task"),
             }
         }
     }
