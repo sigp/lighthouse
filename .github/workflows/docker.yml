@@ -5,6 +5,7 @@ on:
         branches:
             - unstable
             - stable
+            - monitor-ci
         tags:
             - v*
 
@@ -114,7 +115,7 @@ jobs:
                 file: ./Dockerfile.cross
                 context: .
                 platforms: linux/${{ env.SHORT_ARCH }}
-                push: true
+                push: false
                 tags: ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}${{ env.MODERNITY_SUFFIX }}${{ env.FEATURE_SUFFIX }}
 
     build-docker-multiarch:
@@ -158,4 +159,3 @@ jobs:
                       --build-arg PORTABLE=true \
                       --tag ${LCLI_IMAGE_NAME}:${VERSION}${VERSION_SUFFIX} \
                       --file ./lcli/Dockerfile .
-                  docker push ${LCLI_IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}

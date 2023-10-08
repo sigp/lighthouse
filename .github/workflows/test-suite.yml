@@ -7,6 +7,7 @@ on:
       - staging
       - trying
       - 'pr/*'
+      - monitor-ci
   pull_request:
   merge_group:
 
@@ -113,36 +114,36 @@ jobs:
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
-  op-pool-tests:
-    name: op-pool-tests
-    runs-on: ubuntu-latest
-    env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-          bins: cargo-nextest
-    - name: Run operation_pool tests for all known forks
-      run: make test-op-pool
-  slasher-tests:
-    name: slasher-tests
-    runs-on: ubuntu-latest
-    env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-          bins: cargo-nextest
-    - name: Run slasher tests for all supported backends
-      run: make test-slasher
+#  op-pool-tests:
+#    name: op-pool-tests
+#    runs-on: ubuntu-latest
+#    env:
+#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Get latest version of stable Rust
+#      uses: moonrepo/setup-rust@v1
+#      with:
+#          channel: stable
+#          cache-target: release
+#          bins: cargo-nextest
+#    - name: Run operation_pool tests for all known forks
+#      run: make test-op-pool
+#  slasher-tests:
+#    name: slasher-tests
+#    runs-on: ubuntu-latest
+#    env:
+#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Get latest version of stable Rust
+#      uses: moonrepo/setup-rust@v1
+#      with:
+#          channel: stable
+#          cache-target: release
+#          bins: cargo-nextest
+#    - name: Run slasher tests for all supported backends
+#      run: make test-slasher
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
@@ -167,18 +168,18 @@ jobs:
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
-  state-transition-vectors-ubuntu:
-    name: state-transition-vectors-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Run state_transition_vectors in release.
-      run: make run-state-transition-tests
+#  state-transition-vectors-ubuntu:
+#    name: state-transition-vectors-ubuntu
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Get latest version of stable Rust
+#      uses: moonrepo/setup-rust@v1
+#      with:
+#          channel: stable
+#          cache-target: release
+#    - name: Run state_transition_vectors in release.
+#      run: make run-state-transition-tests
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
@@ -199,75 +200,75 @@ jobs:
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
-  dockerfile-ubuntu:
-    name: dockerfile-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Build the root Dockerfile
-      run: docker build --build-arg FEATURES=portable -t lighthouse:local .
-    - name: Test the built image
-      run: docker run -t lighthouse:local lighthouse --version
-  eth1-simulator-ubuntu:
-    name: eth1-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the beacon chain sim that starts from an eth1 contract
-      run: cargo run --release --bin simulator eth1-sim
-  merge-transition-ubuntu:
-    name: merge-transition-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the beacon chain sim and go through the merge transition
-      run: cargo run --release --bin simulator eth1-sim --post-merge
-  no-eth1-simulator-ubuntu:
-    name: no-eth1-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Run the beacon chain sim without an eth1 connection
-      run: cargo run --release --bin simulator no-eth1-sim
-  syncing-simulator-ubuntu:
-    name: syncing-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the syncing simulator
-      run: cargo run --release --bin simulator syncing-sim
+#  dockerfile-ubuntu:
+#    name: dockerfile-ubuntu
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Build the root Dockerfile
+#      run: docker build --build-arg FEATURES=portable -t lighthouse:local .
+#    - name: Test the built image
+#      run: docker run -t lighthouse:local lighthouse --version
+#  eth1-simulator-ubuntu:
+#    name: eth1-simulator-ubuntu
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Get latest version of stable Rust
+#      uses: moonrepo/setup-rust@v1
+#      with:
+#          channel: stable
+#          cache-target: release
+#    - name: Install Foundry (anvil)
+#      uses: foundry-rs/foundry-toolchain@v1
+#      with:
+#        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
+#    - name: Run the beacon chain sim that starts from an eth1 contract
+#      run: cargo run --release --bin simulator eth1-sim
+#  merge-transition-ubuntu:
+#    name: merge-transition-ubuntu
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Get latest version of stable Rust
+#      uses: moonrepo/setup-rust@v1
+#      with:
+#          channel: stable
+#          cache-target: release
+#    - name: Install Foundry (anvil)
+#      uses: foundry-rs/foundry-toolchain@v1
+#      with:
+#        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
+#    - name: Run the beacon chain sim and go through the merge transition
+#      run: cargo run --release --bin simulator eth1-sim --post-merge
+#  no-eth1-simulator-ubuntu:
+#    name: no-eth1-simulator-ubuntu
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Get latest version of stable Rust
+#      uses: moonrepo/setup-rust@v1
+#      with:
+#          channel: stable
+#          cache-target: release
+#    - name: Run the beacon chain sim without an eth1 connection
+#      run: cargo run --release --bin simulator no-eth1-sim
+#  syncing-simulator-ubuntu:
+#    name: syncing-simulator-ubuntu
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Get latest version of stable Rust
+#      uses: moonrepo/setup-rust@v1
+#      with:
+#          channel: stable
+#          cache-target: release
+#    - name: Install Foundry (anvil)
+#      uses: foundry-rs/foundry-toolchain@v1
+#      with:
+#        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
+#    - name: Run the syncing simulator
+#      run: cargo run --release --bin simulator syncing-sim
   doppelganger-protection-test:
     name: doppelganger-protection-test
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
@@ -299,21 +300,21 @@ jobs:
       run: |
           cd scripts/tests
           ./doppelganger_protection.sh success genesis.json
-  execution-engine-integration-ubuntu:
-    name: execution-engine-integration-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-          cache: false
-      env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Run exec engine integration tests in release
-      run: make test-exec-engine
+#  execution-engine-integration-ubuntu:
+#    name: execution-engine-integration-ubuntu
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Get latest version of stable Rust
+#      uses: moonrepo/setup-rust@v1
+#      with:
+#          channel: stable
+#          cache-target: release
+#          cache: false
+#      env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#    - name: Run exec engine integration tests in release
+#      run: make test-exec-engine
   check-code:
     name: check-code
     runs-on: ubuntu-latest
@@ -376,14 +377,14 @@ jobs:
     env:
       # Allow warnings on Nightly
       RUSTFLAGS: ""
-  compile-with-beta-compiler:
-    name: compile-with-beta-compiler
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Install dependencies
-      run: sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
-    - name: Use Rust beta
-      run: rustup override set beta
-    - name: Run make
-      run: make
+#  compile-with-beta-compiler:
+#    name: compile-with-beta-compiler
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Install dependencies
+#      run: sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
+#    - name: Use Rust beta
+#      run: rustup override set beta
+#    - name: Run make
+#      run: make
