@@ -11,6 +11,7 @@ use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::num::NonZeroU16;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -64,22 +65,22 @@ pub struct Config {
     pub enr_address: (Option<Ipv4Addr>, Option<Ipv6Addr>),
 
     /// The udp ipv4 port to broadcast to peers in order to reach back for discovery.
-    pub enr_udp4_port: Option<u16>,
+    pub enr_udp4_port: Option<NonZeroU16>,
 
     /// The quic ipv4 port to broadcast to peers in order to reach back for libp2p services.
-    pub enr_quic4_port: Option<u16>,
+    pub enr_quic4_port: Option<NonZeroU16>,
 
     /// The tcp ipv4 port to broadcast to peers in order to reach back for libp2p services.
-    pub enr_tcp4_port: Option<u16>,
+    pub enr_tcp4_port: Option<NonZeroU16>,
 
     /// The udp ipv6 port to broadcast to peers in order to reach back for discovery.
-    pub enr_udp6_port: Option<u16>,
+    pub enr_udp6_port: Option<NonZeroU16>,
 
     /// The tcp ipv6 port to broadcast to peers in order to reach back for libp2p services.
-    pub enr_tcp6_port: Option<u16>,
+    pub enr_tcp6_port: Option<NonZeroU16>,
 
     /// The quic ipv6 port to broadcast to peers in order to reach back for libp2p services.
-    pub enr_quic6_port: Option<u16>,
+    pub enr_quic6_port: Option<NonZeroU16>,
 
     /// Target number of connected peers.
     pub target_peers: usize,

@@ -48,7 +48,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         self.col_keys
             .write()
             .entry(col.as_bytes().to_vec())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(key.to_vec());
         Ok(())
     }

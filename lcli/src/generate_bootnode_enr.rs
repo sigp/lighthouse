@@ -4,16 +4,16 @@ use lighthouse_network::{
     libp2p::identity::secp256k1,
     NetworkConfig, NETWORK_KEY_FILENAME,
 };
-use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, net::Ipv4Addr};
+use std::{fs::File, num::NonZeroU16};
 use types::{ChainSpec, EnrForkId, Epoch, EthSpec, Hash256};
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let ip: Ipv4Addr = clap_utils::parse_required(matches, "ip")?;
-    let udp_port: u16 = clap_utils::parse_required(matches, "udp-port")?;
-    let tcp_port: u16 = clap_utils::parse_required(matches, "tcp-port")?;
+    let udp_port: NonZeroU16 = clap_utils::parse_required(matches, "udp-port")?;
+    let tcp_port: NonZeroU16 = clap_utils::parse_required(matches, "tcp-port")?;
     let output_dir: PathBuf = clap_utils::parse_required(matches, "output-dir")?;
     let genesis_fork_version: [u8; 4] =
         clap_utils::parse_ssz_required(matches, "genesis-fork-version")?;

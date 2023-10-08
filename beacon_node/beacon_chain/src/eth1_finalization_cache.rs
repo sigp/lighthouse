@@ -66,7 +66,7 @@ impl CheckpointMap {
     pub fn insert(&mut self, checkpoint: Checkpoint, eth1_finalization_data: Eth1FinalizationData) {
         self.store
             .entry(checkpoint.epoch)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push((checkpoint.root, eth1_finalization_data));
 
         // faster to reduce size after the fact than do pre-checking to see
