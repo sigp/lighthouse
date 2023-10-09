@@ -689,7 +689,7 @@ where
             let kzg = Kzg::new_from_trusted_setup(trusted_setup)
                 .map_err(|e| format!("Failed to load trusted setup: {:?}", e))?;
             if TEthSpec::field_elements_per_blob() != kzg.field_elements_per_blob() {
-                return Err("Trusted setup is inconsistent with spec preset".to_string())
+                return Err("Trusted setup is inconsistent with spec preset".to_string());
             }
             let kzg_arc = Arc::new(kzg);
             Some(kzg_arc)

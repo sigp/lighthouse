@@ -2154,10 +2154,9 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
-    let trusted_setup: TrustedSetup =
-        serde_json::from_reader(get_trusted_setup::<E>())
-            .map_err(|e| println!("Unable to read trusted setup file: {}", e))
-            .unwrap();
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup::<E>())
+        .map_err(|e| println!("Unable to read trusted setup file: {}", e))
+        .unwrap();
 
     let mock =
         mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone(), None);

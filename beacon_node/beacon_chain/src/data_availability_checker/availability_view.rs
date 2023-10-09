@@ -284,7 +284,7 @@ pub mod tests {
 
     pub fn pre_setup() -> Setup<E> {
         let trusted_setup: TrustedSetup =
-            serde_json::from_reader(get_trusted_setup::<<E as EthSpec>::Kzg>()).unwrap();
+            serde_json::from_reader(get_trusted_setup::<E>()).unwrap();
         let kzg = Kzg::new_from_trusted_setup(trusted_setup).unwrap();
 
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);

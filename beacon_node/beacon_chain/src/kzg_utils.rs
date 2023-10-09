@@ -18,10 +18,7 @@ pub fn validate_blobs<T: EthSpec>(
     blobs: &[Blob<T>],
     kzg_proofs: &[KzgProof],
 ) -> Result<bool, KzgError> {
-    let blobs = blobs
-        .iter()
-        .map(|blob| blob.as_ref())
-        .collect::<Vec<_>>();
+    let blobs = blobs.iter().map(|blob| blob.as_ref()).collect::<Vec<_>>();
 
     kzg.verify_blob_kzg_proof_batch(&blobs, expected_kzg_commitments, kzg_proofs)
 }
