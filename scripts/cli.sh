@@ -1,5 +1,7 @@
 #! /usr/bin/env bash
 
+set -e
+
 # A function to generate formatted .md files
 write_to_file() {
     local cmd="$1"
