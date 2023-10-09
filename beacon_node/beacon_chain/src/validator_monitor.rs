@@ -7,7 +7,7 @@ use crate::metrics;
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, info, warn, Logger};
+use slog::{crit, debug, info, warn, Logger, error};
 use slot_clock::SlotClock;
 use smallvec::SmallVec;
 use state_processing::per_epoch_processing::{
@@ -613,6 +613,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                     // Add to validator that missed the block for the current epoch
                                     if slot == end_slot {
                                         self.last_epoch_missed_block_validator = Some(i);
+                                        error!(
+                                            self.log,
+                                            "Validator missed a block";
+                                            "index" => i,
+                                            "slot" => slot,
+                                            "parent block root" => ?prev_block_root,
+                                        );
                                     }
                                 } else {
                                     warn!(
