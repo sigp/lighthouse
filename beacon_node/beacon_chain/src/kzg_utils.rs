@@ -1,11 +1,5 @@
-use kzg::{Blob as KzgBlob, Error as KzgError, Kzg};
+use kzg::{Error as KzgError, Kzg};
 use types::{Blob, EthSpec, Hash256, KzgCommitment, KzgProof};
-
-/// Converts a blob ssz List object to an array to be used with the kzg
-/// crypto library.
-fn ssz_blob_to_crypto_blob<T: EthSpec>(blob: &Blob<T>, kzg: &Kzg) -> Result<KzgBlob, KzgError> {
-    kzg.blob_from_bytes(blob.as_ref())
-}
 
 /// Validate a single blob-commitment-proof triplet from a `BlobSidecar`.
 pub fn validate_blob<T: EthSpec>(
@@ -14,11 +8,7 @@ pub fn validate_blob<T: EthSpec>(
     kzg_commitment: KzgCommitment,
     kzg_proof: KzgProof,
 ) -> Result<bool, KzgError> {
-    kzg.verify_blob_kzg_proof(
-        &ssz_blob_to_crypto_blob::<T>(&blob, kzg)?,
-        kzg_commitment,
-        kzg_proof,
-    )
+    kzg.verify_blob_kzg_proof(blob.as_ref(), kzg_commitment, kzg_proof)
 }
 
 /// Validate a batch of blob-commitment-proof triplets from multiple `BlobSidecars`.
@@ -30,8 +20,8 @@ pub fn validate_blobs<T: EthSpec>(
 ) -> Result<bool, KzgError> {
     let blobs = blobs
         .iter()
-        .map(|blob| ssz_blob_to_crypto_blob::<T>(blob, kzg)) // Avoid this clone
-        .collect::<Result<Vec<_>, KzgError>>()?;
+        .map(|blob| blob.as_ref())
+        .collect::<Vec<_>>();
 
     kzg.verify_blob_kzg_proof_batch(&blobs, expected_kzg_commitments, kzg_proofs)
 }
@@ -43,7 +33,7 @@ pub fn compute_blob_kzg_proof<T: EthSpec>(
     kzg_commitment: KzgCommitment,
 ) -> Result<KzgProof, KzgError> {
     // Avoid this blob clone
-    kzg.compute_blob_kzg_proof(&ssz_blob_to_crypto_blob::<T>(blob, kzg)?, kzg_commitment)
+    kzg.compute_blob_kzg_proof(blob.as_ref(), kzg_commitment)
 }
 
 /// Compute the kzg commitment for a given blob.
@@ -51,7 +41,7 @@ pub fn blob_to_kzg_commitment<T: EthSpec>(
     kzg: &Kzg,
     blob: &Blob<T>,
 ) -> Result<KzgCommitment, KzgError> {
-    kzg.blob_to_kzg_commitment(&ssz_blob_to_crypto_blob::<T>(blob, kzg)?)
+    kzg.blob_to_kzg_commitment(blob.as_ref())
 }
 
 /// Compute the kzg proof for a given blob and an evaluation point z.
@@ -61,7 +51,7 @@ pub fn compute_kzg_proof<T: EthSpec>(
     z: Hash256,
 ) -> Result<(KzgProof, Hash256), KzgError> {
     let z = z.0.into();
-    kzg.compute_kzg_proof(&ssz_blob_to_crypto_blob::<T>(blob, kzg)?, &z)
+    kzg.compute_kzg_proof(blob.as_ref(), &z)
         .map(|(proof, z)| (proof, Hash256::from_slice(&z.to_vec())))
 }
 

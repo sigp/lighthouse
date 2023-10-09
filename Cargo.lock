@@ -866,11 +866,10 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/jtraglia/c-kzg-4844?rev=968798a1c17f2ac3633f26cdb833de4244eed2a8#968798a1c17f2ac3633f26cdb833de4244eed2a8"
+source = "git+https://github.com/pawanjay176/c-kzg-4844?rev=843d4c7ed087ad472f76933b158791b0a9184e52#843d4c7ed087ad472f76933b158791b0a9184e52"
 dependencies = [
  "bindgen 0.66.1",
  "blst",
- "bytes",
  "cc",
  "glob",
  "hex",

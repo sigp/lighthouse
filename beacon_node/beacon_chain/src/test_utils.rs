@@ -2526,7 +2526,7 @@ pub enum NumBlobs {
 pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
-    kzg: &Kzg<E::Kzg>,
+    kzg: &Kzg,
     rng: &mut impl Rng,
 ) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
