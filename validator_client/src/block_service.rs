@@ -334,18 +334,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         }
 
-        let deneb_fork_activated = self
-            .context
-            .eth2_config
-            .spec
-            .altair_fork_epoch
-            .and_then(|fork_epoch| {
-                let current_epoch = self.slot_clock.now()?.epoch(E::slots_per_epoch());
-                Some(current_epoch >= fork_epoch)
-            })
-            .unwrap_or(false);
-
-        if deneb_fork_activated {
+        // TODO: activate automatically at Deneb
+        if !self.validator_store.produce_block_v3() {
             for validator_pubkey in proposers {
                 let service = self.clone();
                 let log = log.clone();
@@ -457,6 +447,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn handle_block_response<Payload: AbstractExecPayload<E>>(
         &self,
         log: &Logger,

@@ -79,6 +79,8 @@ pub struct Config {
     pub enable_latency_measurement_service: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
     pub validator_registration_batch_size: usize,
+    /// Enables block production via the block v3 endpoint. This configuration option can be removed post deneb.
+    pub produce_block_v3: bool,
 }
 
 impl Default for Config {
@@ -120,6 +122,7 @@ impl Default for Config {
             disable_run_on_all: false,
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
+            produce_block_v3: false,
         }
     }
 }
@@ -359,6 +362,10 @@ impl Config {
 
         if cli_args.is_present("builder-proposals") {
             config.builder_proposals = true;
+        }
+
+        if cli_args.is_present("produce-block-v3") {
+            config.produce_block_v3 = true;
         }
 
         config.gas_limit = cli_args
