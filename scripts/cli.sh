@@ -75,7 +75,7 @@ else
 fi
 
 if [[ -z $diff ]]; then # check for difference 
-    return 1 # exit a function (i.e., do nothing)
+    : # do nothing
 else
     cp $new_file $file
     changes=true
