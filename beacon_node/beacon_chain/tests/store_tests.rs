@@ -14,7 +14,7 @@ use beacon_chain::{
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
-use eth2_network_config::get_trusted_setup_from_id;
+use eth2_network_config::get_trusted_setup;
 use kzg::TrustedSetup;
 use lazy_static::lazy_static;
 use logging::test_logger;
