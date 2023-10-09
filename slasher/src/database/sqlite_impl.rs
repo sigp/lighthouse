@@ -1,5 +1,5 @@
 #![cfg(feature = "sqlite")]
-use r2d2::PooledConnection;
+use r2d2::{PooledConnection, Pool};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, ToSql, Transaction, Connection};
 use std::{fmt, collections::HashMap};
@@ -36,7 +36,7 @@ struct FullQueryResult {
 pub struct Environment {
     _db_count: usize,
     db_path: String,
-    conn: PooledConnection<SqliteConnectionManager>
+    pool: Pool<SqliteConnectionManager>
 }
 
 #[derive(Debug)]
@@ -50,7 +50,7 @@ pub struct Database<'env> {
 pub struct RwTransaction<'env> {
     db_path: String,
     cursor: HashMap<String, u32>,
-    txn: Transaction<'env>,
+    conn: PooledConnection<SqliteConnectionManager>,
     _phantom: PhantomData<&'env ()>,
 }
 
@@ -62,12 +62,11 @@ impl Environment {
         };
         let manager = SqliteConnectionManager::file(&db_path);
         let pool = r2d2::Pool::builder().build(manager).unwrap();
-        let conn = pool.get().unwrap();
 
         Ok(Environment {
             _db_count: MAX_NUM_DBS,
             db_path,
-            conn
+            pool
         })
     }
 
@@ -127,14 +126,19 @@ impl Environment {
     }
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
+
+        let conn: PooledConnection<SqliteConnectionManager> = self.pool.get().unwrap();
+        conn.pragma_update(None, "journal_mode", "wal");
+        conn.pragma_update(None, "synchronous", "NORMAL");
         Ok(RwTransaction {
             _phantom: PhantomData,
             db_path: self.db_path.clone(),
             cursor: HashMap::new(),
-            txn: self.conn.unchecked_transaction()?,
+            conn,
         })
     }
 }
+
 
 impl<'env> RwTransaction<'env> {
     pub fn get<K: AsRef<[u8]> + ?Sized>(
@@ -143,7 +147,9 @@ impl<'env> RwTransaction<'env> {
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         let query_statement = format!("SELECT * FROM {} where key =:key;", db.table_name);
-        let mut stmt = self.txn.prepare_cached(&query_statement)?;
+
+        let txn = self.conn.unchecked_transaction()?;
+        let mut stmt = txn.prepare_cached(&query_statement)?;
 
         let query_result = stmt
             .query_row([key.as_ref()], |row| {
@@ -173,20 +179,26 @@ impl<'env> RwTransaction<'env> {
             "INSERT OR REPLACE INTO {} (key, value) VALUES (?1, ?2)",
             db.table_name
         );
-        self.txn.execute(&insert_statement, params![key.as_ref().to_owned(), value.as_ref().to_owned()])?;
+        let txn = self.conn.transaction()?;
+        txn.execute(&insert_statement, params![key.as_ref().to_owned(), value.as_ref().to_owned()])?;
+        txn.commit()?;
         Ok(())
     }
     
     pub fn del<K: AsRef<[u8]>>(&mut self, db: &Database, key: K) -> Result<(), Error> {
         let delete_statement = format!("DELETE FROM {} WHERE key=?1", db.table_name);
-        self.txn.execute(&delete_statement, params![key.as_ref().to_owned()])?;
+        let txn = self.conn.transaction()?;
+        txn.execute(&delete_statement, params![key.as_ref().to_owned()])?;
+        txn.commit()?;
         Ok(())
     }
 
     pub fn delete_current(&mut self, db: &Database) -> Result<(), Error> {
         if let Some(current_id) = self.cursor.get(db.table_name) {
             let delete_statement = format!("DELETE FROM {} WHERE id=?1", db.table_name);
-            self.txn.execute(&delete_statement, params![current_id.to_owned()])?;
+            let txn = self.conn.transaction()?;
+            txn.execute(&delete_statement, params![current_id.to_owned()])?;
+            txn.commit()?;
             self.cursor.remove(db.table_name);
         }
         Ok(())
@@ -194,7 +206,8 @@ impl<'env> RwTransaction<'env> {
 
     pub fn first_key(&mut self, db: &Database) -> Result<Option<Key>, Error> {
         let query_statement = format!("SELECT MIN(id), key, value FROM {}", db.table_name);
-        let mut stmt = self.txn.prepare_cached(&query_statement)?;
+        let txn = self.conn.transaction()?;
+        let mut stmt = txn.prepare_cached(&query_statement)?;
         let mut query_result = stmt.query_row([], |row| {
             Ok(FullQueryResult {
                 id: row.get(0)?,
@@ -213,7 +226,8 @@ impl<'env> RwTransaction<'env> {
 
     pub fn last_key(&mut self, db: &Database) -> Result<Option<Key<'env>>, Error> {
         let query_statement = format!("SELECT MAX(id), key, value FROM {}", db.table_name);
-        let mut stmt = self.txn.prepare_cached(&query_statement)?;
+        let txn = self.conn.transaction()?;
+        let mut stmt = txn.prepare_cached(&query_statement)?;
 
         let mut query_result = stmt.query_row([], |row| {
             Ok(FullQueryResult {
@@ -241,8 +255,8 @@ impl<'env> RwTransaction<'env> {
                     "SELECT MIN(id), key FROM {} where id >?1",
                     db.table_name
                 );
-    
-                let mut stmt = self.txn.prepare_cached(&query_statement)?;
+                let txn = self.conn.transaction()?;
+                let mut stmt = txn.prepare_cached(&query_statement)?;
     
                 let mut query_result = stmt.query_row(params![current_key], |row| {
                     Ok(QueryResult {
@@ -255,8 +269,8 @@ impl<'env> RwTransaction<'env> {
             },
             None => {
                 query_statement = format!("SELECT MIN(id), key FROM {}", db.table_name);
-
-                let mut stmt = self.txn.prepare_cached(&query_statement)?;
+                let txn = self.conn.transaction()?;
+                let mut stmt = txn.prepare_cached(&query_statement)?;
     
                 let mut query_result = stmt.query_row([], |row| {
                     Ok(QueryResult {
@@ -283,7 +297,8 @@ impl<'env> RwTransaction<'env> {
                 "SELECT id, key, value FROM {} where id=?1",
                 db.table_name
             );
-            let mut stmt = self.txn.prepare_cached(&query_statement)?;
+            let txn = self.conn.transaction()?;
+            let mut stmt = txn.prepare_cached(&query_statement)?;
             let query_result = stmt
                 .query_row([current_id], |row| {
                     Ok(FullQueryResult {
@@ -315,7 +330,8 @@ impl<'env> RwTransaction<'env> {
                 "SELECT id, key, value FROM {} where id>=?1",
                 db.table_name
             );
-            let mut stmt = self.txn.prepare(&query_statement)?;
+           
+            let mut stmt = self.conn.prepare(&query_statement)?;
             let rows = stmt.query_map(params![current_key], |row| {
                 Ok(FullQueryResult {
                     id: row.get(0)?,
@@ -323,21 +339,24 @@ impl<'env> RwTransaction<'env> {
                     value: row.get(2)?,
                 })
             })?;
-
+            let txn = self.conn.unchecked_transaction()?;
             for row in rows {
                 let query_result = row?;
                
                 if f(&query_result.key.unwrap())? {
                     let delete_statement = format!("DELETE FROM {} WHERE id=?1", db.table_name);
-                    self.txn.execute(&delete_statement, params![query_result.id.unwrap()])?;
+                    txn.execute(&delete_statement, params![query_result.id.unwrap()])?;
                 }
             }
+            
+            txn.commit()?;
         };
         Ok(deleted_values)
     }
 
-    pub fn commit(self) -> Result<(), Error> {
-        self.txn.commit()?;
+    pub fn commit(mut self) -> Result<(), Error> {
+        let txn = self.conn.transaction()?;
+        txn.commit()?;
         Ok(())
     }
 }
