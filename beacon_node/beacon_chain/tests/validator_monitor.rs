@@ -212,7 +212,6 @@ async fn produces_missed_blocks() {
         );
     }
 
-
     // 4th scenario //
     //
     // a missed block happens but it happens but it's happening at state.slot - LOG_SLOTS_PER_EPOCH
