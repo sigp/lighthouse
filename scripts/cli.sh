@@ -52,7 +52,7 @@ vm_move=./help_vm_move.md
 write_to_file "$general_cli" "$general" "Lighthouse General Commands"
 write_to_file "$bn_cli" "$bn" "Beacon Node"
 write_to_file "$vc_cli" "$vc" "Validator Client"
-write_to_file "$vm" "vm" "Validator Manager"
+write_to_file "$vm_cli" "$vm" "Validator Manager"
 write_to_file "$vm_cli_create" "$vm_create" "Validator Manager Create"
 write_to_file "$vm_cli_import" "$vm_import" "Validator Manager Import"
 write_to_file "$vm_cli_move" "$vm_move" "Validator Manager Move"
