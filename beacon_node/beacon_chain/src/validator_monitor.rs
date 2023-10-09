@@ -7,7 +7,7 @@ use crate::metrics;
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, info, warn, Logger, error};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use smallvec::SmallVec;
 use state_processing::per_epoch_processing::{
