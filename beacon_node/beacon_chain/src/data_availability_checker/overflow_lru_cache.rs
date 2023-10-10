@@ -1673,7 +1673,7 @@ mod test {
             "last block state should still be in cache"
         );
         // get the diet block via direct conversion (testing only)
-        let diet_block = last_block.clone().into();
+        let diet_block = last_block.clone();
         // recover the pending block from the cache
         let recovered_pending_block = cache
             .state_lru_cache()
