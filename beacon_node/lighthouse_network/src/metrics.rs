@@ -229,19 +229,4 @@ impl AggregatedBandwidthSinks {
     pub fn total_tcp_outbound(&self) -> u64 {
         self.tcp_sinks.total_outbound()
     }
-
-    /// Total aggregated inbound bandwidth.
-    pub fn total_inbound(&self) -> u64 {
-        self.total_tcp_inbound() + self.total_quic_inbound()
-    }
-
-    /// Total aggregated outbound bandwidth.
-    pub fn total_outbound(&self) -> u64 {
-        self.total_tcp_outbound() + self.total_quic_outbound()
-    }
-
-    /// Total bandwidth.
-    pub fn total(&self) -> u64 {
-        self.total_inbound() + self.total_outbound()
-    }
 }
