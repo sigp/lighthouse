@@ -181,7 +181,7 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
             .map(|block_replayer| block_replayer.into_state())
             .and_then(|mut state| {
                 state
-                    .build_caches(&self.spec)
+                    .build_exit_cache(&self.spec)
                     .map_err(AvailabilityCheckError::RebuildingStateCaches)?;
                 state
                     .update_tree_hash_cache()
