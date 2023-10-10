@@ -95,7 +95,7 @@ check ${files[5]} ${new_files[5]}
 check ${files[6]} ${new_files[6]}
 
 # remove help files
-rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md help_vm_create.md help_vm_import.md help_mv_move.md
+rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md help_vm_create.md help_vm_import.md help_vm_move.md
 
 # only exit at the very end
 if [[ $changes == true ]]; then
