@@ -1,5 +1,6 @@
 use crate::{block_hash::calculate_execution_block_hash, metrics, Error};
 
+use crate::versioned_hashes::verify_versioned_hashes;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use superstruct::superstruct;
 use types::{
@@ -124,10 +125,11 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     /// Equivalent to `is_valid_versioned_hashes` in the spec:
     /// https://github.com/ethereum/consensus-specs/blob/v1.4.0-beta.2/specs/deneb/beacon-chain.md#is_valid_versioned_hashes
     pub fn verify_versioned_hashes(&self) -> Result<(), Error> {
-        match self {
-            Self::Merge(_) | Self::Capella(_) => Ok(()),
-            Self::Deneb(request) => Ok(()),
+        if let Ok(versioned_hashes) = self.versioned_hashes() {
+            verify_versioned_hashes(self.execution_payload_ref(), versioned_hashes)
+                .map_err(Error::VerifyingVersionedHashes)?;
         }
+        Ok(())
     }
 }
 

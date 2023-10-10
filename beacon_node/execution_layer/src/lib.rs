@@ -61,6 +61,7 @@ mod metrics;
 pub mod payload_cache;
 mod payload_status;
 pub mod test_utils;
+mod versioned_hashes;
 
 /// Indicates the default jwt authenticated execution endpoint.
 pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
@@ -141,6 +142,7 @@ pub enum Error {
     InvalidBlobConversion(String),
     BeaconStateError(BeaconStateError),
     PayloadTypeMismatch,
+    VerifyingVersionedHashes(versioned_hashes::Error),
 }
 
 impl From<BeaconStateError> for Error {
