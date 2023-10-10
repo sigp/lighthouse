@@ -2811,13 +2811,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_blob_sidecar_subscribers() {
-                event_handler.register(EventKind::BlobSidecar(SseBlobSidecar {
-                    block_root: blob.block_root(),
-                    index: blob.index(),
-                    slot: blob.slot(),
-                    kzg_commitment: blob.kzg_commitment(),
-                    versioned_hash: blob.kzg_commitment().calculate_versioned_hash(),
-                }));
+                event_handler.register(EventKind::BlobSidecar(SseBlobSidecar::from_blob_sidecar(
+                    blob.as_blob(),
+                )));
             }
         }
 
@@ -2848,13 +2844,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_blob_sidecar_subscribers() {
                 for blob in blobs.iter().filter_map(|maybe_blob| maybe_blob.as_ref()) {
-                    event_handler.register(EventKind::BlobSidecar(SseBlobSidecar {
-                        block_root: blob.block_root,
-                        index: blob.index,
-                        slot: blob.slot,
-                        kzg_commitment: blob.kzg_commitment,
-                        versioned_hash: blob.kzg_commitment.calculate_versioned_hash(),
-                    }));
+                    event_handler.register(EventKind::BlobSidecar(
+                        SseBlobSidecar::from_blob_sidecar(blob),
+                    ));
                 }
             }
         }

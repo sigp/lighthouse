@@ -1,7 +1,7 @@
 use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::test_utils::BeaconChainHarness;
 use bls::Signature;
-use eth2::types::EventKind;
+use eth2::types::{EventKind, SseBlobSidecar};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::marker::PhantomData;
@@ -37,6 +37,8 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
         _phantom: PhantomData,
     };
     let gossip_verified_blob = GossipVerifiedBlob::__assumed_valid(signed_sidecar);
+    let expected_sse_blobs = SseBlobSidecar::from_blob_sidecar(gossip_verified_blob.as_blob());
+
     let _ = harness
         .chain
         .process_gossip_blob(gossip_verified_blob)
@@ -44,7 +46,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
         .unwrap();
 
     let sidecar_event = blob_event_receiver.try_recv().unwrap();
-    assert!(matches!(sidecar_event, EventKind::BlobSidecar(..)));
+    assert_eq!(sidecar_event, EventKind::BlobSidecar(expected_sse_blobs));
 }
 
 /// Verifies that a blob event is emitted when blobs are received via RPC.  
@@ -73,7 +75,11 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
         index: 1,
         ..BlobSidecar::random_valid(&mut rng, kzg).unwrap()
     });
-    let blobs = FixedBlobSidecarList::from(vec![Some(blob_1.clone()), Some(blob_2)]);
+    let blobs = FixedBlobSidecarList::from(vec![Some(blob_1.clone()), Some(blob_2.clone())]);
+    let expected_sse_blobs = vec![
+        SseBlobSidecar::from_blob_sidecar(blob_1.as_ref()),
+        SseBlobSidecar::from_blob_sidecar(blob_2.as_ref()),
+    ];
 
     let _ = harness
         .chain
@@ -81,10 +87,13 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
         .await
         .unwrap();
 
-    let mut events: Vec<EventKind<E>> = vec![];
+    let mut sse_blobs: Vec<SseBlobSidecar> = vec![];
     while let Ok(sidecar_event) = blob_event_receiver.try_recv() {
-        assert!(matches!(sidecar_event, EventKind::BlobSidecar(..)));
-        events.push(sidecar_event);
+        if let EventKind::BlobSidecar(sse_blob_sidecar) = sidecar_event {
+            sse_blobs.push(sse_blob_sidecar);
+        } else {
+            panic!("`BlobSidecar` event kind expected.");
+        }
     }
-    assert!(events.len() == 2);
+    assert_eq!(sse_blobs, expected_sse_blobs);
 }
