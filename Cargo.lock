@@ -530,7 +530,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "tree_hash_derive",
  "types",
 ]
@@ -708,7 +708,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_derive",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "zeroize",
 ]
 
@@ -847,7 +847,7 @@ dependencies = [
  "quickcheck_macros",
  "smallvec",
  "ssz_types",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
 ]
 
 [[package]]
@@ -1493,7 +1493,7 @@ dependencies = [
  "reqwest",
  "serde_json",
  "sha2 0.9.9",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "types",
 ]
 
@@ -1822,7 +1822,7 @@ dependencies = [
  "state_processing",
  "store",
  "swap_or_not_shuffle",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "tree_hash_derive",
  "types",
 ]
@@ -1965,23 +1965,12 @@ checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
 
 [[package]]
 name = "errno"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "add4f07d43996f76ef320709726a556a9d4f965d9410d8d0271132d2f8293480"
+checksum = "ac3e13f66a2f95e32a39eaa81f6b95d42878ca0e1db0c7543723dfe12557e860"
 dependencies = [
- "errno-dragonfly",
  "libc",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "errno-dragonfly"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa68f1b12764fab894d2755d2518754e71b4fd80ecfb822714a1206c2aab39bf"
-dependencies = [
- "cc",
- "libc",
 ]
 
 [[package]]
@@ -2021,7 +2010,7 @@ dependencies = [
  "superstruct",
  "task_executor",
  "tokio",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "types",
 ]
 
@@ -2507,7 +2496,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "tree_hash_derive",
  "triehash",
  "types",
@@ -2889,7 +2878,7 @@ dependencies = [
  "slog",
  "state_processing",
  "tokio",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "types",
 ]
 
@@ -3267,7 +3256,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tokio-stream",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "types",
  "warp",
  "warp_utils",
@@ -3798,7 +3787,7 @@ dependencies = [
  "snap",
  "state_processing",
  "store",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "types",
  "validator_dir",
 ]
@@ -4036,9 +4025,9 @@ dependencies = [
 
 [[package]]
 name = "libp2p-identity"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f37304f29c82ede408db06aaba60cd2f783a111f46414d3fc4beedac19e0c67b"
+checksum = "57bf6e730ec5e7022958da53ffb03b326e681b7316939012ae9b3c7449a812d4"
 dependencies = [
  "asn1_der",
  "bs58 0.5.0",
@@ -4429,7 +4418,7 @@ dependencies = [
  "tokio",
  "tokio-io-timeout",
  "tokio-util 0.6.10",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "tree_hash_derive",
  "types",
  "unsigned-varint 0.6.0",
@@ -4466,9 +4455,9 @@ checksum = "ef53942eb7bf7ff43a617b3e2c1c4a5ecf5944a7c1bc12d7ee39bbb15e5c1519"
 
 [[package]]
 name = "linux-raw-sys"
-version = "0.4.8"
+version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3852614a3bd9ca9804678ba6be5e3b8ce76dfc902cae004e3e0c44051b6e88db"
+checksum = "da2479e8c062e40bf0066ffa0bc823de0a9368974af99c9f6df941d2c231e03f"
 
 [[package]]
 name = "lmdb-rkv"
@@ -5809,9 +5798,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.68"
+version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b1106fec09662ec6dd98ccac0f81cef56984d0b49f75c92d8cbad76e20c005c"
+checksum = "134c189feb4956b20f6f547d2cf727d4c0fe06722b20a0eec87ed445a97f92da"
 dependencies = [
  "unicode-ident",
 ]
@@ -6431,7 +6420,7 @@ dependencies = [
  "bitflags 2.4.0",
  "errno",
  "libc",
- "linux-raw-sys 0.4.8",
+ "linux-raw-sys 0.4.10",
  "windows-sys 0.48.0",
 ]
 
@@ -6962,7 +6951,7 @@ dependencies = [
  "sloggers",
  "strum",
  "tempfile",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "tree_hash_derive",
  "types",
 ]
@@ -7201,7 +7190,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "smallvec",
- "tree_hash 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "typenum",
 ]
 
@@ -7228,7 +7217,7 @@ dependencies = [
  "smallvec",
  "ssz_types",
  "tokio",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "types",
 ]
 
@@ -7977,17 +7966,6 @@ dependencies = [
 [[package]]
 name = "tree_hash"
 version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c998ac5fe2b07c025444bdd522e6258110b63861c6698eedc610c071980238d"
-dependencies = [
- "ethereum-types 0.14.1",
- "ethereum_hashing",
- "smallvec",
-]
-
-[[package]]
-name = "tree_hash"
-version = "0.5.2"
 source = "git+https://github.com/macladson/tree_hash.git?rev=a5bc39d#a5bc39d025661ed94b8de69f53fc8092b9939214"
 dependencies = [
  "ethereum-types 0.14.1",
@@ -8123,7 +8101,7 @@ dependencies = [
  "tempfile",
  "test_random_derive",
  "tokio",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "tree_hash_derive",
 ]
 
@@ -8302,7 +8280,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "types",
  "url",
  "validator_dir",
@@ -8324,7 +8302,7 @@ dependencies = [
  "lockfile",
  "rand",
  "tempfile",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "types",
 ]
 
@@ -8348,7 +8326,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "tree_hash 0.5.2 (git+https://github.com/macladson/tree_hash.git?rev=a5bc39d)",
+ "tree_hash",
  "types",
  "validator_client",
 ]
@@ -8411,7 +8389,7 @@ dependencies = [
 [[package]]
 name = "warp"
 version = "0.3.6"
-source = "git+https://github.com/seanmonstar/warp.git#9d081461ae1167eb321585ce424f4fef6cf0092b"
+source = "git+https://github.com/seanmonstar/warp.git#efe8548a19172e69918396d0fdbc369df9d0eb17"
 dependencies = [
  "bytes",
  "futures-channel",

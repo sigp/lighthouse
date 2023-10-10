@@ -81,6 +81,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
             BlindedPayloadRefMut::Capella(payload) => {
                 payload.execution_payload_header.fee_recipient = fee_recipient;
             }
+            BlindedPayloadRefMut::Verge(payload) => {
+                payload.execution_payload_header.fee_recipient = fee_recipient;
+            }
         }
     }
     fn set_gas_limit(&mut self, gas_limit: u64) {
@@ -89,6 +92,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
                 payload.execution_payload_header.gas_limit = gas_limit;
             }
             BlindedPayloadRefMut::Capella(payload) => {
+                payload.execution_payload_header.gas_limit = gas_limit;
+            }
+            BlindedPayloadRefMut::Verge(payload) => {
                 payload.execution_payload_header.gas_limit = gas_limit;
             }
         }
@@ -106,6 +112,10 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
                 payload.execution_payload_header.parent_hash =
                     ExecutionBlockHash::from_root(parent_hash);
             }
+            BlindedPayloadRefMut::Verge(payload) => {
+                payload.execution_payload_header.parent_hash =
+                    ExecutionBlockHash::from_root(parent_hash);
+            }
         }
     }
     fn set_prev_randao(&mut self, prev_randao: Hash256) {
@@ -114,6 +124,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
                 payload.execution_payload_header.prev_randao = prev_randao;
             }
             BlindedPayloadRefMut::Capella(payload) => {
+                payload.execution_payload_header.prev_randao = prev_randao;
+            }
+            BlindedPayloadRefMut::Verge(payload) => {
                 payload.execution_payload_header.prev_randao = prev_randao;
             }
         }
@@ -126,6 +139,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
             BlindedPayloadRefMut::Capella(payload) => {
                 payload.execution_payload_header.block_number = block_number;
             }
+            BlindedPayloadRefMut::Verge(payload) => {
+                payload.execution_payload_header.block_number = block_number;
+            }
         }
     }
     fn set_timestamp(&mut self, timestamp: u64) {
@@ -136,6 +152,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
             BlindedPayloadRefMut::Capella(payload) => {
                 payload.execution_payload_header.timestamp = timestamp;
             }
+            BlindedPayloadRefMut::Verge(payload) => {
+                payload.execution_payload_header.timestamp = timestamp;
+            }
         }
     }
     fn set_withdrawals_root(&mut self, withdrawals_root: Hash256) {
@@ -144,6 +163,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
                 panic!("no withdrawals before capella")
             }
             BlindedPayloadRefMut::Capella(payload) => {
+                payload.execution_payload_header.withdrawals_root = withdrawals_root;
+            }
+            BlindedPayloadRefMut::Verge(payload) => {
                 payload.execution_payload_header.withdrawals_root = withdrawals_root;
             }
         }
@@ -295,6 +317,9 @@ pub fn serve<E: EthSpec>(
                         block.message.body.execution_payload.tree_hash_root()
                     }
                     SignedBlindedBeaconBlock::Capella(block) => {
+                        block.message.body.execution_payload.tree_hash_root()
+                    }
+                    SignedBlindedBeaconBlock::Verge(block) => {
                         block.message.body.execution_payload.tree_hash_root()
                     }
                 };

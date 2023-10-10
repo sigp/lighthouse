@@ -439,7 +439,6 @@ impl EthSpec for GnosisEthSpec {
     type MaxStemLength = U31;
     type MaxCommittmentsPerStem = U33;
     type MaxCommittments = Prod<Self::MaxStems, Self::MaxCommittmentsPerStem>;
-    //type MaxCommittments = U4194304;
     type BytesPerSuffixStateDiffValue = U32;
     type MaxVerkleWidth = U256;
     type IpaProofDepth = U8;

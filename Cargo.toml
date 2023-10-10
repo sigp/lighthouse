@@ -224,6 +224,10 @@ validator_client = { path = "validator_client/" }
 validator_dir = { path = "common/validator_dir" }
 warp_utils = { path = "common/warp_utils" }
 
+[patch]
+[patch.crates-io]
+tree_hash = { git = "https://github.com/macladson/tree_hash.git", rev = "a5bc39d" }
+
 [profile.maxperf]
 inherits = "release"
 lto = "fat"
