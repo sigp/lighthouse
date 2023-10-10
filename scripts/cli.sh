@@ -66,21 +66,21 @@ check() {
     local file="$1"
     local new_file="$2"
     
-if [[ -f $file ]]; then # check for existence of file 
-    diff=$(diff $file $new_file || :)
-else
-    cp $new_file $file
-    changes=true
-    echo "$file is not found, it has just been created"
-fi
+    if [[ -f $file ]]; then # check for existence of file 
+        diff=$(diff $file $new_file || :)
+    else
+        cp $new_file $file
+        changes=true
+        echo "$file is not found, it has just been created"
+    fi
 
-if [[ -z $diff ]]; then # check for difference 
-    : # do nothing
-else
-    cp $new_file $file
-    changes=true
-    echo "$file has been updated"
-fi
+    if [[ -z $diff ]]; then # check for difference 
+        : # do nothing
+    else
+        cp $new_file $file
+        changes=true
+        echo "$file has been updated"
+    fi
 }
 
 # define changes as false
