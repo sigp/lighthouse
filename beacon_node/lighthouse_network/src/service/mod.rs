@@ -4,7 +4,7 @@ use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
 };
-use crate::metrics::AgregatedBandwithSinks;
+use crate::metrics::AggregatedBandwidthSinks;
 use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
     ConnectionDirection, PeerManager, PeerManagerEvent,
@@ -124,7 +124,7 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
     update_gossipsub_scores: tokio::time::Interval,
     gossip_cache: GossipCache,
     /// The bandwidth logger for the underlying libp2p transport.
-    pub bandwidth: AgregatedBandwithSinks,
+    pub bandwidth: AggregatedBandwidthSinks,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
     /// Logger for behaviour actions.

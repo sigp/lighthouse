@@ -1,4 +1,4 @@
-use crate::metrics::AgregatedBandwithSinks;
+use crate::metrics::AggregatedBandwidthSinks;
 use crate::multiaddr::Protocol;
 use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
 use crate::types::{
@@ -44,7 +44,7 @@ type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 pub fn build_transport(
     local_private_key: Keypair,
     quic_support: bool,
-) -> std::io::Result<(BoxedTransport, AgregatedBandwithSinks)> {
+) -> std::io::Result<(BoxedTransport, AggregatedBandwidthSinks)> {
     // mplex config
     let mut mplex_config = libp2p_mplex::MplexConfig::new();
     mplex_config.set_max_buffer_size(256);
@@ -84,7 +84,7 @@ pub fn build_transport(
             AgregatedBandwithSinks::new(tcp_bandwidth, Some(quic_bandwidth)),
         )
     } else {
-        (tcp, AgregatedBandwithSinks::new(tcp_bandwidth, None))
+        (tcp, AggregatedBandwidthSinks::new(tcp_bandwidth, None))
     };
 
     // Enables DNS over the transport.

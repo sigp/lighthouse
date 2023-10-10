@@ -190,21 +190,21 @@ pub fn scrape_discovery_metrics() {
 
 /// Agregated `BandwidthSinks` of tcp and quic transports
 /// used in libp2p.
-pub struct AgregatedBandwithSinks {
+pub struct AggregatedBandwidthSinks {
     tcp_sinks: Arc<BandwidthSinks>,
     quic_sinks: Option<Arc<BandwidthSinks>>,
 }
 
-impl AgregatedBandwithSinks {
-    /// Create a new `AgregatedBandwithSinks`.
+impl AggregatedBandwidthSinks {
+    /// Create a new `AggregatedBandwidthSinks`.
     pub fn new(tcp_sinks: Arc<BandwidthSinks>, quic_sinks: Option<Arc<BandwidthSinks>>) -> Self {
-        AgregatedBandwithSinks {
+        AggregatedBandwidthSinks {
             tcp_sinks,
             quic_sinks,
         }
     }
 
-    /// Total quic inbound bandwith.
+    /// Total QUIC inbound bandwidth.
     pub fn total_quic_inbound(&self) -> u64 {
         self.quic_sinks
             .as_ref()
@@ -212,12 +212,12 @@ impl AgregatedBandwithSinks {
             .unwrap_or_default()
     }
 
-    /// Total tcp inbound bandwith.
+    /// Total TCP inbound bandwidth.
     pub fn total_tcp_inbound(&self) -> u64 {
         self.tcp_sinks.total_inbound()
     }
 
-    /// Total quic outbound bandwith.
+    /// Total QUIC outbound bandwidth.
     pub fn total_quic_outbound(&self) -> u64 {
         self.quic_sinks
             .as_ref()
@@ -225,22 +225,22 @@ impl AgregatedBandwithSinks {
             .unwrap_or_default()
     }
 
-    /// Total tcp outbound bandwith.
+    /// Total TCP outbound bandwidth.
     pub fn total_tcp_outbound(&self) -> u64 {
         self.tcp_sinks.total_outbound()
     }
 
-    /// Total agregated inbound bandwith.
+    /// Total aggregated inbound bandwidth.
     pub fn total_inbound(&self) -> u64 {
         self.total_tcp_inbound() + self.total_quic_inbound()
     }
 
-    /// Total agregated outbound bandwith.
+    /// Total aggregated outbound bandwidth.
     pub fn total_outbound(&self) -> u64 {
         self.total_tcp_outbound() + self.total_quic_outbound()
     }
 
-    /// Total agregated inbound and outbound bandwidth.
+    /// Total bandwidth.
     pub fn total(&self) -> u64 {
         self.total_inbound() + self.total_outbound()
     }

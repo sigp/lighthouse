@@ -7,7 +7,7 @@ use beacon_chain::{
 use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
 use lighthouse_network::{
-    metrics::AgregatedBandwithSinks, peer_manager::peerdb::client::ClientKind, types::GossipKind,
+    metrics::AggregatedBandwidthSinks, peer_manager::peerdb::client::ClientKind, types::GossipKind,
     GossipTopic, Gossipsub, NetworkGlobals,
 };
 use std::sync::Arc;
@@ -308,7 +308,7 @@ lazy_static! {
     );
 }
 
-pub fn update_bandwidth_metrics(bandwidth: &AgregatedBandwithSinks) {
+pub fn update_bandwidth_metrics(bandwidth: &AggregatedBandwidthSinks) {
     set_gauge(&INBOUND_LIBP2P_BYTES, bandwidth.total_inbound() as i64);
     set_gauge(
         &INBOUND_LIBP2P_TCP_BYTES,
