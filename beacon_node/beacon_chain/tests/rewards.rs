@@ -229,6 +229,7 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
     // target epoch is the epoch where the chain enters inactivity leak
     let target_epoch = &spec.min_epochs_to_inactivity_penalty + 2;
 
+    println!("{:#?}", E::slots_per_epoch());
     // advance until beginning of epoch N + 1 and get balances
     harness
         .extend_chain(
@@ -238,6 +239,12 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
         )
         .await;
     let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+    let initial_slot = harness.get_current_slot();
+
+    for (index, initial_balance) in initial_balances.iter().enumerate() {
+        println!("Validator: {index} | initial value {initial_balance} | slot {initial_slot}");
+        break
+    }
 
     // extend slots to beginning of epoch N + 2
     harness.advance_slot();
@@ -248,7 +255,7 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
             AttestationStrategy::SomeValidators(half_validators),
         )
         .await;
-    let _slot = harness.get_current_slot();
+    let advanced_slot = harness.get_current_slot();
 
     // compute reward deltas for all validators in epoch N
     let StandardAttestationRewards {
@@ -271,18 +278,16 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
     // apply attestation rewards to initial balances
     let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
 
-    for initial_balance in &initial_balances {
-        println!("initial {initial_balance}");
-    }
-
-    for expected_balance in &expected_balances {
-        println!("expected {expected_balance}");
+    for (index, expected_balance) in expected_balances.iter().enumerate() {
+        println!("Validator: {index} | expected value {expected_balance} | slot {advanced_slot}");
+        break
     }
     // verify expected balances against actual balances
     let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
 
-    for balance in &balances {
-        println!("actual {balance}");
+    for (index, balance) in balances.iter().enumerate() {
+        println!("Validator: {index} | actual value {balance} | slot {advanced_slot}");
+        break
     }
     // Failing test statement
     assert_eq!(expected_balances, balances);
