@@ -40,6 +40,7 @@ itertools = { workspace = true }
 num_cpus = { workspace = true }
 lru_cache = { workspace = true }
 if-addrs = "0.6.4"
+lru = { workspace = true }
 strum = { workspace = true }
 tokio-util = { workspace = true }
 derivative = { workspace = true }

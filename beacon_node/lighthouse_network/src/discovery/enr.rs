@@ -158,11 +158,11 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
     }
 
     if let Some(udp4_port) = config.enr_udp4_port {
-        builder.udp4(udp4_port);
+        builder.udp4(udp4_port.get());
     }
 
     if let Some(udp6_port) = config.enr_udp6_port {
-        builder.udp6(udp6_port);
+        builder.udp6(udp6_port.get());
     }
 
     if enable_libp2p {
@@ -171,35 +171,45 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
         // the related fields should only be added when both QUIC and libp2p are enabled
         if !config.disable_quic_support {
             // If we are listening on ipv4, add the quic ipv4 port.
-            if let Some(quic4_port) = config
-                .enr_quic4_port
-                .or_else(|| config.listen_addrs().v4().map(|v4_addr| v4_addr.quic_port))
-            {
-                builder.add_value(QUIC_ENR_KEY, &quic4_port);
+            if let Some(quic4_port) = config.enr_quic4_port.or_else(|| {
+                config
+                    .listen_addrs()
+                    .v4()
+                    .and_then(|v4_addr| v4_addr.quic_port.try_into().ok())
+            }) {
+                builder.add_value(QUIC_ENR_KEY, &quic4_port.get());
             }
 
             // If we are listening on ipv6, add the quic ipv6 port.
-            if let Some(quic6_port) = config
-                .enr_quic6_port
-                .or_else(|| config.listen_addrs().v6().map(|v6_addr| v6_addr.quic_port))
-            {
-                builder.add_value(QUIC6_ENR_KEY, &quic6_port);
+            if let Some(quic6_port) = config.enr_quic6_port.or_else(|| {
+                config
+                    .listen_addrs()
+                    .v6()
+                    .and_then(|v6_addr| v6_addr.quic_port.try_into().ok())
+            }) {
+                builder.add_value(QUIC6_ENR_KEY, &quic6_port.get());
             }
         }
 
         // If the ENR port is not set, and we are listening over that ip version, use the listening port instead.
-        let tcp4_port = config
-            .enr_tcp4_port
-            .or_else(|| config.listen_addrs().v4().map(|v4_addr| v4_addr.tcp_port));
+        let tcp4_port = config.enr_tcp4_port.or_else(|| {
+            config
+                .listen_addrs()
+                .v4()
+                .and_then(|v4_addr| v4_addr.tcp_port.try_into().ok())
+        });
         if let Some(tcp4_port) = tcp4_port {
-            builder.tcp4(tcp4_port);
+            builder.tcp4(tcp4_port.get());
         }
 
-        let tcp6_port = config
-            .enr_tcp6_port
-            .or_else(|| config.listen_addrs().v6().map(|v6_addr| v6_addr.tcp_port));
+        let tcp6_port = config.enr_tcp6_port.or_else(|| {
+            config
+                .listen_addrs()
+                .v6()
+                .and_then(|v6_addr| v6_addr.tcp_port.try_into().ok())
+        });
         if let Some(tcp6_port) = tcp6_port {
-            builder.tcp6(tcp6_port);
+            builder.tcp6(tcp6_port.get());
         }
     }
     builder

@@ -11,6 +11,8 @@ use tree_hash_derive::TreeHash;
 
 pub type KzgCommitments<T> =
     VariableList<KzgCommitment, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type KzgCommitmentOpts<T> =
+    FixedVector<Option<KzgCommitment>, <T as EthSpec>::MaxBlobsPerBlock>;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///

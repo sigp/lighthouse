@@ -9,12 +9,13 @@ use crate::beacon_chain::{
 use crate::block_verification::cheap_state_advance_to_obtain_committees;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::kzg_utils::{validate_blob, validate_blobs};
-use crate::BeaconChainError;
+use crate::{metrics, BeaconChainError};
 use eth2::types::{EventKind, SseBlobSidecar};
 use kzg::{Kzg, KzgCommitment};
 use slog::{debug, warn};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
+use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     BeaconStateError, BlobSidecar, BlobSidecarList, CloneConfig, EthSpec, Hash256,
@@ -173,6 +174,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     pub fn to_blob(self) -> Arc<BlobSidecar<T::EthSpec>> {
         self.blob.message
     }
+    pub fn as_blob(&self) -> &BlobSidecar<T::EthSpec> {
+        &self.blob.message
+    }
     pub fn signed_blob(&self) -> SignedBlobSidecar<T::EthSpec> {
         self.blob.clone()
     }
@@ -209,6 +213,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             received: subnet,
         });
     }
+
+    let blob_root = get_blob_root(&signed_blob_sidecar);
 
     // Verify that the sidecar is not from a future slot.
     let latest_permissible_slot = chain
@@ -400,7 +406,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             .ok_or_else(|| GossipBlobError::UnknownValidator(proposer_index as u64))?;
 
         signed_blob_sidecar.verify_signature(
-            None,
+            Some(blob_root),
             pubkey,
             &fork,
             chain.genesis_validators_root,
@@ -467,7 +473,7 @@ pub struct KzgVerifiedBlob<T: EthSpec> {
 
 impl<T: EthSpec> PartialOrd for KzgVerifiedBlob<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.blob.partial_cmp(&other.blob)
+        Some(self.cmp(other))
     }
 }
 
@@ -492,6 +498,15 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
     }
     pub fn blob_index(&self) -> u64 {
         self.blob.index
+    }
+}
+
+#[cfg(test)]
+impl<T: EthSpec> KzgVerifiedBlob<T> {
+    pub fn new(blob: BlobSidecar<T>) -> Self {
+        Self {
+            blob: Arc::new(blob),
+        }
     }
 }
 
@@ -539,4 +554,17 @@ pub fn verify_kzg_for_blob_list<T: EthSpec>(
     } else {
         Err(AvailabilityCheckError::KzgVerificationFailed)
     }
+}
+
+/// Returns the canonical root of the given `blob`.
+///
+/// Use this function to ensure that we report the blob hashing time Prometheus metric.
+pub fn get_blob_root<E: EthSpec>(blob: &SignedBlobSidecar<E>) -> Hash256 {
+    let blob_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOB_ROOT);
+
+    let blob_root = blob.message.tree_hash_root();
+
+    metrics::stop_timer(blob_root_timer);
+
+    blob_root
 }

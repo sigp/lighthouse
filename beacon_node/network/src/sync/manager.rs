@@ -42,12 +42,11 @@ use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::common::{Current, Parent};
-use crate::sync::block_lookups::delayed_lookup;
-use crate::sync::block_lookups::delayed_lookup::DelayedLookupMessage;
-use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, CachedChildComponents};
+use crate::sync::block_lookups::{BlobRequestState, BlockRequestState};
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::data_availability_checker::ChildComponents;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
@@ -58,7 +57,6 @@ use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
-use slot_clock::SlotClock;
 use std::boxed::Box;
 use std::ops::IndexMut;
 use std::ops::Sub;
@@ -76,9 +74,6 @@ use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// gossip if no peers are further than this range ahead of us that we have not already downloaded
 /// blocks for.
 pub const SLOT_IMPORT_TOLERANCE: usize = 32;
-/// The maximum number of messages the delay queue can handle in a single slot before messages are
-/// dropped.
-pub const DELAY_QUEUE_CHANNEL_SIZE: usize = 128;
 
 pub type Id = u32;
 
@@ -148,10 +143,7 @@ pub enum SyncMessage<T: EthSpec> {
     ///
     /// We will either attempt to find the block matching the unknown hash immediately or queue a lookup,
     /// which will then trigger the request when we receive `MissingGossipBlockComponentsDelayed`.
-    MissingGossipBlockComponents(Slot, PeerId, Hash256),
-
-    /// This message triggers a request for missing block components after a delay.
-    MissingGossipBlockComponentsDelayed(Hash256),
+    MissingGossipBlockComponents(Vec<PeerId>, Hash256),
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -228,8 +220,6 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     block_lookups: BlockLookups<T>,
 
-    delayed_lookups: mpsc::Sender<DelayedLookupMessage>,
-
     /// The logger for the import manager.
     log: Logger,
 }
@@ -249,8 +239,6 @@ pub fn spawn<T: BeaconChainTypes>(
         MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
-    let (delayed_lookups_send, delayed_lookups_recv) =
-        mpsc::channel::<DelayedLookupMessage>(DELAY_QUEUE_CHANNEL_SIZE);
 
     // create an instance of the SyncManager
     let network_globals = beacon_processor.network_globals.clone();
@@ -269,21 +257,11 @@ pub fn spawn<T: BeaconChainTypes>(
             beacon_chain.data_availability_checker.clone(),
             log.clone(),
         ),
-        delayed_lookups: delayed_lookups_send,
         log: log.clone(),
     };
 
-    let log_clone = log.clone();
-    delayed_lookup::spawn_delayed_lookup_service(
-        &executor,
-        beacon_chain,
-        delayed_lookups_recv,
-        beacon_processor,
-        log,
-    );
-
     // spawn the sync manager thread
-    debug!(log_clone, "Sync Manager started");
+    debug!(log, "Sync Manager started");
     executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
 }
 
@@ -673,7 +651,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     blob_slot,
-                    CachedChildComponents::new(None, Some(blobs)),
+                    ChildComponents::new(block_root, None, Some(blobs)),
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
@@ -681,39 +659,31 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.synced_and_connected(&peer_id) {
                     self.block_lookups.search_block(
                         block_hash,
-                        PeerShouldHave::BlockAndBlobs(peer_id),
+                        &[PeerShouldHave::BlockAndBlobs(peer_id)],
                         &mut self.network,
                     );
                 }
             }
-            SyncMessage::MissingGossipBlockComponents(slot, peer_id, block_root) => {
-                // If we are not synced, ignore this block.
-                if self.synced_and_connected(&peer_id) {
-                    if self.should_delay_lookup(slot) {
-                        self.block_lookups.search_block_delayed(
-                            block_root,
-                            PeerShouldHave::Neither(peer_id),
-                            &mut self.network,
-                        );
-                        if let Err(e) = self
-                            .delayed_lookups
-                            .try_send(DelayedLookupMessage::MissingComponents(block_root))
-                        {
-                            warn!(self.log, "Delayed lookup dropped for block referenced by a blob";
-                                "block_root" => ?block_root, "error" => ?e);
+            SyncMessage::MissingGossipBlockComponents(peer_id, block_root) => {
+                let peers_guard = self.network_globals().peers.read();
+                let connected_peers = peer_id
+                    .into_iter()
+                    .filter_map(|peer_id| {
+                        if peers_guard.is_connected(&peer_id) {
+                            Some(PeerShouldHave::Neither(peer_id))
+                        } else {
+                            None
                         }
-                    } else {
-                        self.block_lookups.search_block(
-                            block_root,
-                            PeerShouldHave::Neither(peer_id),
-                            &mut self.network,
-                        )
-                    }
+                    })
+                    .collect::<Vec<_>>();
+                drop(peers_guard);
+
+                // If we are not synced, ignore this block.
+                if self.synced() && !connected_peers.is_empty() {
+                    self.block_lookups
+                        .search_block(block_root, &connected_peers, &mut self.network)
                 }
             }
-            SyncMessage::MissingGossipBlockComponentsDelayed(block_root) => self
-                .block_lookups
-                .trigger_lookup_by_root(block_root, &self.network),
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);
             }
@@ -782,7 +752,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        child_components: CachedChildComponents<T::EthSpec>,
+        child_components: ChildComponents<T::EthSpec>,
     ) {
         if self.should_search_for_block(slot, &peer_id) {
             self.block_lookups.search_parent(
@@ -792,56 +762,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 peer_id,
                 &mut self.network,
             );
-            if self.should_delay_lookup(slot) {
-                self.block_lookups.search_child_delayed(
-                    block_root,
-                    child_components,
-                    PeerShouldHave::Neither(peer_id),
-                    &mut self.network,
-                );
-                if let Err(e) = self
-                    .delayed_lookups
-                    .try_send(DelayedLookupMessage::MissingComponents(block_root))
-                {
-                    warn!(self.log, "Delayed lookups dropped for block"; "block_root" => ?block_root, "error" => ?e);
-                }
-            } else {
-                self.block_lookups.search_child_block(
-                    block_root,
-                    child_components,
-                    PeerShouldHave::Neither(peer_id),
-                    &mut self.network,
-                );
-            }
-        }
-    }
-
-    fn should_delay_lookup(&mut self, slot: Slot) -> bool {
-        if !self.block_lookups.da_checker.is_deneb() {
-            return false;
-        }
-
-        let maximum_gossip_clock_disparity = self.chain.spec.maximum_gossip_clock_disparity();
-        let earliest_slot = self
-            .chain
-            .slot_clock
-            .now_with_past_tolerance(maximum_gossip_clock_disparity);
-        let latest_slot = self
-            .chain
-            .slot_clock
-            .now_with_future_tolerance(maximum_gossip_clock_disparity);
-        if let (Some(earliest_slot), Some(latest_slot)) = (earliest_slot, latest_slot) {
-            let msg_for_current_slot = slot >= earliest_slot && slot <= latest_slot;
-            let delay_threshold_unmet = self
-                .chain
-                .slot_clock
-                .millis_from_current_slot_start()
-                .map_or(false, |millis_into_slot| {
-                    millis_into_slot < self.chain.slot_clock.single_lookup_delay()
-                });
-            msg_for_current_slot && delay_threshold_unmet
-        } else {
-            false
+            self.block_lookups.search_child_block(
+                block_root,
+                child_components,
+                &[PeerShouldHave::Neither(peer_id)],
+                &mut self.network,
+            );
         }
     }
 
@@ -864,10 +790,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             && self.network.is_execution_engine_online()
     }
 
-    fn synced_and_connected(&mut self, peer_id: &PeerId) -> bool {
+    fn synced(&mut self) -> bool {
         self.network_globals().sync_state.read().is_synced()
-            && self.network_globals().peers.read().is_connected(peer_id)
             && self.network.is_execution_engine_online()
+    }
+
+    fn synced_and_connected(&mut self, peer_id: &PeerId) -> bool {
+        self.synced() && self.network_globals().peers.read().is_connected(peer_id)
     }
 
     fn handle_new_execution_engine_state(&mut self, engine_state: EngineState) {
@@ -968,7 +897,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         batch_id,
                         &peer_id,
                         id,
-                        block.map(Into::into),
+                        block.map(|b| RpcBlock::new_without_blobs(None, b)),
                     ) {
                         Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
                         Ok(ProcessResult::Successful) => {}
@@ -992,7 +921,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         chain_id,
                         batch_id,
                         id,
-                        block.map(Into::into),
+                        block.map(|b| RpcBlock::new_without_blobs(None, b)),
                     );
                     self.update_sync_state();
                 }
