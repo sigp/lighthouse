@@ -2096,6 +2096,18 @@ async fn weak_subjectivity_sync_unaligned_unadvanced_checkpoint() {
     weak_subjectivity_sync_test(slots, checkpoint_slot).await
 }
 
+// Regression test for https://github.com/sigp/lighthouse/issues/4817
+// Skip 3 slots immediately after genesis, creating a gap between the genesis block and the first
+// real block.
+#[tokio::test]
+async fn weak_subjectivity_sync_skips_at_genesis() {
+    let start_slot = 4;
+    let end_slot = E::slots_per_epoch() * 4;
+    let slots = (start_slot..end_slot).map(Slot::new).collect();
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 2);
+    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+}
+
 async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     // Build an initial chain on one harness, representing a synced node with full history.
     let num_final_blocks = E::slots_per_epoch() * 2;
