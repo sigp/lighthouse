@@ -70,7 +70,7 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
-use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
+use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
     PayloadAttributes, PayloadStatus,
@@ -2807,6 +2807,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .contains_block(&block_root)
         {
             return Err(BlockError::BlockIsAlreadyKnown);
+        }
+
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_blob_sidecar_subscribers() {
+                event_handler.register(EventKind::BlobSidecar(SseBlobSidecar {
+                    block_root: blob.block_root(),
+                    index: blob.index(),
+                    slot: blob.slot(),
+                    kzg_commitment: blob.kzg_commitment(),
+                    versioned_hash: blob.kzg_commitment().calculate_versioned_hash(),
+                }));
+            }
         }
 
         self.data_availability_checker
