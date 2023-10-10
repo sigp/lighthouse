@@ -67,7 +67,7 @@ check() {
     local new_file="$2"
     
 if [[ -f $file ]]; then # check for existence of file 
-    diff=$(diff $file $new_file)
+    diff=$(diff $file $new_file || :)
 else
     cp $new_file $file
     changes=true
