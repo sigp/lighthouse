@@ -1,7 +1,7 @@
 #![cfg(feature = "sqlite")]
 use r2d2::{PooledConnection, Pool};
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{params, OptionalExtension, ToSql, Transaction, Connection};
+use rusqlite::{params, OptionalExtension, ToSql, Transaction, Connection, named_params};
 use std::{fmt, collections::HashMap};
 use derivative::Derivative;
 use std::{
@@ -148,11 +148,10 @@ impl<'env> RwTransaction<'env> {
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         let query_statement = format!("SELECT * FROM {} where key =:key;", db.table_name);
 
-        let txn = self.conn.unchecked_transaction()?;
-        let mut stmt = txn.prepare_cached(&query_statement)?;
+        let mut stmt = self.conn.prepare_cached(&query_statement)?;
 
         let query_result = stmt
-            .query_row([key.as_ref()], |row| {
+            .query_row(named_params![":key": key.as_ref()], |row| {
                 Ok(FullQueryResult {
                     id: row.get(0)?,
                     key: row.get(1)?,
@@ -176,29 +175,26 @@ impl<'env> RwTransaction<'env> {
         value: V,
     ) -> Result<(), Error> {
         let insert_statement = format!(
-            "INSERT OR REPLACE INTO {} (key, value) VALUES (?1, ?2)",
+            "INSERT OR REPLACE INTO {} (key, value) VALUES (:key, :value)",
             db.table_name
         );
-        let txn = self.conn.transaction()?;
-        txn.execute(&insert_statement, params![key.as_ref().to_owned(), value.as_ref().to_owned()])?;
-        txn.commit()?;
+        let mut stmt = self.conn.prepare_cached(&insert_statement)?;
+        stmt.execute(named_params![":key": key.as_ref().to_owned(), ":value": value.as_ref().to_owned()])?;
         Ok(())
     }
     
     pub fn del<K: AsRef<[u8]>>(&mut self, db: &Database, key: K) -> Result<(), Error> {
-        let delete_statement = format!("DELETE FROM {} WHERE key=?1", db.table_name);
-        let txn = self.conn.transaction()?;
-        txn.execute(&delete_statement, params![key.as_ref().to_owned()])?;
-        txn.commit()?;
+        let delete_statement = format!("DELETE FROM {} WHERE key=:id", db.table_name);
+        let mut stmt = self.conn.prepare_cached(&delete_statement)?;
+        stmt.execute(named_params![":id": key.as_ref().to_owned()])?;
         Ok(())
     }
 
     pub fn delete_current(&mut self, db: &Database) -> Result<(), Error> {
         if let Some(current_id) = self.cursor.get(db.table_name) {
-            let delete_statement = format!("DELETE FROM {} WHERE id=?1", db.table_name);
-            let txn = self.conn.transaction()?;
-            txn.execute(&delete_statement, params![current_id.to_owned()])?;
-            txn.commit()?;
+            let delete_statement = format!("DELETE FROM {} WHERE id=:id", db.table_name);
+            let mut stmt = self.conn.prepare_cached(&delete_statement)?;
+            stmt.execute(named_params![":id": current_id.to_owned()])?;
             self.cursor.remove(db.table_name);
         }
         Ok(())
@@ -252,13 +248,13 @@ impl<'env> RwTransaction<'env> {
         let query_result = match self.cursor.get(db.table_name) {
             Some(current_key) => {     
                 query_statement = format!(
-                    "SELECT MIN(id), key FROM {} where id >?1",
+                    "SELECT MIN(id), key FROM {} where id >:id",
                     db.table_name
                 );
                 let txn = self.conn.transaction()?;
                 let mut stmt = txn.prepare_cached(&query_statement)?;
     
-                let mut query_result = stmt.query_row(params![current_key], |row| {
+                let mut query_result = stmt.query_row(named_params![":id": current_key], |row| {
                     Ok(QueryResult {
                         id: row.get(0)?,
                         key: row.get(1)?,
@@ -294,13 +290,13 @@ impl<'env> RwTransaction<'env> {
     pub fn get_current(&mut self, db: &Database) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
         if let Some(current_id) = self.cursor.get(db.table_name) {
             let query_statement = format!(
-                "SELECT id, key, value FROM {} where id=?1",
+                "SELECT id, key, value FROM {} where id=:id",
                 db.table_name
             );
             let txn = self.conn.transaction()?;
             let mut stmt = txn.prepare_cached(&query_statement)?;
             let query_result = stmt
-                .query_row([current_id], |row| {
+                .query_row(named_params![":id": current_id], |row| {
                     Ok(FullQueryResult {
                         id: row.get(0)?,
                         key: row.get(1)?,
@@ -327,36 +323,33 @@ impl<'env> RwTransaction<'env> {
         let mut deleted_values: Vec<Vec<u8>> = vec![];
         if let Some(current_key) = &self.cursor.get(db.table_name) {
             let query_statement = format!(
-                "SELECT id, key, value FROM {} where id>=?1",
+                "SELECT id, key, value FROM {} where id>=:id",
                 db.table_name
             );
            
-            let mut stmt = self.conn.prepare(&query_statement)?;
-            let rows = stmt.query_map(params![current_key], |row| {
+            let mut stmt = self.conn.prepare_cached(&query_statement)?;
+            let rows = stmt.query_map(named_params![":id": current_key], |row| {
                 Ok(FullQueryResult {
                     id: row.get(0)?,
                     key: row.get(1)?,
                     value: row.get(2)?,
                 })
             })?;
-            let txn = self.conn.unchecked_transaction()?;
+
+            let delete_statement = format!("DELETE FROM {} WHERE id=:id", db.table_name);
+            let mut stmt = self.conn.prepare_cached(&delete_statement)?;
             for row in rows {
                 let query_result = row?;
                
                 if f(&query_result.key.unwrap())? {
-                    let delete_statement = format!("DELETE FROM {} WHERE id=?1", db.table_name);
-                    txn.execute(&delete_statement, params![query_result.id.unwrap()])?;
+                    stmt.execute(named_params![":id": query_result.id.unwrap()])?;
                 }
             }
-            
-            txn.commit()?;
         };
         Ok(deleted_values)
     }
 
     pub fn commit(mut self) -> Result<(), Error> {
-        let txn = self.conn.transaction()?;
-        txn.commit()?;
         Ok(())
     }
 }
