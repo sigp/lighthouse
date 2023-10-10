@@ -81,7 +81,7 @@ pub fn build_transport(
             .boxed();
         (
             transport,
-            AgregatedBandwithSinks::new(tcp_bandwidth, Some(quic_bandwidth)),
+            AggregatedBandwidthSinks::new(tcp_bandwidth, Some(quic_bandwidth)),
         )
     } else {
         (tcp, AggregatedBandwidthSinks::new(tcp_bandwidth, None))
