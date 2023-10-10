@@ -82,11 +82,11 @@ jobs:
     - name: Install make
       if: env.SELF_HOSTED_RUNNERS == 'false'
       run: choco install -y make
-#    - uses: KyleMayes/install-llvm-action@v1
-#         if: env.SELF_HOSTED_RUNNERS == 'false'
-#      with:
-#        version: "15.0"
-#        directory: ${{ runner.temp }}/llvm
+    - uses: KyleMayes/install-llvm-action@v1
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      with:
+        version: "15.0"
+        directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
