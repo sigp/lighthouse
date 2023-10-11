@@ -247,7 +247,7 @@ impl BlockMap {
         let slot_map = self
             .blocks
             .entry(block_root)
-            .or_insert_with(SlotMap::default);
+            .or_default();
         slot_map.slots.insert(slot, state_root);
     }
 
