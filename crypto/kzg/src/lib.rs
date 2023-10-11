@@ -2,7 +2,7 @@ mod kzg_commitment;
 mod kzg_proof;
 mod trusted_setup;
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::str::FromStr;

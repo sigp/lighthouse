@@ -5,7 +5,7 @@ use crate::{
 };
 use bls::PublicKey;
 use derivative::Derivative;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use std::marker::PhantomData;

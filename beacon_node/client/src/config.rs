@@ -5,7 +5,7 @@ use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
 use network::NetworkConfig;
 use sensitive_url::SensitiveUrl;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;

@@ -6,8 +6,7 @@ use crate::{
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
-use serde::Deserializer;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::Encode;
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
