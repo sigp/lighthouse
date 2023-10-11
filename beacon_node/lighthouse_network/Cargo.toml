@@ -49,7 +49,7 @@ libp2p-mplex = "0.40.0"
 [dependencies.libp2p]
 version = "0.52"
 default-features = false
-features = ["websocket", "identify", "yamux", "noise", "gossipsub", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa"]
+features = ["websocket", "identify", "yamux", "noise", "gossipsub", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "quic"]
 
 [dev-dependencies]
 slog-term = "2.6.0"

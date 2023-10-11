@@ -384,6 +384,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 )
                 // TODO: Handle
                 .unwrap()
+                .with_quic()
                 .with_dns()
                 // TODO: Handle
                 .unwrap()
