@@ -93,8 +93,8 @@ resolver = "2"
 [patch.crates-io]
 # TODO: remove when 0.3.6 get's released.
 warp = { git = "https://github.com/seanmonstar/warp.git", rev="149913fe" }
-libp2p = { git = 'https://github.com/mxinden/rust-libp2p.git', branch = "transport-builder" }
-libp2p-mplex = { git = 'https://github.com/mxinden/rust-libp2p.git', branch = "transport-builder" }
+libp2p = { git = 'https://github.com/libp2p/rust-libp2p.git', branch = "transport-builder" }
+libp2p-mplex = { git = 'https://github.com/libp2p/rust-libp2p.git', branch = "transport-builder" }
 
 [profile.maxperf]
 inherits = "release"
