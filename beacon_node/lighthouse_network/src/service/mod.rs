@@ -363,11 +363,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let (swarm_builder, bandwidth) =
             libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
-                // Using `with_other_transport` in order to support mplex. In case mplex would not be needed, the below would be as simple as:
-                // ```
-                // .with_tcp()
-                // .with_noise()?
-                // ```
                 .with_tcp(
                     libp2p::tcp::Config::new().nodelay(true),
                     libp2p::noise::Config::new,
