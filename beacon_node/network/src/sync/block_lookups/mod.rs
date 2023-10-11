@@ -13,7 +13,9 @@ use crate::sync::block_lookups::single_block_lookup::{
 use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 pub use beacon_chain::data_availability_checker::ChildComponents;
-use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
+use beacon_chain::data_availability_checker::{
+    AvailabilityCheckErrorCategory, DataAvailabilityChecker,
+};
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::Current;
@@ -893,39 +895,25 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 );
                 return Ok(None);
             }
-            BlockError::AvailabilityCheck(e) => {
-                match e {
-                    // Internal error.
-                    AvailabilityCheckError::KzgNotInitialized
-                    | AvailabilityCheckError::SszTypes(_)
-                    | AvailabilityCheckError::MissingBlobs
-                    | AvailabilityCheckError::StoreError(_)
-                    | AvailabilityCheckError::DecodeError(_)
-                    | AvailabilityCheckError::Unexpected => {
-                        warn!(self.log, "Internal availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
-                        lookup
-                            .block_request_state
-                            .state
-                            .register_failure_downloading();
-                        lookup
-                            .blob_request_state
-                            .state
-                            .register_failure_downloading();
-                        lookup.request_block_and_blobs(cx)?
-                    }
-
-                    // Malicious errors.
-                    AvailabilityCheckError::Kzg(_)
-                    | AvailabilityCheckError::BlobIndexInvalid(_)
-                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
-                    | AvailabilityCheckError::KzgVerificationFailed
-                    | AvailabilityCheckError::InconsistentBlobBlockRoots { .. } => {
-                        warn!(self.log, "Availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
-                        lookup.handle_availability_check_failure(cx);
-                        lookup.request_block_and_blobs(cx)?
-                    }
+            BlockError::AvailabilityCheck(e) => match e.category() {
+                AvailabilityCheckErrorCategory::Internal => {
+                    warn!(self.log, "Internal availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
+                    lookup
+                        .block_request_state
+                        .state
+                        .register_failure_downloading();
+                    lookup
+                        .blob_request_state
+                        .state
+                        .register_failure_downloading();
+                    lookup.request_block_and_blobs(cx)?
                 }
-            }
+                AvailabilityCheckErrorCategory::Malicious => {
+                    warn!(self.log, "Availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
+                    lookup.handle_availability_check_failure(cx);
+                    lookup.request_block_and_blobs(cx)?
+                }
+            },
             other => {
                 warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
                 if let Ok(block_peer) = lookup.block_request_state.state.processing_peer() {
