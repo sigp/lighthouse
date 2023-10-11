@@ -93,10 +93,16 @@ impl EpochTotalBalances {
 
     pub fn on_effective_balance_change(
         &mut self,
+        is_slashed: bool,
         current_epoch_participation_flags: ParticipationFlags,
         old_effective_balance: u64,
         new_effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
+        // If the validator is slashed then we should not update the effective balance, because this
+        // validator's effective balance has already been removed from the totals.
+        if is_slashed {
+            return Ok(());
+        }
         for flag_index in 0..NUM_FLAG_INDICES {
             if current_epoch_participation_flags.has_flag(flag_index)? {
                 let total = self
@@ -188,12 +194,14 @@ impl ProgressiveBalancesCache {
     /// its share of the target attesting balance in the cache.
     pub fn on_effective_balance_change(
         &mut self,
+        is_slashed: bool,
         current_epoch_participation: ParticipationFlags,
         old_effective_balance: u64,
         new_effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
         let cache = self.get_inner_mut()?;
         cache.current_epoch_cache.on_effective_balance_change(
+            is_slashed,
             current_epoch_participation,
             old_effective_balance,
             new_effective_balance,

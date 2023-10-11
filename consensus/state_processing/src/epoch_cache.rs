@@ -79,22 +79,23 @@ pub fn initialize_epoch_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), EpochCacheError> {
-    let epoch = state.current_epoch();
+    let current_epoch = state.current_epoch();
+    let next_epoch = state.next_epoch().map_err(EpochCacheError::BeaconState)?;
     let epoch_cache: &EpochCache = state.epoch_cache();
     let decision_block_root = state
         .proposer_shuffling_decision_root(Hash256::zero())
         .map_err(EpochCacheError::BeaconState)?;
 
     if epoch_cache
-        .check_validity::<E>(epoch, decision_block_root)
+        .check_validity::<E>(current_epoch, decision_block_root)
         .is_ok()
     {
         // `EpochCache` has already been initialized and is valid, no need to initialize.
         return Ok(());
     }
 
-    state.build_total_active_balance_cache_at(epoch, spec)?;
-    let total_active_balance = state.get_total_active_balance_at_epoch(epoch)?;
+    state.build_total_active_balance_cache_at(current_epoch, spec)?;
+    let total_active_balance = state.get_total_active_balance_at_epoch(current_epoch)?;
 
     // Collect effective balances and compute activation queue.
     let mut effective_balances = Vec::with_capacity(state.validators().len());
@@ -104,13 +105,14 @@ pub fn initialize_epoch_cache<E: EthSpec>(
         effective_balances.push(validator.effective_balance());
 
         // Add to speculative activation queue.
-        activation_queue.add_if_could_be_eligible_for_activation(index, validator, epoch, spec);
+        activation_queue
+            .add_if_could_be_eligible_for_activation(index, validator, next_epoch, spec);
     }
 
     // Compute base rewards.
     let pre_epoch_cache = PreEpochCache {
         epoch_key: EpochCacheKey {
-            epoch,
+            epoch: current_epoch,
             decision_block_root,
         },
         effective_balances,

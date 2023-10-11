@@ -120,6 +120,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let is_in_inactivity_leak = state.is_in_inactivity_leak(previous_epoch, spec)?;
     let total_active_balance = state.get_total_active_balance()?;
     let churn_limit = state.get_churn_limit(spec)?;
+    let activation_churn_limit = state.get_activation_churn_limit(spec)?;
     let finalized_checkpoint = state.finalized_checkpoint();
     let fork_name = state.fork_name_unchecked();
 
@@ -164,7 +165,10 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let rewards_ctxt = &RewardsAndPenaltiesContext::new(progressive_balances, state_ctxt, spec)?;
     let activation_queue = &epoch_cache
         .activation_queue()?
-        .get_validators_eligible_for_activation(finalized_checkpoint.epoch, churn_limit as usize);
+        .get_validators_eligible_for_activation(
+            finalized_checkpoint.epoch,
+            activation_churn_limit as usize,
+        );
     let effective_balances_ctxt = &EffectiveBalancesContext::new(spec)?;
 
     // Iterate over the validators and related fields in one pass.
@@ -619,6 +623,7 @@ fn process_single_effective_balance_update(
         // Update progressive balances cache for the *current* epoch, which will soon become the
         // previous epoch once the epoch transition completes.
         progressive_balances.on_effective_balance_change(
+            validator.slashed(),
             validator_info.current_epoch_participation,
             old_effective_balance,
             new_effective_balance,

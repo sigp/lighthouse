@@ -351,6 +351,7 @@ where
     #[test_random(default)]
     pub validators: VList<GenericValidator, T::ValidatorRegistryLimit>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
+    #[compare_fields(as_iter)]
     #[test_random(default)]
     pub balances: VList<u64, T::ValidatorRegistryLimit>,
 
