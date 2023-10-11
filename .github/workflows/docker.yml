@@ -60,8 +60,9 @@ jobs:
         runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release"]') || 'ubuntu-22.04'  }}
         strategy:
             matrix:
-                # FIXME(sproul) re-enable ARM builds
-                binary: [x86_64,
+                binary: [aarch64,
+                         aarch64-portable,
+                         x86_64,
                          x86_64-portable]
                 features: [
                     {version_suffix: "", env: "gnosis,slasher-lmdb,slasher-mdbx,jemalloc"},
@@ -141,10 +142,9 @@ jobs:
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
 
             - name: Create and push multiarch manifest
-              # FIXME(sproul): Fix ARM builds and put this back
-              # ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX}${{ matrix.modernity }} \
               run: |
                   docker buildx imagetools create -t ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}${{ matrix.modernity }} \
+                      ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX}${{ matrix.modernity }} \
                       ${IMAGE_NAME}:${VERSION}-amd64${VERSION_SUFFIX}${{ matrix.modernity }};
 
     build-docker-lcli:

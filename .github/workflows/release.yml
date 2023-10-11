@@ -29,15 +29,22 @@ jobs:
     build:
         name:   Build Release
         strategy:
-            # FIXME(sproul): fix xdelta build for ARM
             matrix:
-                arch: [x86_64-unknown-linux-gnu,
+                arch: [aarch64-unknown-linux-gnu,
+                       aarch64-unknown-linux-gnu-portable,
+                       x86_64-unknown-linux-gnu,
                        x86_64-unknown-linux-gnu-portable,
                        x86_64-apple-darwin,
                        x86_64-apple-darwin-portable,
                        x86_64-windows,
                        x86_64-windows-portable]
                 include:
+                    -   arch: aarch64-unknown-linux-gnu
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
+                        profile: maxperf
+                    -   arch: aarch64-unknown-linux-gnu-portable
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
+                        profile: maxperf
                     -   arch: x86_64-unknown-linux-gnu
                         runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
                         profile: maxperf
