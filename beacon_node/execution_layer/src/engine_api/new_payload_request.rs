@@ -179,18 +179,100 @@ impl<'a, E: EthSpec> TryFrom<ExecutionPayloadRef<'a, E>> for NewPayloadRequest<'
 
 #[cfg(test)]
 mod test {
-    use crate::NewPayloadRequest;
-    use types::{BeaconBlock, MainnetEthSpec};
+    use crate::versioned_hashes::Error as VersionedHashError;
+    use crate::{Error, NewPayloadRequest};
+    use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
+    use types::{BeaconBlock, ExecPayload, ExecutionBlockHash, Hash256, MainnetEthSpec};
 
     #[test]
-    fn test_optimistic_sync_verifications() {
+    fn test_optimistic_sync_verifications_valid_block() {
         let beacon_block = get_valid_beacon_block();
         let new_payload_request = NewPayloadRequest::try_from(beacon_block.to_ref())
             .expect("should create new payload request");
 
-        assert!(new_payload_request
-            .perform_optimistic_sync_verifications()
-            .is_ok());
+        assert!(
+            new_payload_request
+                .perform_optimistic_sync_verifications()
+                .is_ok(),
+            "validations should pass"
+        );
+    }
+
+    #[test]
+    fn test_optimistic_sync_verifications_bad_block_hash() {
+        let mut beacon_block = get_valid_beacon_block();
+        let correct_block_hash = beacon_block
+            .body()
+            .execution_payload()
+            .expect("should get payload")
+            .block_hash();
+        let invalid_block_hash = ExecutionBlockHash(Hash256::repeat_byte(0x42));
+
+        // now mutate the block hash
+        beacon_block
+            .body_mut()
+            .execution_payload_deneb_mut()
+            .expect("should get payload")
+            .execution_payload
+            .block_hash = invalid_block_hash;
+
+        let new_payload_request = NewPayloadRequest::try_from(beacon_block.to_ref())
+            .expect("should create new payload request");
+        let verification_result = new_payload_request.perform_optimistic_sync_verifications();
+        println!("verification_result: {:?}", verification_result);
+        let got_expected_result = match verification_result {
+            Err(Error::BlockHashMismatch {
+                computed, payload, ..
+            }) => computed == correct_block_hash && payload == invalid_block_hash,
+            _ => false,
+        };
+        assert!(got_expected_result, "should return expected error");
+    }
+
+    #[test]
+    fn test_optimistic_sync_verifications_bad_versioned_hashes() {
+        let mut beacon_block = get_valid_beacon_block();
+
+        let mut commitments: Vec<_> = beacon_block
+            .body()
+            .blob_kzg_commitments()
+            .expect("should get commitments")
+            .clone()
+            .into();
+
+        let correct_versioned_hash = kzg_commitment_to_versioned_hash(
+            commitments.last().expect("should get last commitment"),
+        );
+
+        // mutate the last commitment
+        commitments
+            .last_mut()
+            .expect("should get last commitment")
+            .0[0] = 0x42;
+
+        // calculate versioned hash from mutated commitment
+        let bad_versioned_hash = kzg_commitment_to_versioned_hash(
+            commitments.last().expect("should get last commitment"),
+        );
+
+        *beacon_block
+            .body_mut()
+            .blob_kzg_commitments_mut()
+            .expect("should get commitments") = commitments.into();
+
+        let new_payload_request = NewPayloadRequest::try_from(beacon_block.to_ref())
+            .expect("should create new payload request");
+        let verification_result = new_payload_request.perform_optimistic_sync_verifications();
+        println!("verification_result: {:?}", verification_result);
+
+        let got_expected_result = match verification_result {
+            Err(Error::VerifyingVersionedHashes(VersionedHashError::VersionHashMismatch {
+                expected,
+                found,
+            })) => expected == bad_versioned_hash && found == correct_versioned_hash,
+            _ => false,
+        };
+        assert!(got_expected_result, "should return expected error");
     }
 
     fn get_valid_beacon_block() -> BeaconBlock<MainnetEthSpec> {
