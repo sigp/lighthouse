@@ -1,5 +1,9 @@
 #! /usr/bin/env bash
 
+# IMPORTANT
+# This script should NOT be run directly.
+# Run `make cli` from the root of the repository instead.
+
 set -e
 
 # A function to generate formatted .md files
