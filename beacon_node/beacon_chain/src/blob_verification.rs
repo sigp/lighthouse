@@ -388,7 +388,7 @@ pub struct KzgVerifiedBlob<T: EthSpec> {
 
 impl<T: EthSpec> PartialOrd for KzgVerifiedBlob<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.blob.partial_cmp(&other.blob)
+        Some(self.cmp(other))
     }
 }
 
