@@ -176,3 +176,75 @@ impl<'a, E: EthSpec> TryFrom<ExecutionPayloadRef<'a, E>> for NewPayloadRequest<'
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::NewPayloadRequest;
+    use types::{BeaconBlock, MainnetEthSpec};
+
+    #[test]
+    fn test_optimistic_sync_verifications() {
+        let beacon_block = get_valid_beacon_block();
+        let new_payload_request = NewPayloadRequest::try_from(beacon_block.to_ref())
+            .expect("should create new payload request");
+
+        assert!(new_payload_request
+            .perform_optimistic_sync_verifications()
+            .is_ok());
+    }
+
+    fn get_valid_beacon_block() -> BeaconBlock<MainnetEthSpec> {
+        BeaconBlock::Deneb(serde_json::from_str(r#"{
+          "slot": "88160",
+          "proposer_index": "583",
+          "parent_root": "0x60770cd86a497ca3aa2e91f1687aa3ebafac87af52c30a920b5f40bd9e930eb6",
+          "state_root": "0x4a0e0abbcbcf576f2cb7387c4289ab13b8a128e32127642f056143d6164941a6",
+          "body": {
+            "randao_reveal": "0xb5253d5739496abc4f67c7c92e39e46cca452c2fdfc5275e3e0426a012aa62df82f47f7dece348e28db4bb212f0e793d187120bbd47b8031ed79344116eb4128f0ce0b05ba18cd615bb13966c1bd7d89e23cc769c8e4d8e4a63755f623ac3bed",
+            "eth1_data": {
+              "deposit_root": "0xe4785ac914d8673797f886e3151ce2647f81ae070c7ddb6845e65fd1c47d1222",
+              "deposit_count": "1181",
+              "block_hash": "0x010671bdfbfce6b0071984a06a7ded6deef13b4f8fdbae402c606a7a0c8780d1"
+            },
+            "graffiti": "0x6c6f6465737461722f6765746800000000000000000000000000000000000000",
+            "proposer_slashings": [],
+            "attester_slashings": [],
+            "attestations": [],
+            "deposits": [],
+            "voluntary_exits": [],
+            "sync_aggregate": {
+              "sync_committee_bits": "0xfebffffffebfff7fff7f7fffbbefffff6affffffffbfffffefffebfffdbf77fff7fd77ffffefffdff7ffffeffffffe7e5ffffffdefffff7ffbffff7fffffffff",
+              "sync_committee_signature": "0x91939b5baf2a6f52d405b6dd396f5346ec435eca7d25912c91cc6a2f7030d870d68bebe4f2b21872a06929ff4cf3e5e9191053cb43eb24ebe34b9a75fb88a3acd06baf329c87f68bd664b49891260c698d7bca0f5365870b5b2b3a76f582156c"
+            },
+            "execution_payload": {
+              "parent_hash": "0xa6f3ed782a992f79ad38da2af91b3e8923c71b801c50bc9033bb35a2e1da885f",
+              "fee_recipient": "0xf97e180c050e5ab072211ad2c213eb5aee4df134",
+              "state_root": "0x3bfd1a7f309ed35048c349a8daf01815bdc09a6d5df86ea77d1056f248ba2017",
+              "receipts_root": "0xcb5b8ffea57cd0fa87194d49bc8bb7fad08c93c9934b886489503c328d15fd36",
+              "logs_bloom": "0x002000000000000000000000800000000000000000001040000000000000000000000001000000000000000000000000000000000000100000000020000c0800000000000000008000000008000000200000800000000000000000000000000000000000000000008000000000008000000000000000000002000010000000000000000000000000000000000000000000000000000000080000004000000000800000000000000000000100000000000000000000000000000000000800000000000102000000000000000000000000000000080000001000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+              "prev_randao": "0xb2693020177d99ffbd4c267023be172d759e7306ff51b0e7d677d3148fbd7f1d",
+              "block_number": "74807",
+              "gas_limit": "30000000",
+              "gas_used": "128393",
+              "timestamp": "1697039520",
+              "extra_data": "0xd883010d03846765746888676f312e32312e31856c696e7578",
+              "base_fee_per_gas": "7",
+              "block_hash": "0xc64f3a43c64aeb98518a237f6279fa03095b9f95ca673c860ad7f16fb9340062",
+              "transactions": [
+                "0x02f9017a8501a1f0ff4382317585012a05f2008512a05f2000830249f094c1b0bc605e2c808aa0867bfc98e51a1fe3e9867f80b901040cc7326300000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000036e534e16b8920d000000000000000000000000fb3e9c7cb92443931ee6b5b9728598d4eb9618c1000000000000000000000000fc7360b3b28cf4204268a8354dbec60720d155d2000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000009a054a063f0fe7b9c68de8df91aaa5e96c15ab540000000000000000000000000c8d41b8fcc066cdabaf074d78e5153e8ce018a9c080a07dd9be0d014ffcd5b6883d0917c66b74ba51f0d976c8fc5674af192af6fa9450a02dad2c660974c125f5f22b1e6e8862a292e08cc2b4cafda35af650ee62868a43",
+                "0x03f8db8501a1f0ff430d84773594008504a817c8008252089454e594b6de0aa4b0188cd1549dd7ba715a455d078080c08504a817c800f863a001253ce00f525e3495cffa0b865eadb90a4c5ee812185cc796af74b6ec0a5dd7a0010720372a4d7dcab84413ed0cfc164fb91fb6ef1562ec2f7a82e912a1d9e129a0015a73e97950397896ed2c47dcab7c0360220bcfb413a8f210a7b6e6264e698880a04402cb0f13c17ef41dca106b1e1520c7aadcbe62984d81171e29914f587d67c1a02db62a8edb581917958e4a3884e7eececbaec114c5ee496e238033e896f997ac"
+              ],
+              "withdrawals": [],
+              "blob_gas_used": "393216",
+              "excess_blob_gas": "58720256"
+            },
+            "bls_to_execution_changes": [],
+            "blob_kzg_commitments": [
+              "0xa7accb7a25224a8c2e0cee9cd569fc1798665bfbfe780e08945fa9098ec61da4061f5b04e750a88d3340a801850a54fa",
+              "0xac7b47f99836510ae9076dc5f5da1f370679dea1d47073307a14cbb125cdc7822ae619637135777cb40e13d897fd00a7",
+              "0x997794110b9655833a88ad5a4ec40a3dc7964877bfbeb04ca1abe1d51bdc43e20e4c5757028896d298d7da954a6f14a1"
+            ]
+          }
+        }"#).expect("should decode"))
+    }
+}
