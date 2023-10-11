@@ -18,12 +18,16 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    BlobSidecar, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge, ForkName, Hash256,
-    Transactions, Uint256,
+    BlobSidecar, ChainSpec, EthSpec, EthSpecId, ExecutionBlockHash, ExecutionPayload,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge,
+    ForkName, Hash256, Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
+use ssz::Decode;
+
+const TEST_BLOB_BUNDLE_MAINNET: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
+const TEST_BLOB_BUNDLE_MINIMAL: &[u8] = include_bytes!("fixtures/minimal/test_blobs_bundle.ssz");
 
 const GAS_LIMIT: u64 = 16384;
 const GAS_USED: u64 = GAS_LIMIT - 1;
@@ -623,16 +627,19 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {}
             ForkName::Deneb => {
                 // get random number between 0 and Max Blobs
-                let mut rng = self.rng.lock();
-                let num_blobs = rng.gen::<usize>() % (T::max_blobs_per_block() + 1);
-                let kzg = self.kzg.as_ref().ok_or("kzg not initialized")?;
-                let (bundle, transactions) = generate_random_blobs(num_blobs, kzg, &mut *rng)?;
-                for tx in Vec::from(transactions) {
-                    execution_payload
-                        .transactions_mut()
-                        .push(tx)
-                        .map_err(|_| "transactions are full".to_string())?;
-                }
+                // let mut rng = self.rng.lock();
+                // let num_blobs = rng.gen::<usize>() % (T::max_blobs_per_block() + 1);
+                // let kzg = self.kzg.as_ref().ok_or("kzg not initialized")?;
+                // let (bundle, transactions) = generate_random_blobs(num_blobs, kzg, &mut *rng)?;
+                let bundle = load_test_blobs_bundle()?;
+                let tx = static_valid_tx::<T>()
+                    .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
+
+                execution_payload
+                    .transactions_mut()
+                    .push(tx)
+                    .map_err(|_| "transactions are full".to_string())?;
+
                 self.blobs_bundles.insert(id, bundle);
             }
         }
@@ -641,6 +648,18 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             ExecutionBlockHash::from_root(execution_payload.tree_hash_root());
         Ok(execution_payload)
     }
+}
+
+pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<BlobsBundle<E>, String> {
+    let blob_bundle_bytes = match E::spec_name() {
+        EthSpecId::Mainnet => TEST_BLOB_BUNDLE_MAINNET,
+        EthSpecId::Minimal => TEST_BLOB_BUNDLE_MINIMAL,
+        EthSpecId::Gnosis => {
+            return Err("Test blobs bundle not avaialble for Gnosis preset".to_string())
+        }
+    };
+    BlobsBundle::from_ssz_bytes(blob_bundle_bytes)
+        .map_err(|e| format!("Unable to decode SSZ: {:?}", e))
 }
 
 pub fn generate_random_blobs<T: EthSpec, R: Rng>(
