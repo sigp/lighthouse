@@ -1,8 +1,8 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
     BlobRootsList, ChainSpec, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ForkName, ForkVersionDeserialize,
-    KzgProofs, SignedRoot, Uint256,
+    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ForkName,
+    ForkVersionDeserialize, KzgProofs, SignedRoot, Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -25,7 +25,8 @@ pub struct BlindedBlobsBundle<E: EthSpec> {
         derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone),
         serde(bound = "E: EthSpec", deny_unknown_fields)
     ),
-    map_ref_into(ExecutionPayloadHeaderRef)
+    map_ref_into(ExecutionPayloadHeaderRef),
+    map_ref_mut_into(ExecutionPayloadHeaderRefMut)
 )]
 #[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
 #[serde(bound = "E: EthSpec", deny_unknown_fields, untagged)]
@@ -55,6 +56,14 @@ impl<'a, E: EthSpec> BuilderBidRef<'a, E> {
         map_builder_bid_ref_into_execution_payload_header_ref!(&'a _, self, |bid, cons| cons(
             &bid.header
         ))
+    }
+}
+
+impl<'a, E: EthSpec> BuilderBidRefMut<'a, E> {
+    pub fn header_mut(self) -> ExecutionPayloadHeaderRefMut<'a, E> {
+        map_builder_bid_ref_mut_into_execution_payload_header_ref_mut!(&'a _, self, |bid, cons| {
+            cons(&mut bid.header)
+        })
     }
 }
 

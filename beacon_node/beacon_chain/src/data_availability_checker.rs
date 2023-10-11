@@ -10,17 +10,14 @@ use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
 use crate::data_availability_checker::processing_cache::ProcessingCache;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
-use kzg::{Error as KzgError, KzgCommitment};
 use parking_lot::RwLock;
 pub use processing_cache::ProcessingComponents;
 use slasher::test_utils::E;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
-use ssz_types::Error;
 use std::fmt;
 use std::fmt::Debug;
 use std::sync::Arc;
-use strum::IntoStaticStr;
 use task_executor::TaskExecutor;
 use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
@@ -29,8 +26,12 @@ use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlo
 
 mod availability_view;
 mod child_components;
+mod error;
 mod overflow_lru_cache;
 mod processing_cache;
+mod state_lru_cache;
+
+pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 
 /// The LRU Cache stores `PendingComponents` which can store up to
 /// `MAX_BLOBS_PER_BLOCK = 6` blobs each. A `BlobSidecar` is 0.131256 MB. So
@@ -38,45 +39,8 @@ mod processing_cache;
 /// to 1024 means the maximum size of the cache is ~ 0.8 GB. But the cache
 /// will target a size of less than 75% of capacity.
 pub const OVERFLOW_LRU_CAPACITY: usize = 1024;
-
-#[derive(Debug, IntoStaticStr)]
-pub enum AvailabilityCheckError {
-    Kzg(KzgError),
-    KzgNotInitialized,
-    KzgVerificationFailed,
-    KzgCommitmentMismatch {
-        blob_commitment: KzgCommitment,
-        block_commitment: KzgCommitment,
-    },
-    Unexpected,
-    SszTypes(ssz_types::Error),
-    MissingBlobs,
-    BlobIndexInvalid(u64),
-    StoreError(store::Error),
-    DecodeError(ssz::DecodeError),
-    InconsistentBlobBlockRoots {
-        block_root: Hash256,
-        blob_block_root: Hash256,
-    },
-}
-
-impl From<ssz_types::Error> for AvailabilityCheckError {
-    fn from(value: Error) -> Self {
-        Self::SszTypes(value)
-    }
-}
-
-impl From<store::Error> for AvailabilityCheckError {
-    fn from(value: store::Error) -> Self {
-        Self::StoreError(value)
-    }
-}
-
-impl From<ssz::DecodeError> for AvailabilityCheckError {
-    fn from(value: ssz::DecodeError) -> Self {
-        Self::DecodeError(value)
-    }
-}
+/// Until tree-states is implemented, we can't store very many states in memory :(
+pub const STATE_LRU_CAPACITY: usize = 2;
 
 /// This includes a cache for any blocks or blobs that have been received over gossip or RPC
 /// and are awaiting more components before they can be imported. Additionally the
@@ -120,7 +84,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         log: &Logger,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
-        let overflow_cache = OverflowLRUCache::new(OVERFLOW_LRU_CAPACITY, store)?;
+        let overflow_cache = OverflowLRUCache::new(OVERFLOW_LRU_CAPACITY, store, spec.clone())?;
         Ok(Self {
             processing_cache: <_>::default(),
             availability_cache: Arc::new(overflow_cache),

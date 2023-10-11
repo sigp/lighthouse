@@ -6,3 +6,6 @@ edition = { workspace = true }
 
 [dependencies]
 fnv = { workspace = true }
+
+[dev-dependencies]
+mock_instant = "0.3"
