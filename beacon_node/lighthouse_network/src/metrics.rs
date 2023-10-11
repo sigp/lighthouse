@@ -188,7 +188,7 @@ pub fn scrape_discovery_metrics() {
     set_gauge(&DISCOVERY_RECV_BYTES, metrics.bytes_recv as i64);
 }
 
-/// Agregated `BandwidthSinks` of tcp and quic transports
+/// Aggregated `BandwidthSinks` of tcp and quic transports
 /// used in libp2p.
 pub struct AggregatedBandwidthSinks {
     tcp_sinks: Arc<BandwidthSinks>,
