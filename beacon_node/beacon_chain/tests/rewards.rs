@@ -14,7 +14,7 @@ use eth2::lighthouse::StandardAttestationRewards;
 use eth2::types::ValidatorId;
 use lazy_static::lazy_static;
 use types::beacon_state::Error as BeaconStateError;
-use types::{BeaconState, ChainSpec, ForkName};
+use types::{BeaconState, ChainSpec, ForkName, SignedBeaconBlockHash, Slot};
 
 pub const VALIDATOR_COUNT: usize = 64;
 
@@ -227,15 +227,13 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
     let half = VALIDATOR_COUNT / 2;
     let half_validators: Vec<usize> = (0..half).collect();
     // target epoch is the epoch where the chain enters inactivity leak
-    let target_epoch = &spec.min_epochs_to_inactivity_penalty + 2;
+    let target_epoch = &spec.min_epochs_to_inactivity_penalty + 1;
 
-    println!("{:#?}", E::slots_per_epoch());
     // advance until beginning of epoch N + 1 and get balances
     harness
-        .extend_chain(
+        .extend_slots_some_validators(
             (E::slots_per_epoch() * (target_epoch + 1)) as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(half_validators.clone()),
+            half_validators.clone(),
         )
         .await;
     let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
@@ -243,19 +241,29 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
 
     for (index, initial_balance) in initial_balances.iter().enumerate() {
         println!("Validator: {index} | initial value {initial_balance} | slot {initial_slot}");
-        break
+        break;
     }
 
     // extend slots to beginning of epoch N + 2
-    harness.advance_slot();
-    harness
-        .extend_chain(
-            E::slots_per_epoch() as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(half_validators),
-        )
-        .await;
-    let advanced_slot = harness.get_current_slot();
+    let mut advanced_slot = harness.get_current_slot();
+
+    for _ in 0..E::slots_per_epoch() {
+        harness.advance_slot();
+        let last_block_hash = harness
+            .extend_slots_some_validators(1, half_validators.clone())
+            .await;
+        advanced_slot = harness.get_current_slot();
+
+        let mut current_state = harness.get_current_state();
+        let block = harness
+            .get_block(SignedBeaconBlockHash::from(last_block_hash))
+            .unwrap();
+        let beacon_block_reward = harness
+            .chain
+            .compute_beacon_block_reward(block.message(), last_block_hash, &mut current_state)
+            .unwrap();
+        println!("Beacon block reward: {:#?}", beacon_block_reward);
+    }
 
     // compute reward deltas for all validators in epoch N
     let StandardAttestationRewards {
@@ -280,14 +288,14 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
 
     for (index, expected_balance) in expected_balances.iter().enumerate() {
         println!("Validator: {index} | expected value {expected_balance} | slot {advanced_slot}");
-        break
+        break;
     }
     // verify expected balances against actual balances
     let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
 
     for (index, balance) in balances.iter().enumerate() {
         println!("Validator: {index} | actual value {balance} | slot {advanced_slot}");
-        break
+        break;
     }
     // Failing test statement
     assert_eq!(expected_balances, balances);

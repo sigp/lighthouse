@@ -5,6 +5,7 @@ use participation_cache::ParticipationCache;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
 use slog::debug;
+use state_processing::per_epoch_processing::altair::process_inactivity_updates;
 use state_processing::{
     common::altair::BaseRewardPerIncrement,
     per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight},
@@ -123,6 +124,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Calculate ideal_rewards
         let participation_cache = ParticipationCache::new(&state, spec)?;
+        process_inactivity_updates(&mut state, &participation_cache, spec)?;
 
         let previous_epoch = state.previous_epoch();
 
@@ -222,7 +224,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             .inactivity_score_bias
                             .safe_mul(spec.inactivity_penalty_quotient_for_state(&state))?;
                         inactivity_penalty =
-                            penalty_numerator.safe_div(penalty_denominator)? as i64;
+                            penalty_numerator.safe_div(penalty_denominator)? as i64 * -1;
                     } else if flag_index == TIMELY_SOURCE_FLAG_INDEX {
                         source_reward = *penalty;
                     }
@@ -234,7 +236,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 target: target_reward,
                 source: source_reward,
                 inclusion_delay: None,
-                inactivity: inactivity_penalty * -1,
+                inactivity: inactivity_penalty,
             });
         }
 
