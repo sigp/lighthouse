@@ -62,7 +62,7 @@ fn get_store_generic(
         hierarchy_config: HierarchyConfig {
             exponents: vec![1, 3, 5],
         },
-        ..Default::default()
+        ..config
     };
     try_get_store_with_spec_and_config(db_path, spec, config).expect("disk store should initialize")
 }
