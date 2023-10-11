@@ -136,9 +136,9 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      */
     pub blobs_bundles: HashMap<PayloadId, BlobsBundle<T>>,
     pub kzg: Option<Arc<Kzg<T::Kzg>>>,
-    rng: Arc<Mutex<StdRng>>,
 }
 
+#[allow(dead_code)]
 fn make_rng() -> Arc<Mutex<StdRng>> {
     // Nondeterminism in tests is a highly undesirable thing.  Seed the RNG to some arbitrary
     // but fixed value for reproducibility.
@@ -169,7 +169,6 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             cancun_time,
             blobs_bundles: <_>::default(),
             kzg: kzg.map(Arc::new),
-            rng: make_rng(),
         };
 
         gen.insert_pow_block(0).unwrap();
