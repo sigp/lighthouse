@@ -891,6 +891,7 @@ pub struct SseBlock {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseBlobSidecar {
     pub block_root: Hash256,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
     pub slot: Slot,
     pub kzg_commitment: KzgCommitment,
