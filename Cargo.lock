@@ -349,6 +349,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "attohttpc"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d9a9bf8b79a749ee0b911b91b671cc2b6c670bdbc7e3dfd537576ddc94bb2a2"
+dependencies = [
+ "http",
+ "log",
+ "url",
+]
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3536,9 +3547,28 @@ version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "556b5a75cd4adb7c4ea21c64af1c48cefb2ce7d43dc4352c720a1fe47c21f355"
 dependencies = [
- "attohttpc",
+ "attohttpc 0.16.3",
  "log",
  "rand",
+ "url",
+ "xmltree",
+]
+
+[[package]]
+name = "igd-next"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57e065e90a518ab5fedf79aa1e4b784e10f8e484a834f6bda85c42633a2cb7af"
+dependencies = [
+ "async-trait",
+ "attohttpc 0.24.1",
+ "bytes",
+ "futures",
+ "http",
+ "hyper",
+ "log",
+ "rand",
+ "tokio",
  "url",
  "xmltree",
 ]
@@ -4335,6 +4365,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-upnp"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "afbad617814331f1621170dc0b236981be241e37f12a0cdca3523f492b2f7b96"
+dependencies = [
+ "futures",
+ "futures-timer",
+ "igd-next",
+ "libp2p-core",
+ "libp2p-swarm",
+ "log",
+ "tokio",
+ "void",
+]
+
+[[package]]
 name = "libp2p-yamux"
 version = "0.44.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4487,6 +4533,7 @@ dependencies = [
  "libp2p",
  "libp2p-mplex",
  "libp2p-quic",
+ "libp2p-upnp",
  "lighthouse_metrics",
  "lighthouse_version",
  "lru 0.7.8",

@@ -30,9 +30,10 @@ use libp2p::gossipsub::{
     TopicScoreParams,
 };
 use libp2p::identify;
-use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
+use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::PeerId;
+use libp2p_upnp;
 use slog::{crit, debug, info, o, trace, warn};
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -362,6 +363,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 identify,
                 peer_manager,
                 connection_limits,
+                upnp: Default::default(),
             }
         };
 
@@ -1517,6 +1519,47 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
+    fn parse_upnp_event(&mut self, event: libp2p_upnp::Event) {
+        match event {
+            libp2p_upnp::Event::NewExternalAddr(addr) => {
+                info!(self.log, "UPnP route established"; "addr" => %addr);
+                let mut iter = addr.iter();
+                // Skip Ip address.
+                iter.next();
+                match iter.next() {
+                    Some(multiaddr::Protocol::Udp(udp_port)) => match iter.next() {
+                        Some(multiaddr::Protocol::QuicV1) => {
+                            if let Err(e) = self.discovery_mut().update_enr_quic_port(udp_port) {
+                                warn!(self.log, "Failed to update ENR"; "error" => e);
+                            }
+                        }
+                        _ => {
+                            trace!(self.log, "UPnP address mapped multiaddr from unknown transport"; "addr" => %addr)
+                        }
+                    },
+                    Some(multiaddr::Protocol::Tcp(tcp_port)) => {
+                        if let Err(e) = self.discovery_mut().update_enr_tcp_port(tcp_port) {
+                            warn!(self.log, "Failed to update ENR"; "error" => e);
+                        }
+                    }
+                    _ => {
+                        trace!(self.log, "UPnP address mapped multiaddr from unknown transport"; "addr" => %addr);
+                    }
+                }
+            }
+            libp2p_upnp::Event::ExpiredExternalAddr(_) => {}
+            libp2p_upnp::Event::GatewayNotFound => {
+                info!(self.log, "UPnP not available");
+            }
+            libp2p_upnp::Event::NonRoutableGateway => {
+                info!(
+                    self.log,
+                    "UPnP is available but gateway is not exposed to public network"
+                );
+            }
+        }
+    }
+
     /* Networking polling */
 
     /// Poll the p2p networking stack.
@@ -1539,6 +1582,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                     BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
                     BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
+                    BehaviourEvent::Upnp(e) => {
+                        self.parse_upnp_event(e);
+                        None
+                    }
                     BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
                 },
                 SwarmEvent::ConnectionEstablished { .. } => None,

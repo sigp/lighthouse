@@ -6,6 +6,7 @@ use crate::types::SnappyTransform;
 use libp2p::gossipsub;
 use libp2p::identify;
 use libp2p::swarm::NetworkBehaviour;
+use libp2p_upnp::tokio::Behaviour as Upnp;
 use types::EthSpec;
 
 use super::api_types::RequestId;
@@ -34,4 +35,7 @@ where
     pub identify: identify::Behaviour,
     /// The peer manager that keeps track of peer's reputation and status.
     pub peer_manager: PeerManager<TSpec>,
+
+    /// Libp2p UPnP port mapping.
+    pub upnp: Upnp,
 }
