@@ -14,7 +14,7 @@ use eth2::lighthouse::StandardAttestationRewards;
 use eth2::types::ValidatorId;
 use lazy_static::lazy_static;
 use types::beacon_state::Error as BeaconStateError;
-use types::{BeaconState, ChainSpec, ForkName, SignedBeaconBlockHash, Slot};
+use types::{BeaconState, ChainSpec, ForkName, Slot};
 
 pub const VALIDATOR_COUNT: usize = 64;
 
@@ -248,19 +248,33 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
     let mut advanced_slot = harness.get_current_slot();
 
     for _ in 0..E::slots_per_epoch() {
-        harness.advance_slot();
-        let last_block_hash = harness
+        harness
             .extend_slots_some_validators(1, half_validators.clone())
             .await;
+        // harness.advance_slot();
+        // harness
+        //     .extend_chain(
+        //         1,
+        //         BlockStrategy::OnCanonicalHead,
+        //         AttestationStrategy::SomeValidators(half_validators.clone()),
+        //     )
+        //     .await;
         advanced_slot = harness.get_current_slot();
 
-        let mut current_state = harness.get_current_state();
-        let block = harness
-            .get_block(SignedBeaconBlockHash::from(last_block_hash))
-            .unwrap();
+        let current_state = harness.get_current_state();
+        let slot = current_state.slot() + Slot::new(1);
+
+        let (signed_block, mut state) = harness
+            .make_block_return_pre_state(current_state, slot)
+            .await;
+
         let beacon_block_reward = harness
             .chain
-            .compute_beacon_block_reward(block.message(), last_block_hash, &mut current_state)
+            .compute_beacon_block_reward(
+                signed_block.message(),
+                signed_block.canonical_root(),
+                &mut state,
+            )
             .unwrap();
         println!("Beacon block reward: {:#?}", beacon_block_reward);
     }
