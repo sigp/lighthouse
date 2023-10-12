@@ -22,12 +22,10 @@ const BASE_DB: &str = "slasher_db";
 impl<'env> Database<'env> {}
 
 struct QueryResult {
-    id: Option<u32>,
     key: Option<Vec<u8>>,
 }
 
 struct FullQueryResult {
-    id: Option<u32>,
     key: Option<Vec<u8>>,
     value: Option<Vec<u8>>,
 }
@@ -49,7 +47,7 @@ pub struct Database<'env> {
 #[derivative(Debug)]
 pub struct RwTransaction<'env> {
     db_path: String,
-    cursor: HashMap<String, u32>,
+    cursor: HashMap<String, Vec<u8>>,
     conn: PooledConnection<SqliteConnectionManager>,
     _phantom: PhantomData<&'env ()>,
 }
@@ -100,7 +98,6 @@ impl Environment {
     ) -> Result<crate::Database<'env>, Error> {
         let create_table_command = format!(
             "CREATE TABLE IF NOT EXISTS {} (
-                id    INTEGER PRIMARY KEY AUTOINCREMENT,
                 key   BLOB UNIQUE,
                 value BLOB
             );",
@@ -153,9 +150,8 @@ impl<'env> RwTransaction<'env> {
         let query_result = stmt
             .query_row(named_params![":key": key.as_ref()], |row| {
                 Ok(FullQueryResult {
-                    id: row.get(0)?,
-                    key: row.get(1)?,
-                    value: row.get(2)?,
+                    key: row.get(0)?,
+                    value: row.get(1)?,
                 })
             })
             .optional()?;
@@ -184,36 +180,34 @@ impl<'env> RwTransaction<'env> {
     }
     
     pub fn del<K: AsRef<[u8]>>(&mut self, db: &Database, key: K) -> Result<(), Error> {
-        let delete_statement = format!("DELETE FROM {} WHERE key=:id", db.table_name);
+        let delete_statement = format!("DELETE FROM {} WHERE key=:key", db.table_name);
         let mut stmt = self.conn.prepare_cached(&delete_statement)?;
-        stmt.execute(named_params![":id": key.as_ref().to_owned()])?;
+        stmt.execute(named_params![":key": key.as_ref().to_owned()])?;
         Ok(())
     }
 
     pub fn delete_current(&mut self, db: &Database) -> Result<(), Error> {
         if let Some(current_id) = self.cursor.get(db.table_name) {
-            let delete_statement = format!("DELETE FROM {} WHERE id=:id", db.table_name);
+            let delete_statement = format!("DELETE FROM {} WHERE key=:key", db.table_name);
             let mut stmt = self.conn.prepare_cached(&delete_statement)?;
-            stmt.execute(named_params![":id": current_id.to_owned()])?;
+            stmt.execute(named_params![":key": current_id.to_owned()])?;
             self.cursor.remove(db.table_name);
         }
         Ok(())
     }
 
     pub fn first_key(&mut self, db: &Database) -> Result<Option<Key>, Error> {
-        let query_statement = format!("SELECT MIN(id), key, value FROM {}", db.table_name);
-        let txn = self.conn.transaction()?;
-        let mut stmt = txn.prepare_cached(&query_statement)?;
+        let query_statement = format!("SELECT MIN(key), value FROM {}", db.table_name);
+        let mut stmt = self.conn.prepare_cached(&query_statement)?;
         let mut query_result = stmt.query_row([], |row| {
             Ok(FullQueryResult {
-                id: row.get(0)?,
-                key: row.get(1)?,
-                value: row.get(2)?,
+                key: row.get(0)?,
+                value: row.get(1)?,
             })
         })?;
 
         if let Some(key) = query_result.key {
-            self.cursor.insert(db.table_name.to_string(), query_result.id.unwrap_or_default());
+            self.cursor.insert(db.table_name.to_string(), key.clone());
             return Ok(Some(Cow::from(key)));
         } 
 
@@ -221,20 +215,18 @@ impl<'env> RwTransaction<'env> {
     }
 
     pub fn last_key(&mut self, db: &Database) -> Result<Option<Key<'env>>, Error> {
-        let query_statement = format!("SELECT MAX(id), key, value FROM {}", db.table_name);
-        let txn = self.conn.transaction()?;
-        let mut stmt = txn.prepare_cached(&query_statement)?;
+        let query_statement = format!("SELECT MAX(key), value FROM {}", db.table_name);
+        let mut stmt = self.conn.prepare_cached(&query_statement)?;
 
         let mut query_result = stmt.query_row([], |row| {
             Ok(FullQueryResult {
-                id: row.get(0)?,
-                key: row.get(1)?,
-                value: row.get(2)?,
+                key: row.get(0)?,
+                value: row.get(1)?,
             })
         })?;
 
         if let Some(key) = query_result.key {
-            self.cursor.insert(db.table_name.to_string(), query_result.id.unwrap_or_default());
+            self.cursor.insert(db.table_name.to_string(), key.clone());
             return Ok(Some(Cow::from(key)));
         } 
 
@@ -248,30 +240,26 @@ impl<'env> RwTransaction<'env> {
         let query_result = match self.cursor.get(db.table_name) {
             Some(current_key) => {     
                 query_statement = format!(
-                    "SELECT MIN(id), key FROM {} where id >:id",
+                    "SELECT MIN(key) FROM {} where key >:key",
                     db.table_name
                 );
-                let txn = self.conn.transaction()?;
-                let mut stmt = txn.prepare_cached(&query_statement)?;
+                let mut stmt = self.conn.prepare_cached(&query_statement)?;
     
-                let mut query_result = stmt.query_row(named_params![":id": current_key], |row| {
+                let mut query_result = stmt.query_row(named_params![":key": current_key], |row| {
                     Ok(QueryResult {
-                        id: row.get(0)?,
-                        key: row.get(1)?,
+                        key: row.get(0)?,
                     })
                 })?;
 
                 query_result
             },
             None => {
-                query_statement = format!("SELECT MIN(id), key FROM {}", db.table_name);
-                let txn = self.conn.transaction()?;
-                let mut stmt = txn.prepare_cached(&query_statement)?;
+                query_statement = format!("SELECT MIN(key) FROM {}", db.table_name);
+                let mut stmt = self.conn.prepare_cached(&query_statement)?;
     
                 let mut query_result = stmt.query_row([], |row| {
                     Ok(QueryResult {
-                        id: row.get(0)?,
-                        key: row.get(1)?,
+                        key: row.get(0)?,
                     })
                 })?;
 
@@ -280,7 +268,7 @@ impl<'env> RwTransaction<'env> {
         };
 
         if let Some(key) = query_result.key {
-            self.cursor.insert(db.table_name.to_string(), query_result.id.unwrap_or_default());
+            self.cursor.insert(db.table_name.to_string(), key.clone());
             return Ok(Some(Cow::from(key)));
         }
 
@@ -290,17 +278,15 @@ impl<'env> RwTransaction<'env> {
     pub fn get_current(&mut self, db: &Database) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
         if let Some(current_id) = self.cursor.get(db.table_name) {
             let query_statement = format!(
-                "SELECT id, key, value FROM {} where id=:id",
+                "SELECT key, value FROM {} where key=:key",
                 db.table_name
             );
-            let txn = self.conn.transaction()?;
-            let mut stmt = txn.prepare_cached(&query_statement)?;
+            let mut stmt = self.conn.prepare_cached(&query_statement)?;
             let query_result = stmt
-                .query_row(named_params![":id": current_id], |row| {
+                .query_row(named_params![":key": current_id], |row| {
                     Ok(FullQueryResult {
-                        id: row.get(0)?,
-                        key: row.get(1)?,
-                        value: row.get(2)?,
+                        key: row.get(0)?,
+                        value: row.get(1)?,
                     })
                 })
                 .optional()?;
@@ -323,26 +309,25 @@ impl<'env> RwTransaction<'env> {
         let mut deleted_values: Vec<Vec<u8>> = vec![];
         if let Some(current_key) = &self.cursor.get(db.table_name) {
             let query_statement = format!(
-                "SELECT id, key, value FROM {} where id>=:id",
+                "SELECT key, value FROM {} where key>=:key",
                 db.table_name
             );
            
             let mut stmt = self.conn.prepare_cached(&query_statement)?;
-            let rows = stmt.query_map(named_params![":id": current_key], |row| {
+            let rows = stmt.query_map(named_params![":key": current_key], |row| {
                 Ok(FullQueryResult {
-                    id: row.get(0)?,
-                    key: row.get(1)?,
-                    value: row.get(2)?,
+                    key: row.get(0)?,
+                    value: row.get(1)?,
                 })
             })?;
 
-            let delete_statement = format!("DELETE FROM {} WHERE id=:id", db.table_name);
+            let delete_statement = format!("DELETE FROM {} WHERE key=:key", db.table_name);
             let mut stmt = self.conn.prepare_cached(&delete_statement)?;
             for row in rows {
                 let query_result = row?;
-               
-                if f(&query_result.key.unwrap())? {
-                    stmt.execute(named_params![":id": query_result.id.unwrap()])?;
+                let key = query_result.key.unwrap();
+                if f(&key)? {
+                    stmt.execute(named_params![":key": key])?;
                 }
             }
         };
