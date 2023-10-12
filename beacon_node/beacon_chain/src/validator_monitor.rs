@@ -369,8 +369,8 @@ pub struct ValidatorMonitor<T> {
     /// large validator counts causing infeasibly high cardinailty for
     /// Prometheus and high log volumes.
     individual_tracking_threshold: usize,
-    /// An Option representing the validator index of a monitored validator who may have missed a (non-finalized) block at current_epoch - MISSED_BLOCK_LAG_SLOTS
-    last_epoch_missed_block_validator: Option<u64>,
+    /// An Option representing the validator index of a monitored validator who may have missed a (non-finalized) block at current_slot - MISSED_BLOCK_LAG_SLOTS
+    last_missed_block_validator: Option<u64>,
     /// A Map representing the (non-finalized) missed blocks by epoch, validator_index(state.validators) and slot
     missed_blocks: HashSet<(Epoch, u64, Slot)>,
     // A beacon proposer cache
@@ -396,7 +396,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             indices: <_>::default(),
             auto_register,
             individual_tracking_threshold,
-            last_epoch_missed_block_validator: <_>::default(),
+            last_missed_block_validator: <_>::default(),
             missed_blocks: <_>::default(),
             beacon_proposer_cache,
             log,
@@ -541,7 +541,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         // We need to extract each validator from the missed_blocks variable and initialise it
         // to 0. We use a Prometheus gauge and so, this step is mandatory in order to only incr the
         // counter for non-finalized epochs.
-        let mut validators_missed_blocks: HashMap<u64, u64> = self.missed_blocks.iter()
+        let mut validators_missed_blocks: HashMap<u64, u64> = self
+            .missed_blocks
+            .iter()
             .map(|(_, validator_index, _)| (*validator_index, 0))
             .collect();
 
@@ -551,7 +553,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .iter()
             .filter(|(epoch, _, _)| *epoch > finalized_epoch)
             .for_each(|(_, validator_index, _)| {
-                *validators_missed_blocks.entry(*validator_index).or_default() += 1;
+                *validators_missed_blocks
+                    .entry(*validator_index)
+                    .or_default() += 1;
             });
 
         // Set the Prometheus metrics for each validator (including missed_blocks_count=0)
@@ -568,11 +572,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             });
 
         // Increment the Prometheus metrics counter for each missed block
-        if let Some(i) = self.last_epoch_missed_block_validator {
+        if let Some(i) = self.last_missed_block_validator {
             self.aggregatable_metric(i.to_string().as_str(), |label| {
                 metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL, &[label]);
             });
-            self.last_epoch_missed_block_validator = None;
+            self.last_missed_block_validator = None;
         };
 
         // Prune missed blocks that are prior to last finalized epochs
@@ -634,7 +638,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                     self.missed_blocks.insert((slot_epoch, i, slot));
                                     // Add to validator that missed the block for the current epoch
                                     if slot == end_slot {
-                                        self.last_epoch_missed_block_validator = Some(i);
+                                        self.last_missed_block_validator = Some(i);
                                         error!(
                                             self.log,
                                             "Validator missed a block";
