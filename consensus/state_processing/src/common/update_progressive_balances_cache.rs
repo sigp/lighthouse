@@ -69,9 +69,10 @@ pub fn update_progressive_balances_on_attestation<T: EthSpec>(
     validator_effective_balance: u64,
     validator_slashed: bool,
 ) -> Result<(), BlockProcessingError> {
-    if is_progressive_balances_enabled(state) && !validator_slashed {
+    if is_progressive_balances_enabled(state) {
         state.progressive_balances_cache_mut().on_new_attestation(
             epoch,
+            validator_slashed,
             flag_index,
             validator_effective_balance,
         )?;
