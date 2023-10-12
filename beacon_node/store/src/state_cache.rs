@@ -244,10 +244,7 @@ impl<E: EthSpec> StateCache<E> {
 
 impl BlockMap {
     fn insert(&mut self, block_root: Hash256, slot: Slot, state_root: Hash256) {
-        let slot_map = self
-            .blocks
-            .entry(block_root)
-            .or_default();
+        let slot_map = self.blocks.entry(block_root).or_default();
         slot_map.slots.insert(slot, state_root);
     }
 
