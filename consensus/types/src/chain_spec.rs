@@ -177,18 +177,27 @@ pub struct ChainSpec {
     pub attestation_propagation_slot_range: u64,
     pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
-    pub attestation_subnet_count: u64,
-    pub subnets_per_node: u8,
-    pub epochs_per_subnet_subscription: u64,
     pub gossip_max_size: u64,
+    pub max_request_blocks: u64,
+    pub epochs_per_subnet_subscription: u64,
     pub min_epochs_for_block_requests: u64,
     pub max_chunk_size: u64,
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
     pub message_domain_invalid_snappy: [u8; 4],
     pub message_domain_valid_snappy: [u8; 4],
+    pub subnets_per_node: u8,
+    pub attestation_subnet_count: u64,
     pub attestation_subnet_extra_bits: u8,
     pub attestation_subnet_prefix_bits: u8,
+
+    /*
+     * Networking Deneb
+     */
+    pub max_request_blocks_deneb: u64,
+    pub max_request_blob_sidecars: u64,
+    pub min_epochs_for_blob_sidecars_requests: u64,
+    pub blob_sidecar_subnet_count: u64,
 
     /*
      * Application params
@@ -667,6 +676,16 @@ impl ChainSpec {
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
             attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            max_request_blocks: default_max_request_blocks(),
+
+            /*
+             * Networking Deneb Specific
+             */
+            max_request_blocks_deneb: default_max_request_blocks_deneb(),
+            max_request_blob_sidecars: default_max_request_blob_sidecars(),
+            min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
+            blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
+
             /*
              * Application specific
              */
@@ -912,6 +931,15 @@ impl ChainSpec {
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
             attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            max_request_blocks: default_max_request_blocks(),
+
+            /*
+             * Networking Deneb Specific
+             */
+            max_request_blocks_deneb: default_max_request_blocks_deneb(),
+            max_request_blob_sidecars: default_max_request_blob_sidecars(),
+            min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
+            blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
 
             /*
              * Application specific
@@ -1139,6 +1167,26 @@ const fn default_attestation_subnet_extra_bits() -> u8 {
 }
 
 const fn default_attestation_subnet_prefix_bits() -> u8 {
+    6
+}
+
+const fn default_max_request_blocks() -> u64 {
+    1024
+}
+
+const fn default_max_request_blocks_deneb() -> u64 {
+    128
+}
+
+const fn default_max_request_blob_sidecars() -> u64 {
+    768
+}
+
+const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
+    4096
+}
+
+const fn default_blob_sidecar_subnet_count() -> u64 {
     6
 }
 

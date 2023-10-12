@@ -376,14 +376,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request blocks
-        let max_request_size = self.chain.epoch().map_or(MAX_REQUEST_BLOCKS, |epoch| {
-            match self.chain.spec.fork_name_at_epoch(epoch) {
-                ForkName::Deneb => MAX_REQUEST_BLOCKS_DENEB,
-                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                    MAX_REQUEST_BLOCKS
+        let max_request_size =
+            self.chain.epoch().map_or(self.chain.spec.max_blo, |epoch| {
+                match self.chain.spec.fork_name_at_epoch(epoch) {
+                    ForkName::Deneb => MAX_REQUEST_BLOCKS_DENEB,
+                    ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                        MAX_REQUEST_BLOCKS
+                    }
                 }
-            }
-        });
+            });
         if *req.count() > max_request_size {
             return self.send_error_response(
                 peer_id,

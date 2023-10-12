@@ -17,9 +17,9 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar, ChainSpec};
 use types::{
-    EthSpec, ForkContext, ForkName, Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
-    SignedBeaconBlockMerge,
+    EthSpec, ForkContext, ForkName, Hash256, RuntimeVariableList, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -163,7 +163,11 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
-                handle_rpc_request(self.protocol.versioned_protocol, &decoded_buffer, &self.fork_context)
+                handle_rpc_request(
+                    self.protocol.versioned_protocol,
+                    &decoded_buffer,
+                    &self.fork_context,
+                )
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
@@ -455,7 +459,7 @@ fn handle_length(
 fn handle_rpc_request<T: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
-    fork_context: &ForkContext
+    fork_context: &ForkContext,
 ) -> Result<Option<InboundRequest<T>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(InboundRequest::Status(

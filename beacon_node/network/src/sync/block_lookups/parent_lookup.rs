@@ -55,7 +55,7 @@ pub enum RequestError {
         cannot_process: bool,
     },
     NoPeers,
-    SszError(&'static str)
+    SszError(&'static str),
 }
 
 impl<T: BeaconChainTypes> ParentLookup<T> {

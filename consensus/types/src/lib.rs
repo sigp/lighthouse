@@ -99,9 +99,9 @@ pub mod slot_data;
 pub mod sqlite;
 
 pub mod blob_sidecar;
+pub mod runtime_var_list;
 pub mod sidecar;
 pub mod signed_blob;
-pub mod runtime_var_list;
 
 use ethereum_types::{H160, H256};
 

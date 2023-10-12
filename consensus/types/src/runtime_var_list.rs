@@ -21,7 +21,7 @@ impl<T: Encode + Decode + Clone> RuntimeVariableList<T> {
         }
     }
 
-    pub fn to_vec(&self)-> Vec<T> {
+    pub fn to_vec(&self) -> Vec<T> {
         self.vec.clone()
     }
 

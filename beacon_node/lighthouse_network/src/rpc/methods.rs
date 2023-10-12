@@ -18,12 +18,8 @@ use types::blob_sidecar::BlobIdentifier;
 use types::consts::deneb::MAX_BLOBS_PER_BLOCK;
 use types::{
     blob_sidecar::BlobSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
-    Hash256, SignedBeaconBlock, Slot, RuntimeVariableList
+    Hash256, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
-
-/// Maximum number of blocks in a single request.
-pub type MaxRequestBlocks = U1024;
-pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
@@ -343,12 +339,8 @@ impl OldBlocksByRangeRequest {
     }
 }
 
-
 /// Request a number of beacon block bodies from a peer.
-#[superstruct(
-    variants(V1, V2),
-    variant_attributes(derive(Clone, Debug, PartialEq))
-)]
+#[superstruct(variants(V1, V2), variant_attributes(derive(Clone, Debug, PartialEq)))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
