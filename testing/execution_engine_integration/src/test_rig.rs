@@ -625,12 +625,13 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
         .unwrap();
     assert_eq!(reconstructed, *payload);
     // also check via payload bodies method
-    let capabilities = ee
+    let _capabilities = ee
         .execution_layer
         .get_engine_capabilities(None)
         .await
         .unwrap();
 
+    // TODO: Restore this check once bug has been fixed.
     //assert!(
     //    // if the engine doesn't have these capabilities, we need to update the client in our tests
     //    capabilities.get_payload_bodies_by_hash_v1 && capabilities.get_payload_bodies_by_range_v1,
