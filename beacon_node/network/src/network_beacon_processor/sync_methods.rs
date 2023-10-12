@@ -260,13 +260,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn generate_rpc_blobs_process_fn(
         self: Arc<Self>,
         block_root: Hash256,
-        block: FixedBlobSidecarList<T::EthSpec>,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> AsyncFn {
         let process_fn = async move {
             self.clone()
-                .process_rpc_blobs(block_root, block, seen_timestamp, process_type)
+                .process_rpc_blobs(block_root, blobs, seen_timestamp, process_type)
                 .await;
         };
         Box::pin(process_fn)
