@@ -10,7 +10,6 @@ use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxe
 use libp2p::gossipsub;
 use libp2p::identity::{secp256k1, Keypair};
 use libp2p::{core, noise, yamux, PeerId, Transport, TransportExt};
-use libp2p_quic;
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
 use ssz::Decode;
@@ -67,8 +66,8 @@ pub fn build_transport(
     let (transport, bandwidth) = if quic_support {
         // Enables Quic
         // The default quic configuration suits us for now.
-        let quic_config = libp2p_quic::Config::new(&local_private_key);
-        tcp.or_transport(libp2p_quic::tokio::Transport::new(quic_config))
+        let quic_config = libp2p::quic::Config::new(&local_private_key);
+        tcp.or_transport(libp2p::quic::tokio::Transport::new(quic_config))
             .map(|either_output, _| match either_output {
                 Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
                 Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
