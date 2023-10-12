@@ -512,11 +512,25 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
             prune_payloads(client_config, &context, log).map_err(format_err)
         }
         ("prune-states", Some(cli_args)) => {
+            let executor = env.core_context().executor;
             let network_config = context
                 .eth2_network_config
                 .clone()
                 .ok_or("Missing network config")?;
-            let genesis_state = network_config.beacon_state()?;
+
+            let genesis_state = executor
+                .block_on_dangerous(
+                    network_config.genesis_state::<T>(
+                        client_config.genesis_state_url.as_deref(),
+                        client_config.genesis_state_url_timeout,
+                        &log,
+                    ),
+                    "get_genesis_state",
+                )
+                .ok_or("Shutting down")?
+                .map_err(|e| format!("Error getting genesis state: {e}"))?
+                .ok_or("Genesis state missing")?;
+
             let prune_config = parse_prune_states_config(cli_args)?;
 
             prune_states(client_config, prune_config, genesis_state, &context, log)
