@@ -1,5 +1,5 @@
 use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 use types::consts::deneb::BLOB_SIDECAR_SUBNET_COUNT;
 use types::{EthSpec, ForkName, SubnetId, SyncSubnetId};

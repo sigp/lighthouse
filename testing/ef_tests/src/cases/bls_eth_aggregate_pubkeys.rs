@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result;
 use crate::impl_bls_load_case;
 use bls::{AggregatePublicKey, PublicKeyBytes};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsEthAggregatePubkeys {

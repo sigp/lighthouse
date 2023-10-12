@@ -1,5 +1,5 @@
 use crate::{ChainSpec, Epoch, EthSpec, Unsigned};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// Value-level representation of an Ethereum consensus "preset".
 ///
