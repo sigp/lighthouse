@@ -52,7 +52,7 @@ const TRUSTED_SETUP: &[u8] =
     include_bytes!("../built_in_network_configs/testing_trusted_setups.json");
 
 const TRUSTED_SETUP_MINIMAL: &[u8] =
-    include_bytes!("../built_in_network_configs/minimal_testing_trusted_setups.json");
+    include_bytes!("../built_in_network_configs/testing_trusted_setups.json");
 
 pub fn get_trusted_setup<E: EthSpec>() -> &'static [u8] {
     get_trusted_setup_from_id(E::spec_name())
