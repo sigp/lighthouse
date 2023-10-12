@@ -38,6 +38,11 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
         let column_key = BytesKey::from_vec(get_key_for_col(col, key));
         self.db.write().insert(column_key, val.to_vec());
+        self.col_keys
+            .write()
+            .entry(col.as_bytes().to_vec())
+            .or_default()
+            .insert(key.to_vec());
         Ok(())
     }
 

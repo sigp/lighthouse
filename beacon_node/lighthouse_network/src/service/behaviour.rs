@@ -20,8 +20,6 @@ where
     AppReqId: ReqId,
     TSpec: EthSpec,
 {
-    /// Peers banned.
-    pub banned_peers: libp2p::allow_block_list::Behaviour<libp2p::allow_block_list::BlockedPeers>,
     /// Keep track of active and pending connections to enforce hard limits.
     pub connection_limits: libp2p::connection_limits::Behaviour,
     /// The routing pub-sub mechanism for eth2.

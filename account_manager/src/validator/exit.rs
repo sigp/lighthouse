@@ -123,10 +123,8 @@ async fn publish_voluntary_exit<E: EthSpec>(
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = eth2_network_config
-        .beacon_state::<E>()
-        .as_ref()
-        .expect("network should have valid genesis state")
-        .genesis_validators_root();
+        .genesis_validators_root::<E>()?
+        .ok_or("Genesis state is unknown")?;
 
     // Verify that the beacon node and validator being exited are on the same network.
     if genesis_data.genesis_validators_root != testnet_genesis_root {

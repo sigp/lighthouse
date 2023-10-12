@@ -23,7 +23,7 @@ use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
@@ -129,17 +129,9 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     test_runtime: &TestRuntime,
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
-    // Get a random unused port.
-    let port = unused_port::unused_tcp4_port().unwrap();
-    create_api_server_on_port(chain, test_runtime, log, port).await
-}
+    // Use port 0 to allocate a new unused port.
+    let port = 0;
 
-pub async fn create_api_server_on_port<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
-    test_runtime: &TestRuntime,
-    log: Logger,
-    port: u16,
-) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
     let (network_senders, network_receivers) = NetworkSenders::new();
 
     // Default metadata
@@ -152,8 +144,6 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
     let network_globals = Arc::new(NetworkGlobals::new(
         enr.clone(),
-        Some(TCP_PORT),
-        None,
         meta_data,
         vec![],
         false,
@@ -220,15 +210,9 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let ctx = Arc::new(Context {
         config: Config {
             enabled: true,
-            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: port,
-            allow_origin: None,
-            tls_config: None,
-            allow_sync_stalled: false,
             data_dir: std::path::PathBuf::from(DEFAULT_ROOT_DIR),
-            spec_fork_name: None,
-            sse_capacity_multiplier: 1,
-            enable_beacon_processor: true,
+            ..Config::default()
         },
         chain: Some(chain),
         network_senders: Some(network_senders),

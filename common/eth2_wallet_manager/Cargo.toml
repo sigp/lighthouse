@@ -2,13 +2,13 @@
 name = "eth2_wallet_manager"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-eth2_wallet = { path = "../../crypto/eth2_wallet" }
-lockfile = { path = "../lockfile" }
+eth2_wallet = { workspace = true }
+lockfile = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.1.0"
+tempfile = { workspace = true }

@@ -2,7 +2,7 @@
 name = "slasher"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [features]
 default = ["lmdb"]
@@ -10,26 +10,26 @@ mdbx = ["dep:mdbx"]
 lmdb = ["lmdb-rkv", "lmdb-rkv-sys"]
 
 [dependencies]
-bincode = "1.3.1"
-byteorder = "1.3.4"
-ethereum_ssz = "0.5.0"
-ethereum_ssz_derive = "0.5.0"
+bincode = { workspace = true }
+byteorder = { workspace = true }
+ethereum_ssz = { workspace = true }
+ethereum_ssz_derive = { workspace = true }
 flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
-lazy_static = "1.4.0"
-lighthouse_metrics = { path = "../common/lighthouse_metrics" }
-filesystem = { path = "../common/filesystem" }
-lru = "0.7.1"
-parking_lot = "0.12.0"
-rand = "0.8.5"
-safe_arith = { path = "../consensus/safe_arith" }
-serde = "1.0"
+lazy_static = { workspace = true }
+lighthouse_metrics = { workspace = true }
+filesystem = { workspace = true }
+lru = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+safe_arith = { workspace = true }
+serde = { workspace = true }
 serde_derive = "1.0"
-slog = "2.5.2"
-sloggers = { version = "2.1.1", features = ["json"] }
-tree_hash = "0.5.0"
-tree_hash_derive = "0.5.0"
-types = { path = "../consensus/types" }
-strum = { version = "0.24.1", features = ["derive"] }
+slog = { workspace = true }
+sloggers = { workspace = true }
+tree_hash = { workspace = true }
+tree_hash_derive = { workspace = true }
+types = { workspace = true }
+strum = { workspace = true }
 
 # MDBX is pinned at the last version with Windows and macOS support.
 mdbx = { package = "libmdbx", git = "https://github.com/sigp/libmdbx-rs", tag = "v0.1.4", optional = true }
@@ -37,8 +37,8 @@ lmdb-rkv = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b9426531
 lmdb-rkv-sys = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
 
 [dev-dependencies]
-maplit = "1.0.2"
-rayon = "1.3.0"
-tempfile = "3.1.0"
-logging = { path = "../common/logging" }
+maplit = { workspace = true }
+rayon = { workspace = true }
+tempfile = { workspace = true }
+logging = { workspace = true }
 

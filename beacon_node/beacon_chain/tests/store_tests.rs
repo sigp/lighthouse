@@ -421,7 +421,7 @@ async fn forwards_iter_block_and_state_roots_until() {
 
     // The last restore point slot is the point at which the hybrid forwards iterator behaviour
     // changes.
-    let last_restore_point_slot = store.get_latest_restore_point_slot();
+    let last_restore_point_slot = store.get_latest_restore_point_slot().unwrap();
     assert!(last_restore_point_slot > 0);
 
     let chain = &harness.chain;
