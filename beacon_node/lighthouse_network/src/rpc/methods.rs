@@ -3,7 +3,7 @@
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use regex::bytes::Regex;
 use serde::Serialize;
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
     typenum::{U1024, U128, U256, U768},
@@ -18,7 +18,7 @@ use types::blob_sidecar::BlobIdentifier;
 use types::consts::deneb::MAX_BLOBS_PER_BLOCK;
 use types::{
     blob_sidecar::BlobSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
-    Hash256, SignedBeaconBlock, Slot,
+    Hash256, SignedBeaconBlock, Slot, RuntimeVariableList
 };
 
 /// Maximum number of blocks in a single request.
@@ -343,23 +343,24 @@ impl OldBlocksByRangeRequest {
     }
 }
 
+
 /// Request a number of beacon block bodies from a peer.
 #[superstruct(
     variants(V1, V2),
-    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
+    variant_attributes(derive(Clone, Debug, PartialEq))
 )]
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
-    pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
+    pub block_roots: RuntimeVariableList<Hash256>,
 }
 
 impl BlocksByRootRequest {
-    pub fn new(block_roots: VariableList<Hash256, MaxRequestBlocks>) -> Self {
+    pub fn new(block_roots: RuntimeVariableList<Hash256>) -> Self {
         Self::V2(BlocksByRootRequestV2 { block_roots })
     }
 
-    pub fn new_v1(block_roots: VariableList<Hash256, MaxRequestBlocks>) -> Self {
+    pub fn new_v1(block_roots: RuntimeVariableList<Hash256>) -> Self {
         Self::V1(BlocksByRootRequestV1 { block_roots })
     }
 }

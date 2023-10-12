@@ -50,6 +50,7 @@ pub enum LookupRequestError {
     },
     NoPeers,
     SendFailed(&'static str),
+    SszError(&'static str),
 }
 
 pub struct SingleBlockLookup<L: Lookup, T: BeaconChainTypes> {

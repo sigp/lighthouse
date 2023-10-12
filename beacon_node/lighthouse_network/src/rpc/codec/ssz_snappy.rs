@@ -15,9 +15,9 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar};
+use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar, ChainSpec};
 use types::{
-    EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
+    EthSpec, ForkContext, ForkName, Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
     SignedBeaconBlockMerge,
 };
@@ -163,7 +163,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
-                handle_rpc_request(self.protocol.versioned_protocol, &decoded_buffer)
+                handle_rpc_request(self.protocol.versioned_protocol, &decoded_buffer, &self.fork_context)
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
@@ -455,6 +455,7 @@ fn handle_length(
 fn handle_rpc_request<T: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
+    fork_context: &ForkContext
 ) -> Result<Option<InboundRequest<T>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(InboundRequest::Status(
@@ -471,12 +472,12 @@ fn handle_rpc_request<T: EthSpec>(
         ))),
         SupportedProtocol::BlocksByRootV2 => Ok(Some(InboundRequest::BlocksByRoot(
             BlocksByRootRequest::V2(BlocksByRootRequestV2 {
-                block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
+                block_roots: RuntimeVariableList::from_ssz_bytes(decoded_buffer, 1)?,
             }),
         ))),
         SupportedProtocol::BlocksByRootV1 => Ok(Some(InboundRequest::BlocksByRoot(
             BlocksByRootRequest::V1(BlocksByRootRequestV1 {
-                block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
+                block_roots: RuntimeVariableList::from_ssz_bytes(decoded_buffer, 1)?,
             }),
         ))),
         SupportedProtocol::BlobsByRangeV1 => Ok(Some(InboundRequest::BlobsByRange(
