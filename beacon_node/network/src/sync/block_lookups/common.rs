@@ -15,12 +15,11 @@ use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use lighthouse_network::rpc::BlocksByRootRequest;
 use lighthouse_network::PeerId;
 use rand::prelude::IteratorRandom;
-use ssz_types::VariableList;
 use std::ops::IndexMut;
 use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
-use types::{BlobSidecar, ChainSpec, EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock};
+use types::{BlobSidecar, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
 
 #[derive(Debug, Copy, Clone)]
 pub enum ResponseType {
@@ -96,7 +95,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         // Verify and construct request.
         self.too_many_attempts()?;
         let peer = self.get_peer()?;
-        let request = self.new_request(spec)?;
+        let request = self.new_request(spec);
         Ok((peer, request))
     }
 
@@ -167,7 +166,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     }
 
     /// Initialize `Self::RequestType`.
-    fn new_request(&self, spec: &ChainSpec) -> Result<Self::RequestType, LookupRequestError>;
+    fn new_request(&self, spec: &ChainSpec) -> Self::RequestType;
 
     /// Send the request to the network service.
     fn make_request(
@@ -275,14 +274,8 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
     type VerifiedResponseType = Arc<SignedBeaconBlock<T::EthSpec>>;
     type ReconstructedResponseType = RpcBlock<T::EthSpec>;
 
-    fn new_request(&self, spec: &ChainSpec) -> Result<BlocksByRootRequest, LookupRequestError> {
-        Ok(BlocksByRootRequest::new(
-            RuntimeVariableList::new(
-                vec![self.requested_block_root],
-                spec.max_request_blocks as usize,
-            )
-            .map_err(|_e| LookupRequestError::SszError("invalid request length"))?,
-        ))
+    fn new_request(&self, spec: &ChainSpec) -> BlocksByRootRequest {
+        BlocksByRootRequest::new(vec![self.requested_block_root], spec)
     }
 
     fn make_request(
@@ -385,10 +378,9 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
     type VerifiedResponseType = FixedBlobSidecarList<T::EthSpec>;
     type ReconstructedResponseType = FixedBlobSidecarList<T::EthSpec>;
 
-    fn new_request(&self, spec: &ChainSpec) -> Result<BlobsByRootRequest, LookupRequestError> {
+    fn new_request(&self, spec: &ChainSpec) -> BlobsByRootRequest {
         let blob_id_vec: Vec<BlobIdentifier> = self.requested_ids.clone().into();
-        let blob_ids = VariableList::from(blob_id_vec);
-        Ok(BlobsByRootRequest { blob_ids })
+        BlobsByRootRequest::new(blob_id_vec, spec)
     }
 
     fn make_request(

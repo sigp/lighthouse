@@ -642,9 +642,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             RequestError::SendFailed(_) => {
                 // Probably shutting down, nothing to do here. Drop the request
             }
-            RequestError::SszError(e) => {
-                warn!(self.log, "Invalid parent request constructed"; "reason" => %e);
-            }
             RequestError::ChainTooLong => {
                 self.failed_chains.insert(parent_lookup.chain_hash());
                 // This indicates faulty peers.

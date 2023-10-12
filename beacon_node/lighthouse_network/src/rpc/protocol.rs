@@ -21,7 +21,7 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BlobSidecar, EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
+    BlobSidecar, EmptyBlock, EthSpec, ForkContext, ForkName, MainnetEthSpec, Signature,
     SignedBeaconBlock,
 };
 
@@ -87,19 +87,6 @@ lazy_static! {
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
-
-    pub static ref BLOBS_BY_ROOT_REQUEST_MIN: usize =
-        VariableList::<Hash256, MaxRequestBlobSidecars>::from(Vec::<Hash256>::new())
-    .as_ssz_bytes()
-    .len();
-    pub static ref BLOBS_BY_ROOT_REQUEST_MAX: usize =
-        VariableList::<Hash256, MaxRequestBlobSidecars>::from(vec![
-            Hash256::zero();
-            MAX_REQUEST_BLOB_SIDECARS
-                as usize
-        ])
-    .as_ssz_bytes()
-    .len();
 
     pub static ref ERROR_TYPE_MIN: usize =
         VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
@@ -377,16 +364,17 @@ impl ProtocolId {
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlocksByRoot => RpcLimits::new(
-                fork_context.blocks_by_root_request_min as usize,
-                fork_context.blocks_by_root_request_max as usize,
+                fork_context.blocks_by_root_request_min,
+                fork_context.blocks_by_root_request_max,
             ),
             Protocol::BlobsByRange => RpcLimits::new(
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
-            Protocol::BlobsByRoot => {
-                RpcLimits::new(*BLOBS_BY_ROOT_REQUEST_MIN, *BLOBS_BY_ROOT_REQUEST_MAX)
-            }
+            Protocol::BlobsByRoot => RpcLimits::new(
+                fork_context.blobs_by_root_request_min,
+                fork_context.blobs_by_root_request_max,
+            ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),

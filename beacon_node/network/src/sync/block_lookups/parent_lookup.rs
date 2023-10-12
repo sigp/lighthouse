@@ -55,7 +55,6 @@ pub enum RequestError {
         cannot_process: bool,
     },
     NoPeers,
-    SszError(&'static str),
 }
 
 impl<T: BeaconChainTypes> ParentLookup<T> {
@@ -263,7 +262,6 @@ impl From<LookupRequestError> for RequestError {
             }
             E::NoPeers => RequestError::NoPeers,
             E::SendFailed(msg) => RequestError::SendFailed(msg),
-            E::SszError(msg) => RequestError::SszError(msg),
         }
     }
 }
@@ -291,7 +289,6 @@ impl RequestError {
             }
             RequestError::TooManyAttempts { cannot_process: _ } => "too_many_downloading_attempts",
             RequestError::NoPeers => "no_peers",
-            RequestError::SszError(e) => e,
         }
     }
 }

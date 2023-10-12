@@ -2,7 +2,6 @@ use parking_lot::RwLock;
 
 use crate::{ChainSpec, EthSpec, ForkName, Hash256, RuntimeVariableList, Slot};
 use ssz::Encode;
-use ssz_types::VariableList;
 use std::collections::HashMap;
 
 /// Provides fork specific info like the current fork name and the fork digests corresponding to every valid fork.
@@ -13,6 +12,8 @@ pub struct ForkContext {
     digest_to_fork: HashMap<[u8; 4], ForkName>,
     pub blocks_by_root_request_min: usize,
     pub blocks_by_root_request_max: usize,
+    pub blobs_by_root_request_min: usize,
+    pub blobs_by_root_request_max: usize,
     pub spec: ChainSpec,
 }
 
@@ -74,16 +75,28 @@ impl ForkContext {
             .map(|(k, v)| (v, k))
             .collect();
 
-        let max_request_blocks = spec.max_request_blocks;
-        let blocks_by_root_request_min = RuntimeVariableList::<Hash256>::from_vec(
-            Vec::<Hash256>::new(),
-            max_request_blocks as usize,
+        let max_request_blocks = spec.max_request_blocks as usize;
+        let blocks_by_root_request_min =
+            RuntimeVariableList::<Hash256>::from_vec(Vec::<Hash256>::new(), max_request_blocks)
+                .as_ssz_bytes()
+                .len();
+        let blocks_by_root_request_max = RuntimeVariableList::<Hash256>::from_vec(
+            vec![Hash256::zero(); max_request_blocks],
+            max_request_blocks,
         )
         .as_ssz_bytes()
         .len();
-        let blocks_by_root_request_max = RuntimeVariableList::<Hash256>::from_vec(
-            vec![Hash256::zero(); max_request_blocks as usize],
-            max_request_blocks as usize,
+
+        let max_request_blob_sidecars = spec.max_request_blob_sidecars as usize;
+        let blobs_by_root_request_min = RuntimeVariableList::<Hash256>::from_vec(
+            Vec::<Hash256>::new(),
+            max_request_blob_sidecars,
+        )
+        .as_ssz_bytes()
+        .len();
+        let blobs_by_root_request_max = RuntimeVariableList::<Hash256>::from_vec(
+            vec![Hash256::zero(); max_request_blob_sidecars],
+            max_request_blob_sidecars,
         )
         .as_ssz_bytes()
         .len();
@@ -94,6 +107,8 @@ impl ForkContext {
             digest_to_fork,
             blocks_by_root_request_min,
             blocks_by_root_request_max,
+            blobs_by_root_request_min,
+            blobs_by_root_request_max,
             spec: spec.clone(),
         }
     }

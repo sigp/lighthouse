@@ -1,6 +1,5 @@
 use ssz::{Decode, Encode};
 use ssz_derive::Encode;
-use std::marker::PhantomData;
 
 #[derive(Debug, Clone, PartialEq, Encode)]
 #[ssz(struct_behaviour = "transparent")]
@@ -32,8 +31,16 @@ impl<T: Encode + Decode + Clone> RuntimeVariableList<T> {
         self.vec.clone()
     }
 
+    pub fn as_slice(&self) -> &[T] {
+        self.vec.as_slice()
+    }
+
     pub fn len(&self) -> usize {
         self.vec.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.vec.is_empty()
     }
 
     pub fn from_ssz_bytes(bytes: &[u8], max_len: usize) -> Result<Self, ssz::DecodeError> {

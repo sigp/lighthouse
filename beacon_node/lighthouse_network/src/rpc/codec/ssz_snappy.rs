@@ -15,7 +15,7 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar, ChainSpec};
+use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar};
 use types::{
     EthSpec, ForkContext, ForkName, Hash256, RuntimeVariableList, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
@@ -495,7 +495,10 @@ fn handle_rpc_request<T: EthSpec>(
         ))),
         SupportedProtocol::BlobsByRootV1 => {
             Ok(Some(InboundRequest::BlobsByRoot(BlobsByRootRequest {
-                blob_ids: VariableList::from_ssz_bytes(decoded_buffer)?,
+                blob_ids: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    fork_context.spec.max_request_blob_sidecars as usize,
+                )?,
             })))
         }
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
@@ -788,21 +791,22 @@ mod tests {
         }
     }
 
-    fn bbroot_request_v1() -> BlocksByRootRequest {
-        BlocksByRootRequest::new_v1(vec![Hash256::zero()].into())
+    fn bbroot_request_v1(spec: &ChainSpec) -> BlocksByRootRequest {
+        BlocksByRootRequest::new_v1(vec![Hash256::zero()], spec)
     }
 
-    fn bbroot_request_v2() -> BlocksByRootRequest {
-        BlocksByRootRequest::new(vec![Hash256::zero()].into())
+    fn bbroot_request_v2(spec: &ChainSpec) -> BlocksByRootRequest {
+        BlocksByRootRequest::new(vec![Hash256::zero()], spec)
     }
 
-    fn blbroot_request() -> BlobsByRootRequest {
-        BlobsByRootRequest {
-            blob_ids: VariableList::from(vec![BlobIdentifier {
+    fn blbroot_request(spec: &ChainSpec) -> BlobsByRootRequest {
+        BlobsByRootRequest::new(
+            vec![BlobIdentifier {
                 block_root: Hash256::zero(),
                 index: 0,
-            }]),
-        }
+            }],
+            spec,
+        )
     }
 
     fn ping_message() -> Ping {
@@ -1406,21 +1410,21 @@ mod tests {
 
     #[test]
     fn test_encode_then_decode_request() {
+        let chain_spec = Spec::default_spec();
+
         let requests: &[OutboundRequest<Spec>] = &[
             OutboundRequest::Ping(ping_message()),
             OutboundRequest::Status(status_message()),
             OutboundRequest::Goodbye(GoodbyeReason::Fault),
             OutboundRequest::BlocksByRange(bbrange_request_v1()),
             OutboundRequest::BlocksByRange(bbrange_request_v2()),
-            OutboundRequest::BlocksByRoot(bbroot_request_v1()),
-            OutboundRequest::BlocksByRoot(bbroot_request_v2()),
+            OutboundRequest::BlocksByRoot(bbroot_request_v1(&chain_spec)),
+            OutboundRequest::BlocksByRoot(bbroot_request_v2(&chain_spec)),
             OutboundRequest::MetaData(MetadataRequest::new_v1()),
             OutboundRequest::BlobsByRange(blbrange_request()),
-            OutboundRequest::BlobsByRoot(blbroot_request()),
+            OutboundRequest::BlobsByRoot(blbroot_request(&chain_spec)),
             OutboundRequest::MetaData(MetadataRequest::new_v2()),
         ];
-
-        let chain_spec = Spec::default_spec();
 
         for req in requests.iter() {
             for fork_name in ForkName::list_all() {

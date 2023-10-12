@@ -50,7 +50,6 @@ pub enum LookupRequestError {
     },
     NoPeers,
     SendFailed(&'static str),
-    SszError(&'static str),
 }
 
 pub struct SingleBlockLookup<L: Lookup, T: BeaconChainTypes> {
@@ -623,7 +622,7 @@ mod tests {
             HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
                 .expect("store");
         let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec)
+            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
                 .expect("data availability checker"),
         );
         let mut sl = SingleBlockLookup::<TestLookup1, T>::new(
@@ -635,6 +634,7 @@ mod tests {
         );
         <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::build_request(
             &mut sl.block_request_state,
+            &spec,
         )
         .unwrap();
         sl.block_request_state.state.state = State::Downloading { peer_id };
@@ -664,7 +664,7 @@ mod tests {
                 .expect("store");
 
         let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec)
+            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
                 .expect("data availability checker"),
         );
 
@@ -678,6 +678,7 @@ mod tests {
         for _ in 1..TestLookup2::MAX_ATTEMPTS {
             <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
                 &mut sl.block_request_state,
+                &spec,
             )
             .unwrap();
             sl.block_request_state.state.register_failure_downloading();
@@ -686,6 +687,7 @@ mod tests {
         // Now we receive the block and send it for processing
         <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
             &mut sl.block_request_state,
+            &spec,
         )
         .unwrap();
         sl.block_request_state.state.state = State::Downloading { peer_id };
@@ -702,7 +704,8 @@ mod tests {
         sl.block_request_state.state.register_failure_processing();
         assert_eq!(
             <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
-                &mut sl.block_request_state
+                &mut sl.block_request_state,
+                &spec
             ),
             Err(LookupRequestError::TooManyAttempts {
                 cannot_process: false
