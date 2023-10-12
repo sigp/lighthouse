@@ -291,6 +291,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             discovery
         };
 
+        /* write back the ENR that discovery has built */
+        *network_globals.local_enr.write() = discovery.local_enr();
+
         let identify = {
             let local_public_key = local_keypair.public();
             let identify_config = if config.private {
