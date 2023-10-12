@@ -9,7 +9,7 @@ use crate::{
     static_valid_tx, ExecutionBlockWithTransactions,
 };
 use eth2::types::BlobsBundle;
-use kzg::Kzg;
+use kzg::{Kzg, KzgCommitment, KzgProof};
 use parking_lot::Mutex;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    BlobSidecar, ChainSpec, EthSpec, EthSpecId, ExecutionBlockHash, ExecutionPayload,
+    Blob, ChainSpec, EthSpec, EthSpecId, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge,
     ForkName, Hash256, Transactions, Uint256,
 };
@@ -136,9 +136,9 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      */
     pub blobs_bundles: HashMap<PayloadId, BlobsBundle<T>>,
     pub kzg: Option<Arc<Kzg<T::Kzg>>>,
+    rng: Arc<Mutex<StdRng>>,
 }
 
-#[allow(dead_code)]
 fn make_rng() -> Arc<Mutex<StdRng>> {
     // Nondeterminism in tests is a highly undesirable thing.  Seed the RNG to some arbitrary
     // but fixed value for reproducibility.
@@ -169,6 +169,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             cancun_time,
             blobs_bundles: <_>::default(),
             kzg: kzg.map(Arc::new),
+            rng: make_rng(),
         };
 
         gen.insert_pow_block(0).unwrap();
@@ -626,19 +627,15 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {}
             ForkName::Deneb => {
                 // get random number between 0 and Max Blobs
-                // let mut rng = self.rng.lock();
-                // let num_blobs = rng.gen::<usize>() % (T::max_blobs_per_block() + 1);
-                // let kzg = self.kzg.as_ref().ok_or("kzg not initialized")?;
-                // let (bundle, transactions) = generate_random_blobs(num_blobs, kzg, &mut *rng)?;
-                let bundle = load_test_blobs_bundle()?;
-                let tx = static_valid_tx::<T>()
-                    .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
-
-                execution_payload
-                    .transactions_mut()
-                    .push(tx)
-                    .map_err(|_| "transactions are full".to_string())?;
-
+                let mut rng = self.rng.lock();
+                let num_blobs = rng.gen::<usize>() % (T::max_blobs_per_block() + 1);
+                let (bundle, transactions) = generate_blobs(num_blobs)?;
+                for tx in Vec::from(transactions) {
+                    execution_payload
+                        .transactions_mut()
+                        .push(tx)
+                        .map_err(|_| "transactions are full".to_string())?;
+                }
                 self.blobs_bundles.insert(id, bundle);
             }
         }
@@ -649,42 +646,51 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 }
 
-pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<BlobsBundle<E>, String> {
+pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, Blob<E>), String> {
     let blob_bundle_bytes = match E::spec_name() {
         EthSpecId::Mainnet => TEST_BLOB_BUNDLE_MAINNET,
         EthSpecId::Minimal => TEST_BLOB_BUNDLE_MINIMAL,
         EthSpecId::Gnosis => {
-            return Err("Test blobs bundle not avaialble for Gnosis preset".to_string())
+            return Err("Test blobs bundle not available for Gnosis preset".to_string())
         }
     };
-    BlobsBundle::from_ssz_bytes(blob_bundle_bytes)
-        .map_err(|e| format!("Unable to decode SSZ: {:?}", e))
+
+    let BlobsBundle {
+        commitments,
+        proofs,
+        blobs,
+    } = BlobsBundle::<E>::from_ssz_bytes(blob_bundle_bytes)
+        .map_err(|e| format!("Unable to decode SSZ: {:?}", e))?;
+
+    Ok((
+        commitments
+            .get(0)
+            .cloned()
+            .ok_or("commitment missing in test bundle")?,
+        proofs
+            .get(0)
+            .cloned()
+            .ok_or("proof missing in test bundle")?,
+        blobs.get(0).cloned().ok_or("blob missing in test bundle")?,
+    ))
 }
 
-pub fn generate_random_blobs<T: EthSpec, R: Rng>(
+pub fn generate_blobs<E: EthSpec>(
     n_blobs: usize,
-    kzg: &Kzg<T::Kzg>,
-    rng: &mut R,
-) -> Result<(BlobsBundle<T>, Transactions<T>), String> {
-    let mut bundle = BlobsBundle::<T>::default();
+) -> Result<(BlobsBundle<E>, Transactions<E>), String> {
+    let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle::<E>()?;
+
+    let mut bundle = BlobsBundle::<E>::default();
     let mut transactions = vec![];
+
     for blob_index in 0..n_blobs {
-        let random_valid_sidecar = BlobSidecar::<T>::random_valid(rng, kzg)?;
-
-        let BlobSidecar {
-            blob,
-            kzg_commitment,
-            kzg_proof,
-            ..
-        } = random_valid_sidecar;
-
-        let tx = static_valid_tx::<T>()
+        let tx = static_valid_tx::<E>()
             .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
 
         transactions.push(tx);
         bundle
             .blobs
-            .push(blob)
+            .push(blob.clone())
             .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
         bundle
             .commitments
