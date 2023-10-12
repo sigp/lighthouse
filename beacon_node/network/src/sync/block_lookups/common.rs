@@ -277,8 +277,11 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
 
     fn new_request(&self, spec: &ChainSpec) -> Result<BlocksByRootRequest, LookupRequestError> {
         Ok(BlocksByRootRequest::new(
-            RuntimeVariableList::new(vec![self.requested_block_root], 1)
-                .map_err(|_e| LookupRequestError::SszError("invalid request length"))?,
+            RuntimeVariableList::new(
+                vec![self.requested_block_root],
+                spec.max_request_blocks as usize,
+            )
+            .map_err(|_e| LookupRequestError::SszError("invalid request length"))?,
         ))
     }
 

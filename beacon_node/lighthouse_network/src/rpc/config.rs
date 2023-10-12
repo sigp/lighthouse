@@ -99,8 +99,8 @@ impl RateLimiterConfig {
     pub const DEFAULT_META_DATA_QUOTA: Quota = Quota::n_every(2, 5);
     pub const DEFAULT_STATUS_QUOTA: Quota = Quota::n_every(5, 15);
     pub const DEFAULT_GOODBYE_QUOTA: Quota = Quota::one_every(10);
-    pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota =
-        Quota::n_every(methods::MAX_REQUEST_BLOCKS, 10);
+    //TODO(sean) is it worthing using the ethspec here
+    pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota = Quota::n_every(1024, 10);
     pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
     pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota =
         Quota::n_every(methods::MAX_REQUEST_BLOB_SIDECARS, 10);

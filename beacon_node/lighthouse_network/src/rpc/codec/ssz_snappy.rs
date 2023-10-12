@@ -142,7 +142,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
-        let ssz_limits = self.protocol.rpc_request_limits();
+        let ssz_limits = self.protocol.rpc_request_limits(&self.fork_context);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
                 "RPC request length for protocol {:?} is out of bounds, length {}",
@@ -476,12 +476,18 @@ fn handle_rpc_request<T: EthSpec>(
         ))),
         SupportedProtocol::BlocksByRootV2 => Ok(Some(InboundRequest::BlocksByRoot(
             BlocksByRootRequest::V2(BlocksByRootRequestV2 {
-                block_roots: RuntimeVariableList::from_ssz_bytes(decoded_buffer, 1)?,
+                block_roots: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    fork_context.spec.max_request_blocks as usize,
+                )?,
             }),
         ))),
         SupportedProtocol::BlocksByRootV1 => Ok(Some(InboundRequest::BlocksByRoot(
             BlocksByRootRequest::V1(BlocksByRootRequestV1 {
-                block_roots: RuntimeVariableList::from_ssz_bytes(decoded_buffer, 1)?,
+                block_roots: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    fork_context.spec.max_request_blocks as usize,
+                )?,
             }),
         ))),
         SupportedProtocol::BlobsByRangeV1 => Ok(Some(InboundRequest::BlobsByRange(

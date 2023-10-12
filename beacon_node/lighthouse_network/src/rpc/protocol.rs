@@ -2,7 +2,6 @@ use super::methods::*;
 use crate::rpc::{
     codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec},
     methods::{MaxErrorLen, ResponseTermination, MAX_ERROR_LEN},
-    MaxRequestBlocks, MAX_REQUEST_BLOCKS,
 };
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
@@ -88,19 +87,6 @@ lazy_static! {
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
-
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
-        VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
-    .as_ssz_bytes()
-    .len();
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize =
-        VariableList::<Hash256, MaxRequestBlocks>::from(vec![
-            Hash256::zero();
-            MAX_REQUEST_BLOCKS
-                as usize
-        ])
-    .as_ssz_bytes()
-    .len();
 
     pub static ref BLOBS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlobSidecars>::from(Vec::<Hash256>::new())
@@ -375,7 +361,7 @@ impl AsRef<str> for ProtocolId {
 
 impl ProtocolId {
     /// Returns min and max size for messages of given protocol id requests.
-    pub fn rpc_request_limits(&self) -> RpcLimits {
+    pub fn rpc_request_limits(&self, fork_context: &ForkContext) -> RpcLimits {
         match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -390,9 +376,10 @@ impl ProtocolId {
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
             ),
-            Protocol::BlocksByRoot => {
-                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
-            }
+            Protocol::BlocksByRoot => RpcLimits::new(
+                fork_context.blocks_by_root_request_min as usize,
+                fork_context.blocks_by_root_request_max as usize,
+            ),
             Protocol::BlobsByRange => RpcLimits::new(
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),

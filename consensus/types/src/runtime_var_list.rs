@@ -1,5 +1,6 @@
 use ssz::{Decode, Encode};
 use ssz_derive::Encode;
+use std::marker::PhantomData;
 
 #[derive(Debug, Clone, PartialEq, Encode)]
 #[ssz(struct_behaviour = "transparent")]
@@ -19,6 +20,12 @@ impl<T: Encode + Decode + Clone> RuntimeVariableList<T> {
                 len: max_len,
             })
         }
+    }
+
+    pub fn from_vec(mut vec: Vec<T>, max_len: usize) -> Self {
+        vec.truncate(max_len);
+
+        Self { vec, max_len }
     }
 
     pub fn to_vec(&self) -> Vec<T> {
