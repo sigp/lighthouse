@@ -45,6 +45,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
@@ -982,9 +983,9 @@ where
     ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
         let MakeAttestationOptions { limit, fork } = opts;
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
-        let attesters = Mutex::new(vec![]);
+        let num_attesters = AtomicUsize::new(0);
 
-        let attestations = state
+        let (attestations, split_attesters) = state
             .get_beacon_committees_at_slot(attestation_slot)
             .expect("should get committees")
             .iter()
@@ -997,13 +998,14 @@ where
                             return None;
                         }
 
-                        let mut attesters = attesters.lock();
                         if let Some(limit) = limit {
-                            if attesters.len() >= limit {
+                            // This atomics stuff is necessary because we're under a par_iter,
+                            // and Rayon will deadlock if we use a mutex.
+                            if num_attesters.fetch_add(1, Ordering::Relaxed) >= limit {
+                                num_attesters.fetch_sub(1, Ordering::Relaxed);
                                 return None;
                             }
                         }
-                        attesters.push(*validator_index);
 
                         let mut attestation = self
                             .produce_unaggregated_attestation_for_block(
@@ -1043,14 +1045,17 @@ where
                         )
                         .unwrap();
 
-                        Some((attestation, subnet_id))
+                        Some(((attestation, subnet_id), validator_index))
                     })
-                    .collect::<Vec<_>>()
+                    .unzip::<_, _, Vec<_>, Vec<_>>()
             })
-            .collect::<Vec<_>>();
+            .unzip::<_, _, Vec<_>, Vec<_>>();
 
-        let attesters = attesters.into_inner();
+        // Flatten attesters.
+        let attesters = split_attesters.into_iter().flatten().collect::<Vec<_>>();
+
         if let Some(limit) = limit {
+            assert_eq!(limit, num_attesters.load(Ordering::Relaxed));
             assert_eq!(
                 limit,
                 attesters.len(),
