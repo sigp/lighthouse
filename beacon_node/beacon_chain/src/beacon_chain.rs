@@ -70,7 +70,7 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
-use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
+use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
     PayloadAttributes, PayloadStatus,
@@ -2809,6 +2809,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::BlockIsAlreadyKnown);
         }
 
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_blob_sidecar_subscribers() {
+                event_handler.register(EventKind::BlobSidecar(SseBlobSidecar::from_blob_sidecar(
+                    blob.as_blob(),
+                )));
+            }
+        }
+
         self.data_availability_checker
             .notify_gossip_blob(blob.as_blob().slot, block_root, &blob);
         let r = self.check_gossip_blob_availability_and_import(blob).await;
@@ -2831,6 +2839,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .contains_block(&block_root)
         {
             return Err(BlockError::BlockIsAlreadyKnown);
+        }
+
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_blob_sidecar_subscribers() {
+                for blob in blobs.iter().filter_map(|maybe_blob| maybe_blob.as_ref()) {
+                    event_handler.register(EventKind::BlobSidecar(
+                        SseBlobSidecar::from_blob_sidecar(blob),
+                    ));
+                }
+            }
         }
 
         self.data_availability_checker
