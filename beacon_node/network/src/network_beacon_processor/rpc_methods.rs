@@ -381,7 +381,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     match self.chain.spec.fork_name_at_epoch(epoch) {
                         ForkName::Deneb => self.chain.spec.max_request_blocks_deneb,
                         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                            //TODO(sean) add method to chainspec that takes fork name
                             self.chain.spec.max_request_blocks
                         }
                     }
