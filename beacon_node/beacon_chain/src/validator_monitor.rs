@@ -533,30 +533,52 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             }
         }
 
-        // Add missed non-finalized blocks for the monitored validators
-        // count the amount of times a monitored validator missed a non-finalized block
+        //
+        // Add missed non-finalized blocks for each monitored validators //
+        //
+        // Count the amount of times a monitored validator missed a non-finalized block
+
+        // We need to extract each validator from the missed_blocks variable and initialise it
+        // to 0. We use a Prometheus gauge and so, this step is mandatory in order to only incr the
+        // counter for non-finalized epochs.
+        let mut validators_missed_blocks: HashMap<u64, u64> = self.missed_blocks.iter()
+            .map(|(_, validator_index, _)| (*validator_index, 0))
+            .collect();
+
+        // Count the amount of times a monitored validator missed block for the non-finalized epochs
+        let finalized_epoch = state.finalized_checkpoint().epoch;
         self.missed_blocks
             .iter()
-            .group_by(|(_, validator_index, _)| *validator_index)
-            .into_iter()
-            .for_each(|(validator_index, group)| {
-                let missed_blocks_count = group.count();
+            .filter(|(epoch, _, _)| *epoch > finalized_epoch)
+            .for_each(|(_, validator_index, _)| {
+                *validators_missed_blocks.entry(*validator_index).or_default() += 1;
+            });
+
+        // Set the Prometheus metrics for each validator (including missed_blocks_count=0)
+        validators_missed_blocks
+            .iter()
+            .for_each(|(validator_index, missed_blocks_count)| {
                 self.aggregatable_metric(validator_index.to_string().as_str(), |label| {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
                         &[label],
-                        u64_to_i64(missed_blocks_count as u64),
+                        u64_to_i64(*missed_blocks_count),
                     );
                 });
             });
 
-        // add to the total missed blocks by monitored validator
+        // Increment the Prometheus metrics counter for each missed block
         if let Some(i) = self.last_epoch_missed_block_validator {
             self.aggregatable_metric(i.to_string().as_str(), |label| {
                 metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL, &[label]);
             });
             self.last_epoch_missed_block_validator = None;
         };
+
+        // Prune missed blocks that are prior to last finalized epochs
+        let finalized_epoch = state.finalized_checkpoint().epoch;
+        self.missed_blocks
+            .retain(|(epoch, _, _)| *epoch > finalized_epoch);
     }
 
     /// Add missed non-finalized blocks for the monitored validators
@@ -641,11 +663,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 }
             }
         }
-
-        // Prune missed blocks that are prior to last finalized epoch
-        let finalized_epoch = state.finalized_checkpoint().epoch;
-        self.missed_blocks
-            .retain(|(epoch, _, _)| *epoch >= finalized_epoch);
     }
 
     fn get_proposers_by_epoch_from_cache(
