@@ -46,6 +46,26 @@ impl<T: Encode + Decode + Clone> RuntimeVariableList<T> {
     pub fn from_ssz_bytes(bytes: &[u8], max_len: usize) -> Result<Self, ssz::DecodeError> {
         let vec = if bytes.is_empty() {
             vec![]
+        } else if <T as Decode>::is_ssz_fixed_len() {
+            let num_items = bytes
+                .len()
+                .checked_div(<T as Decode>::ssz_fixed_len())
+                .ok_or(ssz::DecodeError::ZeroLengthItem)?;
+
+            if num_items > max_len {
+                return Err(ssz::DecodeError::BytesInvalid(format!(
+                    "VariableList of {} items exceeds maximum of {}",
+                    num_items, max_len
+                )));
+            }
+
+            bytes
+                .chunks(<T as Decode>::ssz_fixed_len())
+                .try_fold(Vec::with_capacity(num_items), |mut vec, chunk| {
+                    vec.push(<T as Decode>::from_ssz_bytes(chunk)?);
+                    Ok(vec)
+                })
+                .map(Into::into)?
         } else {
             ssz::decode_list_of_variable_length_items(bytes, Some(max_len))?
         };
