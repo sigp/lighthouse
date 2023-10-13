@@ -212,14 +212,16 @@ impl<E: EthSpec> StateCache<E> {
             let could_finalize =
                 (self.max_epoch - state.current_epoch()) <= EPOCH_FINALIZATION_LIMIT;
 
-            if is_advanced {
+            if is_boundary {
+                if could_finalize {
+                    good_boundary_state_roots.push(state_root);
+                } else {
+                    old_boundary_state_roots.push(state_root);
+                }
+            } else if is_advanced {
                 advanced_state_roots.push(state_root);
-            } else if !is_boundary {
-                mid_epoch_state_roots.push(state_root);
-            } else if !could_finalize {
-                old_boundary_state_roots.push(state_root);
             } else {
-                good_boundary_state_roots.push(state_root);
+                mid_epoch_state_roots.push(state_root);
             }
 
             // Terminate early in the common case where we've already found enough junk to cull.
@@ -244,10 +246,7 @@ impl<E: EthSpec> StateCache<E> {
 
 impl BlockMap {
     fn insert(&mut self, block_root: Hash256, slot: Slot, state_root: Hash256) {
-        let slot_map = self
-            .blocks
-            .entry(block_root)
-            .or_default();
+        let slot_map = self.blocks.entry(block_root).or_default();
         slot_map.slots.insert(slot, state_root);
     }
 
