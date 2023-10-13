@@ -37,7 +37,7 @@ use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
 use std::{
     collections::{HashMap, VecDeque},
-    net::{IpAddr, SocketAddr},
+    net::IpAddr,
     path::Path,
     pin::Pin,
     sync::Arc,
@@ -395,54 +395,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// Returns an iterator over all enr entries in the DHT.
     pub fn table_entries_enr(&self) -> Vec<Enr> {
         self.discv5.table_entries_enr()
-    }
-
-    /// Updates the local ENR TCP port.
-    /// There currently isn't a case to update the address here. We opt for discovery to
-    /// automatically update the external address.
-    ///
-    /// If the external address needs to be modified, use `update_enr_udp_socket.
-    pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
-        self.discv5
-            .enr_insert("tcp", &port)
-            .map_err(|e| format!("{:?}", e))?;
-
-        // replace the global version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
-        // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
-        Ok(())
-    }
-
-    // TODO: Group these functions here once the ENR is shared across discv5 and lighthouse and
-    // Lighthouse can modify the ENR directly.
-    // This currently doesn't support ipv6. All of these functions should be removed and
-    // addressed properly in the following issue.
-    // https://github.com/sigp/lighthouse/issues/4706
-    pub fn update_enr_quic_port(&mut self, port: u16) -> Result<(), String> {
-        self.discv5
-            .enr_insert("quic", &port)
-            .map_err(|e| format!("{:?}", e))?;
-
-        // replace the global version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
-        // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
-        Ok(())
-    }
-
-    /// Updates the local ENR UDP socket.
-    ///
-    /// This is with caution. Discovery should automatically maintain this. This should only be
-    /// used when automatic discovery is disabled.
-    pub fn update_enr_udp_socket(&mut self, socket_addr: SocketAddr) -> Result<(), String> {
-        const IS_TCP: bool = false;
-        if self.discv5.update_local_enr_socket(socket_addr, IS_TCP) {
-            // persist modified enr to disk
-            enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
-        }
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
-        Ok(())
     }
 
     /// Adds/Removes a subnet from the ENR attnets/syncnets Bitfield
