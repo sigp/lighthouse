@@ -64,9 +64,13 @@ impl EpochTotalBalances {
 
     pub fn on_new_attestation(
         &mut self,
+        is_slashed: bool,
         flag_index: usize,
         validator_effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
+        if is_slashed {
+            return Ok(());
+        }
         let balance = self
             .total_flag_balances
             .get_mut(flag_index)
@@ -152,19 +156,24 @@ impl ProgressiveBalancesCache {
     pub fn on_new_attestation(
         &mut self,
         epoch: Epoch,
+        is_slashed: bool,
         flag_index: usize,
         validator_effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
         let cache = self.get_inner_mut()?;
 
         if epoch == cache.current_epoch {
-            cache
-                .current_epoch_cache
-                .on_new_attestation(flag_index, validator_effective_balance)?;
+            cache.current_epoch_cache.on_new_attestation(
+                is_slashed,
+                flag_index,
+                validator_effective_balance,
+            )?;
         } else if epoch.safe_add(1)? == cache.current_epoch {
-            cache
-                .previous_epoch_cache
-                .on_new_attestation(flag_index, validator_effective_balance)?;
+            cache.previous_epoch_cache.on_new_attestation(
+                is_slashed,
+                flag_index,
+                validator_effective_balance,
+            )?;
         } else {
             return Err(BeaconStateError::ProgressiveBalancesCacheInconsistent);
         }
