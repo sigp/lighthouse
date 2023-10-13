@@ -20,6 +20,8 @@ use types::{
 };
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(60);
 
+const TEST_FORK: ForkName = ForkName::Capella;
+
 struct ExecutionPair<E, T: EthSpec> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.
     execution_layer: ExecutionLayer<T>,
@@ -110,7 +112,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
-        let mut spec = MainnetEthSpec::default_spec();
+        let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
         spec.terminal_total_difficulty = Uint256::zero();
 
         let fee_recipient = None;
@@ -269,8 +271,12 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 Slot::new(1), // Insert proposer for the next slot
                 head_root,
                 proposer_index,
-                // TODO: think about how to test different forks
-                PayloadAttributes::new(timestamp, prev_randao, Address::repeat_byte(42), None),
+                PayloadAttributes::new(
+                    timestamp,
+                    prev_randao,
+                    Address::repeat_byte(42),
+                    Some(vec![]),
+                ),
             )
             .await;
 
@@ -308,8 +314,12 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .execution_layer
             .get_suggested_fee_recipient(proposer_index)
             .await;
-        let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
+        let payload_attributes = PayloadAttributes::new(
+            timestamp,
+            prev_randao,
+            suggested_fee_recipient,
+            Some(vec![]),
+        );
         let valid_payload = self
             .ee_a
             .execution_layer
@@ -318,8 +328,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
-                // FIXME: think about how to test other forks
-                ForkName::Merge,
+                TEST_FORK,
                 &self.spec,
             )
             .await
@@ -448,8 +457,12 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .execution_layer
             .get_suggested_fee_recipient(proposer_index)
             .await;
-        let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
+        let payload_attributes = PayloadAttributes::new(
+            timestamp,
+            prev_randao,
+            suggested_fee_recipient,
+            Some(vec![]),
+        );
         let second_payload = self
             .ee_a
             .execution_layer
@@ -458,8 +471,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
-                // FIXME: think about how to test other forks
-                ForkName::Merge,
+                TEST_FORK,
                 &self.spec,
             )
             .await
@@ -489,11 +501,14 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          */
         let head_block_hash = valid_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
-        // TODO: think about how to handle different forks
         // To save sending proposer preparation data, just set the fee recipient
         // to the fee recipient configured for EE A.
-        let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, Address::repeat_byte(42), None);
+        let payload_attributes = PayloadAttributes::new(
+            timestamp,
+            prev_randao,
+            Address::repeat_byte(42),
+            Some(vec![]),
+        );
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(100);
         let validator_index = 0;
@@ -527,10 +542,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap();
         // TODO: we should remove the `Accepted` status here once Geth fixes it
-        assert!(matches!(
-            status,
-            PayloadStatus::Syncing | PayloadStatus::Accepted
-        ));
+        assert!(matches!(status, PayloadStatus::Syncing));
 
         /*
          * Execution Engine B:
@@ -625,18 +637,17 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
         .unwrap();
     assert_eq!(reconstructed, *payload);
     // also check via payload bodies method
-    let _capabilities = ee
+    let capabilities = ee
         .execution_layer
         .get_engine_capabilities(None)
         .await
         .unwrap();
 
-    // TODO: Restore this check once bug has been fixed.
-    //assert!(
-    //    // if the engine doesn't have these capabilities, we need to update the client in our tests
-    //    capabilities.get_payload_bodies_by_hash_v1 && capabilities.get_payload_bodies_by_range_v1,
-    //    "Testing engine does not support payload bodies methods"
-    //);
+    assert!(
+        // if the engine doesn't have these capabilities, we need to update the client in our tests
+        capabilities.get_payload_bodies_by_hash_v1 && capabilities.get_payload_bodies_by_range_v1,
+        "Testing engine does not support payload bodies methods"
+    );
 
     let mut bodies = ee
         .execution_layer

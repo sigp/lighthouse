@@ -1,3 +1,5 @@
+#![recursion_limit = "256"] // for inline json
+
 /// This binary runs integration tests between Lighthouse and execution engines.
 ///
 /// It will first attempt to build any supported integration clients, then it will run tests.
