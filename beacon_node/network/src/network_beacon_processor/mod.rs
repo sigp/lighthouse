@@ -20,7 +20,7 @@ use lighthouse_network::{
 };
 use lru::LruCache;
 use parking_lot::Mutex;
-use slog::{crit, debug, error, trace, Logger};
+use slog::{debug, error, trace, warn, Logger};
 use slot_clock::{ManualSlotClock, SlotClock};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -30,7 +30,7 @@ use store::MemoryStore;
 use task_executor::test_utils::TestRuntime;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tokio::time::{interval_at, Instant};
+use tokio::time::sleep;
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -657,33 +657,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             async move {
                 let slot_duration = beacon_chain.slot_clock.slot_duration();
                 let delay = beacon_chain.slot_clock.single_lookup_delay();
-                let interval_start = match (
-                    beacon_chain.slot_clock.duration_to_next_slot(),
-                    beacon_chain.slot_clock.seconds_from_current_slot_start(),
-                ) {
-                    (Some(duration_to_next_slot), Some(seconds_from_current_slot_start)) => {
-                        let duration_until_start = if seconds_from_current_slot_start > delay {
-                            duration_to_next_slot + delay
-                        } else {
-                            delay - seconds_from_current_slot_start
-                        };
-                        Instant::now() + duration_until_start
-                    }
-                    _ => {
-                        crit!(log,
-                        "Failed to read slot clock, delayed lookup service timing will be inaccurate.\
-                         This may degrade performance"
-                    );
-                        Instant::now()
-                    }
-                };
-
-                let mut interval = interval_at(interval_start, slot_duration);
                 loop {
-                    interval.tick().await;
+                    // Poll the delayed lookups for any block component requests
+                    // after the specified delay.
+                    // Keep remeasuring the offset rather than using an interval, so that we can correct
+                    // for system time clock adjustments.
+                    let wait = match beacon_chain.slot_clock.duration_to_next_slot() {
+                        Some(duration) => duration + delay,
+                        None => {
+                            warn!(log, "Unable to read current slot");
+                            sleep(slot_duration).await;
+                            continue;
+                        }
+                    };
+                    sleep(wait).await;
                     let Some(slot) = beacon_chain.slot_clock.now_or_genesis() else {
-                        error!(log, "Skipping delayed lookup poll, unable to read slot clock");
-                        continue
+                        error!(
+                            log,
+                            "Skipping delayed lookup poll, unable to read slot clock"
+                        );
+                        continue;
                     };
                     trace!(log, "Polling delayed lookups for slot: {slot}");
                     processor_clone.poll_delayed_lookups(slot)
