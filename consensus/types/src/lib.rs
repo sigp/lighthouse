@@ -219,7 +219,7 @@ pub use bls::{
     Signature, SignatureBytes,
 };
 
-pub use kzg::{KzgCommitment, KzgProof};
+pub use kzg::{KzgCommitment, KzgProof, VERSIONED_HASH_VERSION_KZG};
 
 pub use sidecar::Sidecar;
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};

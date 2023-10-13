@@ -21,7 +21,6 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 mod availability_view;
@@ -389,7 +388,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 .map(|current_epoch| {
                     std::cmp::max(
                         fork_epoch,
-                        current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+                        current_epoch
+                            .saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
                     )
                 })
         })
@@ -484,7 +484,8 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 let cutoff_epoch = std::cmp::max(
                     finalized_epoch + 1,
                     std::cmp::max(
-                        current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+                        current_epoch
+                            .saturating_sub(chain.spec.min_epochs_for_blob_sidecars_requests),
                         deneb_fork_epoch,
                     ),
                 );

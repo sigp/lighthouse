@@ -7,7 +7,11 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::str::FromStr;
 
-pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof, trusted_setup::TrustedSetup};
+pub use crate::{
+    kzg_commitment::{KzgCommitment, VERSIONED_HASH_VERSION_KZG},
+    kzg_proof::KzgProof,
+    trusted_setup::TrustedSetup,
+};
 pub use c_kzg::{Bytes32, Bytes48, BYTES_PER_COMMITMENT, BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF};
 
 #[derive(Debug)]
