@@ -244,29 +244,13 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
         break;
     }
 
-    // extend slots to beginning of epoch N + 2
     let mut advanced_slot = harness.get_current_slot();
-
+    let mut proposal_rewards_map: HashMap<u64, u64> = HashMap::new();
     for _ in 0..E::slots_per_epoch() {
-        harness
-            .extend_slots_some_validators(1, half_validators.clone())
-            .await;
-        // harness.advance_slot();
-        // harness
-        //     .extend_chain(
-        //         1,
-        //         BlockStrategy::OnCanonicalHead,
-        //         AttestationStrategy::SomeValidators(half_validators.clone()),
-        //     )
-        //     .await;
-        advanced_slot = harness.get_current_slot();
+        let state = harness.get_current_state();
+        let slot = state.slot() + Slot::new(1);
 
-        let current_state = harness.get_current_state();
-        let slot = current_state.slot() + Slot::new(1);
-
-        let (signed_block, mut state) = harness
-            .make_block_return_pre_state(current_state, slot)
-            .await;
+        let (signed_block, mut state) = harness.make_block_return_pre_state(state, slot).await;
 
         let beacon_block_reward = harness
             .chain
@@ -276,6 +260,19 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
                 &mut state,
             )
             .unwrap();
+
+        let total_proposer_reward = proposal_rewards_map
+            .get(&beacon_block_reward.proposer_index)
+            .unwrap_or(&0u64)
+            + beacon_block_reward.total;
+
+        proposal_rewards_map.insert(beacon_block_reward.proposer_index, total_proposer_reward);
+
+        harness
+            .extend_slots_some_validators(1, half_validators.clone())
+            .await;
+
+        advanced_slot = harness.get_current_slot();
         println!("Beacon block reward: {:#?}", beacon_block_reward);
     }
 
@@ -299,18 +296,22 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
 
     // apply attestation rewards to initial balances
     let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
-
-    for (index, expected_balance) in expected_balances.iter().enumerate() {
-        println!("Validator: {index} | expected value {expected_balance} | slot {advanced_slot}");
-        break;
-    }
+    let expected_balances = apply_beacon_block_rewards(&proposal_rewards_map, expected_balances);
     // verify expected balances against actual balances
     let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
 
-    for (index, balance) in balances.iter().enumerate() {
-        println!("Validator: {index} | actual value {balance} | slot {advanced_slot}");
-        break;
+    for (index, expected_balance) in expected_balances.iter().enumerate() {
+        let current_balance = balances[index];
+        let is_proposal_validator = proposal_rewards_map.contains_key(&(index as u64));
+        println!("Validator: {index} | expected value {expected_balance} | slot {advanced_slot}");
+        println!("Validator: {index} | actual value {current_balance} | slot {advanced_slot}");
+        println!(
+            "Validator: {index} | difference expected - current: {:#?}",
+            expected_balance - current_balance
+        );
+        println!("Validator: {index} | get proposal reward {is_proposal_validator}")
     }
+
     // Failing test statement
     assert_eq!(expected_balances, balances);
 }
@@ -392,4 +393,20 @@ fn get_validator_balances(state: BeaconState<E>, validators: &[usize]) -> Vec<u6
                 .ok_or(BeaconStateError::BalancesOutOfBounds(id))
         })
         .collect()
+}
+
+fn apply_beacon_block_rewards(
+    proposal_rewards_map: &HashMap<u64, u64>,
+    expected_balances: Vec<u64>,
+) -> Vec<u64> {
+    let calculated_balances = expected_balances
+        .iter()
+        .enumerate()
+        .map(|(i, balance)| {
+            // calculated_balances.push(proposal_rewards_map.get(&(i as u64)).unwrap_or(&0u64) + balance)
+            balance + proposal_rewards_map.get(&(i as u64)).unwrap_or(&0u64)
+        })
+        .collect();
+
+    calculated_balances
 }
