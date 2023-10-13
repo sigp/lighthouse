@@ -2549,6 +2549,7 @@ dependencies = [
  "bytes",
  "environment",
  "eth2",
+ "eth2_network_config",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethers-core",

@@ -794,7 +794,8 @@ pub fn generate_pow_block(
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::MainnetEthSpec;
+    use kzg::TrustedSetup;
+    use types::{MainnetEthSpec, MinimalEthSpec};
 
     #[test]
     fn pow_chain_only() {
@@ -855,5 +856,34 @@ mod test {
             let next_i = i + 1;
             assert!(generator.block_by_number(next_i).is_none());
         }
+    }
+
+    #[test]
+    fn valid_test_blobs() {
+        assert!(
+            validate_blob::<MainnetEthSpec>().unwrap(),
+            "Mainnet preset test blobs bundle should contain valid proofs"
+        );
+        assert!(
+            validate_blob::<MinimalEthSpec>().unwrap(),
+            "Minimal preset test blobs bundle should contain valid proofs"
+        );
+    }
+
+    fn validate_blob<E: EthSpec>() -> Result<bool, String> {
+        let kzg = load_kzg::<E>()?;
+        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle::<E>()?;
+        let kzg_blob = E::blob_from_bytes(blob.as_ref())
+            .map_err(|e| format!("Error converting blob to kzg blob: {e:?}"))?;
+        kzg.verify_blob_kzg_proof(&kzg_blob, kzg_commitment, kzg_proof)
+            .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
+    }
+
+    fn load_kzg<E: EthSpec>() -> Result<Kzg<E::Kzg>, String> {
+        let trusted_setup: TrustedSetup =
+            serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
+                .map_err(|e| format!("Unable to read trusted setup file: {e:?}"))?;
+        Kzg::new_from_trusted_setup(trusted_setup)
+            .map_err(|e| format!("Failed to load trusted setup: {e:?}"))
     }
 }
