@@ -237,13 +237,8 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
         )
         .await;
     let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
-    let initial_slot = harness.get_current_slot();
 
-    for (index, initial_balance) in initial_balances.iter().enumerate() {
-        println!("Validator: {index} | initial value {initial_balance} | slot {initial_slot}");
-        break;
-    }
-
+    // advance until epoch N + 2 and build proposal rewards map
     let mut advanced_slot = harness.get_current_slot();
     let mut proposal_rewards_map: HashMap<u64, u64> = HashMap::new();
     for _ in 0..E::slots_per_epoch() {
@@ -303,13 +298,14 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
     for (index, expected_balance) in expected_balances.iter().enumerate() {
         let current_balance = balances[index];
         let is_proposal_validator = proposal_rewards_map.contains_key(&(index as u64));
+        println!("**************************************************************");
         println!("Validator: {index} | expected value {expected_balance} | slot {advanced_slot}");
         println!("Validator: {index} | actual value {current_balance} | slot {advanced_slot}");
         println!(
             "Validator: {index} | difference expected - current: {:#?}",
             expected_balance - current_balance
         );
-        println!("Validator: {index} | get proposal reward {is_proposal_validator}")
+        println!("Validator: {index} | get proposal reward {is_proposal_validator}");
     }
 
     // Failing test statement
@@ -402,10 +398,7 @@ fn apply_beacon_block_rewards(
     let calculated_balances = expected_balances
         .iter()
         .enumerate()
-        .map(|(i, balance)| {
-            // calculated_balances.push(proposal_rewards_map.get(&(i as u64)).unwrap_or(&0u64) + balance)
-            balance + proposal_rewards_map.get(&(i as u64)).unwrap_or(&0u64)
-        })
+        .map(|(i, balance)| balance + proposal_rewards_map.get(&(i as u64)).unwrap_or(&0u64))
         .collect();
 
     calculated_balances
