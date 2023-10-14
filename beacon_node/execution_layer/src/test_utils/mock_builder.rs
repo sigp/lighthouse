@@ -455,18 +455,25 @@ pub fn serve<E: EthSpec>(
                     finalized_hash: Some(finalized_execution_hash),
                 };
 
-                let payload = builder
+                let payload_type = builder
                     .el
-                    .get_full_payload_caching::<BlindedPayload<E>>(
+                    .get_full_payload_caching(
                         head_execution_hash,
                         &payload_attributes,
                         forkchoice_update_params,
                         fork,
                     )
                     .await
-                    .map_err(|_| reject("couldn't get payload"))?
-                    .to_payload()
-                    .to_execution_payload_header();
+                    .map_err(|_| reject("couldn't get payload"))?;
+
+                let payload = match payload_type {
+                    crate::BlockProposalContentsType::Full(payload) => {
+                        payload.to_payload().to_execution_payload_header()
+                    }
+                    crate::BlockProposalContentsType::Blinded(payload) => {
+                        payload.to_payload().to_execution_payload_header()
+                    }
+                };
 
                 let mut message = BuilderBid {
                     header: BlindedPayload::from(payload),

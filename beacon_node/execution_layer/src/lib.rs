@@ -106,6 +106,7 @@ pub enum Error {
     InvalidForkForPayload,
     InvalidPayloadBody(String),
     BeaconStateError(BeaconStateError),
+    PayloadTypeMismatch,
 }
 
 impl From<BeaconStateError> for Error {
@@ -132,6 +133,23 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         // TODO: remove for 4844, since it appears in PayloadAndBlobs
         _phantom: PhantomData<T>,
     },
+}
+
+impl<T: EthSpec> From<BlockProposalContents<T, FullPayload<T>>>
+    for BlockProposalContents<T, BlindedPayload<T>>
+{
+    fn from(item: BlockProposalContents<T, FullPayload<T>>) -> Self {
+        let block_value = item.block_value().to_owned();
+
+        let blinded_payload: BlockProposalContents<T, BlindedPayload<T>> =
+            BlockProposalContents::Payload {
+                payload: item.to_payload().execution_payload().into(),
+                block_value,
+                _phantom: PhantomData,
+            };
+
+        blinded_payload
+    }
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
@@ -692,7 +710,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     &metrics::EXECUTION_LAYER_REQUEST_TIMES,
                     &[metrics::GET_BLINDED_PAYLOAD],
                 );
-                self.get_blinded_payload_v2(
+                self.determine_and_fetch_payload(
                     parent_hash,
                     payload_attributes,
                     forkchoice_update_params,
@@ -703,7 +721,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 .await?
             }
             BlockProductionVersion::FullV2 => self
-                .get_full_payload_with_v3(
+                .get_full_payload_with(
                     parent_hash,
                     payload_attributes,
                     forkchoice_update_params,
@@ -729,7 +747,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
                     &[metrics::LOCAL],
                 );
-                Ok(BlockProposalContentsType::Full(block_proposal_contents))
+                if matches!(block_production_version, BlockProductionVersion::BlindedV2) {
+                    Ok(BlockProposalContentsType::Blinded(
+                        block_proposal_contents.into(),
+                    ))
+                } else {
+                    Ok(BlockProposalContentsType::Full(block_proposal_contents))
+                }
             }
             BlockProposalContentsType::Blinded(block_proposal_contents) => {
                 metrics::inc_counter_vec(
@@ -768,7 +792,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     );
 
                     // Wait for the builder *and* local EL to produce a payload (or return an error).
-                    let ((relay_result, relay_duration), (local_result, local_duration)) = tokio::join!(
+                    let ((relay_result, relay_duration), (local_result_type, local_duration)) = tokio::join!(
                         timed_future(metrics::GET_BLINDED_PAYLOAD_BUILDER, async {
                             builder
                                 .get_builder_header::<T, BlindedPayload<T>>(
@@ -779,7 +803,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 .await
                         }),
                         timed_future(metrics::GET_BLINDED_PAYLOAD_LOCAL, async {
-                            self.get_full_payload_caching::<FullPayload<T>>(
+                            self.get_full_payload_caching(
                                 parent_hash,
                                 payload_attributes,
                                 forkchoice_update_params,
@@ -788,6 +812,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             .await
                         })
                     );
+
+                    let local_result = match local_result_type? {
+                        BlockProposalContentsType::Full(payload) => Ok(payload),
+                        BlockProposalContentsType::Blinded(_) => Err(Error::PayloadTypeMismatch),
+                    };
 
                     info!(
                         self.log(),
@@ -1016,7 +1045,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 ),
             }
         }
-        self.get_full_payload_caching_v3(
+        self.get_full_payload_caching(
             parent_hash,
             payload_attributes,
             forkchoice_update_params,
@@ -1026,318 +1055,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
         .map(ProvenancedPayload::Local)
     }
 
-    async fn get_blinded_payload_v2(
-        &self,
-        parent_hash: ExecutionBlockHash,
-        payload_attributes: &PayloadAttributes,
-        forkchoice_update_params: ForkchoiceUpdateParameters,
-        builder_params: BuilderParams,
-        current_fork: ForkName,
-        spec: &ChainSpec,
-    ) -> Result<ProvenancedPayload<BlockProposalContentsType<T>>, Error> {
-        if let Some(builder) = self.builder() {
-            let slot = builder_params.slot;
-            let pubkey = builder_params.pubkey;
-
-            match builder_params.chain_health {
-                ChainHealth::Healthy => {
-                    info!(
-                        self.log(),
-                        "Requesting blinded header from connected builder";
-                        "slot" => ?slot,
-                        "pubkey" => ?pubkey,
-                        "parent_hash" => ?parent_hash,
-                    );
-
-                    // Wait for the builder *and* local EL to produce a payload (or return an error).
-                    let ((relay_result, relay_duration), (local_result, local_duration)) = tokio::join!(
-                        timed_future(metrics::GET_BLINDED_PAYLOAD_BUILDER, async {
-                            builder
-                                .get_builder_header::<T, BlindedPayload<T>>(
-                                    slot,
-                                    parent_hash,
-                                    &pubkey,
-                                )
-                                .await
-                        }),
-                        timed_future(metrics::GET_BLINDED_PAYLOAD_LOCAL, async {
-                            self.get_full_payload_caching::<BlindedPayload<T>>(
-                                parent_hash,
-                                payload_attributes,
-                                forkchoice_update_params,
-                                current_fork,
-                            )
-                            .await
-                        })
-                    );
-
-                    info!(
-                        self.log(),
-                        "Requested blinded execution payload";
-                        "relay_fee_recipient" => match &relay_result {
-                            Ok(Some(r)) => format!("{:?}", r.data.message.header.fee_recipient()),
-                            Ok(None) => "empty response".to_string(),
-                            Err(_) => "request failed".to_string(),
-                        },
-                        "relay_response_ms" => relay_duration.as_millis(),
-                        "local_fee_recipient" => match &local_result {
-                            Ok(proposal_contents) => format!("{:?}", proposal_contents.payload().fee_recipient()),
-                            Err(_) => "request failed".to_string()
-                        },
-                        "local_response_ms" => local_duration.as_millis(),
-                        "parent_hash" => ?parent_hash,
-                    );
-
-                    return match (relay_result, local_result) {
-                        (Err(e), Ok(local)) => {
-                            warn!(
-                                self.log(),
-                                "Builder error when requesting payload";
-                                "info" => "falling back to local execution client",
-                                "relay_error" => ?e,
-                                "local_block_hash" => ?local.payload().block_hash(),
-                                "parent_hash" => ?parent_hash,
-                            );
-                            Ok(ProvenancedPayload::Local(
-                                BlockProposalContentsType::Blinded(local),
-                            ))
-                        }
-                        (Ok(None), Ok(local)) => {
-                            info!(
-                                self.log(),
-                                "Builder did not return a payload";
-                                "info" => "falling back to local execution client",
-                                "local_block_hash" => ?local.payload().block_hash(),
-                                "parent_hash" => ?parent_hash,
-                            );
-                            Ok(ProvenancedPayload::Local(
-                                BlockProposalContentsType::Blinded(local),
-                            ))
-                        }
-                        (Ok(Some(relay)), Ok(local)) => {
-                            let header = &relay.data.message.header;
-
-                            info!(
-                                self.log(),
-                                "Received local and builder payloads";
-                                "relay_block_hash" => ?header.block_hash(),
-                                "local_block_hash" => ?local.payload().block_hash(),
-                                "parent_hash" => ?parent_hash,
-                            );
-
-                            let relay_value = relay.data.message.value;
-                            let local_value = *local.block_value();
-                            if !self.inner.always_prefer_builder_payload {
-                                if local_value >= relay_value {
-                                    info!(
-                                        self.log(),
-                                        "Local block is more profitable than relay block";
-                                        "local_block_value" => %local_value,
-                                        "relay_value" => %relay_value
-                                    );
-                                    return Ok(ProvenancedPayload::Local(
-                                        BlockProposalContentsType::Blinded(local),
-                                    ));
-                                } else {
-                                    info!(
-                                        self.log(),
-                                        "Relay block is more profitable than local block";
-                                        "local_block_value" => %local_value,
-                                        "relay_value" => %relay_value
-                                    );
-                                }
-                            }
-
-                            match verify_builder_bid(
-                                &relay,
-                                parent_hash,
-                                payload_attributes,
-                                Some(local.payload().block_number()),
-                                self.inner.builder_profit_threshold,
-                                current_fork,
-                                spec,
-                            ) {
-                                Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    BlockProposalContentsType::Blinded(
-                                        BlockProposalContents::Payload {
-                                            payload: relay.data.message.header,
-                                            block_value: relay.data.message.value,
-                                            _phantom: PhantomData,
-                                        },
-                                    ),
-                                )),
-                                Err(reason) if !reason.payload_invalid() => {
-                                    info!(
-                                        self.log(),
-                                        "Builder payload ignored";
-                                        "info" => "using local payload",
-                                        "reason" => %reason,
-                                        "relay_block_hash" => ?header.block_hash(),
-                                        "parent_hash" => ?parent_hash,
-                                    );
-                                    Ok(ProvenancedPayload::Local(
-                                        BlockProposalContentsType::Blinded(local),
-                                    ))
-                                }
-                                Err(reason) => {
-                                    metrics::inc_counter_vec(
-                                        &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,
-                                        &[reason.as_ref().as_ref()],
-                                    );
-                                    warn!(
-                                        self.log(),
-                                        "Builder returned invalid payload";
-                                        "info" => "using local payload",
-                                        "reason" => %reason,
-                                        "relay_block_hash" => ?header.block_hash(),
-                                        "parent_hash" => ?parent_hash,
-                                    );
-                                    Ok(ProvenancedPayload::Local(
-                                        BlockProposalContentsType::Blinded(local),
-                                    ))
-                                }
-                            }
-                        }
-                        (Ok(Some(relay)), Err(local_error)) => {
-                            let header = &relay.data.message.header;
-
-                            info!(
-                                self.log(),
-                                "Received builder payload with local error";
-                                "relay_block_hash" => ?header.block_hash(),
-                                "local_error" => ?local_error,
-                                "parent_hash" => ?parent_hash,
-                            );
-
-                            match verify_builder_bid(
-                                &relay,
-                                parent_hash,
-                                payload_attributes,
-                                None,
-                                self.inner.builder_profit_threshold,
-                                current_fork,
-                                spec,
-                            ) {
-                                Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    BlockProposalContentsType::Blinded(
-                                        BlockProposalContents::Payload {
-                                            payload: relay.data.message.header,
-                                            block_value: relay.data.message.value,
-                                            _phantom: PhantomData,
-                                        },
-                                    ),
-                                )),
-                                // If the payload is valid then use it. The local EE failed
-                                // to produce a payload so we have no alternative.
-                                Err(e) if !e.payload_invalid() => Ok(ProvenancedPayload::Builder(
-                                    BlockProposalContentsType::Blinded(
-                                        BlockProposalContents::Payload {
-                                            payload: relay.data.message.header,
-                                            block_value: relay.data.message.value,
-                                            _phantom: PhantomData,
-                                        },
-                                    ),
-                                )),
-                                Err(reason) => {
-                                    metrics::inc_counter_vec(
-                                        &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,
-                                        &[reason.as_ref().as_ref()],
-                                    );
-                                    crit!(
-                                        self.log(),
-                                        "Builder returned invalid payload";
-                                        "info" => "no local payload either - unable to propose block",
-                                        "reason" => %reason,
-                                        "relay_block_hash" => ?header.block_hash(),
-                                        "parent_hash" => ?parent_hash,
-                                    );
-                                    Err(Error::CannotProduceHeader)
-                                }
-                            }
-                        }
-                        (Err(relay_error), Err(local_error)) => {
-                            crit!(
-                                self.log(),
-                                "Unable to produce execution payload";
-                                "info" => "the local EL and builder both failed - unable to propose block",
-                                "relay_error" => ?relay_error,
-                                "local_error" => ?local_error,
-                                "parent_hash" => ?parent_hash,
-                            );
-
-                            Err(Error::CannotProduceHeader)
-                        }
-                        (Ok(None), Err(local_error)) => {
-                            crit!(
-                                self.log(),
-                                "Unable to produce execution payload";
-                                "info" => "the local EL failed and the builder returned nothing - \
-                                    the block proposal will be missed",
-                                "local_error" => ?local_error,
-                                "parent_hash" => ?parent_hash,
-                            );
-
-                            Err(Error::CannotProduceHeader)
-                        }
-                    };
-                }
-                ChainHealth::Unhealthy(condition) => info!(
-                    self.log(),
-                    "Chain is unhealthy, using local payload";
-                    "info" => "this helps protect the network. the --builder-fallback flags \
-                        can adjust the expected health conditions.",
-                    "failed_condition" => ?condition
-                ),
-                // Intentional no-op, so we never attempt builder API proposals pre-merge.
-                ChainHealth::PreMerge => (),
-                ChainHealth::Optimistic => info!(
-                    self.log(),
-                    "Chain is optimistic; can't build payload";
-                    "info" => "the local execution engine is syncing and the builder network \
-                        cannot safely be used - unable to propose block"
-                ),
-            }
-        }
-        println!("YOOOO");
-        let payload = self
-            .get_full_payload_caching::<BlindedPayload<T>>(
-                parent_hash,
-                payload_attributes,
-                forkchoice_update_params,
-                current_fork,
-            )
-            .await?;
-        Ok(ProvenancedPayload::Local(
-            BlockProposalContentsType::Blinded(payload),
-        ))
-    }
-
     /// Get a full payload and cache its result in the execution layer's payload cache.
-    async fn get_full_payload_caching_v3(
+    async fn get_full_payload_caching(
         &self,
         parent_hash: ExecutionBlockHash,
         payload_attributes: &PayloadAttributes,
         forkchoice_update_params: ForkchoiceUpdateParameters,
         current_fork: ForkName,
     ) -> Result<BlockProposalContentsType<T>, Error> {
-        self.get_full_payload_with_v3(
-            parent_hash,
-            payload_attributes,
-            forkchoice_update_params,
-            current_fork,
-            Self::cache_payload,
-        )
-        .await
-    }
-
-    /// Get a full payload and cache its result in the execution layer's payload cache.
-    async fn get_full_payload_caching<Payload: AbstractExecPayload<T>>(
-        &self,
-        parent_hash: ExecutionBlockHash,
-        payload_attributes: &PayloadAttributes,
-        forkchoice_update_params: ForkchoiceUpdateParameters,
-        current_fork: ForkName,
-    ) -> Result<BlockProposalContents<T, Payload>, Error> {
         self.get_full_payload_with(
             parent_hash,
             payload_attributes,
@@ -1348,7 +1073,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         .await
     }
 
-    async fn get_full_payload_with_v3(
+    async fn get_full_payload_with(
         &self,
         parent_hash: ExecutionBlockHash,
         payload_attributes: &PayloadAttributes,
@@ -1448,112 +1173,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     block_value,
                     _phantom: PhantomData,
                 }))
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
-    }
-
-    async fn get_full_payload_with<Payload: AbstractExecPayload<T>>(
-        &self,
-        parent_hash: ExecutionBlockHash,
-        payload_attributes: &PayloadAttributes,
-        forkchoice_update_params: ForkchoiceUpdateParameters,
-        current_fork: ForkName,
-        f: fn(&ExecutionLayer<T>, ExecutionPayloadRef<T>) -> Option<ExecutionPayload<T>>,
-    ) -> Result<BlockProposalContents<T, Payload>, Error> {
-        self.engine()
-            .request(move |engine| async move {
-                let payload_id = if let Some(id) = engine
-                    .get_payload_id(&parent_hash, payload_attributes)
-                    .await
-                {
-                    // The payload id has been cached for this engine.
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
-                        &[metrics::HIT],
-                    );
-                    id
-                } else {
-                    // The payload id has *not* been cached. Trigger an artificial
-                    // fork choice update to retrieve a payload ID.
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
-                        &[metrics::MISS],
-                    );
-                    let fork_choice_state = ForkchoiceState {
-                        head_block_hash: parent_hash,
-                        safe_block_hash: forkchoice_update_params
-                            .justified_hash
-                            .unwrap_or_else(ExecutionBlockHash::zero),
-                        finalized_block_hash: forkchoice_update_params
-                            .finalized_hash
-                            .unwrap_or_else(ExecutionBlockHash::zero),
-                    };
-
-                    let response = engine
-                        .notify_forkchoice_updated(
-                            fork_choice_state,
-                            Some(payload_attributes.clone()),
-                            self.log(),
-                        )
-                        .await?;
-
-                    match response.payload_id {
-                        Some(payload_id) => payload_id,
-                        None => {
-                            error!(
-                                self.log(),
-                                "Exec engine unable to produce payload";
-                                "msg" => "No payload ID, the engine is likely syncing. \
-                                          This has the potential to cause a missed block proposal.",
-                                "status" => ?response.payload_status
-                            );
-                            return Err(ApiError::PayloadIdUnavailable);
-                        }
-                    }
-                };
-
-                let payload_fut = async {
-                    debug!(
-                        self.log(),
-                        "Issuing engine_getPayload";
-                        "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
-                        "prev_randao" => ?payload_attributes.prev_randao(),
-                        "timestamp" => payload_attributes.timestamp(),
-                        "parent_hash" => ?parent_hash,
-                    );
-                    engine.api.get_payload::<T>(current_fork, payload_id).await
-                };
-                let payload_response = payload_fut.await;
-                let (execution_payload, block_value) = payload_response.map(|payload_response| {
-                    if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
-                        error!(
-                            self.log(),
-                            "Inconsistent fee recipient";
-                            "msg" => "The fee recipient returned from the Execution Engine differs \
-                            from the suggested_fee_recipient set on the beacon node. This could \
-                            indicate that fees are being diverted to another address. Please \
-                            ensure that the value of suggested_fee_recipient is set correctly and \
-                            that the Execution Engine is trusted.",
-                            "fee_recipient" => ?payload_response.execution_payload_ref().fee_recipient(),
-                            "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
-                        );
-                    }
-                    if f(self, payload_response.execution_payload_ref()).is_some() {
-                        warn!(
-                            self.log(),
-                            "Duplicate payload cached, this might indicate redundant proposal \
-                                 attempts."
-                        );
-                    }
-                    payload_response.into()
-                })?;
-                Ok(BlockProposalContents::Payload {
-                    payload: execution_payload.into(),
-                    block_value,
-                    _phantom: PhantomData,
-                })
             })
             .await
             .map_err(Box::new)
