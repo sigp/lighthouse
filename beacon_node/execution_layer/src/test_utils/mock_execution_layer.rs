@@ -5,6 +5,7 @@ use crate::{
     },
     Config, *,
 };
+use keccak_hash::H256;
 use sensitive_url::SensitiveUrl;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
@@ -186,11 +187,49 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             .await
             .unwrap();
 
-        let payload_header = match block_proposal_content_type {
-            BlockProposalContentsType::Full(_) => panic!("Should always be a blinded payload"),
-            BlockProposalContentsType::Blinded(block) => block.to_payload(),
+        match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => {
+                let payload_header = block.to_payload();
+                self.assert_valid_execution_payload_on_head(
+                    payload,
+                    payload_header,
+                    block_hash,
+                    parent_hash,
+                    block_number,
+                    timestamp,
+                    prev_randao,
+                )
+                .await;
+            }
+            BlockProposalContentsType::Blinded(block) => {
+                let payload_header = block.to_payload();
+                self.assert_valid_execution_payload_on_head(
+                    payload,
+                    payload_header,
+                    block_hash,
+                    parent_hash,
+                    block_number,
+                    timestamp,
+                    prev_randao,
+                )
+                .await;
+            }
         };
 
+        self
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn assert_valid_execution_payload_on_head<Payload: AbstractExecPayload<T>>(
+        &self,
+        payload: ExecutionPayload<T>,
+        payload_header: Payload,
+        block_hash: ExecutionBlockHash,
+        parent_hash: ExecutionBlockHash,
+        block_number: u64,
+        timestamp: u64,
+        prev_randao: H256,
+    ) {
         assert_eq!(payload_header.block_hash(), block_hash);
         assert_eq!(payload_header.parent_hash(), parent_hash);
         assert_eq!(payload_header.block_number(), block_number);
@@ -229,8 +268,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(head_execution_block.block_number(), block_number);
         assert_eq!(head_execution_block.block_hash(), block_hash);
         assert_eq!(head_execution_block.parent_hash(), parent_hash);
-
-        self
     }
 
     pub fn move_to_block_prior_to_terminal_block(self) -> Self {
