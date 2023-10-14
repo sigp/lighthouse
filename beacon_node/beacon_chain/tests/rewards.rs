@@ -239,14 +239,14 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
     let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
 
     // advance until epoch N + 2 and build proposal rewards map
-    let mut advanced_slot = harness.get_current_slot();
     let mut proposal_rewards_map: HashMap<u64, u64> = HashMap::new();
+    let mut sync_committee_rewards_map: HashMap<u64, i64> = HashMap::new();
     for _ in 0..E::slots_per_epoch() {
         let state = harness.get_current_state();
         let slot = state.slot() + Slot::new(1);
 
+        // calculate beacon block rewards / penalties
         let (signed_block, mut state) = harness.make_block_return_pre_state(state, slot).await;
-
         let beacon_block_reward = harness
             .chain
             .compute_beacon_block_reward(
@@ -263,12 +263,23 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
 
         proposal_rewards_map.insert(beacon_block_reward.proposer_index, total_proposer_reward);
 
+        // calculate sync committee rewards / penalties
+        let reward_payload = harness
+            .chain
+            .compute_sync_committee_rewards(signed_block.message(), &mut state)
+            .unwrap();
+
+        reward_payload.iter().for_each(|reward| {
+            let mut amount = *sync_committee_rewards_map
+                .get(&reward.validator_index)
+                .unwrap_or(&0);
+            amount += reward.reward;
+            sync_committee_rewards_map.insert(reward.validator_index, amount);
+        });
+
         harness
             .extend_slots_some_validators(1, half_validators.clone())
             .await;
-
-        advanced_slot = harness.get_current_slot();
-        println!("Beacon block reward: {:#?}", beacon_block_reward);
     }
 
     // compute reward deltas for all validators in epoch N
@@ -289,26 +300,15 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
         .iter()
         .all(|reward| reward.inactivity < 0));
 
-    // apply attestation rewards to initial balances
+    // apply attestation, proposal, and sync committee rewards and penalties to initial balances
     let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
     let expected_balances = apply_beacon_block_rewards(&proposal_rewards_map, expected_balances);
+    let expected_balances =
+        apply_sync_committee_rewards(&sync_committee_rewards_map, expected_balances);
+
     // verify expected balances against actual balances
     let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
 
-    for (index, expected_balance) in expected_balances.iter().enumerate() {
-        let current_balance = balances[index];
-        let is_proposal_validator = proposal_rewards_map.contains_key(&(index as u64));
-        println!("**************************************************************");
-        println!("Validator: {index} | expected value {expected_balance} | slot {advanced_slot}");
-        println!("Validator: {index} | actual value {current_balance} | slot {advanced_slot}");
-        println!(
-            "Validator: {index} | difference expected - current: {:#?}",
-            expected_balance - current_balance
-        );
-        println!("Validator: {index} | get proposal reward {is_proposal_validator}");
-    }
-
-    // Failing test statement
     assert_eq!(expected_balances, balances);
 }
 
@@ -399,6 +399,22 @@ fn apply_beacon_block_rewards(
         .iter()
         .enumerate()
         .map(|(i, balance)| balance + proposal_rewards_map.get(&(i as u64)).unwrap_or(&0u64))
+        .collect();
+
+    calculated_balances
+}
+
+fn apply_sync_committee_rewards(
+    sync_committee_rewards_map: &HashMap<u64, i64>,
+    expected_balances: Vec<u64>,
+) -> Vec<u64> {
+    let calculated_balances = expected_balances
+        .iter()
+        .enumerate()
+        .map(|(i, balance)| {
+            (*balance as i64 + sync_committee_rewards_map.get(&(i as u64)).unwrap_or(&0i64))
+                .unsigned_abs()
+        })
         .collect();
 
     calculated_balances
