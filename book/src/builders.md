@@ -258,6 +258,9 @@ used in place of one from the builder:
 INFO Reconstructing a full block using a local payload
 ```
 
+## Information for block builders and relays
+Block builders and relays can query beacon node events from the [Events API](https://ethereum.github.io/beacon-APIs/#/Events/eventstream). An example of querying the payload attributes in the Events API is outlined in [Beacon node API - Events API](./api-bn.md#events-api)
+
 [mev-rs]: https://github.com/ralexstokes/mev-rs
 [mev-boost]: https://github.com/flashbots/mev-boost
 [gas-limit-api]: https://ethereum.github.io/keymanager-APIs/#/Gas%20Limit

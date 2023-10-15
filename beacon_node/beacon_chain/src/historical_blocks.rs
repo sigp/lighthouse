@@ -140,17 +140,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             prev_block_slot = block.slot();
             expected_block_root = block.message().parent_root();
 
-            // If we've reached genesis, add the genesis block root to the batch and set the
-            // anchor slot to 0 to indicate completion.
+            // If we've reached genesis, add the genesis block root to the batch for all slots
+            // between 0 and the first block slot, and set the anchor slot to 0 to indicate
+            // completion.
             if expected_block_root == self.genesis_block_root {
                 let genesis_slot = self.spec.genesis_slot;
-                cold_batch.push(KeyValueStoreOp::PutKeyValue(
-                    get_key_for_col(
-                        DBColumn::BeaconBlockRoots.into(),
-                        &genesis_slot.as_u64().to_be_bytes(),
-                    ),
-                    self.genesis_block_root.as_bytes().to_vec(),
-                ));
+                for slot in genesis_slot.as_u64()..block.slot().as_u64() {
+                    cold_batch.push(KeyValueStoreOp::PutKeyValue(
+                        get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                        self.genesis_block_root.as_bytes().to_vec(),
+                    ));
+                }
                 prev_block_slot = genesis_slot;
                 expected_block_root = Hash256::zero();
                 break;
