@@ -4,7 +4,7 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::validator_monitor::{ValidatorMonitorConfig, MISSED_BLOCK_LAG_SLOTS};
-use types::{Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, PublicKeyBytes, Slot};
+use types::{Epoch, EthSpec, Keypair, MainnetEthSpec, PublicKeyBytes, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
@@ -77,7 +77,7 @@ async fn produces_missed_blocks() {
     let mut validator_indexes = _state.get_beacon_proposer_indices(&harness1.spec).unwrap();
     let mut validator_index = validator_indexes[slot_in_epoch.as_usize()];
     let mut proposer_shuffling_decision_root = _state
-        .proposer_shuffling_decision_root(Hash256::zero())
+        .proposer_shuffling_decision_root(duplicate_block_root)
         .unwrap();
 
     let beacon_proposer_cache = harness1
@@ -238,7 +238,7 @@ async fn produces_missed_blocks() {
     validator_indexes = _state3.get_beacon_proposer_indices(&harness3.spec).unwrap();
     validator_index = validator_indexes[slot_in_epoch.as_usize()];
     proposer_shuffling_decision_root = _state3
-        .proposer_shuffling_decision_root_at_epoch(epoch, Hash256::zero())
+        .proposer_shuffling_decision_root_at_epoch(epoch, duplicate_block_root)
         .unwrap();
 
     let beacon_proposer_cache = harness3

@@ -618,9 +618,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// ## Notes
     ///
-    /// The `block_root` covers the one-off scenario where the genesis block decides its own
-    /// shuffling. It should be set to the latest block applied to `self` or the genesis block root.
-    /// The `epoch` should be set to the epoch of the block root.
+    /// The `block_root` must be equal to the latest block applied to `self`.
     pub fn proposer_shuffling_decision_root_at_epoch(
         &self,
         epoch: Epoch,
