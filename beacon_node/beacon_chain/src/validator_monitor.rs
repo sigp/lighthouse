@@ -559,17 +559,25 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             });
 
         // Set the Prometheus metrics for each validator (including missed_blocks_count=0)
-        validators_missed_blocks
-            .iter()
-            .for_each(|(validator_index, missed_blocks_count)| {
-                self.aggregatable_metric(validator_index.to_string().as_str(), |label| {
+        if self.individual_tracking() {
+            validators_missed_blocks
+                .iter()
+                .for_each(|(validator_index, missed_blocks_count)| {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
-                        &[label],
+                        &[validator_index.to_string().as_str()],
                         u64_to_i64(*missed_blocks_count),
                     );
                 });
-            });
+        }
+
+        // Set the prometheus metric for the total amount of missed blocks for all monitored validators
+        let total_missed_block: u64 = validators_missed_blocks.values().sum();
+        metrics::set_int_gauge(
+            &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
+            &[TOTAL_LABEL],
+            u64_to_i64(total_missed_block)
+        );
 
         // Increment the Prometheus metrics counter for each missed block
         if let Some(i) = self.last_missed_block_validator {
