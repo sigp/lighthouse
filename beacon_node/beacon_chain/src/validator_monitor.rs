@@ -45,6 +45,12 @@ const DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD: usize = 64;
 /// Lag slots used in detecting missed blocks for the monitored validators
 pub const MISSED_BLOCK_LAG_SLOTS: usize = 4;
 
+/// The number of epochs to look back when determining if a validator has missed a block. This value is used with
+/// the beacon_proposer_cache to determine if a validator has missed a block.
+/// And so, setting this value to anything higher than 1 is likely going to be problematic because the beacon_proposer_cache
+/// is only populated for the current and the previous epoch.
+pub const MISSED_BLOCK_LOOKBACK_EPOCHS: usize = 1;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 // Initial configuration values for the `ValidatorMonitor`.
 pub struct ValidatorMonitorConfig {
@@ -369,8 +375,6 @@ pub struct ValidatorMonitor<T> {
     /// large validator counts causing infeasibly high cardinailty for
     /// Prometheus and high log volumes.
     individual_tracking_threshold: usize,
-    /// An Option representing the validator index of a monitored validator who may have missed a (non-finalized) block at current_slot - MISSED_BLOCK_LAG_SLOTS
-    last_missed_block_validator: Option<u64>,
     /// A Map representing the (non-finalized) missed blocks by epoch, validator_index(state.validators) and slot
     missed_blocks: HashSet<(Epoch, u64, Slot)>,
     // A beacon proposer cache
@@ -396,7 +400,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             indices: <_>::default(),
             auto_register,
             individual_tracking_threshold,
-            last_missed_block_validator: <_>::default(),
             missed_blocks: <_>::default(),
             beacon_proposer_cache,
             log,
@@ -576,34 +579,34 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         metrics::set_int_gauge(
             &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
             &[TOTAL_LABEL],
-            u64_to_i64(total_missed_block)
+            u64_to_i64(total_missed_block),
         );
 
-        // Increment the Prometheus metrics counter for each missed block
-        if let Some(i) = self.last_missed_block_validator {
-            self.aggregatable_metric(i.to_string().as_str(), |label| {
-                metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL, &[label]);
-            });
-            self.last_missed_block_validator = None;
-        };
-
-        // Prune missed blocks that are prior to last finalized epochs
+        // Prune missed blocks that are prior to last finalized epochs - MISSED_BLOCK_LOOKBACK_EPOCHS
         let finalized_epoch = state.finalized_checkpoint().epoch;
-        self.missed_blocks
-            .retain(|(epoch, _, _)| *epoch > finalized_epoch);
+        self.missed_blocks.retain(|(epoch, _, _)| {
+            *epoch > finalized_epoch - Epoch::new(MISSED_BLOCK_LOOKBACK_EPOCHS as u64)
+        });
     }
 
     /// Add missed non-finalized blocks for the monitored validators
     fn add_validators_missed_blocks(&mut self, state: &BeaconState<T>) {
         // Define range variables
         let current_slot = state.slot();
-        let start_slot = current_slot.saturating_sub(T::slots_per_epoch()).as_u64();
+        let current_epoch = current_slot.epoch(T::slots_per_epoch());
+        // start_slot needs to be coherent with what can be retrieved from the beacon_proposer_cache
+        let start_slot = current_epoch.start_slot(T::slots_per_epoch())
+            - Slot::new(MISSED_BLOCK_LOOKBACK_EPOCHS as u64 * T::slots_per_epoch());
+
         let end_slot = current_slot.saturating_sub(MISSED_BLOCK_LAG_SLOTS).as_u64();
 
         // List of proposers per epoch from the beacon_proposer_cache
         let mut proposers_per_epoch: Option<SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> = None;
 
-        for (prev_slot, slot) in (start_slot..=end_slot).map(Slot::new).tuple_windows() {
+        for (prev_slot, slot) in (start_slot.as_u64()..=end_slot)
+            .map(Slot::new)
+            .tuple_windows()
+        {
             // Condition for missed_block is defined such as block_root(slot) == block_root(slot - 1)
             // where the proposer who missed the block is the proposer of the block at block_root(slot)
             if let (Ok(block_root), Ok(prev_block_root)) =
@@ -614,11 +617,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     let slot_epoch = slot.epoch(T::slots_per_epoch());
                     let prev_slot_epoch = prev_slot.epoch(T::slots_per_epoch());
 
-                    if let Ok(shuffling_decision_block) = state
-                        .proposer_shuffling_decision_root_at_epoch(
-                            slot_epoch,
-                            *block_root,
-                        )
+                    if let Ok(shuffling_decision_block) =
+                        state.proposer_shuffling_decision_root_at_epoch(slot_epoch, *block_root)
                     {
                         // Only update the cache if it needs to be initialised or because
                         // slot is at epoch + 1
@@ -638,11 +638,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             let i = *proposer_index as u64;
                             if let Some(pub_key) = self.indices.get(&i) {
                                 if self.validators.get(pub_key).is_some() {
-                                    // Add to missed blocks
-                                    self.missed_blocks.insert((slot_epoch, i, slot));
-                                    // Add to validator that missed the block for the current epoch
-                                    if slot == end_slot {
-                                        self.last_missed_block_validator = Some(i);
+                                    // Incr missed block counter for the validator only if it doesn't already exist in the hashset
+                                    if self.missed_blocks.insert((slot_epoch, i, slot)) {
+                                        self.aggregatable_metric(i.to_string().as_str(), |label| {
+                                            metrics::inc_counter_vec(
+                                                &metrics::VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL,
+                                                &[label],
+                                            );
+                                        });
                                         error!(
                                             self.log,
                                             "Validator missed a block";
