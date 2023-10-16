@@ -9,7 +9,7 @@ pub struct ForkContext {
     current_fork: RwLock<ForkName>,
     fork_to_digest: HashMap<ForkName, [u8; 4]>,
     digest_to_fork: HashMap<[u8; 4], ForkName>,
-    spec: ChainSpec,
+    pub spec: ChainSpec,
 }
 
 impl ForkContext {
@@ -118,6 +118,7 @@ impl ForkContext {
         self.digest_to_fork.keys().cloned().collect()
     }
 
+    /// Returns the `min_blocks_by_root_request` corresponding to the current fork.
     pub fn min_blocks_by_root_request(&self) -> usize {
         let fork_name = self.current_fork();
         match fork_name {
@@ -128,6 +129,7 @@ impl ForkContext {
         }
     }
 
+    /// Returns the `max_blocks_by_root_request` corresponding to the current fork.
     pub fn max_blocks_by_root_request(&self) -> usize {
         let fork_name = self.current_fork();
         match fork_name {
@@ -137,10 +139,31 @@ impl ForkContext {
             ForkName::Deneb => self.spec.max_blocks_by_root_request_deneb,
         }
     }
+
+    /// Returns the `max_request_blocks` corresponding to the current fork.
+    pub fn max_request_blocks(&self) -> usize {
+        let fork_name = self.current_fork();
+        let max_request_blocks = match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                self.spec.max_request_blocks
+            }
+            ForkName::Deneb => self.spec.max_request_blocks_deneb,
+        };
+        max_request_blocks as usize
+    }
+
+    /// Returns the `min_blobs_by_root_request` set in `ChainSpec`.
     pub fn min_blobs_by_root_request(&self) -> usize {
         self.spec.min_blobs_by_root_request
     }
+
+    /// Returns the `max_blobs_by_root_request` set in `ChainSpec`.
     pub fn max_blobs_by_root_request(&self) -> usize {
         self.spec.max_blobs_by_root_request
+    }
+
+    /// Returns the `max_request_blob_sidecars` set in `ChainSpec`.
+    pub fn max_request_blob_sidecars(&self) -> usize {
+        self.spec.max_request_blob_sidecars as usize
     }
 }

@@ -478,7 +478,7 @@ fn handle_rpc_request<T: EthSpec>(
             BlocksByRootRequest::V2(BlocksByRootRequestV2 {
                 block_roots: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    fork_context.spec.max_request_blocks as usize,
+                    fork_context.max_request_blocks(),
                 )?,
             }),
         ))),
@@ -486,7 +486,7 @@ fn handle_rpc_request<T: EthSpec>(
             BlocksByRootRequest::V1(BlocksByRootRequestV1 {
                 block_roots: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    fork_context.spec.max_request_blocks as usize,
+                    fork_context.max_request_blocks(),
                 )?,
             }),
         ))),
@@ -497,7 +497,7 @@ fn handle_rpc_request<T: EthSpec>(
             Ok(Some(InboundRequest::BlobsByRoot(BlobsByRootRequest {
                 blob_ids: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    fork_context.spec.max_request_blob_sidecars as usize,
+                    fork_context.max_request_blob_sidecars(),
                 )?,
             })))
         }
