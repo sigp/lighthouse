@@ -512,6 +512,34 @@ impl ChainSpec {
         Duration::from_secs(self.resp_timeout)
     }
 
+    pub fn min_blocks_by_root_request(&self, fork_name: ForkName) -> usize {
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                self.min_blocks_by_root_request
+            }
+            ForkName::Deneb => self.min_blocks_by_root_request_deneb,
+        }
+    }
+
+    pub fn max_blocks_by_root_request(&self, fork_name: ForkName) -> usize {
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                self.max_blocks_by_root_request
+            }
+            ForkName::Deneb => self.max_blocks_by_root_request_deneb,
+        }
+    }
+
+    pub fn max_request_blocks(&self, fork_name: ForkName) -> usize {
+        let max_request_blocks = match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                self.max_request_blocks
+            }
+            ForkName::Deneb => self.max_request_blocks_deneb,
+        };
+        max_request_blocks as usize
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {

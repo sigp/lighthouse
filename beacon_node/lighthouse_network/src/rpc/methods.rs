@@ -340,13 +340,13 @@ pub struct BlocksByRootRequest {
 impl BlocksByRootRequest {
     pub fn new(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
         let block_roots =
-            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
+            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks_deneb as usize);
         Self::V2(BlocksByRootRequestV2 { block_roots })
     }
 
     pub fn new_v1(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
         let block_roots =
-            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
+            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks_deneb as usize);
         Self::V1(BlocksByRootRequestV1 { block_roots })
     }
 }

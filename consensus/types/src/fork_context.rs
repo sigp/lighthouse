@@ -121,35 +121,19 @@ impl ForkContext {
     /// Returns the `min_blocks_by_root_request` corresponding to the current fork.
     pub fn min_blocks_by_root_request(&self) -> usize {
         let fork_name = self.current_fork();
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                self.spec.min_blocks_by_root_request
-            }
-            ForkName::Deneb => self.spec.min_blocks_by_root_request_deneb,
-        }
+        self.spec.min_blocks_by_root_request(fork_name)
     }
 
     /// Returns the `max_blocks_by_root_request` corresponding to the current fork.
     pub fn max_blocks_by_root_request(&self) -> usize {
         let fork_name = self.current_fork();
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                self.spec.max_blocks_by_root_request
-            }
-            ForkName::Deneb => self.spec.max_blocks_by_root_request_deneb,
-        }
+        self.spec.max_blocks_by_root_request(fork_name)
     }
 
     /// Returns the `max_request_blocks` corresponding to the current fork.
     pub fn max_request_blocks(&self) -> usize {
         let fork_name = self.current_fork();
-        let max_request_blocks = match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                self.spec.max_request_blocks
-            }
-            ForkName::Deneb => self.spec.max_request_blocks_deneb,
-        };
-        max_request_blocks as usize
+        self.spec.max_request_blocks(fork_name)
     }
 
     /// Returns the `min_blobs_by_root_request` set in `ChainSpec`.
