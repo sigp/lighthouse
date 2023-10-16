@@ -540,7 +540,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 seen_timestamp: timestamp_now(),
             });
         } else {
-            debug!(
+            crit!(
                 self.log,
                 "All blobs by range responses should belong to sync"
             );
