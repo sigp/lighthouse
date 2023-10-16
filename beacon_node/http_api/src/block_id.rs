@@ -253,7 +253,7 @@ impl BlockId {
     }
 
     /// Return the `BlobSidecarList` identified by `self`.
-    pub async fn blob_sidecar_list<T: BeaconChainTypes>(
+    pub fn blob_sidecar_list<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
@@ -263,12 +263,12 @@ impl BlockId {
             .map_err(warp_utils::reject::beacon_chain_error)
     }
 
-    pub async fn blob_sidecar_list_filtered<T: BeaconChainTypes>(
+    pub fn blob_sidecar_list_filtered<T: BeaconChainTypes>(
         &self,
         indices: BlobIndicesQuery,
         chain: &BeaconChain<T>,
     ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
-        let blob_sidecar_list = self.blob_sidecar_list(chain).await?;
+        let blob_sidecar_list = self.blob_sidecar_list(chain)?;
         let blob_sidecar_list_filtered = match indices.indices {
             Some(vec) => {
                 let list = blob_sidecar_list

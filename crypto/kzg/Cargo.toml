@@ -7,18 +7,17 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ethereum_ssz = "0.5.0"
-ethereum_ssz_derive = "0.5.3"
-tree_hash = "0.5.2"
-derivative = "2.1.1"
-serde = "1.0.116"
-serde_derive = "1.0.116"
-ethereum_serde_utils = "0.5.0"
-hex = "0.4.2"
-ethereum_hashing = "1.0.0-beta.2"
+arbitrary = { workspace = true }
+ethereum_ssz = { workspace = true }
+ethereum_ssz_derive = { workspace = true }
+tree_hash = { workspace = true }
+derivative = { workspace = true }
+serde = { workspace = true }
+ethereum_serde_utils = { workspace = true }
+hex = { workspace = true }
+ethereum_hashing = { workspace = true }
 c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", rev = "f5f6f863d475847876a2bd5ee252058d37c3a15d" , features = ["mainnet-spec", "serde"]}
 c_kzg_min = { package = "c-kzg", git = "https://github.com/ethereum//c-kzg-4844", rev = "f5f6f863d475847876a2bd5ee252058d37c3a15d", features = ["minimal-spec", "serde"], optional = true }
-arbitrary = { version = "1.0", features = ["derive"] }
 
 [features]
 # TODO(deneb): enabled by default for convenience, would need more cfg magic to disable

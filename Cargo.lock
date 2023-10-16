@@ -3829,7 +3829,6 @@ dependencies = [
  "ethereum_ssz_derive",
  "hex",
  "serde",
- "serde_derive",
  "tree_hash",
 ]
 

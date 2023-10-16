@@ -75,8 +75,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             .unwrap_or_else(|| Duration::from_secs(0));
 
         info!(log, "Signed block published to network via HTTP API"; "slot" => block.slot(), "publish_delay" => ?publish_delay);
-        // Send the block, regardless of whether or not it is valid. The API
-        // specification is very clear that this is the desired behaviour.
+
         match block.as_ref() {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
