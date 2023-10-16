@@ -711,7 +711,7 @@ pub fn generate_genesis_header<T: EthSpec>(
             Some(header)
         }
         ForkName::Deneb => {
-            let mut header = ExecutionPayloadHeader::Capella(<_>::default());
+            let mut header = ExecutionPayloadHeader::Deneb(<_>::default());
             *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
             Some(header)
         }
