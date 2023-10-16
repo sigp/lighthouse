@@ -468,8 +468,6 @@ pub fn gossipsub_config(
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
         match fork_context.current_fork() {
-            // according to: https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#the-gossip-domain-gossipsub
-            // the derivation of the message-id remains the same in the merge and for eip 4844.
             ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(

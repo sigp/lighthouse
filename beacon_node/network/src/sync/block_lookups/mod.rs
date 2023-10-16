@@ -49,7 +49,7 @@ pub type DownloadedBlock<T> = (Hash256, RpcBlock<T>);
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
 
-/// This enum is used to track what a peer *should* be able to respond with respond based on
+/// This enum is used to track what a peer *should* be able to respond with based on
 /// other messages we've seen from this peer on the network. This is useful for peer scoring.
 /// We expect a peer tracked by the `BlockAndBlobs` variant to be able to respond to all
 /// components of a block. This peer has either sent an attestation for the requested block
@@ -449,7 +449,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             }
             CachedChild::DownloadIncomplete => {
-                // If this was the result of a block request, we can't determined if the block peer
+                // If this was the result of a block request, we can't determine if the block peer
                 // did anything wrong. If we already had both a block and blobs response processed,
                 // we should penalize the blobs peer because they did not provide all blobs on the
                 // initial request.
