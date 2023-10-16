@@ -1,6 +1,6 @@
 use crate::error::InvalidBestNodeInfo;
 use crate::{error::Error, Block, ExecutionStatus, JustifiedBalances};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
