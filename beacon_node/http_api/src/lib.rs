@@ -1738,7 +1738,7 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 async move {
                     let blob_sidecar_list_filtered =
-                        block_id.blob_sidecar_list_filtered(indices, &chain).await?;
+                        block_id.blob_sidecar_list_filtered(indices, &chain)?;
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
