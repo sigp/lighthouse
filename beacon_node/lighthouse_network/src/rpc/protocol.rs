@@ -21,7 +21,7 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BlobSidecar, EmptyBlock, EthSpec, ForkContext, ForkName, MainnetEthSpec, Signature,
+    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, MainnetEthSpec, Signature,
     SignedBeaconBlock,
 };
 
@@ -348,7 +348,7 @@ impl AsRef<str> for ProtocolId {
 
 impl ProtocolId {
     /// Returns min and max size for messages of given protocol id requests.
-    pub fn rpc_request_limits(&self, fork_context: &ForkContext) -> RpcLimits {
+    pub fn rpc_request_limits(&self, spec: &ChainSpec) -> RpcLimits {
         match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -364,16 +364,16 @@ impl ProtocolId {
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlocksByRoot => RpcLimits::new(
-                fork_context.min_blocks_by_root_request(),
-                fork_context.max_blocks_by_root_request(),
+                spec.min_blocks_by_root_request,
+                spec.max_blocks_by_root_request,
             ),
             Protocol::BlobsByRange => RpcLimits::new(
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlobsByRoot => RpcLimits::new(
-                fork_context.min_blobs_by_root_request(),
-                fork_context.max_blobs_by_root_request(),
+                spec.min_blobs_by_root_request,
+                spec.max_blobs_by_root_request,
             ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),

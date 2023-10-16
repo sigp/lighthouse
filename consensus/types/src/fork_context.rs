@@ -117,37 +117,4 @@ impl ForkContext {
     pub fn all_fork_digests(&self) -> Vec<[u8; 4]> {
         self.digest_to_fork.keys().cloned().collect()
     }
-
-    /// Returns the `min_blocks_by_root_request` corresponding to the current fork.
-    pub fn min_blocks_by_root_request(&self) -> usize {
-        let fork_name = self.current_fork();
-        self.spec.min_blocks_by_root_request(fork_name)
-    }
-
-    /// Returns the `max_blocks_by_root_request` corresponding to the current fork.
-    pub fn max_blocks_by_root_request(&self) -> usize {
-        let fork_name = self.current_fork();
-        self.spec.max_blocks_by_root_request(fork_name)
-    }
-
-    /// Returns the `max_request_blocks` corresponding to the current fork.
-    pub fn max_request_blocks(&self) -> usize {
-        let fork_name = self.current_fork();
-        self.spec.max_request_blocks(fork_name)
-    }
-
-    /// Returns the `min_blobs_by_root_request` set in `ChainSpec`.
-    pub fn min_blobs_by_root_request(&self) -> usize {
-        self.spec.min_blobs_by_root_request
-    }
-
-    /// Returns the `max_blobs_by_root_request` set in `ChainSpec`.
-    pub fn max_blobs_by_root_request(&self) -> usize {
-        self.spec.max_blobs_by_root_request
-    }
-
-    /// Returns the `max_request_blob_sidecars` set in `ChainSpec`.
-    pub fn max_request_blob_sidecars(&self) -> usize {
-        self.spec.max_request_blob_sidecars as usize
-    }
 }

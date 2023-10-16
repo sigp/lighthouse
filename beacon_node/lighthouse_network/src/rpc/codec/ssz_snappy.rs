@@ -15,7 +15,7 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar};
+use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar, ChainSpec};
 use types::{
     EthSpec, ForkContext, ForkName, Hash256, RuntimeVariableList, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
@@ -142,7 +142,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
-        let ssz_limits = self.protocol.rpc_request_limits(&self.fork_context);
+        let ssz_limits = self.protocol.rpc_request_limits(&self.fork_context.spec);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
                 "RPC request length for protocol {:?} is out of bounds, length {}",
@@ -166,7 +166,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 handle_rpc_request(
                     self.protocol.versioned_protocol,
                     &decoded_buffer,
-                    &self.fork_context,
+                    &self.fork_context.spec,
                 )
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
@@ -459,7 +459,7 @@ fn handle_length(
 fn handle_rpc_request<T: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
-    fork_context: &ForkContext,
+    spec: &ChainSpec,
 ) -> Result<Option<InboundRequest<T>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(InboundRequest::Status(
@@ -478,7 +478,7 @@ fn handle_rpc_request<T: EthSpec>(
             BlocksByRootRequest::V2(BlocksByRootRequestV2 {
                 block_roots: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    fork_context.max_request_blocks(),
+                    spec.max_request_blocks as usize,
                 )?,
             }),
         ))),
@@ -486,7 +486,7 @@ fn handle_rpc_request<T: EthSpec>(
             BlocksByRootRequest::V1(BlocksByRootRequestV1 {
                 block_roots: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    fork_context.max_request_blocks(),
+                    spec.max_request_blocks as usize,
                 )?,
             }),
         ))),
@@ -497,7 +497,7 @@ fn handle_rpc_request<T: EthSpec>(
             Ok(Some(InboundRequest::BlobsByRoot(BlobsByRootRequest {
                 blob_ids: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    fork_context.max_request_blob_sidecars(),
+                    spec.max_request_blob_sidecars as usize,
                 )?,
             })))
         }
