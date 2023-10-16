@@ -1,7 +1,6 @@
 use parking_lot::RwLock;
 
-use crate::{ChainSpec, EthSpec, ForkName, Hash256, RuntimeVariableList, Slot};
-use ssz::Encode;
+use crate::{ChainSpec, EthSpec, ForkName, Hash256, Slot};
 use std::collections::HashMap;
 
 /// Provides fork specific info like the current fork name and the fork digests corresponding to every valid fork.
@@ -10,11 +9,7 @@ pub struct ForkContext {
     current_fork: RwLock<ForkName>,
     fork_to_digest: HashMap<ForkName, [u8; 4]>,
     digest_to_fork: HashMap<[u8; 4], ForkName>,
-    pub blocks_by_root_request_min: usize,
-    pub blocks_by_root_request_max: usize,
-    pub blobs_by_root_request_min: usize,
-    pub blobs_by_root_request_max: usize,
-    pub spec: ChainSpec,
+    spec: ChainSpec,
 }
 
 impl ForkContext {
@@ -75,40 +70,10 @@ impl ForkContext {
             .map(|(k, v)| (v, k))
             .collect();
 
-        let max_request_blocks = spec.max_request_blocks as usize;
-        let blocks_by_root_request_min =
-            RuntimeVariableList::<Hash256>::from_vec(Vec::<Hash256>::new(), max_request_blocks)
-                .as_ssz_bytes()
-                .len();
-        let blocks_by_root_request_max = RuntimeVariableList::<Hash256>::from_vec(
-            vec![Hash256::zero(); max_request_blocks],
-            max_request_blocks,
-        )
-        .as_ssz_bytes()
-        .len();
-
-        let max_request_blob_sidecars = spec.max_request_blob_sidecars as usize;
-        let blobs_by_root_request_min = RuntimeVariableList::<Hash256>::from_vec(
-            Vec::<Hash256>::new(),
-            max_request_blob_sidecars,
-        )
-        .as_ssz_bytes()
-        .len();
-        let blobs_by_root_request_max = RuntimeVariableList::<Hash256>::from_vec(
-            vec![Hash256::zero(); max_request_blob_sidecars],
-            max_request_blob_sidecars,
-        )
-        .as_ssz_bytes()
-        .len();
-
         Self {
             current_fork: RwLock::new(spec.fork_name_at_slot::<T>(current_slot)),
             fork_to_digest,
             digest_to_fork,
-            blocks_by_root_request_min,
-            blocks_by_root_request_max,
-            blobs_by_root_request_min,
-            blobs_by_root_request_max,
             spec: spec.clone(),
         }
     }
@@ -151,5 +116,31 @@ impl ForkContext {
     /// Returns all `fork_digest`s that are currently in the `ForkContext` object.
     pub fn all_fork_digests(&self) -> Vec<[u8; 4]> {
         self.digest_to_fork.keys().cloned().collect()
+    }
+
+    pub fn min_blocks_by_root_request(&self) -> usize {
+        let fork_name = self.current_fork();
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                self.spec.min_blocks_by_root_request
+            }
+            ForkName::Deneb => self.spec.min_blocks_by_root_request_deneb,
+        }
+    }
+
+    pub fn max_blocks_by_root_request(&self) -> usize {
+        let fork_name = self.current_fork();
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                self.spec.max_blocks_by_root_request
+            }
+            ForkName::Deneb => self.spec.max_blocks_by_root_request_deneb,
+        }
+    }
+    pub fn min_blobs_by_root_request(&self) -> usize {
+        self.spec.min_blobs_by_root_request
+    }
+    pub fn max_blobs_by_root_request(&self) -> usize {
+        self.spec.max_blobs_by_root_request
     }
 }
