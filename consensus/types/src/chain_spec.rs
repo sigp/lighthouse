@@ -1019,7 +1019,7 @@ pub struct Config {
     ejection_balance: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
-    #[serde(default)]
+    #[serde(default = "default_max_per_epoch_activation_churn_limit")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_churn_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1104,6 +1104,10 @@ fn default_safe_slots_to_import_optimistically() -> u64 {
 
 fn default_subnets_per_node() -> u8 {
     2u8
+}
+
+const fn default_max_per_epoch_activation_churn_limit() -> u64 {
+    8
 }
 
 const fn default_gossip_max_size() -> u64 {
