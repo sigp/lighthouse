@@ -33,6 +33,14 @@ const HOLESKY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url
     genesis_validators_root: "0x9143aa7c615a7f7115e2b6aac319c03529df8242ae705fba9df39b79c59fa8b1",
 };
 
+// const EPHEMERY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
+//     urls: &[
+//         "https://checkpointz.bordel.wtf/",
+//     ],
+//     checksum: None,
+//     genesis_validators_root: None,
+// };
+
 const CHIADO_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
     // No default checkpoint sources are provided.
     urls: &[],
