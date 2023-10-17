@@ -3874,7 +3874,11 @@ pub fn serve<T: BeaconChainTypes>(
                         .cloned()
                         .map(|index| {
                             let is_live = chain.validator_seen_at_epoch(index as usize, epoch);
-                            api_types::LivenessResponseData { index, epoch, is_live }
+                            api_types::LivenessResponseData {
+                                index,
+                                epoch,
+                                is_live,
+                            }
                         })
                         .collect();
 

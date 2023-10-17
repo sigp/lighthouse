@@ -227,7 +227,7 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
             // progress even if some of the calls are failing.
             vec![]
         });
-    
+
     // Alert the user if the beacon node is omitting validators from the response.
     //
     // This is not perfect since the validator might return duplicate entries, but it's a quick
