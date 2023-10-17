@@ -74,6 +74,7 @@ impl NethermindEngine {
             .join("bin")
             .join("Release")
             .join("net7.0")
+            .join("linux-x64")
             .join("nethermind")
     }
 }
