@@ -502,8 +502,7 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
     kzg: &Kzg<T::Kzg>,
 ) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
-    //TODO(sean) remove clone
-    if validate_blob::<T>(kzg, blob.blob.clone(), blob.kzg_commitment, blob.kzg_proof)
+    if validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)
         .map_err(AvailabilityCheckError::Kzg)?
     {
         Ok(KzgVerifiedBlob { blob })
@@ -524,15 +523,10 @@ pub fn verify_kzg_for_blob_list<T: EthSpec>(
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_BATCH_TIMES);
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
         .iter()
-        .map(|blob| (blob.blob.clone(), (blob.kzg_commitment, blob.kzg_proof)))
+        .map(|blob| (&blob.blob, (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
-    if validate_blobs::<T>(
-        kzg,
-        commitments.as_slice(),
-        blobs.as_slice(),
-        proofs.as_slice(),
-    )
-    .map_err(AvailabilityCheckError::Kzg)?
+    if validate_blobs::<T>(kzg, commitments.as_slice(), blobs, proofs.as_slice())
+        .map_err(AvailabilityCheckError::Kzg)?
     {
         Ok(())
     } else {

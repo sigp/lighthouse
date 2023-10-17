@@ -5123,7 +5123,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     kzg_utils::validate_blobs::<T::EthSpec>(
                         kzg,
                         expected_kzg_commitments,
-                        blobs,
+                        blobs.iter().collect(),
                         &kzg_proofs,
                     )
                     .map_err(BlockProductionError::KzgError)?;

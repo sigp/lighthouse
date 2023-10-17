@@ -12,7 +12,7 @@ fn ssz_blob_to_crypto_blob<T: EthSpec>(
 /// Validate a single blob-commitment-proof triplet from a `BlobSidecar`.
 pub fn validate_blob<T: EthSpec>(
     kzg: &Kzg<T::Kzg>,
-    blob: Blob<T>,
+    blob: &Blob<T>,
     kzg_commitment: KzgCommitment,
     kzg_proof: KzgProof,
 ) -> Result<bool, KzgError> {
@@ -27,11 +27,11 @@ pub fn validate_blob<T: EthSpec>(
 pub fn validate_blobs<T: EthSpec>(
     kzg: &Kzg<T::Kzg>,
     expected_kzg_commitments: &[KzgCommitment],
-    blobs: &[Blob<T>],
+    blobs: Vec<&Blob<T>>,
     kzg_proofs: &[KzgProof],
 ) -> Result<bool, KzgError> {
     let blobs = blobs
-        .iter()
+        .into_iter()
         .map(|blob| ssz_blob_to_crypto_blob::<T>(blob)) // Avoid this clone
         .collect::<Result<Vec<_>, KzgError>>()?;
 
