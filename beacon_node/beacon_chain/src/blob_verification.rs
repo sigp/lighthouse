@@ -520,7 +520,7 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
 pub fn verify_kzg_for_blob_list<T: EthSpec>(
     blob_list: &BlobSidecarList<T>,
     kzg: &Kzg<T::Kzg>,
-) -> Result<(), AvailabilityCheckError> {
+) -> Result<Vec<KzgVerifiedBlob<T>>, AvailabilityCheckError> {
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_BATCH_TIMES);
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
         .iter()
@@ -534,7 +534,12 @@ pub fn verify_kzg_for_blob_list<T: EthSpec>(
     )
     .map_err(AvailabilityCheckError::Kzg)?
     {
-        Ok(())
+        Ok(blob_list
+            .into_iter()
+            .map(|blob_sidecar| KzgVerifiedBlob {
+                blob: blob_sidecar.clone(),
+            })
+            .collect())
     } else {
         Err(AvailabilityCheckError::KzgVerificationFailed)
     }

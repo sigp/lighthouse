@@ -197,16 +197,18 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let mut verified_blobs = vec![];
         if let Some(kzg) = self.kzg.as_ref() {
-            for blob in blobs.iter().flatten() {
-                verified_blobs.push(verify_kzg_for_blob(blob.clone(), kzg)?)
-            }
+            let blob_list: BlobSidecarList<T::EthSpec> = blobs
+                .into_iter()
+                .flat_map(|blob| blob.clone())
+                .collect::<Vec<_>>()
+                .into();
+            let verified_blob_list = verify_kzg_for_blob_list(&blob_list, kzg)?;
+            self.availability_cache
+                .put_kzg_verified_blobs(block_root, verified_blob_list)
         } else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
-        self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs)
+        }
     }
 
     /// This first validates the KZG commitments included in the blob sidecar.
