@@ -2,52 +2,53 @@
 name = "network"
 version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dev-dependencies]
-sloggers = { version = "2.1.1", features = ["json"] }
-genesis = { path = "../genesis" }
+sloggers = { workspace = true }
+genesis = { workspace = true }
 matches = "0.1.8"
-exit-future = "0.2.0"
-slog-term = "2.6.0"
-slog-async = "2.5.0"
+exit-future = { workspace = true }
+slog-term = { workspace = true }
+slog-async = { workspace = true }
 
 [dependencies]
-beacon_chain =  { path = "../beacon_chain" }
-store =  { path = "../store" }
-lighthouse_network =  { path = "../lighthouse_network" }
-types = { path = "../../consensus/types" }
-slot_clock = { path = "../../common/slot_clock" }
-slog = { version = "2.5.2", features = ["max_level_trace"] }
-hex = "0.4.2"
-ethereum_ssz = "0.5.0"
-ssz_types = "0.5.3"
-futures = "0.3.7"
-error-chain = "0.12.4"
-tokio = { version = "1.14.0", features = ["full"] }
-tokio-stream = "0.1.3"
-smallvec = "1.6.1"
-rand = "0.8.5"
-fnv = "1.0.7"
+beacon_chain = { workspace = true }
+store = { workspace = true }
+lighthouse_network = { workspace = true }
+types = { workspace = true }
+slot_clock = { workspace = true }
+slog = { workspace = true }
+hex = { workspace = true }
+ethereum_ssz = { workspace = true }
+ssz_types = { workspace = true }
+futures = { workspace = true }
+error-chain = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+smallvec = { workspace = true }
+rand = { workspace = true }
+fnv = { workspace = true }
 rlp = "0.5.0"
-lazy_static = "1.4.0"
-lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-logging = { path = "../../common/logging" }
-task_executor = { path = "../../common/task_executor" }
+lazy_static = { workspace = true }
+lighthouse_metrics = { workspace = true }
+logging = { workspace = true }
+task_executor = { workspace = true }
 igd = "0.12.1"
-itertools = "0.10.0"
-lru_cache = { path = "../../common/lru_cache" }
+itertools = { workspace = true }
+num_cpus = { workspace = true }
+lru_cache = { workspace = true }
 if-addrs = "0.6.4"
-strum = "0.24.0"
-tokio-util = { version = "0.6.3", features = ["time"] }
-derivative = "2.2.0"
-delay_map = "0.3.0"
-ethereum-types = { version = "0.14.1", optional = true }
-operation_pool =  { path = "../operation_pool" }
-execution_layer =  { path = "../execution_layer" }
-beacon_processor =  { path = "../beacon_processor" }
-parking_lot = "0.12.0"
-environment = { path = "../../lighthouse/environment" }
+strum = { workspace = true }
+tokio-util = { workspace = true }
+derivative = { workspace = true }
+delay_map = { workspace = true }
+ethereum-types = { workspace = true }
+operation_pool = { workspace = true }
+execution_layer = { workspace = true }
+beacon_processor = { workspace = true }
+parking_lot = { workspace = true }
+environment = { workspace = true }
 
 [features]
 # NOTE: This can be run via cargo build --bin lighthouse --features network/disable-backfill

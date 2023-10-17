@@ -2,14 +2,14 @@
 name = "state_transition_vectors"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-state_processing = { path = "../../consensus/state_processing" }
-types = { path = "../../consensus/types" }
-ethereum_ssz = "0.5.0"
-beacon_chain = { path = "../../beacon_node/beacon_chain" }
-lazy_static = "1.4.0"
-tokio = { version = "1.14.0", features = ["rt-multi-thread"] }
+state_processing = { workspace = true }
+types = { workspace = true }
+ethereum_ssz = { workspace = true }
+beacon_chain = { workspace = true }
+lazy_static = { workspace = true }
+tokio = { workspace = true }

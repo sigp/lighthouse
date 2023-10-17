@@ -46,6 +46,6 @@ lcli \
 	insecure-validators \
 	--count $VALIDATOR_COUNT \
 	--base-dir $DATADIR \
-	--node-count $BN_COUNT
+	--node-count $VC_COUNT
 
 echo Validators generated with keystore passwords at $DATADIR.

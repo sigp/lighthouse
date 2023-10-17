@@ -2,63 +2,63 @@
 name = "validator_client"
 version = "0.3.5"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>", "Luke Anderson <luke@lukeanderson.com.au>"]
-edition = "2021"
+edition = { workspace = true }
 
 [lib]
 name = "validator_client"
 path = "src/lib.rs"
 
 [dev-dependencies]
-tokio = { version = "1.14.0", features = ["time", "rt-multi-thread", "macros"] }
+tokio = { workspace = true }
 
 [dependencies]
-tree_hash = "0.5.0"
-clap = "2.33.3"
-slashing_protection = { path = "./slashing_protection" }
-slot_clock = { path = "../common/slot_clock" }
-types = { path = "../consensus/types" }
-safe_arith = { path = "../consensus/safe_arith" }
-serde = "1.0.116"
+tree_hash = { workspace = true }
+clap = { workspace = true }
+slashing_protection = { workspace = true }
+slot_clock = { workspace = true }
+types = { workspace = true }
+safe_arith = { workspace = true }
+serde = { workspace = true }
 serde_derive = "1.0.116"
-bincode = "1.3.1"
-serde_json = "1.0.58"
-slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
-tokio = { version = "1.14.0", features = ["time"] }
-tokio-stream = { version = "0.1.3", features = ["sync"] }
-futures = "0.3.7"
-dirs = "3.0.1"
-directory = { path = "../common/directory" }
-lockfile = { path = "../common/lockfile" }
-environment = { path = "../lighthouse/environment" }
-parking_lot = "0.12.0"
-exit-future = "0.2.0"
-filesystem = { path = "../common/filesystem" }
-hex = "0.4.2"
-deposit_contract = { path = "../common/deposit_contract" }
-bls = { path = "../crypto/bls" }
-eth2 = { path = "../common/eth2" }
-tempfile = "3.1.0"
-validator_dir = { path = "../common/validator_dir" }
-clap_utils = { path = "../common/clap_utils" }
-eth2_keystore = { path = "../crypto/eth2_keystore" }
-account_utils = { path = "../common/account_utils" }
-lighthouse_version = { path = "../common/lighthouse_version" }
-warp_utils = { path = "../common/warp_utils" }
-warp = "0.3.2"
-hyper = "0.14.4"
-ethereum_serde_utils = "0.5.0"
-libsecp256k1 = "0.7.0"
-ring = "0.16.19"
-rand = { version = "0.8.5", features = ["small_rng"] }
-lighthouse_metrics = { path = "../common/lighthouse_metrics" }
-lazy_static = "1.4.0"
-itertools = "0.10.0"
-monitoring_api = { path = "../common/monitoring_api" }
-sensitive_url = { path = "../common/sensitive_url" }
-task_executor = { path = "../common/task_executor" }
-reqwest = { version = "0.11.0", features = ["json","stream"] }
-url = "2.2.2"
-malloc_utils = { path = "../common/malloc_utils" }
-sysinfo = "0.26.5"
+bincode = { workspace = true }
+serde_json = { workspace = true }
+slog = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+futures = { workspace = true }
+dirs = { workspace = true }
+directory = { workspace = true }
+lockfile = { workspace = true }
+environment = { workspace = true }
+parking_lot = { workspace = true }
+exit-future = { workspace = true }
+filesystem = { workspace = true }
+hex = { workspace = true }
+deposit_contract = { workspace = true }
+bls = { workspace = true }
+eth2 = { workspace = true }
+tempfile = { workspace = true }
+validator_dir = { workspace = true }
+clap_utils = { workspace = true }
+eth2_keystore = { workspace = true }
+account_utils = { workspace = true }
+lighthouse_version = { workspace = true }
+warp_utils = { workspace = true }
+warp = { workspace = true }
+hyper = { workspace = true }
+ethereum_serde_utils = { workspace = true }
+libsecp256k1 = { workspace = true }
+ring = { workspace = true }
+rand = { workspace = true, features = ["small_rng"] }
+lighthouse_metrics = { workspace = true }
+lazy_static = { workspace = true }
+itertools = { workspace = true }
+monitoring_api = { workspace = true }
+sensitive_url = { workspace = true }
+task_executor = { workspace = true }
+reqwest = { workspace = true }
+url = { workspace = true }
+malloc_utils = { workspace = true }
+sysinfo = { workspace = true }
 system_health = { path = "../common/system_health" }
-logging = { path = "../common/logging" }
+logging = { workspace = true }

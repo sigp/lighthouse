@@ -1,7 +1,7 @@
 [package]
 name = "watch"
 version = "0.1.0"
-edition = "2018"
+edition = { workspace = true }
 
 [lib]
 name = "watch"
@@ -14,35 +14,35 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = "2.33.3"
-log = "0.4.14"
-env_logger = "0.9.0"
-types = { path = "../consensus/types" }
-eth2 = { path = "../common/eth2" }
-beacon_node = { path = "../beacon_node"}
-tokio = { version = "1.14.0", features = ["time"] }
+clap = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+types = { workspace = true }
+eth2 = { workspace = true }
+beacon_node = { workspace = true }
+tokio = { workspace = true }
 axum = "0.6.18"
-hyper = "0.14.20"
-serde = "1.0.116"
-serde_json = "1.0.58"
-reqwest = { version = "0.11.0", features = ["json","stream"] }
-url = "2.2.2"
-rand = "0.7.3"
+hyper = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+url = { workspace = true }
+rand = { workspace = true }
 diesel = { version = "2.0.2", features = ["postgres", "r2d2"] }
 diesel_migrations = { version = "2.0.0", features = ["postgres"] }
-byteorder = "1.4.3"
-bls = { path = "../crypto/bls" }
-hex = "0.4.2"
-r2d2 = "0.8.9"
-serde_yaml = "0.8.24"
+byteorder = { workspace = true }
+bls = { workspace = true }
+hex = { workspace = true }
+r2d2 = { workspace = true }
+serde_yaml = { workspace = true }
 
 [dev-dependencies]
 tokio-postgres = "0.7.5"
-http_api = { path = "../beacon_node/http_api" }
-beacon_chain = { path = "../beacon_node/beacon_chain" }
-network = { path = "../beacon_node/network" }
+http_api = { workspace = true }
+beacon_chain = { workspace = true }
+network = { workspace = true }
 # TODO: update to 0.15 when released: https://github.com/testcontainers/testcontainers-rs/issues/497
 testcontainers = { git = "https://github.com/testcontainers/testcontainers-rs/", rev = "0f2c9851" }
-unused_port = { path = "../common/unused_port" }
-task_executor = { path = "../common/task_executor" }
-logging = { path = "../common/logging" }
+unused_port = { workspace = true }
+task_executor = { workspace = true }
+logging = { workspace = true }

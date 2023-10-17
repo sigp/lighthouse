@@ -2,20 +2,20 @@
 name = "eth2_wallet"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = "1.0.116"
-serde_json = "1.0.58"
-serde_repr = "0.1.6"
-uuid = { version = "0.8.1", features = ["serde", "v4"] }
-rand = "0.8.5"
-eth2_keystore = { path = "../eth2_keystore" }
-eth2_key_derivation = { path = "../eth2_key_derivation" }
-tiny-bip39 = "0.8.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_repr = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }
+eth2_keystore = { workspace = true }
+eth2_key_derivation = { workspace = true }
+tiny-bip39 = "1"
 
 [dev-dependencies]
-hex = "0.4.2"
-tempfile = "3.1.0"
+hex = { workspace = true }
+tempfile = { workspace = true }
