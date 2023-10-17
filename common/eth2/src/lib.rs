@@ -1929,7 +1929,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         indices: Vec<u64>,
-    ) -> Result<GenericResponse<Vec<StandardLivenessResponseData>>, Error> {
+    ) -> Result<GenericResponse<Vec<LivenessResponseData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()

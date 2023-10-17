@@ -182,7 +182,7 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
                     beacon_node
-                        .post_lighthouse_liveness(validator_indices, previous_epoch)
+                        .post_validator_liveness_epoch(previous_epoch, validator_indices.to_vec())
                         .await
                         .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                         .map(|result| result.data)
@@ -209,7 +209,7 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
             OfflineOnFailure::Yes,
             |beacon_node| async move {
                 beacon_node
-                    .post_lighthouse_liveness(validator_indices, current_epoch)
+                    .post_validator_liveness_epoch(current_epoch, validator_indices.to_vec())
                     .await
                     .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                     .map(|result| result.data)
@@ -227,7 +227,7 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
             // progress even if some of the calls are failing.
             vec![]
         });
-
+    
     // Alert the user if the beacon node is omitting validators from the response.
     //
     // This is not perfect since the validator might return duplicate entries, but it's a quick
