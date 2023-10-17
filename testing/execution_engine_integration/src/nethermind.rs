@@ -48,12 +48,11 @@ pub fn build(execution_clients_dir: &Path) {
         format!("nethermind build failed using release {last_release}")
     });
 
-   // Cleanup some disk space by removing nethermind's tests
-   let tests_dir = execution_clients_dir.join("nethermind/src/tests");
-   if let Err(e) = fs::remove_dir_all(tests_dir) {
-       eprintln!("Error while deleting folder: {}", e);
-   }
-
+    // Cleanup some disk space by removing nethermind's tests
+    let tests_dir = execution_clients_dir.join("nethermind/src/tests");
+    if let Err(e) = fs::remove_dir_all(tests_dir) {
+        eprintln!("Error while deleting folder: {}", e);
+    }
 }
 
 /*
