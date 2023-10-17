@@ -301,7 +301,7 @@ jobs:
           ./doppelganger_protection.sh success genesis.json
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
