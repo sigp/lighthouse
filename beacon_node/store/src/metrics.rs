@@ -101,6 +101,10 @@ lazy_static! {
         "store_beacon_block_cache_hit_total",
         "Number of hits to the store's block cache"
     );
+    pub static ref BEACON_BLOBS_CACHE_HIT_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_blobs_cache_hit_total",
+        "Number of hits to the store's blob cache"
+    );
     pub static ref BEACON_BLOCK_READ_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_block_read_overhead_seconds",
         "Overhead on reading a beacon block from the DB (e.g., decoding)"

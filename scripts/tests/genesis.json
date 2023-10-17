@@ -12,10 +12,15 @@
     "berlinBlock": 0,
     "londonBlock": 0,
     "mergeForkBlock": 0,
+    "shanghaiTime": 0,
+    "shardingForkTime": 0,
     "terminalTotalDifficulty": 0,
     "terminalTotalDifficultyPassed": true
   },
   "alloc": {
+    "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b": {
+      "balance": "0x6d6172697573766477000000"
+    },
     "0x0000000000000000000000000000000000000000": {
       "balance": "1"
     },

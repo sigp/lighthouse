@@ -128,6 +128,21 @@ jobs:
           bins: cargo-nextest
     - name: Run operation_pool tests for all known forks
       run: make test-op-pool
+  network-tests:
+    name: network-tests
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v3
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+        cache-target: release
+        bins: cargo-nextest
+    - name: Run network tests for all known forks
+      run: make test-network
   slasher-tests:
     name: slasher-tests
     runs-on: ubuntu-latest
@@ -289,7 +304,8 @@ jobs:
       run: |
           make
     - name: Install lcli
-      if: env.SELF_HOSTED_RUNNERS == 'false'
+# TODO(jimmy): re-enable this once we merge deneb into unstable
+#      if: env.SELF_HOSTED_RUNNERS == 'false'
       run: make install-lcli
     - name: Run the doppelganger protection failure test script
       run: |
@@ -340,8 +356,10 @@ jobs:
       run:  make arbitrary-fuzz
     - name: Run cargo audit
       run: make audit-CI
-    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
-      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
+# TODO(sean): re-enable this when we can figure it out with c-kzg
+# Issue: https://github.com/sigp/lighthouse/issues/4440
+#    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
+#      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest

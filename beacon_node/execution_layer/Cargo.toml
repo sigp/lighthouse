@@ -25,6 +25,7 @@ hex = { workspace = true }
 ethereum_ssz = { workspace = true }
 ssz_types = { workspace = true }
 eth2 = { workspace = true }
+kzg = { workspace = true }
 state_processing = { workspace = true }
 superstruct = { workspace = true }
 lru = { workspace = true }

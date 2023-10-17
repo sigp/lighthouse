@@ -1,9 +1,9 @@
 use crate::{
-    test_utils::TestRandom, ChainSpec, Domain, Epoch, Fork, Hash256, SecretKey, SignedRoot,
+    test_utils::TestRandom, ChainSpec, Domain, Epoch, ForkName, Hash256, SecretKey, SignedRoot,
     SignedVoluntaryExit,
 };
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -37,16 +37,20 @@ impl VoluntaryExit {
     pub fn sign(
         self,
         secret_key: &SecretKey,
-        fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> SignedVoluntaryExit {
-        let domain = spec.get_domain(
-            self.epoch,
-            Domain::VoluntaryExit,
-            fork,
-            genesis_validators_root,
-        );
+        let fork_name = spec.fork_name_at_epoch(self.epoch);
+        let fork_version = match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                spec.fork_version_for_name(fork_name)
+            }
+            // EIP-7044
+            ForkName::Deneb => spec.fork_version_for_name(ForkName::Capella),
+        };
+        let domain =
+            spec.compute_domain(Domain::VoluntaryExit, fork_version, genesis_validators_root);
+
         let message = self.signing_root(domain);
         SignedVoluntaryExit {
             message: self,
