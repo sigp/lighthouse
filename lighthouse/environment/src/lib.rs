@@ -8,7 +8,7 @@
 //! logging.
 
 use eth2_config::Eth2Config;
-use eth2_network_config::Eth2NetworkConfig;
+use eth2_network_config::{ephemery::check_update_config, Eth2NetworkConfig};
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
@@ -337,9 +337,20 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         mut self,
         eth2_network_config: Eth2NetworkConfig,
     ) -> Result<Self, String> {
-        // Create a new chain spec from the default configuration.
-        self.eth2_config.spec = eth2_network_config.chain_spec::<E>()?;
-        self.eth2_network_config = Some(eth2_network_config);
+        let network_name = match eth2_network_config.config.get_config_name() {
+            Some(name) => name,
+            None => "".to_string(),
+        };
+        // If the network config is ephemeral, check if it needs to be updated and get the current iteration.
+        if network_name == "ephemery" {
+            let updated_eth2_network_config = check_update_config(eth2_network_config.clone())?;
+            self.eth2_config.spec = updated_eth2_network_config.chain_spec::<E>()?;
+            self.eth2_network_config = Some(updated_eth2_network_config);
+        } else {
+            // Create a new chain spec from the default configuration.
+            self.eth2_config.spec = eth2_network_config.chain_spec::<E>()?;
+            self.eth2_network_config = Some(eth2_network_config);
+        }
 
         Ok(self)
     }

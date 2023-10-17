@@ -6,7 +6,9 @@ use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
+use eth2_network_config::{
+    ephemery::get_iteration, Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES,
+};
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
@@ -618,6 +620,10 @@ fn run<E: EthSpec>(
         "Configured for network";
         "name" => &network_name
     );
+
+    if network_name == "ephemery" {
+        info!(log, "Current Ephemery iteration: {}", get_iteration()?,);
+    }
 
     match matches.subcommand() {
         ("beacon_node", Some(matches)) => {

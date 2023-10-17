@@ -1294,6 +1294,35 @@ impl Config {
             ..chain_spec.clone()
         })
     }
+
+    /// Setters and getters for allowing `Config` changes for ephemeral networks.
+    pub fn get_config_name(&self) -> Option<String> {
+        self.config_name.clone()
+    }
+
+    pub fn get_min_genesis_time(&self) -> u64 {
+        self.min_genesis_time
+    }
+
+    pub fn set_min_genesis_time(&mut self, min_genesis_time: u64) {
+        self.min_genesis_time = min_genesis_time;
+    }
+
+    pub fn get_chain_id(&self) -> u64 {
+        self.deposit_chain_id
+    }
+
+    pub fn set_chain_id(&mut self, chain_id: u64) {
+        self.deposit_chain_id = chain_id;
+    }
+
+    pub fn get_network_id(&self) -> u64 {
+        self.deposit_network_id
+    }
+
+    pub fn set_network_id(&mut self, network_id: u64) {
+        self.deposit_network_id = network_id;
+    }
 }
 
 /// A simple wrapper to permit the in-line use of `?`.

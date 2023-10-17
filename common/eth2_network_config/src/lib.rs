@@ -11,6 +11,8 @@
 //! To add a new built-in testnet, add it to the `define_hardcoded_nets` invocation in the `eth2_config`
 //! crate.
 
+pub mod ephemery;
+
 use bytes::Bytes;
 use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};

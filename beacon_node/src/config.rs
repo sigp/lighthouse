@@ -8,6 +8,7 @@ use clap_utils::parse_required;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
+use eth2_network_config::ephemery::get_purge_after_update;
 use execution_layer::DEFAULT_JWT_FILE;
 use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
@@ -46,7 +47,9 @@ pub fn get_config<E: EthSpec>(
     client_config.set_data_dir(get_data_dir(cli_args));
 
     // If necessary, remove any existing database and configuration
-    if client_config.data_dir().exists() && cli_args.is_present("purge-db") {
+    if client_config.data_dir().exists()
+        && (cli_args.is_present("purge-db") || get_purge_after_update())
+    {
         // Remove the chain_db.
         let chain_db = client_config.get_db_path();
         if chain_db.exists() {
