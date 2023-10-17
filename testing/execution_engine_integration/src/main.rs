@@ -33,6 +33,7 @@ fn test_geth() {
     let test_dir = build_utils::prepare_dir();
     geth::build(&test_dir);
     TestRig::new(GethEngine).perform_tests_blocking();
+    geth::clean(&test_dir);
 }
 
 fn test_nethermind() {

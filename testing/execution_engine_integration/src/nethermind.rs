@@ -2,7 +2,7 @@ use crate::build_utils;
 use crate::execution_engine::GenericExecutionEngine;
 use crate::genesis_json::nethermind_genesis_json;
 use std::env;
-use std::fs::File;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
 use tempfile::TempDir;
@@ -47,6 +47,13 @@ pub fn build(execution_clients_dir: &Path) {
     build_utils::check_command_output(build_result(&repo_dir), || {
         format!("nethermind build failed using release {last_release}")
     });
+
+   // Cleanup some disk space by removing nethermind's tests
+   let tests_dir = execution_clients_dir.join("nethermind/src/tests");
+   if let Err(e) = fs::remove_dir_all(tests_dir) {
+       eprintln!("Error while deleting folder: {}", e);
+   }
+
 }
 
 /*
@@ -76,7 +83,7 @@ impl GenericExecutionEngine for NethermindEngine {
     fn init_datadir() -> TempDir {
         let datadir = TempDir::new().unwrap();
         let genesis_json_path = datadir.path().join("genesis.json");
-        let mut file = File::create(genesis_json_path).unwrap();
+        let mut file = fs::File::create(genesis_json_path).unwrap();
         let json = nethermind_genesis_json();
         serde_json::to_writer(&mut file, &json).unwrap();
         datadir
