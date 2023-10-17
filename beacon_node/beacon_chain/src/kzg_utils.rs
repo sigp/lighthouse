@@ -17,7 +17,7 @@ pub fn validate_blob<T: EthSpec>(
     kzg_proof: KzgProof,
 ) -> Result<bool, KzgError> {
     kzg.verify_blob_kzg_proof(
-        &ssz_blob_to_crypto_blob::<T>(&blob)?,
+        &ssz_blob_to_crypto_blob::<T>(blob)?,
         kzg_commitment,
         kzg_proof,
     )
@@ -32,7 +32,7 @@ pub fn validate_blobs<T: EthSpec>(
 ) -> Result<bool, KzgError> {
     let blobs = blobs
         .into_iter()
-        .map(|blob| ssz_blob_to_crypto_blob::<T>(blob)) // Avoid this clone
+        .map(|blob| ssz_blob_to_crypto_blob::<T>(blob))
         .collect::<Result<Vec<_>, KzgError>>()?;
 
     kzg.verify_blob_kzg_proof_batch(&blobs, expected_kzg_commitments, kzg_proofs)
