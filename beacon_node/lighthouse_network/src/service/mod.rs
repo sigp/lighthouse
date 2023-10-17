@@ -32,7 +32,7 @@ use libp2p::identify;
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::PeerId;
-use slog::{crit, debug, error, info, o, trace, warn};
+use slog::{crit, debug, info, o, trace, warn};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{
@@ -1564,7 +1564,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                             debug!(self.log, "Listener gracefuly closed"; "addresses" => ?addresses)
                         }
                         Err(reason) => {
-                            error!(self.log, "Listener abruptly closed"; "addresses" => ?addresses, "reason" => ?reason)
+                            crit!(self.log, "Listener abruptly closed"; "addresses" => ?addresses, "reason" => ?reason)
                         }
                     };
                     if Swarm::listeners(&self.swarm).count() == 0 {
