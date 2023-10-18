@@ -5,15 +5,10 @@ pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{get_block_root, GossipVerifiedBlock, PayloadVerificationOutcome};
 use derivative::Derivative;
-use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::sync::Arc;
-use types::blob_sidecar::FixedBlobSidecarList;
-use types::{
-    blob_sidecar::BlobIdentifier, ssz_tagged_beacon_state, ssz_tagged_signed_beacon_block,
-    ssz_tagged_signed_beacon_block_arc,
-};
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
@@ -251,9 +246,7 @@ impl<E: EthSpec> AvailableExecutedBlock<E> {
 /// A block that has completed all pre-deneb block processing checks, verification
 /// by an EL client but does not have all requisite blob data to get imported into
 /// fork choice.
-#[derive(Encode, Decode, Clone)]
 pub struct AvailabilityPendingExecutedBlock<E: EthSpec> {
-    #[ssz(with = "ssz_tagged_signed_beacon_block_arc")]
     pub block: Arc<SignedBeaconBlock<E>>,
     pub import_data: BlockImportData<E>,
     pub payload_verification_outcome: PayloadVerificationOutcome,
@@ -285,14 +278,10 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
     }
 }
 
-#[derive(Debug, PartialEq, Encode, Decode, Clone)]
-// TODO (mark): investigate using an Arc<state> / Arc<parent_block>
-//              here to make this cheaper to clone
+#[derive(Debug, PartialEq)]
 pub struct BlockImportData<E: EthSpec> {
     pub block_root: Hash256,
-    #[ssz(with = "ssz_tagged_beacon_state")]
     pub state: BeaconState<E>,
-    #[ssz(with = "ssz_tagged_signed_beacon_block")]
     pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     pub parent_eth1_finalization_data: Eth1FinalizationData,
     pub confirmed_state_roots: Vec<Hash256>,

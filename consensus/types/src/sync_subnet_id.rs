@@ -2,7 +2,7 @@
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::EthSpec;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_types::typenum::Unsigned;
 use std::collections::HashSet;
 use std::fmt::{self, Display};

@@ -282,20 +282,6 @@ pub async fn handle_rpc<T: EthSpec>(
                     _ => unreachable!(),
                 }),
                 ENGINE_GET_PAYLOAD_V3 => Ok(match JsonExecutionPayload::from(response) {
-                    JsonExecutionPayload::V1(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV1 {
-                            execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
-                        })
-                        .unwrap()
-                    }
-                    JsonExecutionPayload::V2(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV2 {
-                            execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
-                        })
-                        .unwrap()
-                    }
                     JsonExecutionPayload::V3(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV3 {
                             execution_payload,
@@ -310,6 +296,7 @@ pub async fn handle_rpc<T: EthSpec>(
                         })
                         .unwrap()
                     }
+                    _ => unreachable!(),
                 }),
                 _ => unreachable!(),
             }

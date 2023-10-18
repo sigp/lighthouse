@@ -10,7 +10,7 @@ use crate::block_verification::cheap_state_advance_to_obtain_committees;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::{metrics, BeaconChainError};
-use kzg::Kzg;
+use kzg::{Kzg, KzgCommitment};
 use slog::{debug, warn};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
@@ -181,6 +181,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     }
     pub fn slot(&self) -> Slot {
         self.blob.message.slot
+    }
+    pub fn index(&self) -> u64 {
+        self.blob.message.index
+    }
+    pub fn kzg_commitment(&self) -> KzgCommitment {
+        self.blob.message.kzg_commitment
     }
     pub fn proposer_index(&self) -> u64 {
         self.blob.message.proposer_index

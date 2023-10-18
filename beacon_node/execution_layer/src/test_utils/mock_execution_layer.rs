@@ -103,14 +103,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             justified_hash: None,
             finalized_hash: None,
         };
-        let payload_attributes = PayloadAttributes::new(
-            timestamp,
-            prev_randao,
-            Address::repeat_byte(42),
-            // FIXME: think about how to handle different forks here..
-            None,
-            None,
-        );
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, prev_randao, Address::repeat_byte(42), None, None);
 
         // Insert a proposer to ensure the fork choice updated command works.
         let slot = Slot::new(0);
@@ -146,7 +140,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
-                // FIXME: do we need to consider other forks somehow?
                 ForkName::Merge,
                 &self.spec,
             )
@@ -181,7 +174,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
-                // FIXME: do we need to consider other forks somehow? What about withdrawals?
                 ForkName::Merge,
                 &self.spec,
             )
