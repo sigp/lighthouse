@@ -40,7 +40,7 @@ impl MutableEnr {
     }
 
     pub fn enr(&self) -> &Enr<CombinedKey> {
-        self.enr.as_ref()
+        &self.enr.read()
     }
 
     pub fn enr_key(&self) -> &CombinedKey {
