@@ -40,12 +40,12 @@ impl MutableEnr {
         }
     }
 
-    pub fn enr(&self) -> &Enr<CombinedKey> {
-        &self.enr.read()
+    pub fn enr(&self) -> Enr<CombinedKey> {
+        self.enr.read().clone()
     }
 
-    pub fn enr_key(&self) -> &CombinedKey {
-        self.enr_key.as_ref()
+    pub fn enr_key(&self) -> CombinedKey {
+        Arc::into_inner(self.enr_key.clone()).unwrap()
     }
 
     /// Insert an arbitrary key-value pair into the ENR
