@@ -68,7 +68,7 @@ pub fn beacon_tx_to_reth_signed_tx<N: Unsigned>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::static_valid_tx;
+    use crate::test_utils::static_valid_tx;
     use reth_primitives::Transaction;
 
     type E = types::MainnetEthSpec;
