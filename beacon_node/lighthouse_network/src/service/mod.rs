@@ -282,13 +282,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         let discovery = {
             // Build and start the discovery sub-behaviour
-            let mut discovery = Discovery::new(
-                local_keypair.clone(),
-                &config,
-                network_globals.clone(),
-                &log,
-            )
-            .await?;
+            let mut discovery = Discovery::new(&config, network_globals.clone(), &log).await?;
             // start searching for peers
             discovery.discover_peers(FIND_NODE_QUERY_CLOSEST_PEERS);
             discovery

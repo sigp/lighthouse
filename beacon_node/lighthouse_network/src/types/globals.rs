@@ -40,7 +40,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
         log: &slog::Logger,
     ) -> Self {
         NetworkGlobals {
-            local_enr: MutableEnr::new(enr, enr_key),
+            local_enr: MutableEnr::new(enr.clone(), enr_key),
             peer_id: RwLock::new(enr.peer_id()),
             listen_multiaddrs: RwLock::new(Vec::new()),
             local_metadata: RwLock::new(local_metadata),

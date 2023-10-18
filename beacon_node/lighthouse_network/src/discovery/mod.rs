@@ -174,7 +174,7 @@ pub struct Discovery<TSpec: EthSpec> {
     discv5: Discv5,
 
     /// A collection of network constants that can be read from other threads.
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    pub network_globals: Arc<NetworkGlobals<TSpec>>,
 
     /// Indicates if we are actively searching for peers. We only allow a single FindPeers query at
     /// a time, regardless of the query concurrency.
@@ -203,7 +203,6 @@ pub struct Discovery<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Discovery<TSpec> {
     /// NOTE: Creating discovery requires running within a tokio execution environment.
     pub async fn new(
-        local_key: Keypair,
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
@@ -223,12 +222,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
               "quic4" => ?local_enr.enr().quic4(), "quic6" => ?local_enr.enr().quic6()
         );
 
-        // convert the keypair into an ENR key
-        let enr_key: &CombinedKey = local_enr.enr_key();
-
         let mut discv5 = Discv5::new(
             local_enr.enr().clone(),
-            enr_key,
+            local_enr.enr_key(),
             config.discv5_config.clone(),
         )
         .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
@@ -1148,6 +1144,7 @@ mod tests {
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,
+            enr_key,
             MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),

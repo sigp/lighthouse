@@ -144,6 +144,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
     let network_globals = Arc::new(NetworkGlobals::new(
         enr.clone(),
+        enr_key,
         meta_data,
         vec![],
         false,
