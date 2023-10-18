@@ -22,6 +22,10 @@ FLAGS:
                                          information about your validator and so this flag should be used with caution.
                                          For Windows users, the log file permissions will be inherited from the parent
                                          folder.
+<<<<<<< HEAD
+=======
+        --stdin-inputs                   If present, read all user inputs from stdin instead of tty.
+>>>>>>> 8527df3a604d94d28cfe6e507216fc922983478d
     -V, --version                        Prints version information
 
 OPTIONS:
