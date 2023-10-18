@@ -1120,6 +1120,7 @@ name = "compare_fields"
 version = "0.2.0"
 dependencies = [
  "compare_fields_derive",
+ "itertools",
 ]
 
 [[package]]
