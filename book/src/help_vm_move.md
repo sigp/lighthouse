@@ -6,7 +6,7 @@ generated using the "create-validators" command. This command only supports vali
 local file system (i.e., not Web3Signer validators).
 
 USAGE:
-    lighthouse.exe validator_manager move [FLAGS] [OPTIONS] --dest-vc-token <PATH> --dest-vc-url <HTTP_ADDRESS> --src-vc-token <PATH> --src-vc-url <HTTP_ADDRESS>
+    lighthouse validator_manager move [FLAGS] [OPTIONS] --dest-vc-token <PATH> --dest-vc-url <HTTP_ADDRESS> --src-vc-token <PATH> --src-vc-url <HTTP_ADDRESS>
 
 FLAGS:
         --disable-log-timestamp          If present, do not include timestamps in logging output.

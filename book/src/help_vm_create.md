@@ -7,7 +7,7 @@ Another, optional JSON file is created which contains a list of validator deposi
 "ethereum/staking-deposit-cli" tool.
 
 USAGE:
-    lighthouse.exe validator_manager create [FLAGS] [OPTIONS] --output-path <DIRECTORY>
+    lighthouse validator_manager create [FLAGS] [OPTIONS] --output-path <DIRECTORY>
 
 FLAGS:
         --disable-deposits                    When provided don't generate the deposits JSON file that is commonly used
