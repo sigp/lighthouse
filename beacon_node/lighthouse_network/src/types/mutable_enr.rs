@@ -26,7 +26,7 @@ pub enum EnrPort {
 /// contains both the ENR itself as well as its corresponding signing key.
 pub struct MutableEnr {
     /// Shared ENR
-    enr: Arc<RwLock<Enr<CombinedKey>>>,
+    pub enr: Arc<RwLock<Enr<CombinedKey>>>,
     /// Signing key for ENR modifications
     enr_key: Arc<CombinedKey>,
 }
