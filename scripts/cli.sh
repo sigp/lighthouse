@@ -19,7 +19,7 @@ write_to_file() {
     printf "# %s\n\n\`\`\`\n%s\n\`\`\`" "$program" "$cmd" > "$file"
     
     # remove .exe when using Windows
-    sed -i -e 's/\.exe//g' "$file"
+    #sed -i -e 's/\.exe//g' "$file"
 }
 
 # Check if a lighthouse binary exists in the current branch.
