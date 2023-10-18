@@ -1,4 +1,5 @@
 //! A collection of variables that are accessible outside of the network thread itself.
+use super::mutable_enr::MutableEnr;
 use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV2};
 use crate::types::{BackFillState, SyncState};
@@ -9,7 +10,6 @@ use discv5::enr::CombinedKey;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use types::EthSpec;
-use super::mutable_enr::MutableEnr;
 
 pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The current local ENR.

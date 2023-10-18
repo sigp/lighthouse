@@ -248,7 +248,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
 
         // Check NAT if metrics are enabled
-        if self.network_globals.local_enr.read().udp4().is_some() {
+        if self.network_globals.local_enr.enr().udp4().is_some() {
             metrics::check_nat();
         }
 

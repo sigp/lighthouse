@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use parking_lot::RwLock;
-use libp2p::bytes::Bytes;
 use discv5::enr::{Enr, EnrError};
+use libp2p::bytes::Bytes;
+use parking_lot::RwLock;
 
 use crate::discovery::enr::CombinedKey;
 
 /// Represents a port advertised via an ENR
-/// 
+///
 /// The ENR specification allows extension of the keys stored in any given ENR
 /// as well as specific keys for TCP and UDP ports over both IPv4 and IPv6. This
 /// type extends these to add the QUIC transport.
@@ -21,7 +21,7 @@ pub enum EnrPort {
 }
 
 /// Represents a mutable instance of an ENR
-/// 
+///
 /// Any mutation of an ENR necessitates re-signing the new ENR, so this type
 /// contains both the ENR itself as well as its corresponding signing key.
 #[derive(Clone)]
@@ -54,7 +54,7 @@ impl MutableEnr {
     }
 
     /// Update the specified port being advertised via this ENR
-    /// 
+    ///
     /// If the port is already being advertised in this ENR, it is overwritten. Otherwise, it is added as a new key-value pair.
     pub fn update_port(&self, port: EnrPort) -> Result<Option<Bytes>, EnrError> {
         match port {

@@ -2,7 +2,8 @@ use self::behaviour::Behaviour;
 use self::gossip_cache::GossipCache;
 use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
 use crate::discovery::{
-    subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
+    enr_ext::CombinedKeyExt, subnet_predicate, DiscoveredPeers, Discovery,
+    FIND_NODE_QUERY_CLOSEST_PEERS,
 };
 use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
@@ -21,6 +22,7 @@ use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use api_types::{PeerRequestId, Request, RequestId, Response};
+use discv5::enr::CombinedKey;
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::bandwidth::BandwidthSinks;
@@ -157,6 +159,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let meta_data = utils::load_or_build_metadata(&config.network_dir, &log);
             let globals = NetworkGlobals::new(
                 enr,
+                CombinedKey::from_libp2p(local_keypair.clone())?,
                 meta_data,
                 config
                     .trusted_peers
@@ -292,7 +295,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         };
 
         /* write back the ENR that discovery has built */
-        *network_globals.local_enr.write() = discovery.local_enr();
+        *network_globals.local_enr.enr.write() = discovery.local_enr();
 
         let identify = {
             let local_public_key = local_keypair.public();
