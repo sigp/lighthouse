@@ -4,7 +4,7 @@
 When connected to a beacon node, performs the duties of a staked validator (e.g., proposing blocks and attestations).
 
 USAGE:
-    lighthouse validator_client [FLAGS] [OPTIONS]
+    lighthouse.exe validator_client [FLAGS] [OPTIONS]
 
 FLAGS:
         --allow-unsynced                         DEPRECATED: this flag does nothing
