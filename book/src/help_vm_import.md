@@ -5,7 +5,7 @@ Uploads validators to a validator client using the HTTP API. The validators are 
 generated using the "create-validators" command.
 
 USAGE:
-    lighthouse validator_manager import [FLAGS] [OPTIONS] --validators-file <PATH_TO_JSON_FILE>
+    lighthouse.exe validator_manager import [FLAGS] [OPTIONS] --validators-file <PATH_TO_JSON_FILE>
 
 FLAGS:
         --disable-log-timestamp          If present, do not include timestamps in logging output.

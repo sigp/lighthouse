@@ -17,6 +17,9 @@ write_to_file() {
 
     # We need to add the header and the backticks to create the code block.
     printf "# %s\n\n\`\`\`\n%s\n\`\`\`" "$program" "$cmd" > "$file"
+    
+    # remove .exe when using Windows
+    sed -i -e 's/".exe"//g' "$file"
 }
 
 # Check if a lighthouse binary exists in the current branch.
