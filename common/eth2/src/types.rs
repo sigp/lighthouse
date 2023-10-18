@@ -7,7 +7,7 @@ use mediatype::{names, MediaType, MediaTypeList};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz::{Decode, DecodeError};
-use ssz_derive::Encode;
+use ssz_derive::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
@@ -2012,7 +2012,7 @@ pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
     pub blobs_bundle: BlobsBundle<E>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlobsBundle<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
