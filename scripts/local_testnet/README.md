@@ -96,7 +96,7 @@ Once a testnet is stopped, it cannot be continued from where it left off. When t
 
 ## Manual creation of local testnet
 
-In [Starting the testnet](./README.md#starting-the-testnet), the testnet is started automatically with predetermined parameters (database directory, ports used etc).  This section describes some modifications of the local testnet settings, e.g., you would like to change the database directory, or changing the ports used. 
+In [Starting the testnet](./README.md#starting-the-testnet), the testnet is started automatically with predetermined parameters (database directory, ports used etc).  This section describes some modifications of the local testnet settings, e.g., changing the database directory, or changing the ports used. 
 
 
 The testnet also contains parameters that are specified in `vars.env`, such as the slot time `SECONDS_PER_SLOT=3` (instead of 12 seconds on mainnet). You may change these parameters to suit your testing purposes. After that, in the `local_testnet` directory, run the following command to create genesis state with embedded validators and validator keys, and also to update the time in `genesis.json`:
