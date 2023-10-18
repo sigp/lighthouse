@@ -73,6 +73,7 @@ use derivative::Derivative;
 use eth2::types::{EventKind, SignedBlockContents};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
+use kzg::KzgCommitment;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
@@ -630,6 +631,15 @@ pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block_root: Hash256,
     parent: Option<PreProcessingSnapshot<T::EthSpec>>,
     consensus_context: ConsensusContext<T::EthSpec>,
+}
+
+impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
+    pub fn commitments(&self) -> &[KzgCommitment] {
+        let Ok(commitments) = self.block.message().body().blob_kzg_commitments() else {
+            return &[];
+        };
+        commitments.as_ref()
+    }
 }
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that all signatures (except the deposit

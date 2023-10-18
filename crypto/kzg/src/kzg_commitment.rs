@@ -42,7 +42,16 @@ impl From<KzgCommitment> for c_kzg_min::Bytes48 {
 
 impl Display for KzgCommitment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", serde_utils::hex::encode(self.0))
+        let n_bytes = self.0.len();
+        write!(f, "0x")?;
+        for i in &self.0[0..2] {
+            write!(f, "{:02x}", i)?;
+        }
+        write!(f, "…")?;
+        for i in &self.0[n_bytes - 2..n_bytes] {
+            write!(f, "{:02x}", i)?;
+        }
+        Ok(())
     }
 }
 

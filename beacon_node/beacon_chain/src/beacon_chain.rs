@@ -2761,12 +2761,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                     match GossipVerifiedBlock::new(block, &chain) {
                         Ok(verified) => {
+                            let commitment_strings: Vec<String> = verified
+                                .commitments()
+                                .iter()
+                                .map(|x| x.to_string())
+                                .collect();
+                            let commitments_joined = commitment_strings.join(", ");
                             debug!(
                                 chain.log,
                                 "Successfully verified gossip block";
                                 "graffiti" => graffiti_string,
                                 "slot" => slot,
                                 "root" => ?verified.block_root(),
+                                "commitments" => commitments_joined,
                             );
 
                             Ok(verified)
