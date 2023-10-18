@@ -4,6 +4,7 @@ mod pubsub;
 mod subnet;
 mod sync_state;
 mod topics;
+mod mutable_enr;
 
 use types::{BitVector, EthSpec};
 
