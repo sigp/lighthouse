@@ -118,10 +118,10 @@ pub struct SuffixStateDiff<T: EthSpec> {
     //#[serde(with = "eth2_serde_utils::quoted_u8")]
     suffix: u8,
     // `None` means not currently present.
-    current_value: Option<StateDiffValue<T>>,
+    current_value: Optional<StateDiffValue<T>>,
     // `None` means value is not updated.
     // Not present for the Kaustinen testnet.
-    //new_value: Option<StateDiffValue<T>>,
+    //new_value: Optional<StateDiffValue<T>>,
 }
 
 #[derive(

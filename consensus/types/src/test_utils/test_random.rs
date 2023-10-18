@@ -129,6 +129,13 @@ where
     }
 }
 
+// TODO(mac) Dummy impl
+impl<T: TestRandom> TestRandom for Optional<T> {
+    fn random_for_test(_rng: &mut impl RngCore) -> Self {
+        Self::from(None)
+    }
+}
+
 macro_rules! impl_test_random_for_u8_array {
     ($len: expr) => {
         impl TestRandom for [u8; $len] {
