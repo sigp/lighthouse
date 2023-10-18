@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 source ./vars.env
 
-genesis_file=${@:$OPTIND+0:1}
+genesis_file=$1
 
 # Update future hardforks time in the EL genesis file based on the CL genesis time
 GENESIS_TIME=$(lcli pretty-ssz --spec $SPEC_PRESET --testnet-dir $TESTNET_DIR BeaconState $TESTNET_DIR/genesis.ssz | jq | grep -Po 'genesis_time": "\K.*\d')
