@@ -835,7 +835,7 @@ fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_fl
     let id = "bn-1";
     let version = "Lighthouse-v2.1.3";
     CommandLineTest::new()
-        .flag("execution-endpoint", Some(execution_endpoint.clone()))
+        .flag("execution-endpoint", Some(execution_endpoint))
         .flag(jwt_flag, dir.path().join(jwt_file).as_os_str().to_str())
         .flag(jwt_id_flag, Some(id))
         .flag(jwt_version_flag, Some(version))
