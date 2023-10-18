@@ -1,4 +1,5 @@
 use super::sync::manager::RequestId as SyncId;
+use crate::nat;
 use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
@@ -227,6 +228,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_log,
             "Backfill is disabled. DO NOT RUN IN PRODUCTION"
         );
+
+        if let Some(v4) = config.listen_addrs().v4() {
+            let nw = network_log.clone();
+            let v4 = v4.clone();
+            tokio::spawn(async move {
+                if let Err(e) = nat::construct_upnp_mappings(v4.addr, v4.disc_port).await {
+                    info!(nw, "Could not UPnP map Discovery port"; "error" => %e);
+                }
+            });
+        }
 
         // get a reference to the beacon chain store
         let store = beacon_chain.store.clone();

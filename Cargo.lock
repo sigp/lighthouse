@@ -5035,6 +5035,7 @@ dependencies = [
 name = "network"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
  "beacon_chain",
  "beacon_processor",
  "delay_map",
@@ -5050,6 +5051,7 @@ dependencies = [
  "futures",
  "genesis",
  "hex",
+ "igd-next",
  "itertools",
  "lazy_static",
  "lighthouse_metrics",

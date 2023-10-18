@@ -94,6 +94,7 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
+anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 bincode = "1"
 bitvec = "1"

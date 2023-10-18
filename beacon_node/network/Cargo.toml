@@ -14,6 +14,7 @@ slog-async = { workspace = true }
 eth2 = { workspace = true }
 
 [dependencies]
+anyhow = { workspace = true }
 beacon_chain = { workspace = true }
 store = { workspace = true }
 lighthouse_network = { workspace = true }
@@ -35,6 +36,7 @@ lazy_static = { workspace = true }
 lighthouse_metrics = { workspace = true }
 logging = { workspace = true }
 task_executor = { workspace = true }
+igd-next = "0.14.2"
 itertools = { workspace = true }
 num_cpus = { workspace = true }
 lru_cache = { workspace = true }
