@@ -24,6 +24,7 @@ pub enum EnrPort {
 /// 
 /// Any mutation of an ENR necessitates re-signing the new ENR, so this type
 /// contains both the ENR itself as well as its corresponding signing key.
+#[derive(Clone)]
 pub struct MutableEnr {
     /// Shared ENR
     pub enr: Arc<RwLock<Enr<CombinedKey>>>,
