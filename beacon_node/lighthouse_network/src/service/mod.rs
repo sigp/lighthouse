@@ -1602,7 +1602,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 SwarmEvent::ListenerClosed {
                     addresses, reason, ..
                 } => {
-                    crit!(self.log, "Listener closed"; "addresses" => ?addresses, "reason" => ?reason);
+                    match reason {
+                        Ok(_) => {
+                            debug!(self.log, "Listener gracefuly closed"; "addresses" => ?addresses)
+                        }
+                        Err(reason) => {
+                            crit!(self.log, "Listener abruptly closed"; "addresses" => ?addresses, "reason" => ?reason)
+                        }
+                    };
                     if Swarm::listeners(&self.swarm).count() == 0 {
                         Some(NetworkEvent::ZeroListeners)
                     } else {
