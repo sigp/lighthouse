@@ -5,13 +5,15 @@ use crate::types::{BackFillState, SyncState};
 use crate::Client;
 use crate::EnrExt;
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
+use discv5::enr::CombinedKey;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use types::EthSpec;
+use super::mutable_enr::MutableEnr;
 
 pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The current local ENR.
-    pub local_enr: RwLock<Enr>,
+    pub local_enr: MutableEnr,
     /// The local peer_id.
     pub peer_id: RwLock<PeerId>,
     /// Listening multiaddrs.
@@ -31,13 +33,14 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
 impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     pub fn new(
         enr: Enr,
+        enr_key: CombinedKey,
         local_metadata: MetaData<TSpec>,
         trusted_peers: Vec<PeerId>,
         disable_peer_scoring: bool,
         log: &slog::Logger,
     ) -> Self {
         NetworkGlobals {
-            local_enr: RwLock::new(enr.clone()),
+            local_enr: MutableEnr::new(enr, enr_key),
             peer_id: RwLock::new(enr.peer_id()),
             listen_multiaddrs: RwLock::new(Vec::new()),
             local_metadata: RwLock::new(local_metadata),
@@ -51,7 +54,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     /// Returns the local ENR from the underlying Discv5 behaviour that external peers may connect
     /// to.
     pub fn local_enr(&self) -> Enr {
-        self.local_enr.read().clone()
+        self.local_enr.enr().clone()
     }
 
     /// Returns the local libp2p PeerID.
@@ -121,6 +124,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
         let enr = discv5::enr::EnrBuilder::new("v4").build(&enr_key).unwrap();
         NetworkGlobals::new(
             enr,
+            enr_key,
             MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
