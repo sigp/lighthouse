@@ -14,7 +14,6 @@
 use bytes::Bytes;
 use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
-use kzg::TrustedSetup;
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
@@ -57,15 +56,11 @@ pub const TRUSTED_SETUP_BYTES: &[u8] =
 /// Returns `Some(TrustedSetup)` if the deneb fork epoch is set and `None` otherwise.
 ///
 /// Returns an error if the trusted setup parsing failed.
-fn get_trusted_setup_from_config(config: &Config) -> Result<Option<TrustedSetup>, String> {
+fn get_trusted_setup_from_config(config: &Config) -> Option<Vec<u8>> {
     config
         .deneb_fork_epoch
         .filter(|epoch| epoch.value != Epoch::max_value())
-        .map(|_| {
-            serde_json::from_reader(TRUSTED_SETUP_BYTES)
-                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-        })
-        .transpose()
+        .map(|_| TRUSTED_SETUP_BYTES.to_vec())
 }
 
 /// A simple slice-or-vec enum to avoid cloning the beacon state bytes in the
@@ -109,7 +104,7 @@ pub struct Eth2NetworkConfig {
     pub genesis_state_source: GenesisStateSource,
     pub genesis_state_bytes: Option<GenesisStateBytes>,
     pub config: Config,
-    pub kzg_trusted_setup: Option<TrustedSetup>,
+    pub kzg_trusted_setup: Option<Vec<u8>>,
 }
 
 impl Eth2NetworkConfig {
@@ -127,7 +122,7 @@ impl Eth2NetworkConfig {
     fn from_hardcoded_net(net: &HardcodedNet) -> Result<Self, String> {
         let config: Config = serde_yaml::from_reader(net.config)
             .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?;
-        let kzg_trusted_setup = get_trusted_setup_from_config(&config)?;
+        let kzg_trusted_setup = get_trusted_setup_from_config(&config);
         Ok(Self {
             deposit_contract_deploy_block: serde_yaml::from_reader(net.deploy_block)
                 .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
@@ -364,7 +359,7 @@ impl Eth2NetworkConfig {
             (None, GenesisStateSource::Unknown)
         };
 
-        let kzg_trusted_setup = get_trusted_setup_from_config(&config)?;
+        let kzg_trusted_setup = get_trusted_setup_from_config(&config);
 
         Ok(Self {
             deposit_contract_deploy_block,
