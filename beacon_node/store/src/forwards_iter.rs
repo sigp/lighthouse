@@ -72,8 +72,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let anchor_info = self.get_anchor_info();
             // There are no historic states stored if the state upper limit lies in the hot
             // database.  It hasn't been reached yet, and may never be.
-            if anchor_info.map_or(false, |a| a.state_upper_limit >= split_slot) {
+            if anchor_info.as_ref().map_or(false, |a| {
+                a.state_upper_limit >= split_slot && a.state_lower_limit == 0
+            }) {
                 None
+            } else if let Some(lower_limit) = anchor_info
+                .map(|a| a.state_lower_limit)
+                .filter(|limit| *limit > 0)
+            {
+                Some(lower_limit)
             } else {
                 // Otherwise if the state upper limit lies in the freezer or all states are
                 // reconstructed then state roots are available up to the split slot.
