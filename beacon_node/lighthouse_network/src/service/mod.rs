@@ -29,10 +29,9 @@ use libp2p::gossipsub::{
     self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
     TopicScoreParams,
 };
-use libp2p::identify;
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
-use libp2p::swarm::{Swarm, SwarmBuilder, SwarmEvent};
-use libp2p::PeerId;
+use libp2p::swarm::{Swarm, SwarmEvent};
+use libp2p::{identify, PeerId, SwarmBuilder};
 use libp2p_upnp;
 use slog::{crit, debug, info, o, trace, warn};
 use std::path::PathBuf;
@@ -367,35 +366,34 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             }
         };
 
-        let (swarm, bandwidth) = {
-            // Set up the transport - tcp/ws with noise and mplex
-            let (transport, bandwidth) =
-                build_transport(local_keypair.clone(), !config.disable_quic_support)
-                    .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+        // Set up the transport - tcp/quic with noise and mplex
+        let (transport, bandwidth) =
+            build_transport(local_keypair.clone(), !config.disable_quic_support)
+                .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
-            // use the executor for libp2p
-            struct Executor(task_executor::TaskExecutor);
-            impl libp2p::swarm::Executor for Executor {
-                fn exec(&self, f: Pin<Box<dyn futures::Future<Output = ()> + Send>>) {
-                    self.0.spawn(f, "libp2p");
-                }
+        // use the executor for libp2p
+        struct Executor(task_executor::TaskExecutor);
+        impl libp2p::swarm::Executor for Executor {
+            fn exec(&self, f: Pin<Box<dyn futures::Future<Output = ()> + Send>>) {
+                self.0.spawn(f, "libp2p");
             }
+        }
 
-            // sets up the libp2p connection limits
-
-            (
-                SwarmBuilder::with_executor(
-                    transport,
-                    behaviour,
-                    local_peer_id,
-                    Executor(executor),
-                )
-                .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
-                .per_connection_event_buffer_size(4)
-                .build(),
-                bandwidth,
-            )
-        };
+        // sets up the libp2p swarm.
+        let swarm = SwarmBuilder::with_existing_identity(local_keypair)
+            .with_tokio()
+            .with_other_transport(|_key| transport)
+            .expect("infalible")
+            .with_behaviour(|_| behaviour)
+            .expect("infalible")
+            .with_swarm_config(|_| {
+                libp2p::swarm::Config::with_executor(Executor(executor))
+                    .with_notify_handler_buffer_size(
+                        std::num::NonZeroUsize::new(7).expect("Not zero"),
+                    )
+                    .with_per_connection_event_buffer_size(4)
+            })
+            .build();
 
         let mut network = Network {
             swarm,
@@ -852,7 +850,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     }
 
     /// Inform the peer that their request produced an error.
-    pub fn send_error_reponse(
+    pub fn send_error_response(
         &mut self,
         peer_id: PeerId,
         id: PeerRequestId,
@@ -1651,7 +1649,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 } => {
                     match reason {
                         Ok(_) => {
-                            debug!(self.log, "Listener gracefuly closed"; "addresses" => ?addresses)
+                            debug!(self.log, "Listener gracefully closed"; "addresses" => ?addresses)
                         }
                         Err(reason) => {
                             crit!(self.log, "Listener abruptly closed"; "addresses" => ?addresses, "reason" => ?reason)

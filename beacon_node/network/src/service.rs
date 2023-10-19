@@ -221,7 +221,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     )> {
         let network_log = executor.log().clone();
         // build the channels for external comms
-        let (network_senders, network_recievers) = NetworkSenders::new();
+        let (network_senders, network_receivers) = NetworkSenders::new();
 
         #[cfg(feature = "disable-backfill")]
         warn!(
@@ -331,7 +331,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let NetworkReceivers {
             network_recv,
             validator_subscription_recv,
-        } = network_recievers;
+        } = network_receivers;
 
         // create the network service and spawn the task
         let network_log = network_log.new(o!("service" => "network"));
@@ -621,7 +621,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 id,
                 reason,
             } => {
-                self.libp2p.send_error_reponse(peer_id, id, error, reason);
+                self.libp2p.send_error_response(peer_id, id, error, reason);
             }
             NetworkMessage::ValidationResult {
                 propagation_source,
