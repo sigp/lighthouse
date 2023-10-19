@@ -224,7 +224,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             .inactivity_score_bias
                             .safe_mul(spec.inactivity_penalty_quotient_for_state(&state))?;
                         inactivity_penalty =
-                            penalty_numerator.safe_div(penalty_denominator)? as i64 * -1;
+                            -(penalty_numerator.safe_div(penalty_denominator)? as i64);
                     } else if flag_index == TIMELY_SOURCE_FLAG_INDEX {
                         source_reward = *penalty;
                     }
