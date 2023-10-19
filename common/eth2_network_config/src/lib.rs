@@ -49,12 +49,13 @@ pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 ///
 /// This is done to ensure that testnets also inherit the high security and
 /// randomness of the mainnet kzg trusted setup ceremony.
-/// 
+///
 /// Note: The trusted setup for both mainnet and minimal presets are the same.
-pub const TRUSTED_SETUP_BYTES: &[u8] = include_bytes!("../built_in_network_configs/trusted_setup.json");
+pub const TRUSTED_SETUP_BYTES: &[u8] =
+    include_bytes!("../built_in_network_configs/trusted_setup.json");
 
 /// Returns `Some(TrustedSetup)` if the deneb fork epoch is set and `None` otherwise.
-/// 
+///
 /// Returns an error if the trusted setup parsing failed.
 fn get_trusted_setup_from_config(config: &Config) -> Result<Option<TrustedSetup>, String> {
     config
