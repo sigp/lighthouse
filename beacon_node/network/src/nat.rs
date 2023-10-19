@@ -5,7 +5,7 @@
 
 use anyhow::{bail, Context, Error};
 use igd_next::{aio::tokio as igd, PortMappingProtocol};
-use slog::info;
+use slog::debug;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -51,7 +51,7 @@ pub async fn construct_upnp_mappings(
             )
             .await
             .context("Could not UPnP map port: {port} on the gateway")?;
-        info!(log, "Discovery UPnP port mapped"; "port" => %port);
+        debug!(log, "Discovery UPnP port mapped"; "port" => %port);
         sleep(Duration::from_secs(MAPPING_TIMEOUT)).await;
     }
 }
