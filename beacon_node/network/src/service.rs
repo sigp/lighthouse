@@ -483,7 +483,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         }
                     }
                 }
-                metrics::update_bandwidth_metrics(self.libp2p.bandwidth.clone());
+                metrics::update_bandwidth_metrics(&self.libp2p.bandwidth);
             }
         };
         executor.spawn(service_fut, "network");

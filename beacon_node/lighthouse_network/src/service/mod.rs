@@ -4,6 +4,7 @@ use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
 };
+use crate::metrics::AggregatedBandwidthSinks;
 use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
     ConnectionDirection, PeerManager, PeerManagerEvent,
@@ -24,7 +25,6 @@ use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
-use libp2p::bandwidth::BandwidthSinks;
 use libp2p::gossipsub::{
     self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
     TopicScoreParams,
@@ -129,7 +129,7 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
     update_gossipsub_scores: tokio::time::Interval,
     gossip_cache: GossipCache,
     /// The bandwidth logger for the underlying libp2p transport.
-    pub bandwidth: Arc<BandwidthSinks>,
+    pub bandwidth: AggregatedBandwidthSinks,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
     /// Logger for behaviour actions.
