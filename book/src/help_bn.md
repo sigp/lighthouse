@@ -140,6 +140,12 @@ OPTIONS:
         --beacon-processor-work-queue-len <INTEGER>
             Specifies the length of the inbound event queue. Higher values may prevent messages from being dropped while
             lower values may help protect the node from becoming overwhelmed. [default: 16384]
+        --blob-prune-margin-epochs <EPOCHS>
+            The margin for blob pruning in epochs. The oldest blobs are pruned up until data_availability_boundary -
+            blob_prune_margin_epochs. [default: 0]
+        --blobs-dir <DIR>
+            Data directory for the blobs database.
+
         --block-cache-size <SIZE>
             Specifies how many blocks the database should cache in memory [default: 5]
 
@@ -222,6 +228,9 @@ OPTIONS:
         --enr-udp6-port <PORT>
             The UDP6 port of the local ENR. Set this only if you are sure other nodes can connect to your local node on
             this port over IPv6.
+        --epochs-per-blob-prune <EPOCHS>
+            The epoch interval with which to prune blobs from Lighthouse's database when they are older than the data
+            availability boundary relative to the current epoch. [default: 1]
         --epochs-per-migration <N>
             The number of epochs to wait between running the migration of data from the hot DB to the cold DB. Less
             frequent runs can be useful for minimizing disk writes [default: 1]
@@ -306,6 +315,14 @@ OPTIONS:
         --http-tls-key <http-tls-key>
             The path of the private key to be used when serving the HTTP API server over TLS. Must not be password-
             protected.
+        --ignore-builder-override-suggestion-threshold <PERCENTAGE>
+            When the EE advises Lighthouse to ignore the builder payload, this flag specifies a percentage threshold for
+            the difference between the reward from the builder payload and the local EE's payload. This threshold must
+            be met for Lighthouse to consider ignoring the EE's suggestion. If the reward from the builder's payload
+            doesn't exceed the local payload by at least this percentage, the local payload will be used. The conditions
+            under which the EE may make this suggestion depend on the EE's implementation, with the primary intent being
+            to safeguard against potential censorship attacks from builders. Setting this flag to 0 will cause
+            Lighthouse to always ignore the EE's suggestion. Default: 10.0 (equivalent to 10%). [default: 10.0]
         --invalid-gossip-verified-blocks-path <PATH>
             If a block succeeds gossip validation whilst failing full validation, store the block SSZ as a file at this
             path. This feature is only recommended for developers. This directory is not pruned, users should be careful
@@ -403,6 +420,9 @@ OPTIONS:
         --proposer-reorg-threshold <PERCENT>
             Percentage of vote weight below which to attempt a proposer reorg. Default: 20%
 
+        --prune-blobs <BOOLEAN>
+            Prune blobs from Lighthouse's database when they are older than the data data availability boundary relative
+            to the current epoch. [default: true]
         --prune-payloads <prune-payloads>
             Prune execution payloads from Lighthouse's database. This saves space but imposes load on the execution
             client, as payloads need to be reconstructed and sent to syncing peers. [default: true]
@@ -484,6 +504,9 @@ OPTIONS:
         --trusted-peers <TRUSTED_PEERS>
             One or more comma-delimited trusted peer ids which always have the highest score according to the peer
             scoring system.
+        --trusted-setup-file-override <FILE>
+            Path to a json file containing the trusted setup params. NOTE: This will override the trusted setup that is
+            generated from the mainnet kzg ceremony. Use with caution
         --validator-monitor-file <PATH>
             As per --validator-monitor-pubkeys, but the comma-separated list is contained within a file at the given
             path.
