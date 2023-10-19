@@ -3,7 +3,7 @@ use crate::{
     PublicKeyBytes,
 };
 use arbitrary::Arbitrary;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use test_random_derive::TestRandom;

@@ -1,5 +1,5 @@
 use crate::{ChainSpec, Epoch};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fmt::{self, Display, Formatter};

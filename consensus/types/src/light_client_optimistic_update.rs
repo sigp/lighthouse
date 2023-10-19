@@ -2,7 +2,7 @@ use super::{BeaconBlockHeader, EthSpec, Slot, SyncAggregate};
 use crate::{
     light_client_update::Error, test_utils::TestRandom, BeaconState, ChainSpec, SignedBeaconBlock,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;

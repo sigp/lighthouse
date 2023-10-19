@@ -1,6 +1,6 @@
 use crate::hdiff::HierarchyConfig;
 use crate::{DBColumn, Error, StoreItem};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::io::Write;

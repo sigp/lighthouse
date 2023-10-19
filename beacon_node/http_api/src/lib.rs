@@ -1727,16 +1727,18 @@ pub fn serve<T: BeaconChainTypes>(
         .and(block_id_or_err)
         .and(warp::query::<api_types::BlobIndicesQuery>())
         .and(warp::path::end())
+        .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(warp::header::optional::<api_types::Accept>("accept"))
-        .and_then(
+        .then(
             |block_id: BlockId,
              indices: api_types::BlobIndicesQuery,
+             task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
-                async move {
+                task_spawner.blocking_response_task(Priority::P1, move || {
                     let blob_sidecar_list_filtered =
-                        block_id.blob_sidecar_list_filtered(indices, &chain).await?;
+                        block_id.blob_sidecar_list_filtered(indices, &chain)?;
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -1753,7 +1755,7 @@ pub fn serve<T: BeaconChainTypes>(
                         ))
                         .into_response()),
                     }
-                }
+                })
             },
         );
 
@@ -4423,6 +4425,9 @@ pub fn serve<T: BeaconChainTypes>(
                             let receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
+                                api_types::EventTopic::BlobSidecar => {
+                                    event_handler.subscribe_blob_sidecar()
+                                }
                                 api_types::EventTopic::Attestation => {
                                     event_handler.subscribe_attestation()
                                 }

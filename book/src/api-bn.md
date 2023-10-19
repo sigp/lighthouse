@@ -126,6 +126,22 @@ curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "
 ```
 You can replace `1` in the above command with the validator index that you would like to query. Other API query can be done similarly by changing the link according to the Beacon API.
 
+### Events API
+The [events API](https://ethereum.github.io/beacon-APIs/#/Events/eventstream) provides information such as the payload attributes that are of interest to block builders and relays. To query the payload attributes, it is necessary to run Lighthouse beacon node with the flag `--always-prepare-payload`. It is also recommended to add the flag `--prepare-payload-lookahead 8000` which configures the payload attributes to be sent at 4s into each slot (or 8s from the start of the next slot). An example of the command is:
+
+```bash
+curl -X 'GET' \
+'http://localhost:5052/eth/v1/events?topics=payload_attributes' \
+-H 'accept: text/event-stream' 
+```
+
+An example of response is:
+
+```json
+data:{"version":"capella","data":{"proposal_slot":"11047","proposer_index":"336057","parent_block_root":"0x26f8999d270dd4677c2a1c815361707157a531f6c599f78fa942c98b545e1799","parent_block_number":"9259","parent_block_hash":"0x7fb788cd7afa814e578afa00a3edd250cdd4c8e35c22badd327d981b5bda33d2","payload_attributes":{"timestamp":"1696034964","prev_randao":"0xeee34d7a3f6b99ade6c6a881046c9c0e96baab2ed9469102d46eb8d6e4fde14c","suggested_fee_recipient":"0x0000000000000000000000000000000000000001","withdrawals":[{"index":"40705","validator_index":"360712","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1202941"},{"index":"40706","validator_index":"360713","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1201138"},{"index":"40707","validator_index":"360714","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1215255"},{"index":"40708","validator_index":"360715","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1161977"},{"index":"40709","validator_index":"360716","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1257278"},{"index":"40710","validator_index":"360717","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1247740"},{"index":"40711","validator_index":"360718","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1204337"},{"index":"40712","validator_index":"360719","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1183575"},{"index":"40713","validator_index":"360720","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1157785"},{"index":"40714","validator_index":"360721","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1143371"},{"index":"40715","validator_index":"360722","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1234787"},{"index":"40716","validator_index":"360723","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1286673"},{"index":"40717","validator_index":"360724","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1419241"},{"index":"40718","validator_index":"360725","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1231015"},{"index":"40719","validator_index":"360726","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1304321"},{"index":"40720","validator_index":"360727","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1236543"}]}}}
+```
+
+
 ## Serving the HTTP API over TLS
 > **Warning**: This feature is currently experimental.
 

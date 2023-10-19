@@ -5,7 +5,7 @@ use crate::*;
 use core::num::NonZeroUsize;
 use derivative::Derivative;
 use safe_arith::SafeArith;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{four_byte_option_impl, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::ops::Range;

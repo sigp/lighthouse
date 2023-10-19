@@ -10,7 +10,6 @@ tree_hash = { workspace = true }
 milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.5.1", optional = true }
 rand = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 ethereum_serde_utils = { workspace = true }
 hex = { workspace = true }
 ethereum_hashing = { workspace = true }

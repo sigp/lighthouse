@@ -4,7 +4,7 @@ use crate::case_result::{check_state_diff, compare_beacon_state_results_without_
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
 use crate::type_name::TypeName;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_epoch_processing::capella::process_historical_summaries_update;

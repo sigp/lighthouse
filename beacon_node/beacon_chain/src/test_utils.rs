@@ -2524,7 +2524,6 @@ pub enum NumBlobs {
 pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
-    kzg: &Kzg<E::Kzg>,
     rng: &mut impl Rng,
 ) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
@@ -2538,8 +2537,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             NumBlobs::None => 0,
         };
         let (bundle, transactions) =
-            execution_layer::test_utils::generate_random_blobs::<E, _>(num_blobs, kzg, rng)
-                .unwrap();
+            execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
 
         payload.execution_payload.transactions = <_>::default();
         for tx in Vec::from(transactions) {

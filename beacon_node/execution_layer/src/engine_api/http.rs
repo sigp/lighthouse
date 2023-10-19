@@ -897,10 +897,9 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V3(response).into())
             }
-            _ => Err(Error::UnsupportedForkVariant(format!(
-                "called get_payload_v3 with {}",
-                fork_name
-            ))),
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => Err(
+                Error::UnsupportedForkVariant(format!("called get_payload_v3 with {}", fork_name)),
+            ),
         }
     }
 

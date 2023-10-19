@@ -3,7 +3,7 @@ use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
 use derivative::Derivative;
 use kzg::{Kzg, KzgCommitment, KzgPreset, KzgProof, BYTES_PER_FIELD_ELEMENT};
 use rand::Rng;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
