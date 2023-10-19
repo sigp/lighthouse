@@ -849,7 +849,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     }
 
     /// Inform the peer that their request produced an error.
-    pub fn send_error_reponse(
+    pub fn send_error_response(
         &mut self,
         peer_id: PeerId,
         id: PeerRequestId,
@@ -1603,7 +1603,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 } => {
                     match reason {
                         Ok(_) => {
-                            debug!(self.log, "Listener gracefuly closed"; "addresses" => ?addresses)
+                            debug!(self.log, "Listener gracefully closed"; "addresses" => ?addresses)
                         }
                         Err(reason) => {
                             crit!(self.log, "Listener abruptly closed"; "addresses" => ?addresses, "reason" => ?reason)

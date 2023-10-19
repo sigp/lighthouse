@@ -328,7 +328,7 @@ pub fn get_config<E: EthSpec>(
                 .write_all(jwt_secret_key.as_bytes())
                 .map_err(|e| {
                     format!(
-                        "Error occured while writing to jwt_secret_key file: {:?}",
+                        "Error occurred while writing to jwt_secret_key file: {:?}",
                         e
                     )
                 })?;
