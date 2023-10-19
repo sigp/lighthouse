@@ -88,7 +88,7 @@ pub fn build_transport(
     };
 
     // Enables DNS over the transport.
-    let transport = libp2p::dns::TokioDnsConfig::system(transport)?.boxed();
+    let transport = libp2p::dns::tokio::Transport::system(transport)?.boxed();
 
     Ok((transport, bandwidth))
 }
