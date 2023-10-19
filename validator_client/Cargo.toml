@@ -19,7 +19,6 @@ slot_clock = { workspace = true }
 types = { workspace = true }
 safe_arith = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 bincode = { workspace = true }
 serde_json = { workspace = true }
 slog = { workspace = true }
@@ -56,7 +55,7 @@ itertools = { workspace = true }
 monitoring_api = { workspace = true }
 sensitive_url = { workspace = true }
 task_executor = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["native-tls"] }
 url = { workspace = true }
 malloc_utils = { workspace = true }
 sysinfo = { workspace = true }

@@ -4,7 +4,7 @@ use crate::{BeaconState, EthSpec, Hash256};
 use cached_tree_hash::Error;
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use compare_fields_derive::CompareFields;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use test_random_derive::TestRandom;

@@ -13,7 +13,6 @@ eth2_keystore = { workspace = true }
 filesystem = { workspace = true }
 zeroize = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 serde_yaml = { workspace = true }
 slog = { workspace = true }
 types = { workspace = true }

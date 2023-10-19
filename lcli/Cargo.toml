@@ -12,6 +12,7 @@ jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
 bls = { workspace = true }
+kzg = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }

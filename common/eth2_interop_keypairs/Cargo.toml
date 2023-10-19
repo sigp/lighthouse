@@ -13,7 +13,6 @@ ethereum_hashing = { workspace = true }
 hex = { workspace = true }
 serde_yaml = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 bls = { workspace = true }
 
 [dev-dependencies]

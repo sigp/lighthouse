@@ -66,8 +66,8 @@ impl<E: EthSpec> LocalNetwork<E> {
             BOOTNODE_PORT,
             QUIC_PORT,
         );
-        beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT);
-        beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT);
+        beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
+        beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
         beacon_config.network.discv5_config.table_filter = |_| true;
 
         let execution_node = if let Some(el_config) = &mut beacon_config.execution_layer {
@@ -152,14 +152,16 @@ impl<E: EthSpec> LocalNetwork<E> {
                     .expect("bootnode must have a network"),
             );
             let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
+            let libp2p_tcp_port = BOOTNODE_PORT + count;
+            let discv5_port = BOOTNODE_PORT + count;
             beacon_config.network.set_ipv4_listening_address(
                 std::net::Ipv4Addr::UNSPECIFIED,
-                BOOTNODE_PORT + count,
-                BOOTNODE_PORT + count,
+                libp2p_tcp_port,
+                discv5_port,
                 QUIC_PORT + count,
             );
-            beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT + count);
-            beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT + count);
+            beacon_config.network.enr_udp4_port = Some(discv5_port.try_into().unwrap());
+            beacon_config.network.enr_tcp4_port = Some(libp2p_tcp_port.try_into().unwrap());
             beacon_config.network.discv5_config.table_filter = |_| true;
             beacon_config.network.proposer_only = is_proposer;
         }

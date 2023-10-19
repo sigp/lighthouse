@@ -6,8 +6,9 @@ use beacon_chain::{
     attestation_verification::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
+    blob_verification::GossipVerifiedBlob,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
 };
 use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
 use serde::Deserialize;
@@ -17,9 +18,9 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, Checkpoint, EthSpec,
-    ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, ProgressiveBalancesMode,
-    SignedBeaconBlock, Slot, Uint256,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
+    EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
+    ProgressiveBalancesMode, Signature, SignedBeaconBlock, SignedBlobSidecar, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -71,25 +72,27 @@ impl From<PayloadStatus> for PayloadStatusV1 {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub enum Step<B, A, AS, P> {
+pub enum Step<TBlock, TBlobs, TAttestation, TAttesterSlashing, TPowBlock> {
     Tick {
         tick: u64,
     },
     ValidBlock {
-        block: B,
+        block: TBlock,
     },
     MaybeValidBlock {
-        block: B,
+        block: TBlock,
+        blobs: Option<TBlobs>,
+        proofs: Option<Vec<KzgProof>>,
         valid: bool,
     },
     Attestation {
-        attestation: A,
+        attestation: TAttestation,
     },
     AttesterSlashing {
-        attester_slashing: AS,
+        attester_slashing: TAttesterSlashing,
     },
     PowBlock {
-        pow_block: P,
+        pow_block: TPowBlock,
     },
     OnPayloadInfo {
         block_hash: ExecutionBlockHash,
@@ -113,7 +116,9 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
     #[allow(clippy::type_complexity)]
-    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, AttesterSlashing<E>, PowBlock>>,
+    pub steps: Vec<
+        Step<SignedBeaconBlock<E>, BlobsList<E>, Attestation<E>, AttesterSlashing<E>, PowBlock>,
+    >,
 }
 
 impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
@@ -126,7 +131,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &testing_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String, String, String>> =
+        let steps: Vec<Step<String, String, String, String, String>> =
             yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
@@ -139,11 +144,25 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     })
                     .map(|block| Step::ValidBlock { block })
                 }
-                Step::MaybeValidBlock { block, valid } => {
-                    ssz_decode_file_with(&path.join(format!("{}.ssz_snappy", block)), |bytes| {
-                        SignedBeaconBlock::from_ssz_bytes(bytes, spec)
+                Step::MaybeValidBlock {
+                    block,
+                    blobs,
+                    proofs,
+                    valid,
+                } => {
+                    let block =
+                        ssz_decode_file_with(&path.join(format!("{block}.ssz_snappy")), |bytes| {
+                            SignedBeaconBlock::from_ssz_bytes(bytes, spec)
+                        })?;
+                    let blobs = blobs
+                        .map(|blobs| ssz_decode_file(&path.join(format!("{blobs}.ssz_snappy"))))
+                        .transpose()?;
+                    Ok(Step::MaybeValidBlock {
+                        block,
+                        blobs,
+                        proofs,
+                        valid,
                     })
-                    .map(|block| Step::MaybeValidBlock { block, valid })
                 }
                 Step::Attestation { attestation } => {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation)))
@@ -204,10 +223,15 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         for step in &self.steps {
             match step {
                 Step::Tick { tick } => tester.set_tick(*tick),
-                Step::ValidBlock { block } => tester.process_block(block.clone(), true)?,
-                Step::MaybeValidBlock { block, valid } => {
-                    tester.process_block(block.clone(), *valid)?
+                Step::ValidBlock { block } => {
+                    tester.process_block(block.clone(), None, None, true)?
                 }
+                Step::MaybeValidBlock {
+                    block,
+                    blobs,
+                    proofs,
+                    valid,
+                } => tester.process_block(block.clone(), blobs.clone(), proofs.clone(), *valid)?,
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::AttesterSlashing { attester_slashing } => {
                     tester.process_attester_slashing(attester_slashing)
@@ -300,7 +324,7 @@ impl<E: EthSpec> Tester<E> {
             ));
         }
 
-        let harness = BeaconChainHarness::builder(E::default())
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
             .spec(spec.clone())
             .keypairs(vec![])
             .chain_config(ChainConfig {
@@ -380,16 +404,70 @@ impl<E: EthSpec> Tester<E> {
             .unwrap();
     }
 
-    pub fn process_block(&self, block: SignedBeaconBlock<E>, valid: bool) -> Result<(), Error> {
+    pub fn process_block(
+        &self,
+        block: SignedBeaconBlock<E>,
+        blobs: Option<BlobsList<E>>,
+        kzg_proofs: Option<Vec<KzgProof>>,
+        valid: bool,
+    ) -> Result<(), Error> {
         let block_root = block.canonical_root();
+
+        // Convert blobs and kzg_proofs into sidecars, then plumb them into the availability tracker
+        if let Some(blobs) = blobs.clone() {
+            let proofs = kzg_proofs.unwrap();
+            let commitments = block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .unwrap()
+                .clone();
+
+            // Zipping will stop when any of the zipped lists runs out, which is what we want. Some
+            // of the tests don't provide enough proofs/blobs, and should fail the availability
+            // check.
+            for (i, ((blob, kzg_proof), kzg_commitment)) in blobs
+                .into_iter()
+                .zip(proofs)
+                .zip(commitments.into_iter())
+                .enumerate()
+            {
+                let signed_sidecar = SignedBlobSidecar {
+                    message: Arc::new(BlobSidecar {
+                        block_root,
+                        index: i as u64,
+                        slot: block.slot(),
+                        block_parent_root: block.parent_root(),
+                        proposer_index: block.message().proposer_index(),
+                        blob,
+                        kzg_commitment,
+                        kzg_proof,
+                    }),
+                    signature: Signature::empty(),
+                    _phantom: Default::default(),
+                };
+                let result = self.block_on_dangerous(
+                    self.harness
+                        .chain
+                        .process_gossip_blob(GossipVerifiedBlob::__assumed_valid(signed_sidecar)),
+                )?;
+                if valid {
+                    assert!(result.is_ok());
+                }
+            }
+        };
+
         let block = Arc::new(block);
-        let result = self.block_on_dangerous(self.harness.chain.process_block(
-            block_root,
-            block.clone(),
-            NotifyExecutionLayer::Yes,
-            || Ok(()),
-        ))?;
-        if result.is_ok() != valid {
+        let result: Result<Result<Hash256, ()>, _> = self
+            .block_on_dangerous(self.harness.chain.process_block(
+                block_root,
+                block.clone(),
+                NotifyExecutionLayer::Yes,
+                || Ok(()),
+            ))?
+            .map(|avail: AvailabilityProcessingStatus| avail.try_into());
+        let success = result.as_ref().map_or(false, |inner| inner.is_ok());
+        if success != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
                 block_root,
@@ -401,8 +479,8 @@ impl<E: EthSpec> Tester<E> {
 
         // Apply invalid blocks directly against the fork choice `on_block` function. This ensures
         // that the block is being rejected by `on_block`, not just some upstream block processing
-        // function.
-        if !valid {
+        // function. When blobs exist, we don't do this.
+        if !valid && blobs.is_none() {
             // A missing parent block whilst `valid == false` means the test should pass.
             if let Some(parent_block) = self
                 .harness

@@ -758,6 +758,38 @@ fn builder_fallback_flags() {
             );
         },
     );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("ignore-builder-override-suggestion-threshold"),
+        Some("53.4"),
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .ignore_builder_override_suggestion_threshold,
+                53.4f32
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .ignore_builder_override_suggestion_threshold,
+                10.0f32
+            );
+        },
+    );
 }
 
 #[test]
@@ -803,7 +835,7 @@ fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_fl
     let id = "bn-1";
     let version = "Lighthouse-v2.1.3";
     CommandLineTest::new()
-        .flag("execution-endpoint", Some(execution_endpoint.clone()))
+        .flag("execution-endpoint", Some(execution_endpoint))
         .flag(jwt_flag, dir.path().join(jwt_file).as_os_str().to_str())
         .flag(jwt_id_flag, Some(id))
         .flag(jwt_version_flag, Some(version))
@@ -1199,7 +1231,7 @@ fn default_backfill_rate_limiting_flag() {
 }
 #[test]
 fn default_boot_nodes() {
-    let number_of_boot_nodes = 17;
+    let number_of_boot_nodes = 15;
 
     CommandLineTest::new()
         .run_with_zero_port()
@@ -1274,7 +1306,12 @@ fn enr_udp_port_flag() {
     CommandLineTest::new()
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_udp4_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_quic_port_flag() {
@@ -1282,7 +1319,12 @@ fn enr_quic_port_flag() {
     CommandLineTest::new()
         .flag("enr-quic-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_quic4_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_quic4_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_tcp_port_flag() {
@@ -1290,7 +1332,12 @@ fn enr_tcp_port_flag() {
     CommandLineTest::new()
         .flag("enr-tcp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_tcp4_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_tcp4_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_udp6_port_flag() {
@@ -1298,7 +1345,12 @@ fn enr_udp6_port_flag() {
     CommandLineTest::new()
         .flag("enr-udp6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_udp6_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_udp6_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_quic6_port_flag() {
@@ -1306,7 +1358,12 @@ fn enr_quic6_port_flag() {
     CommandLineTest::new()
         .flag("enr-quic6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_quic6_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_quic6_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_tcp6_port_flag() {
@@ -1314,7 +1371,12 @@ fn enr_tcp6_port_flag() {
     CommandLineTest::new()
         .flag("enr-tcp6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_tcp6_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_tcp6_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_match_flag_over_ipv4() {
@@ -1340,7 +1402,10 @@ fn enr_match_flag_over_ipv4() {
                 Some((addr, udp4_port, tcp4_port))
             );
             assert_eq!(config.network.enr_address, (Some(addr), None));
-            assert_eq!(config.network.enr_udp4_port, Some(udp4_port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(udp4_port)
+            );
         });
 }
 #[test]
@@ -1368,7 +1433,10 @@ fn enr_match_flag_over_ipv6() {
                 Some((addr, udp6_port, tcp6_port))
             );
             assert_eq!(config.network.enr_address, (None, Some(addr)));
-            assert_eq!(config.network.enr_udp6_port, Some(udp6_port));
+            assert_eq!(
+                config.network.enr_udp6_port.map(|port| port.get()),
+                Some(udp6_port)
+            );
         });
 }
 #[test]
@@ -1416,8 +1484,14 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
                 config.network.enr_address,
                 (Some(ipv4_addr), Some(ipv6_addr))
             );
-            assert_eq!(config.network.enr_udp6_port, Some(udp6_port));
-            assert_eq!(config.network.enr_udp4_port, Some(udp4_port));
+            assert_eq!(
+                config.network.enr_udp6_port.map(|port| port.get()),
+                Some(udp6_port)
+            );
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(udp4_port)
+            );
         });
 }
 #[test]
@@ -1430,7 +1504,10 @@ fn enr_address_flag_with_ipv4() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enr_address, (Some(addr), None));
-            assert_eq!(config.network.enr_udp4_port, Some(port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            );
         });
 }
 #[test]
@@ -1443,7 +1520,10 @@ fn enr_address_flag_with_ipv6() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enr_address, (Some(addr), None));
-            assert_eq!(config.network.enr_udp4_port, Some(port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            );
         });
 }
 #[test]
@@ -1460,7 +1540,10 @@ fn enr_address_dns_flag() {
                 config.network.enr_address.0 == Some(addr)
                     || config.network.enr_address.1 == Some(ipv6addr)
             );
-            assert_eq!(config.network.enr_udp4_port, Some(port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            );
         });
 }
 #[test]
@@ -1842,6 +1925,45 @@ fn prune_payloads_on_startup_false() {
         .flag("prune-payloads", Some("false"))
         .run_with_zero_port()
         .with_config(|config| assert!(!config.store.prune_payloads));
+}
+#[test]
+fn prune_blobs_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.prune_blobs));
+}
+#[test]
+fn prune_blobs_on_startup_false() {
+    CommandLineTest::new()
+        .flag("prune-blobs", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.store.prune_blobs));
+}
+#[test]
+fn epochs_per_blob_prune_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.epochs_per_blob_prune == 1));
+}
+#[test]
+fn epochs_per_blob_prune_on_startup_five() {
+    CommandLineTest::new()
+        .flag("epochs-per-blob-prune", Some("5"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.epochs_per_blob_prune == 5));
+}
+#[test]
+fn blob_prune_margin_epochs_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.blob_prune_margin_epochs == 0));
+}
+#[test]
+fn blob_prune_margin_epochs_on_startup_ten() {
+    CommandLineTest::new()
+        .flag("blob-prune-margin-epochs", Some("10"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.blob_prune_margin_epochs == 10));
 }
 #[test]
 fn reconstruct_historic_states_flag() {
