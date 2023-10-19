@@ -50,9 +50,9 @@ pub fn process_registry_updates<T: EthSpec>(
         .collect_vec();
 
     // Dequeue validators for activation up to churn limit
-    let churn_limit = state.get_churn_limit(spec)? as usize;
+    let activation_churn_limit = state.get_activation_churn_limit(spec)? as usize;
     let delayed_activation_epoch = state.compute_activation_exit_epoch(current_epoch, spec)?;
-    for index in activation_queue.into_iter().take(churn_limit) {
+    for index in activation_queue.into_iter().take(activation_churn_limit) {
         state.get_validator_mut(index)?.activation_epoch = delayed_activation_epoch;
     }
 

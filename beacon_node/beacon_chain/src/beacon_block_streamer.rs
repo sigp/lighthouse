@@ -3,7 +3,7 @@ use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
 use slog::{crit, debug, Logger};
 use std::collections::HashMap;
 use std::sync::Arc;
-use store::DatabaseBlock;
+use store::{DatabaseBlock, ExecutionPayloadDeneb};
 use task_executor::TaskExecutor;
 use tokio::sync::{
     mpsc::{self, UnboundedSender},
@@ -97,6 +97,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
     let payload: ExecutionPayload<E> = match fork {
         ForkName::Merge => ExecutionPayloadMerge::default().into(),
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
+        ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",
@@ -714,19 +715,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_all_blocks_from_altair_to_capella() {
+    async fn check_all_blocks_from_altair_to_deneb() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
         let num_epochs = 8;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
+        let deneb_fork_epoch = 6usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
+        spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
 
-        let harness = get_harness(VALIDATOR_COUNT, spec);
+        let harness = get_harness(VALIDATOR_COUNT, spec.clone());
         // go to bellatrix fork
         harness
             .extend_slots(bellatrix_fork_epoch * slots_per_epoch)
@@ -833,17 +836,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_fallback_altair_to_capella() {
+    async fn check_fallback_altair_to_deneb() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
         let num_epochs = 8;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
+        let deneb_fork_epoch = 6usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
+        spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
 
         let harness = get_harness(VALIDATOR_COUNT, spec);
 
