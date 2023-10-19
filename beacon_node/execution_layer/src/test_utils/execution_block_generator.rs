@@ -137,7 +137,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * deneb stuff
      */
     pub blobs_bundles: HashMap<PayloadId, BlobsBundle<T>>,
-    pub kzg: Option<Arc<Kzg<T::Kzg>>>,
+    pub kzg: Option<Arc<Kzg>>,
     rng: Arc<Mutex<StdRng>>,
 }
 
@@ -154,7 +154,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
-        kzg: Option<Kzg<T::Kzg>>,
+        kzg: Option<Kzg>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -906,7 +906,7 @@ mod test {
             .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
     }
 
-    fn load_kzg<E: EthSpec>() -> Result<Kzg<E::Kzg>, String> {
+    fn load_kzg<E: EthSpec>() -> Result<Kzg, String> {
         let trusted_setup: TrustedSetup =
             serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
                 .map_err(|e| format!("Unable to read trusted setup file: {e:?}"))?;

@@ -14,7 +14,7 @@
 use bytes::Bytes;
 use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
-use kzg::{KzgPreset, KzgPresetId, TrustedSetup};
+use kzg::TrustedSetup;
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
@@ -49,32 +49,19 @@ pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 ///
 /// This is done to ensure that testnets also inherit the high security and
 /// randomness of the mainnet kzg trusted setup ceremony.
-const TRUSTED_SETUP: &[u8] =
-    include_bytes!("../built_in_network_configs/testing_trusted_setups.json");
+/// 
+/// Note: The trusted setup for both mainnet and minimal presets are the same.
+pub const TRUSTED_SETUP_BYTES: &[u8] = include_bytes!("../built_in_network_configs/trusted_setup.json");
 
-const TRUSTED_SETUP_MINIMAL: &[u8] =
-    include_bytes!("../built_in_network_configs/minimal_testing_trusted_setups.json");
-
-pub fn get_trusted_setup<P: KzgPreset>() -> &'static [u8] {
-    get_trusted_setup_from_id(P::spec_name())
-}
-
-pub fn get_trusted_setup_from_id(id: KzgPresetId) -> &'static [u8] {
-    match id {
-        KzgPresetId::Mainnet => TRUSTED_SETUP,
-        KzgPresetId::Minimal => TRUSTED_SETUP_MINIMAL,
-    }
-}
-
+/// Returns `Some(TrustedSetup)` if the deneb fork epoch is set and `None` otherwise.
+/// 
+/// Returns an error if the trusted setup parsing failed.
 fn get_trusted_setup_from_config(config: &Config) -> Result<Option<TrustedSetup>, String> {
     config
         .deneb_fork_epoch
         .filter(|epoch| epoch.value != Epoch::max_value())
         .map(|_| {
-            let id = KzgPresetId::from_str(&config.preset_base)
-                .map_err(|e| format!("Unable to parse preset_base as KZG preset: {:?}", e))?;
-            let trusted_setup_bytes = get_trusted_setup_from_id(id);
-            serde_json::from_reader(trusted_setup_bytes)
+            serde_json::from_reader(TRUSTED_SETUP_BYTES)
                 .map_err(|e| format!("Unable to read trusted setup file: {}", e))
         })
         .transpose()

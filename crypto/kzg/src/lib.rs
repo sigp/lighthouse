@@ -6,8 +6,8 @@ use std::fmt::Debug;
 
 pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof, trusted_setup::TrustedSetup};
 pub use c_kzg::{
-    Blob, Bytes32, Bytes48, Error, KzgSettings, BYTES_PER_COMMITMENT, BYTES_PER_FIELD_ELEMENT,
-    BYTES_PER_PROOF,
+    Blob, Bytes32, Bytes48, Error, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
+    BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
 };
 
 /// A wrapper over a kzg library that holds the trusted setup parameters.

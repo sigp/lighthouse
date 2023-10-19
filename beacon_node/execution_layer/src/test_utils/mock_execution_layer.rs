@@ -46,7 +46,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         builder_threshold: Option<u128>,
         jwt_key: Option<JwtKey>,
         spec: ChainSpec,
-        kzg: Option<Kzg<T::Kzg>>,
+        kzg: Option<Kzg>,
     ) -> Self {
         let handle = executor.handle().unwrap();
 
