@@ -267,10 +267,6 @@ pub trait EthSpec:
         Self::FieldElementsPerBlob::to_usize()
     }
 
-    // fn blob_from_bytes(bytes: &[u8]) -> Result<<Self::Kzg as KzgPreset>::Blob, kzg::Error> {
-    //     <Self::Kzg as KzgPreset>::Blob::from_bytes(bytes)
-    // }
-
     /// Returns the `BYTES_PER_BLOB` constant for this specification.
     fn bytes_per_blob() -> usize {
         Self::BytesPerBlob::to_usize()
