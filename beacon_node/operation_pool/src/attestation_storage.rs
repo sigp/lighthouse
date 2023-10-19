@@ -153,10 +153,7 @@ impl<T: EthSpec> AttestationMap<T> {
             indexed,
         } = SplitAttestation::new(attestation, attesting_indices);
 
-        let attestation_map = self
-            .checkpoint_map
-            .entry(checkpoint)
-            .or_default();
+        let attestation_map = self.checkpoint_map.entry(checkpoint).or_default();
         let attestations = if indexed.attesting_indices.len() > 1 {
             attestation_map
                 .aggregate_attestations

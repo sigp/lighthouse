@@ -82,16 +82,18 @@ where
 
     for _ in 0..limit {
         // Select the item with the maximum score.
-        match all_items
-            .iter_mut()
-            .max_by_key(|(_, vals)| {
-                vals.iter()
-                    .filter(|val| val.available && val.item.score() != 0)
-                    .map(|val| val.item.score()).max()
-            })
-        {
+        match all_items.iter_mut().max_by_key(|(_, vals)| {
+            vals.iter()
+                .filter(|val| val.available && val.item.score() != 0)
+                .map(|val| val.item.score())
+                .max()
+        }) {
             Some((_, vals)) => {
-                let best = vals.iter().enumerate().max_by_key(|(_, val)| val.item.score()).map(|(ind, _)| ind);
+                let best = vals
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(_, val)| val.item.score())
+                    .map(|(ind, _)| ind);
                 if let Some(best_ind) = best {
                     let best_item = vals[best_ind].item.clone();
                     if best_item.score() == 0 {
@@ -100,12 +102,13 @@ where
                         // Update the covering sets of the other items, for the inclusion of the selected item.
                         // Items covered by the selected item can't be re-covered.
                         vals[best_ind].available = false;
-                        vals
-                            .iter_mut()
+                        vals.iter_mut()
                             .filter(|x| x.available && x.item.score() != 0)
                             .for_each(|x| {
-                                x.item
-                                    .update_covering_set(best_item.intermediate(), best_item.covering_set())
+                                x.item.update_covering_set(
+                                    best_item.intermediate(),
+                                    best_item.covering_set(),
+                                )
                             });
                         result.push(best_item)
                     }
