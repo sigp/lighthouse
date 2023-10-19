@@ -1034,8 +1034,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // inform range that the request needs to be treated as failed
                     // With time we will want to downgrade this log
                     warn!(
-                    self.log, "Blocks and blobs request for range received invalid data";
-                    "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e
+                        self.log,
+                        "Blocks and blobs request for range received invalid data";
+                        "peer_id" => %peer_id,
+                        "batch_id" => resp.batch_id,
+                        "error" => e.clone()
                     );
                     let id = RequestId::RangeBlockAndBlobs { id };
                     self.network.report_peer(
@@ -1091,7 +1094,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // With time we will want to downgrade this log
                     warn!(
                         self.log, "Blocks and blobs request for backfill received invalid data";
-                        "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e
+                        "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e.clone()
                     );
                     let id = RequestId::BackFillBlockAndBlobs { id };
                     self.network.report_peer(

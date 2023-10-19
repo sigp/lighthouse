@@ -23,7 +23,7 @@ use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
     pub batch_id: BatchId,
-    pub responses: Result<Vec<RpcBlock<T>>, &'static str>,
+    pub responses: Result<Vec<RpcBlock<T>>, String>,
 }
 
 pub struct BlocksAndBlobsByRangeRequest<T: EthSpec> {

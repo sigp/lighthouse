@@ -258,31 +258,33 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         local_head_epoch: Epoch,
     ) {
         // Find the chain with most peers and check if it is already syncing
-        if let Some((mut new_id, max_peers)) = self
+        if let Some((mut new_id, new_id_max_peers)) = self
             .finalized_chains
             .iter()
             .max_by_key(|(_, chain)| chain.available_peers())
             .map(|(id, chain)| (*id, chain.available_peers()))
         {
-            let mut old_id = None;
-            if let RangeSyncState::Finalized(syncing_id) = self.state {
-                if syncing_id == new_id {
+            let mut old_currently_syncing_id = None;
+            if let RangeSyncState::Finalized(currently_syncing_id) = self.state {
+                if currently_syncing_id == new_id {
                     // best chain is already syncing
-                    old_id = Some(None);
+                    old_currently_syncing_id = Some(None);
                 } else {
                     // chains are different, check that they don't have the same number of peers
-                    if let Some(syncing_chain) = self.finalized_chains.get_mut(&syncing_id) {
-                        if max_peers > syncing_chain.available_peers()
-                            && syncing_chain.validated_epochs()
+                    if let Some(currently_syncing_chain) =
+                        self.finalized_chains.get_mut(&currently_syncing_id)
+                    {
+                        if new_id_max_peers > currently_syncing_chain.available_peers()
+                            && currently_syncing_chain.validated_epochs()
                                 > MIN_FINALIZED_CHAIN_VALIDATED_EPOCHS
                         {
-                            syncing_chain.stop_syncing();
-                            old_id = Some(Some(syncing_id));
+                            currently_syncing_chain.stop_syncing();
+                            old_currently_syncing_id = Some(Some(currently_syncing_id));
                         } else {
                             // chains have the same number of peers, pick the currently syncing
                             // chain to avoid unnecesary switchings and try to advance it
-                            new_id = syncing_id;
-                            old_id = Some(None);
+                            new_id = currently_syncing_id;
+                            old_currently_syncing_id = Some(None);
                         }
                     }
                 }
@@ -293,7 +295,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                 .get_mut(&new_id)
                 .expect("Chain exists");
 
-            match old_id {
+            match old_currently_syncing_id {
                 Some(Some(old_id)) => debug!(self.log, "Switching finalized chains";
                     "old_id" => old_id, &chain),
                 None => debug!(self.log, "Syncing new finalized chain"; &chain),
