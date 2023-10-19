@@ -1,3 +1,4 @@
+use crate::metrics::AggregatedBandwidthSinks;
 use crate::multiaddr::Protocol;
 use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
 use crate::types::{
@@ -5,7 +6,6 @@ use crate::types::{
 };
 use crate::{GossipTopic, NetworkConfig};
 use futures::future::Either;
-use libp2p::bandwidth::BandwidthSinks;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::gossipsub;
 use libp2p::identity::{secp256k1, Keypair};
@@ -44,7 +44,7 @@ type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 pub fn build_transport(
     local_private_key: Keypair,
     quic_support: bool,
-) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
+) -> std::io::Result<(BoxedTransport, AggregatedBandwidthSinks)> {
     // mplex config
     let mut mplex_config = libp2p_mplex::MplexConfig::new();
     mplex_config.set_max_buffer_size(256);
@@ -55,30 +55,39 @@ pub fn build_transport(
     yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());
 
     // Creates the TCP transport layer
-    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
-        .upgrade(core::upgrade::Version::V1)
-        .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(core::upgrade::SelectUpgrade::new(
-            yamux_config,
-            mplex_config,
-        ))
-        .timeout(Duration::from_secs(10));
+    let (tcp, tcp_bandwidth) =
+        libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
+            .upgrade(core::upgrade::Version::V1)
+            .authenticate(generate_noise_config(&local_private_key))
+            .multiplex(core::upgrade::SelectUpgrade::new(
+                yamux_config,
+                mplex_config,
+            ))
+            .timeout(Duration::from_secs(10))
+            .with_bandwidth_logging();
 
     let (transport, bandwidth) = if quic_support {
         // Enables Quic
         // The default quic configuration suits us for now.
         let quic_config = libp2p_quic::Config::new(&local_private_key);
-        tcp.or_transport(libp2p_quic::tokio::Transport::new(quic_config))
+        let (quic, quic_bandwidth) =
+            libp2p_quic::tokio::Transport::new(quic_config).with_bandwidth_logging();
+        let transport = tcp
+            .or_transport(quic)
             .map(|either_output, _| match either_output {
                 Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
                 Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
             })
-            .with_bandwidth_logging()
+            .boxed();
+        (
+            transport,
+            AggregatedBandwidthSinks::new(tcp_bandwidth, Some(quic_bandwidth)),
+        )
     } else {
-        tcp.with_bandwidth_logging()
+        (tcp, AggregatedBandwidthSinks::new(tcp_bandwidth, None))
     };
 
-    // // Enables DNS over the transport.
+    // Enables DNS over the transport.
     let transport = libp2p::dns::TokioDnsConfig::system(transport)?.boxed();
 
     Ok((transport, bandwidth))
