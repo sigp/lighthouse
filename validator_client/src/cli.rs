@@ -153,6 +153,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("FEE-RECIPIENT")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("distributed")
+                .long("distributed")
+                .help("Enables functionality required for running the validator in a distributed network.")
+                .takes_value(false)
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")

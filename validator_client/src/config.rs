@@ -79,6 +79,8 @@ pub struct Config {
     pub enable_latency_measurement_service: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
     pub validator_registration_batch_size: usize,
+    /// Whether we are running with distributed network support.
+    pub distributed: bool,
 }
 
 impl Default for Config {
@@ -120,6 +122,7 @@ impl Default for Config {
             disable_run_on_all: false,
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
+            distributed: false,
         }
     }
 }
@@ -256,6 +259,10 @@ impl Config {
 
         if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
             config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
+        }
+
+        if cli_args.is_present("distributed") {
+            config.distributed = true;
         }
 
         /*

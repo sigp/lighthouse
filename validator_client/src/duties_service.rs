@@ -218,9 +218,14 @@ pub struct DutiesService<T, E: EthSpec> {
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.
     pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    pub enable_high_validator_count_metrics: bool,
+    /// The runtime for spawning tasks.
     pub context: RuntimeContext<E>,
+    /// The current chain spec.
     pub spec: ChainSpec,
+    //// Whether we permit large validator counts in the metrics.
+    pub enable_high_validator_count_metrics: bool,
+    /// If this validator is running in distributed mode.
+    pub distributed: bool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
