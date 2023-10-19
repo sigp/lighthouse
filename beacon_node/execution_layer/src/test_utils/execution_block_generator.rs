@@ -26,9 +26,8 @@ use types::{
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
-use ssz::Decode;
 
-const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
+const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.json");
 
 const GAS_LIMIT: u64 = 16384;
 const GAS_USED: u64 = GAS_LIMIT - 1;
@@ -648,12 +647,12 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 }
 
 pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, Blob<E>), String> {
-    let BlobsBundle {
+    let BlobsBundle::<E> {
         commitments,
         proofs,
         blobs,
-    } = BlobsBundle::<E>::from_ssz_bytes(TEST_BLOB_BUNDLE)
-        .map_err(|e| format!("Unable to decode SSZ: {:?}", e))?;
+    } = serde_json::from_reader(TEST_BLOB_BUNDLE)
+        .map_err(|e| format!("Unable to decode JSON: {:?}", e))?;
 
     Ok((
         commitments
