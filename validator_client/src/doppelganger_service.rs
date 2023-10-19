@@ -241,7 +241,7 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
         .iter()
         .map(|response| LivenessResponseData {
             index: response.index,
-            epoch: previous_epoch,
+            epoch: current_epoch,
             is_live: response.is_live,
         })
         .collect();
