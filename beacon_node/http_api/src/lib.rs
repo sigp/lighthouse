@@ -3869,16 +3869,12 @@ pub fn serve<T: BeaconChainTypes>(
                         )));
                     }
 
-                    let liveness: Vec<api_types::LivenessResponseData> = indices
+                    let liveness: Vec<api_types::StandardLivenessResponseData> = indices
                         .iter()
                         .cloned()
                         .map(|index| {
                             let is_live = chain.validator_seen_at_epoch(index as usize, epoch);
-                            api_types::LivenessResponseData {
-                                index,
-                                epoch,
-                                is_live,
-                            }
+                            api_types::StandardLivenessResponseData { index, is_live }
                         })
                         .collect();
 

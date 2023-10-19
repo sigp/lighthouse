@@ -3270,13 +3270,12 @@ impl ApiTester {
             .collect::<Vec<_>>();
 
         // Construct the expected response
-        let expected: Vec<LivenessResponseData> = head_state
+        let expected: Vec<StandardLivenessResponseData> = head_state
             .validators()
             .iter()
             .enumerate()
-            .map(|(index, _)| LivenessResponseData {
+            .map(|(index, _)| StandardLivenessResponseData {
                 index: index as u64,
-                epoch,
                 is_live: false,
             })
             .collect();

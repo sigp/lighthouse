@@ -167,7 +167,7 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
 
     let previous_epoch = current_epoch.saturating_sub(1_u64);
 
-    let previous_epoch_responses = if previous_epoch == current_epoch {
+    let previous_epoch_standard_responses = if previous_epoch == current_epoch {
         // If the previous epoch and the current epoch are the same, don't bother requesting the
         // previous epoch indices.
         //
@@ -202,8 +202,17 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
             })
     };
 
+    let previous_epoch_responses: Vec<LivenessResponseData> = previous_epoch_standard_responses
+        .iter()
+        .map(|response| LivenessResponseData {
+            index: response.index,
+            epoch: previous_epoch,
+            is_live: response.is_live,
+        })
+        .collect();
+
     // Request the current epoch liveness state from the beacon node.
-    let current_epoch_responses = beacon_nodes
+    let current_epoch_standard_responses = beacon_nodes
         .first_success(
             RequireSynced::Yes,
             OfflineOnFailure::Yes,
@@ -227,6 +236,15 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
             // progress even if some of the calls are failing.
             vec![]
         });
+
+    let current_epoch_responses: Vec<LivenessResponseData> = current_epoch_standard_responses
+        .iter()
+        .map(|response| LivenessResponseData {
+            index: response.index,
+            epoch: previous_epoch,
+            is_live: response.is_live,
+        })
+        .collect();
 
     // Alert the user if the beacon node is omitting validators from the response.
     //
