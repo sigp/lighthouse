@@ -34,10 +34,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, Epoch, Hash256, LazySignedAggregateAndProof,
-    MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList,
-    SignedVoluntaryExit, Slot,
-    SubnetId,
+    Attestation, AttesterSlashing, Epoch, Hash256, LazySignedAggregateAndProof, MainnetEthSpec,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList,
+    SignedVoluntaryExit, Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;

@@ -76,7 +76,7 @@ use tokio_stream::{
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
     BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
-    LazySignedAggregateAndProof, ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
     SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };

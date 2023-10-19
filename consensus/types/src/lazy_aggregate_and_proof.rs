@@ -1,7 +1,7 @@
 use super::{EthSpec, LazyAttestation, Signature};
 use crate::{test_utils::TestRandom, AggregateAndProof};
 use bls::Error;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;

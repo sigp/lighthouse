@@ -34,10 +34,12 @@ use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, Unsigned, LazySignedAggregateAndProof, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, LazyAggregateAndProof, LazyAttestation, BitList, SignatureBytes, Signature, Checkpoint, AttestationData, Epoch
+    Attestation, AttestationData, AttesterSlashing, BitList, Checkpoint, Epoch, EthSpec, Hash256,
+    IndexedAttestation, LazyAggregateAndProof, LazyAttestation, LazySignedAggregateAndProof,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing, Signature,
+    SignatureBytes, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecar,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId, Unsigned,
 };
 
 use beacon_processor::{

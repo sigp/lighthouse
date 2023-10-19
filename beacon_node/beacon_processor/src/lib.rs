@@ -61,7 +61,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use types::consts::deneb::MAX_BLOBS_PER_BLOCK;
-use types::{Attestation, Hash256, SignedAggregateAndProof, SubnetId, LazySignedAggregateAndProof};
+use types::{Attestation, Hash256, LazySignedAggregateAndProof, SubnetId};
 use types::{EthSpec, Slot};
 use work_reprocessing_queue::IgnoredRpcBlock;
 use work_reprocessing_queue::{

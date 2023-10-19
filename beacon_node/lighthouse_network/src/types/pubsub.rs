@@ -9,8 +9,8 @@ use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LightClientFinalityUpdate, LazySignedAggregateAndProof,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LazySignedAggregateAndProof,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
     SignedBeaconBlockDeneb, SignedBeaconBlockMerge, SignedBlobSidecar, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
