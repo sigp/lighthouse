@@ -12,7 +12,7 @@ pub struct CheckpointKey {
     pub target_epoch: Epoch,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct CompactAttestationData {
     pub slot: Slot,
     pub index: u64,
