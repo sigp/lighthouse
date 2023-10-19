@@ -246,7 +246,8 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
         let slot = state.slot() + Slot::new(1);
 
         // calculate beacon block rewards / penalties
-        let (signed_block, mut state) = harness.make_block_return_pre_state(state, slot).await;
+        let ((signed_block, _maybe_blob_sidecars), mut state) =
+            harness.make_block_return_pre_state(state, slot).await;
         let beacon_block_reward = harness
             .chain
             .compute_beacon_block_reward(
