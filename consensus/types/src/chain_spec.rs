@@ -2,8 +2,7 @@ use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
-use serde::{Deserializer, Serialize, Serializer};
-use serde_derive::Deserialize;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
 use std::fs::File;
 use std::path::Path;
@@ -1042,7 +1041,7 @@ pub struct Config {
     ejection_balance: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
-    #[serde(default)]
+    #[serde(default = "default_max_per_epoch_activation_churn_limit")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_churn_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1127,6 +1126,10 @@ fn default_safe_slots_to_import_optimistically() -> u64 {
 
 fn default_subnets_per_node() -> u8 {
     2u8
+}
+
+const fn default_max_per_epoch_activation_churn_limit() -> u64 {
+    8
 }
 
 const fn default_gossip_max_size() -> u64 {

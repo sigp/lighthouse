@@ -7,7 +7,7 @@ use crate::block_verification::cheap_state_advance_to_obtain_committees;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::{metrics, BeaconChainError};
-use kzg::Kzg;
+use kzg::{Kzg, KzgCommitment};
 use slog::debug;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
@@ -177,6 +177,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     }
     pub fn slot(&self) -> Slot {
         self.blob.message.slot
+    }
+    pub fn index(&self) -> u64 {
+        self.blob.message.index
+    }
+    pub fn kzg_commitment(&self) -> KzgCommitment {
+        self.blob.message.kzg_commitment
     }
     pub fn proposer_index(&self) -> u64 {
         self.blob.message.proposer_index
@@ -433,8 +439,7 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
     kzg: &Kzg<T::Kzg>,
 ) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
-    //TODO(sean) remove clone
-    if validate_blob::<T>(kzg, blob.blob.clone(), blob.kzg_commitment, blob.kzg_proof)
+    if validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)
         .map_err(AvailabilityCheckError::Kzg)?
     {
         Ok(KzgVerifiedBlob { blob })
@@ -455,15 +460,10 @@ pub fn verify_kzg_for_blob_list<T: EthSpec>(
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_BATCH_TIMES);
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
         .iter()
-        .map(|blob| (blob.blob.clone(), (blob.kzg_commitment, blob.kzg_proof)))
+        .map(|blob| (&blob.blob, (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
-    if validate_blobs::<T>(
-        kzg,
-        commitments.as_slice(),
-        blobs.as_slice(),
-        proofs.as_slice(),
-    )
-    .map_err(AvailabilityCheckError::Kzg)?
+    if validate_blobs::<T>(kzg, commitments.as_slice(), blobs, proofs.as_slice())
+        .map_err(AvailabilityCheckError::Kzg)?
     {
         Ok(())
     } else {

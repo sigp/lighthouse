@@ -3,7 +3,7 @@ use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::validate_blob;
 use eth2_network_config::get_trusted_setup;
 use kzg::{Kzg, KzgCommitment, KzgPreset, KzgProof, TrustedSetup};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::convert::TryInto;
 use std::marker::PhantomData;
 use types::Blob;
@@ -91,7 +91,7 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProof<E> {
 
         let kzg = get_kzg::<E::Kzg>()?;
         let result = parse_input(&self.input).and_then(|(blob, commitment, proof)| {
-            validate_blob::<E>(&kzg, blob, commitment, proof)
+            validate_blob::<E>(&kzg, &blob, commitment, proof)
                 .map_err(|e| Error::InternalError(format!("Failed to validate blob: {:?}", e)))
         });
 

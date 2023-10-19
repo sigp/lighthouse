@@ -13,7 +13,9 @@ use crate::sync::block_lookups::single_block_lookup::{
 use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 pub use beacon_chain::data_availability_checker::ChildComponents;
-use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
+use beacon_chain::data_availability_checker::{
+    AvailabilityCheckErrorCategory, DataAvailabilityChecker,
+};
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::Current;
@@ -47,7 +49,7 @@ pub type DownloadedBlock<T> = (Hash256, RpcBlock<T>);
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
 
-/// This enum is used to track what a peer *should* be able to respond with respond based on
+/// This enum is used to track what a peer *should* be able to respond with based on
 /// other messages we've seen from this peer on the network. This is useful for peer scoring.
 /// We expect a peer tracked by the `BlockAndBlobs` variant to be able to respond to all
 /// components of a block. This peer has either sent an attestation for the requested block
@@ -447,7 +449,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             }
             CachedChild::DownloadIncomplete => {
-                // If this was the result of a block request, we can't determined if the block peer
+                // If this was the result of a block request, we can't determine if the block peer
                 // did anything wrong. If we already had both a block and blobs response processed,
                 // we should penalize the blobs peer because they did not provide all blobs on the
                 // initial request.
@@ -893,39 +895,25 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 );
                 return Ok(None);
             }
-            BlockError::AvailabilityCheck(e) => {
-                match e {
-                    // Internal error.
-                    AvailabilityCheckError::KzgNotInitialized
-                    | AvailabilityCheckError::SszTypes(_)
-                    | AvailabilityCheckError::MissingBlobs
-                    | AvailabilityCheckError::StoreError(_)
-                    | AvailabilityCheckError::DecodeError(_)
-                    | AvailabilityCheckError::Unexpected => {
-                        warn!(self.log, "Internal availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
-                        lookup
-                            .block_request_state
-                            .state
-                            .register_failure_downloading();
-                        lookup
-                            .blob_request_state
-                            .state
-                            .register_failure_downloading();
-                        lookup.request_block_and_blobs(cx)?
-                    }
-
-                    // Malicious errors.
-                    AvailabilityCheckError::Kzg(_)
-                    | AvailabilityCheckError::BlobIndexInvalid(_)
-                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
-                    | AvailabilityCheckError::KzgVerificationFailed
-                    | AvailabilityCheckError::InconsistentBlobBlockRoots { .. } => {
-                        warn!(self.log, "Availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
-                        lookup.handle_availability_check_failure(cx);
-                        lookup.request_block_and_blobs(cx)?
-                    }
+            BlockError::AvailabilityCheck(e) => match e.category() {
+                AvailabilityCheckErrorCategory::Internal => {
+                    warn!(self.log, "Internal availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
+                    lookup
+                        .block_request_state
+                        .state
+                        .register_failure_downloading();
+                    lookup
+                        .blob_request_state
+                        .state
+                        .register_failure_downloading();
+                    lookup.request_block_and_blobs(cx)?
                 }
-            }
+                AvailabilityCheckErrorCategory::Malicious => {
+                    warn!(self.log, "Availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
+                    lookup.handle_availability_check_failure(cx);
+                    lookup.request_block_and_blobs(cx)?
+                }
+            },
             other => {
                 warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
                 if let Ok(block_peer) = lookup.block_request_state.state.processing_peer() {

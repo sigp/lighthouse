@@ -75,8 +75,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             .unwrap_or_else(|| Duration::from_secs(0));
 
         info!(log, "Signed block published to network via HTTP API"; "slot" => block.slot(), "publish_delay" => ?publish_delay);
-        // Send the block, regardless of whether or not it is valid. The API
-        // specification is very clear that this is the desired behaviour.
+
         match block.as_ref() {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
@@ -199,9 +198,17 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     if let Some(gossip_verified_blobs) = gossip_verified_blobs {
         for blob in gossip_verified_blobs {
             if let Err(e) = chain.process_gossip_blob(blob).await {
-                return Err(warp_utils::reject::custom_bad_request(format!(
-                    "Invalid blob: {e}"
-                )));
+                let msg = format!("Invalid blob: {e}");
+                return if let BroadcastValidation::Gossip = validation_level {
+                    Err(warp_utils::reject::broadcast_without_import(msg))
+                } else {
+                    error!(
+                        log,
+                        "Invalid blob provided to HTTP API";
+                        "reason" => &msg
+                    );
+                    Err(warp_utils::reject::custom_bad_request(msg))
+                };
             }
         }
     }

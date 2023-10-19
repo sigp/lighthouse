@@ -2,7 +2,7 @@ use crate::*;
 
 use kzg::{BlobTrait, KzgPreset, MainnetKzgPreset, MinimalKzgPreset};
 use safe_arith::SafeArith;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_types::typenum::{
     bit::B0, UInt, Unsigned, U0, U1024, U1048576, U1073741824, U1099511627776, U128, U131072, U16,
     U16777216, U2, U2048, U256, U32, U4, U4096, U512, U6, U625, U64, U65536, U8, U8192,

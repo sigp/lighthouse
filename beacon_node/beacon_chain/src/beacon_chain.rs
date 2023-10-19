@@ -69,7 +69,7 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
-use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
+use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
     PayloadAttributes, PayloadStatus,
@@ -2779,6 +2779,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::BlockIsAlreadyKnown);
         }
 
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_blob_sidecar_subscribers() {
+                event_handler.register(EventKind::BlobSidecar(SseBlobSidecar::from_blob_sidecar(
+                    blob.as_blob(),
+                )));
+            }
+        }
+
         self.data_availability_checker
             .notify_gossip_blob(blob.as_blob().slot, block_root, &blob);
         let r = self.check_gossip_blob_availability_and_import(blob).await;
@@ -2801,6 +2809,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .contains_block(&block_root)
         {
             return Err(BlockError::BlockIsAlreadyKnown);
+        }
+
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_blob_sidecar_subscribers() {
+                for blob in blobs.iter().filter_map(|maybe_blob| maybe_blob.as_ref()) {
+                    event_handler.register(EventKind::BlobSidecar(
+                        SseBlobSidecar::from_blob_sidecar(blob),
+                    ));
+                }
+            }
         }
 
         self.data_availability_checker
@@ -3913,6 +3931,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
+        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
+        let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
+
         // Part 1/2 (blocking)
         //
         // Load the parent state from disk.
@@ -3947,9 +3968,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
     ) -> Result<(BeaconState<T::EthSpec>, Option<Hash256>), BlockProductionError> {
-        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
-        let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
-
         let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_FORK_CHOICE_TIMES);
         self.wait_for_fork_choice_before_block_production(slot)?;
         drop(fork_choice_timer);
@@ -5031,7 +5049,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     kzg_utils::validate_blobs::<T::EthSpec>(
                         kzg,
                         expected_kzg_commitments,
-                        blobs,
+                        blobs.iter().collect(),
                         &kzg_proofs,
                     )
                     .map_err(BlockProductionError::KzgError)?;

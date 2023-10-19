@@ -1,6 +1,6 @@
 use super::{BeaconBlockHeader, BeaconState, EthSpec, Hash256, SyncCommittee};
 use crate::{light_client_update::*, test_utils::TestRandom};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use std::sync::Arc;
