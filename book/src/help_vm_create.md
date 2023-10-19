@@ -34,6 +34,7 @@ FLAGS:
                                               is not provided, a random password will be used. It is not necessary to
                                               keep backups of voting keystore passwords if the mnemonic is safely backed
                                               up.
+        --stdin-inputs                        If present, read all user inputs from stdin instead of tty.
     -V, --version                             Prints version information
 
 OPTIONS:
