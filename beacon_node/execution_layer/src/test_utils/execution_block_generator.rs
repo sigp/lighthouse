@@ -14,6 +14,7 @@ use kzg::{Kzg, KzgCommitment, KzgProof};
 use parking_lot::Mutex;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
+use ssz::Decode;
 use ssz_types::VariableList;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,7 +28,7 @@ use types::{
 
 use super::DEFAULT_TERMINAL_BLOCK;
 
-const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.json");
+const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
 
 const GAS_LIMIT: u64 = 16384;
 const GAS_USED: u64 = GAS_LIMIT - 1;
@@ -651,8 +652,8 @@ pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, 
         commitments,
         proofs,
         blobs,
-    } = serde_json::from_reader(TEST_BLOB_BUNDLE)
-        .map_err(|e| format!("Unable to decode JSON: {:?}", e))?;
+    } = BlobsBundle::from_ssz_bytes(TEST_BLOB_BUNDLE)
+        .map_err(|e| format!("Unable to decode ssz: {:?}", e))?;
 
     Ok((
         commitments
