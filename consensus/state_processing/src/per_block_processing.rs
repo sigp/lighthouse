@@ -26,6 +26,7 @@ pub use verify_exit::verify_exit;
 
 pub mod altair;
 pub mod block_signature_verifier;
+pub mod deneb;
 pub mod errors;
 mod is_valid_indexed_attestation;
 pub mod process_operations;
@@ -166,11 +167,11 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
     // previous block.
     if is_execution_enabled(state, block.body()) {
-        let payload = block.body().execution_payload()?;
+        let body = block.body();
         if state_processing_strategy == StateProcessingStrategy::Accurate {
-            process_withdrawals::<T, Payload>(state, payload, spec)?;
+            process_withdrawals::<T, Payload>(state, body.execution_payload()?, spec)?;
         }
-        process_execution_payload::<T, Payload>(state, payload, spec)?;
+        process_execution_payload::<T, Payload>(state, body, spec)?;
     }
 
     process_randao(state, block, verify_randao, ctxt, spec)?;
@@ -355,9 +356,10 @@ pub fn get_new_eth1_data<T: EthSpec>(
 pub fn partially_verify_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &BeaconState<T>,
     block_slot: Slot,
-    payload: Payload::Ref<'_>,
+    body: BeaconBlockBodyRef<T, Payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    let payload = body.execution_payload()?;
     if is_merge_transition_complete(state) {
         block_verify!(
             payload.parent_hash() == state.latest_execution_payload_header()?.block_hash(),
@@ -384,6 +386,17 @@ pub fn partially_verify_execution_payload<T: EthSpec, Payload: AbstractExecPaylo
         }
     );
 
+    if let Ok(blob_commitments) = body.blob_kzg_commitments() {
+        // Verify commitments are under the limit.
+        block_verify!(
+            blob_commitments.len() <= T::max_blobs_per_block(),
+            BlockProcessingError::ExecutionInvalidBlobsLen {
+                max: T::max_blobs_per_block(),
+                actual: blob_commitments.len(),
+            }
+        );
+    }
+
     Ok(())
 }
 
@@ -396,11 +409,11 @@ pub fn partially_verify_execution_payload<T: EthSpec, Payload: AbstractExecPaylo
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
 pub fn process_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
-    payload: Payload::Ref<'_>,
+    body: BeaconBlockBodyRef<T, Payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    partially_verify_execution_payload::<T, Payload>(state, state.slot(), payload, spec)?;
-
+    partially_verify_execution_payload::<T, Payload>(state, state.slot(), body, spec)?;
+    let payload = body.execution_payload()?;
     match state.latest_execution_payload_header_mut()? {
         ExecutionPayloadHeaderRefMut::Merge(header_mut) => {
             match payload.to_execution_payload_header() {
@@ -414,6 +427,12 @@ pub fn process_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
                 _ => return Err(BlockProcessingError::IncorrectStateType),
             }
         }
+        ExecutionPayloadHeaderRefMut::Deneb(header_mut) => {
+            match payload.to_execution_payload_header() {
+                ExecutionPayloadHeader::Deneb(header) => *header_mut = header,
+                _ => return Err(BlockProcessingError::IncorrectStateType),
+            }
+        }
     }
 
     Ok(())
@@ -422,15 +441,19 @@ pub fn process_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
 /// These functions will definitely be called before the merge. Their entire purpose is to check if
 /// the merge has happened or if we're on the transition block. Thus we don't want to propagate
 /// errors from the `BeaconState` being an earlier variant than `BeaconStateMerge` as we'd have to
-/// repeaetedly write code to treat these errors as false.
+/// repeatedly write code to treat these errors as false.
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_complete
 pub fn is_merge_transition_complete<T: EthSpec>(state: &BeaconState<T>) -> bool {
-    // We must check defaultness against the payload header with 0x0 roots, as that's what's meant
-    // by `ExecutionPayloadHeader()` in the spec.
-    state
-        .latest_execution_payload_header()
-        .map(|header| !header.is_default_with_zero_roots())
-        .unwrap_or(false)
+    match state {
+        // We must check defaultness against the payload header with 0x0 roots, as that's what's meant
+        // by `ExecutionPayloadHeader()` in the spec.
+        BeaconState::Merge(_) => state
+            .latest_execution_payload_header()
+            .map(|header| !header.is_default_with_zero_roots())
+            .unwrap_or(false),
+        BeaconState::Deneb(_) | BeaconState::Capella(_) => true,
+        BeaconState::Base(_) | BeaconState::Altair(_) => false,
+    }
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_block
 pub fn is_merge_transition_block<T: EthSpec, Payload: AbstractExecPayload<T>>(
@@ -526,7 +549,7 @@ pub fn process_withdrawals<T: EthSpec, Payload: AbstractExecPayload<T>>(
 ) -> Result<(), BlockProcessingError> {
     match state {
         BeaconState::Merge(_) => Ok(()),
-        BeaconState::Capella(_) => {
+        BeaconState::Capella(_) | BeaconState::Deneb(_) => {
             let expected_withdrawals = get_expected_withdrawals(state, spec)?;
             let expected_root = expected_withdrawals.tree_hash_root();
             let withdrawals_root = payload.withdrawals_root()?;

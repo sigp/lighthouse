@@ -2,7 +2,7 @@ use super::config::RateLimiterConfig;
 use crate::rpc::Protocol;
 use fnv::FnvHashMap;
 use libp2p::PeerId;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::future::Future;
 use std::hash::Hash;
@@ -94,6 +94,10 @@ pub struct RPCRateLimiter {
     bbrange_rl: Limiter<PeerId>,
     /// BlocksByRoot rate limiter.
     bbroots_rl: Limiter<PeerId>,
+    /// BlobsByRange rate limiter.
+    blbrange_rl: Limiter<PeerId>,
+    /// BlobsByRoot rate limiter.
+    blbroot_rl: Limiter<PeerId>,
     /// LightClientBootstrap rate limiter.
     lcbootstrap_rl: Limiter<PeerId>,
 }
@@ -122,6 +126,10 @@ pub struct RPCRateLimiterBuilder {
     bbrange_quota: Option<Quota>,
     /// Quota for the BlocksByRoot protocol.
     bbroots_quota: Option<Quota>,
+    /// Quota for the BlobsByRange protocol.
+    blbrange_quota: Option<Quota>,
+    /// Quota for the BlobsByRoot protocol.
+    blbroot_quota: Option<Quota>,
     /// Quota for the LightClientBootstrap protocol.
     lcbootstrap_quota: Option<Quota>,
 }
@@ -137,6 +145,8 @@ impl RPCRateLimiterBuilder {
             Protocol::Goodbye => self.goodbye_quota = q,
             Protocol::BlocksByRange => self.bbrange_quota = q,
             Protocol::BlocksByRoot => self.bbroots_quota = q,
+            Protocol::BlobsByRange => self.blbrange_quota = q,
+            Protocol::BlobsByRoot => self.blbroot_quota = q,
             Protocol::LightClientBootstrap => self.lcbootstrap_quota = q,
         }
         self
@@ -158,6 +168,14 @@ impl RPCRateLimiterBuilder {
             .lcbootstrap_quota
             .ok_or("LightClientBootstrap quota not specified")?;
 
+        let blbrange_quota = self
+            .blbrange_quota
+            .ok_or("BlobsByRange quota not specified")?;
+
+        let blbroots_quota = self
+            .blbroot_quota
+            .ok_or("BlobsByRoot quota not specified")?;
+
         // create the rate limiters
         let ping_rl = Limiter::from_quota(ping_quota)?;
         let metadata_rl = Limiter::from_quota(metadata_quota)?;
@@ -165,6 +183,8 @@ impl RPCRateLimiterBuilder {
         let goodbye_rl = Limiter::from_quota(goodbye_quota)?;
         let bbroots_rl = Limiter::from_quota(bbroots_quota)?;
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
+        let blbrange_rl = Limiter::from_quota(blbrange_quota)?;
+        let blbroot_rl = Limiter::from_quota(blbroots_quota)?;
         let lcbootstrap_rl = Limiter::from_quota(lcbootstrap_quote)?;
 
         // check for peers to prune every 30 seconds, starting in 30 seconds
@@ -179,6 +199,8 @@ impl RPCRateLimiterBuilder {
             goodbye_rl,
             bbroots_rl,
             bbrange_rl,
+            blbrange_rl,
+            blbroot_rl,
             lcbootstrap_rl,
             init_time: Instant::now(),
         })
@@ -219,6 +241,8 @@ impl RPCRateLimiter {
             goodbye_quota,
             blocks_by_range_quota,
             blocks_by_root_quota,
+            blobs_by_range_quota,
+            blobs_by_root_quota,
             light_client_bootstrap_quota,
         } = config;
 
@@ -229,6 +253,8 @@ impl RPCRateLimiter {
             .set_quota(Protocol::Goodbye, goodbye_quota)
             .set_quota(Protocol::BlocksByRange, blocks_by_range_quota)
             .set_quota(Protocol::BlocksByRoot, blocks_by_root_quota)
+            .set_quota(Protocol::BlobsByRange, blobs_by_range_quota)
+            .set_quota(Protocol::BlobsByRoot, blobs_by_root_quota)
             .set_quota(Protocol::LightClientBootstrap, light_client_bootstrap_quota)
             .build()
     }
@@ -255,6 +281,8 @@ impl RPCRateLimiter {
             Protocol::Goodbye => &mut self.goodbye_rl,
             Protocol::BlocksByRange => &mut self.bbrange_rl,
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
+            Protocol::BlobsByRange => &mut self.blbrange_rl,
+            Protocol::BlobsByRoot => &mut self.blbroot_rl,
             Protocol::LightClientBootstrap => &mut self.lcbootstrap_rl,
         };
         check(limiter)
@@ -268,6 +296,8 @@ impl RPCRateLimiter {
         self.goodbye_rl.prune(time_since_start);
         self.bbrange_rl.prune(time_since_start);
         self.bbroots_rl.prune(time_since_start);
+        self.blbrange_rl.prune(time_since_start);
+        self.blbroot_rl.prune(time_since_start);
     }
 }
 

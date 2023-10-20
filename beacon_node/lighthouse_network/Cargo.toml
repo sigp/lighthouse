@@ -10,7 +10,6 @@ unsigned-varint = { version = "0.6", features = ["codec"] }
 ssz_types = { workspace = true }
 types = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1"
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 tree_hash = { workspace = true }

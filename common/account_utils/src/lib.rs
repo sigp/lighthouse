@@ -8,7 +8,7 @@ use eth2_wallet::{
 };
 use filesystem::{create_with_600_perms, Error as FsError};
 use rand::{distributions::Alphanumeric, Rng};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io;
 use std::io::prelude::*;

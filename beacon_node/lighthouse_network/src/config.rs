@@ -8,7 +8,7 @@ use directory::{
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub;
 use libp2p::Multiaddr;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::num::NonZeroU16;
@@ -123,7 +123,7 @@ pub struct Config {
     /// Subscribe to all subnets for the duration of the runtime.
     pub subscribe_all_subnets: bool,
 
-    /// Import/aggregate all attestations recieved on subscribed subnets for the duration of the
+    /// Import/aggregate all attestations received on subscribed subnets for the duration of the
     /// runtime.
     pub import_all_attestations: bool,
 
@@ -468,7 +468,7 @@ pub fn gossipsub_config(
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
         match fork_context.current_fork() {
-            ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
