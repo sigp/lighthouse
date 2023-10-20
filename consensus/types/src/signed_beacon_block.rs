@@ -1,3 +1,4 @@
+use crate::beacon_block_body::format_kzg_commitments;
 use crate::*;
 use bls::Signature;
 use derivative::Derivative;
@@ -263,11 +264,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             return "[]".to_string();
         };
 
-        let commitment_strings: Vec<String> = commitments.iter().map(|x| x.to_string()).collect();
-        let commitments_joined = commitment_strings.join(", ");
-        let surrounded_commitments = format!("[{}]", commitments_joined);
-
-        surrounded_commitments
+        format_kzg_commitments(commitments.as_ref())
     }
 }
 

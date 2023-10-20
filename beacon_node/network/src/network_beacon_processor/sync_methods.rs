@@ -24,7 +24,9 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
+use store::KzgCommitment;
 use tokio::sync::mpsc;
+use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{Epoch, Hash256, Slot};
 
@@ -298,10 +300,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         };
 
-        let indices: Vec<_> = blobs
+        let (indices, commitments): (Vec<u64>, Vec<KzgCommitment>) = blobs
             .iter()
-            .filter_map(|blob_opt| blob_opt.as_ref().map(|blob| blob.index))
-            .collect();
+            .filter_map(|blob_opt| {
+                blob_opt
+                    .as_ref()
+                    .map(|blob| (blob.index, blob.kzg_commitment))
+            })
+            .unzip();
+        let commitments = format_kzg_commitments(&commitments);
 
         debug!(
             self.log,
@@ -309,6 +316,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "indices" => ?indices,
             "block_root" => %block_root,
             "slot" => %slot,
+            "commitments" => commitments,
         );
 
         if let Ok(current_slot) = self.chain.slot() {
