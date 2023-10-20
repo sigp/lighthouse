@@ -56,3 +56,4 @@ environment = { workspace = true }
 # NOTE: This can be run via cargo build --bin lighthouse --features network/disable-backfill
 disable-backfill = []
 fork_from_env = ["beacon_chain/fork_from_env"]
+portable = ["beacon_chain/portable"]

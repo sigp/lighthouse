@@ -22,3 +22,6 @@ reqwest = { workspace = true }
 hex = { workspace = true }
 fork_choice = { workspace = true }
 logging = { workspace = true }
+
+[features]
+portable = ["types/portable"]

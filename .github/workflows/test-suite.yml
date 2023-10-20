@@ -26,6 +26,8 @@ env:
   WATCH_HOST: ${{ github.repository == 'sigp/lighthouse' && 'host.docker.internal' || 'localhost' }}
   # Disable incremental compilation
   CARGO_INCREMENTAL: 0
+  # Enable portable to prevent issues with caching `blst` for the wrong CPU type
+  TEST_FEATURES: portable
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -286,6 +288,9 @@ jobs:
   doppelganger-protection-test:
     name: doppelganger-protection-test
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
+    env:
+      # Enable portable to prevent issues with caching `blst` for the wrong CPU type
+      FEATURES: jemalloc,portable
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
