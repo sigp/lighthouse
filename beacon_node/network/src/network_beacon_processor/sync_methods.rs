@@ -9,7 +9,8 @@ use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::{
-    observed_block_producers::Error as ObserveError, validator_monitor::get_block_delay_ms,
+    observed_block_producers::Error as ObserveError,
+    validator_monitor::{get_block_delay_ms, get_slot_delay_ms},
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
     ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
 };
@@ -287,7 +288,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
-        _seen_timestamp: Duration,
+        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
         let Some(slot) = blobs
@@ -297,7 +298,60 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         };
 
+        let indices: Vec<_> = blobs
+            .iter()
+            .filter_map(|blob_opt| blob_opt.as_ref().map(|blob| blob.index))
+            .collect();
+
+        debug!(
+            self.log,
+            "RPC blobs received";
+            "indices" => ?indices,
+            "block_root" => %block_root,
+            "slot" => %slot,
+        );
+
+        if let Ok(current_slot) = self.chain.slot() {
+            if current_slot == slot {
+                // Note: this metric is useful to gauge how long it takes to receive blobs requested
+                // over rpc. Since we always send the request for block components at `slot_clock.single_lookup_delay()`
+                // we can use that as a baseline to measure against.
+                let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
+
+                metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
+            }
+        }
+
         let result = self.chain.process_rpc_blobs(slot, block_root, blobs).await;
+
+        match &result {
+            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+                debug!(
+                    self.log,
+                    "Block components retrieved";
+                    "result" => "imported block and blobs",
+                    "slot" => %slot,
+                    "block_hash" => %hash,
+                );
+            }
+            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+                warn!(
+                    self.log,
+                    "Missing components over rpc";
+                    "block_hash" => %block_root,
+                    "slot" => %slot,
+                );
+            }
+            Err(e) => {
+                warn!(
+                    self.log,
+                    "Error when importing rpc blobs";
+                    "error" => ?e,
+                    "block_hash" => %block_root,
+                    "slot" => %slot,
+                );
+            }
+        }
 
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
