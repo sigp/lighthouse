@@ -141,6 +141,8 @@ fn find_pivot(p: &[usize], x: &[usize], neighbourhoods: &[Vec<usize>]) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quickcheck::quickcheck;
+    use std::collections::HashSet;
     #[test]
     fn bron_kerbosch_small_test() {
         let vertices: Vec<usize> = (0..7).collect();
@@ -164,5 +166,64 @@ mod tests {
         };
 
         println!("{:?}", bron_kerbosch(&vertices, is_compatible));
+    }
+
+    quickcheck! {
+        fn no_panic(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
+            let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
+            bron_kerbosch(&vertices, is_compatible);
+            true
+        }
+
+        fn at_least_one_clique_returned(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
+            if vertices.len() == 0 {
+                return true;
+            }
+            let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
+            let res = bron_kerbosch(&vertices, is_compatible);
+            res.len() >= 1
+        }
+
+        fn all_claimed_cliques_are_cliques(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
+            let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
+            let claimed_cliques = bron_kerbosch(&vertices, is_compatible);
+            for clique in claimed_cliques {
+                for (ind1, vertex) in clique.iter().enumerate() {
+                    for (ind2, other_vertex) in clique.iter().enumerate() {
+                        if ind1 == ind2 {
+                            continue
+                        }
+                        if !is_compatible(vertex, other_vertex) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            true
+        }
+
+        fn no_clique_is_a_subset_of_other_clique(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
+            let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
+            let claimed_cliques = bron_kerbosch(&vertices, is_compatible);
+            let is_subset = |set1: Vec<usize>, set2: Vec<usize>| -> bool {
+                for vertex in set1 {
+                    if !set2.contains(&vertex) {
+                        return false;
+                    }
+                }
+                true
+            };
+            for (ind1, clique) in claimed_cliques.iter().enumerate() {
+                for (ind2, other_clique) in claimed_cliques.iter().enumerate() {
+                    if ind1 == ind2 {
+                        continue;
+                    }
+                    if is_subset(clique.clone(), other_clique.clone()) {
+                        return false;
+                    }
+                }
+            }
+            true
+        }
     }
 }

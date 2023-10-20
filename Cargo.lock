@@ -5384,6 +5384,7 @@ dependencies = [
  "lighthouse_metrics",
  "maplit",
  "parking_lot 0.12.1",
+ "quickcheck",
  "rand",
  "rayon",
  "serde",
