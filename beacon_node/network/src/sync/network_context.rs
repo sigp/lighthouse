@@ -564,4 +564,22 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ByRangeRequestType::Blocks
         }
     }
+
+    pub fn insert_range_blocks_and_blobs_request(
+        &mut self,
+        id: Id,
+        request: BlocksAndBlobsByRangeRequest<T::EthSpec>,
+    ) {
+        self.range_blocks_and_blobs_requests.insert(id, request);
+    }
+
+    pub fn insert_backfill_blocks_and_blobs_requests(
+        &mut self,
+        id: Id,
+        batch_id: BatchId,
+        request: BlocksAndBlobsRequestInfo<T::EthSpec>,
+    ) {
+        self.backfill_blocks_and_blobs_requests
+            .insert(id, (batch_id, request));
+    }
 }

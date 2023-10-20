@@ -43,6 +43,7 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::common::{Current, Parent};
 use crate::sync::block_lookups::{BlobRequestState, BlockRequestState};
+use crate::sync::network_context::BlocksAndBlobsByRangeRequest;
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -1031,6 +1032,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 Err(e) => {
+                    // Re-insert the request so we can retry
+                    let new_req = BlocksAndBlobsByRangeRequest {
+                        chain_id,
+                        batch_id: resp.batch_id,
+                        block_blob_info: <_>::default(),
+                    };
+                    self.network
+                        .insert_range_blocks_and_blobs_request(id, new_req);
                     // inform range that the request needs to be treated as failed
                     // With time we will want to downgrade this log
                     warn!(
@@ -1043,7 +1052,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         PeerAction::MidToleranceError,
                         "block_blob_faulty_batch",
                     );
-                    self.inject_error(peer_id, id, RPCError::InvalidData(e.into()))
+                    self.inject_error(peer_id, id, RPCError::InvalidData(e))
                 }
             }
         }
@@ -1087,6 +1096,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 Err(e) => {
+                    // Re-insert the request so we can retry
+                    self.network.insert_backfill_blocks_and_blobs_requests(
+                        id,
+                        resp.batch_id,
+                        <_>::default(),
+                    );
+
                     // inform backfill that the request needs to be treated as failed
                     // With time we will want to downgrade this log
                     warn!(
@@ -1099,7 +1115,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         PeerAction::MidToleranceError,
                         "block_blob_faulty_backfill_batch",
                     );
-                    self.inject_error(peer_id, id, RPCError::InvalidData(e.into()))
+                    self.inject_error(peer_id, id, RPCError::InvalidData(e))
                 }
             }
         }
