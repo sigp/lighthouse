@@ -256,6 +256,19 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             .map(|c| c.len())
             .unwrap_or(0)
     }
+
+    /// Used for displaying commitments in logs.
+    pub fn commitments_formatted(&self) -> String {
+        let Ok(commitments) = self.message().body().blob_kzg_commitments() else {
+            return "[]".to_string();
+        };
+
+        let commitment_strings: Vec<String> = commitments.iter().map(|x| x.to_string()).collect();
+        let commitments_joined = commitment_strings.join(", ");
+        let surrounded_commitments = format!("[{}]", commitments_joined);
+
+        surrounded_commitments
+    }
 }
 
 // We can convert pre-Bellatrix blocks without payloads into blocks with payloads.

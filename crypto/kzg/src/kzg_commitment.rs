@@ -77,7 +77,7 @@ impl Serialize for KzgCommitment {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&*format!("{:?}", self))
+        serializer.serialize_str(&format!("{:?}", self))
     }
 }
 

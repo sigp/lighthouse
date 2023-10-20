@@ -332,7 +332,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             if response.is_some() {
                 // We don't have the ability to cancel in-flight RPC requests. So this can happen
                 // if we started this RPC request, and later saw the block/blobs via gossip.
-                trace!(
+                debug!(
                     self.log,
                     "Block returned for single block lookup not present";
                         "response_type" => ?response_type,

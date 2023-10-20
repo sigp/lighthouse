@@ -211,6 +211,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let slot = block.slot();
         let parent_root = block.message().parent_root();
+        let commitments_formatted = block.as_block().commitments_formatted();
+
+        debug!(
+            self.log,
+            "Processing RPC block";
+            "block_root" => ?block_root,
+            "proposer" => block.message().proposer_index(),
+            "slot" => block.slot(),
+            "commitments" => commitments_formatted,
+        );
 
         let result = self
             .chain

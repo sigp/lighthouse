@@ -1046,7 +1046,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         PeerAction::MidToleranceError,
                         "block_blob_faulty_batch",
                     );
-                    self.inject_error(peer_id, id, RPCError::InvalidData(e.into()))
+                    self.inject_error(peer_id, id, RPCError::InvalidData(e))
                 }
             }
         }
@@ -1102,7 +1102,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         PeerAction::MidToleranceError,
                         "block_blob_faulty_backfill_batch",
                     );
-                    self.inject_error(peer_id, id, RPCError::InvalidData(e.into()))
+                    self.inject_error(peer_id, id, RPCError::InvalidData(e))
                 }
             }
         }
