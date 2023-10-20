@@ -98,7 +98,6 @@ fn bron_kerbosch_aux<F>(
     let pivot = find_pivot(&p, &x, neighbourhoods);
     ip.retain(|e| !neighbourhoods[pivot].contains(e));
 
-    // while !mp.is_empty() {
     while !ip.is_empty() {
         // v
         let v = ip[0];
@@ -129,12 +128,10 @@ fn bron_kerbosch_aux<F>(
 
 /// Identifies pivot for Bron-Kerbosh pivoting technique.
 fn find_pivot(p: &[usize], x: &[usize], neighbourhoods: &[Vec<usize>]) -> usize {
-    let mut px = p.to_vec();
-    px.append(&mut x.to_vec());
-    *px.iter()
+    *p.iter()
+        .chain(x.iter())
         .min_by_key(|&e| {
-            let pp = p.to_vec();
-            pp.iter()
+            p.iter()
                 .filter(|ee| neighbourhoods[*e].contains(ee))
                 .count()
         })
