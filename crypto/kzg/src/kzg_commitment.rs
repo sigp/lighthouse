@@ -42,13 +42,12 @@ impl From<KzgCommitment> for c_kzg_min::Bytes48 {
 
 impl Display for KzgCommitment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let n_bytes = self.0.len();
         write!(f, "0x")?;
         for i in &self.0[0..2] {
             write!(f, "{:02x}", i)?;
         }
         write!(f, "…")?;
-        for i in &self.0[n_bytes - 2..n_bytes] {
+        for i in &self.0[BYTES_PER_COMMITMENT - 2..BYTES_PER_COMMITMENT] {
             write!(f, "{:02x}", i)?;
         }
         Ok(())
@@ -131,26 +130,21 @@ impl arbitrary::Arbitrary<'_> for KzgCommitment {
 
 #[test]
 fn kzg_commitment_display() {
-    let display_commitment_str = "0x0000…0000";
-    let display_commitment = KzgCommitment::empty_for_testing().to_string();
+    let display_commitment_str = "0x53fa…adac";
+    let display_commitment = KzgCommitment::from_str(
+        "0x53fa09af35d1d1a9e76f65e16112a9064ce30d1e4e2df98583f0f5dc2e7dd13a4f421a9c89f518fafd952df76f23adac",
+    )
+    .unwrap()
+    .to_string();
 
     assert_eq!(display_commitment, display_commitment_str);
 }
 
 #[test]
 fn kzg_commitment_debug() {
-    let debug_commitment_str = "0x00000000000000000000000000000000000000000000000000000000000\
-        0000000000000000000000000000000000000";
+    let debug_commitment_str =
+        "0x53fa09af35d1d1a9e76f65e16112a9064ce30d1e4e2df98583f0f5dc2e7dd13a4f421a9c89f518fafd952df76f23adac";
     let debug_commitment = KzgCommitment::from_str(debug_commitment_str).unwrap();
 
     assert_eq!(format!("{debug_commitment:?}"), debug_commitment_str);
-}
-
-#[test]
-fn kzg_commitment_from_str() {
-    let commitment_str = "0x00000000000000000000000000000000000000000000000000000000000000000\
-        0000000000000000000000000000000";
-    let commitment = KzgCommitment::from_str(commitment_str).unwrap();
-
-    assert_eq!(KzgCommitment::empty_for_testing(), commitment);
 }
