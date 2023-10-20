@@ -7,8 +7,8 @@ use beacon_chain::{
 use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
 use lighthouse_network::{
-    peer_manager::peerdb::client::ClientKind, types::GossipKind, BandwidthSinks, GossipTopic,
-    Gossipsub, NetworkGlobals,
+    metrics::AggregatedBandwidthSinks, peer_manager::peerdb::client::ClientKind, types::GossipKind,
+    GossipTopic, Gossipsub, NetworkGlobals,
 };
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -226,18 +226,8 @@ lazy_static! {
     /*
      * Bandwidth metrics
      */
-    pub static ref INBOUND_LIBP2P_BYTES: Result<IntGauge> =
-        try_create_int_gauge("libp2p_inbound_bytes", "The inbound bandwidth over libp2p");
-
-    pub static ref OUTBOUND_LIBP2P_BYTES: Result<IntGauge> = try_create_int_gauge(
-        "libp2p_outbound_bytes",
-        "The outbound bandwidth over libp2p"
-    );
-    pub static ref TOTAL_LIBP2P_BANDWIDTH: Result<IntGauge> = try_create_int_gauge(
-        "libp2p_total_bandwidth",
-        "The total inbound/outbound bandwidth over libp2p"
-    );
-
+    pub static ref LIBP2P_BYTES: Result<IntCounterVec> =
+        try_create_int_counter_vec("libp2p_inbound_bytes", "The bandwidth over libp2p", &["direction", "transport"]);
 
     /*
      * Sync related metrics
@@ -328,13 +318,23 @@ lazy_static! {
     );
 }
 
-pub fn update_bandwidth_metrics(bandwidth: Arc<BandwidthSinks>) {
-    set_gauge(&INBOUND_LIBP2P_BYTES, bandwidth.total_inbound() as i64);
-    set_gauge(&OUTBOUND_LIBP2P_BYTES, bandwidth.total_outbound() as i64);
-    set_gauge(
-        &TOTAL_LIBP2P_BANDWIDTH,
-        (bandwidth.total_inbound() + bandwidth.total_outbound()) as i64,
-    );
+pub fn update_bandwidth_metrics(bandwidth: &AggregatedBandwidthSinks) {
+    if let Some(tcp_in_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["inbound", "tcp"]) {
+        tcp_in_bandwidth.reset();
+        tcp_in_bandwidth.inc_by(bandwidth.total_tcp_inbound());
+    }
+    if let Some(tcp_out_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["outbound", "tcp"]) {
+        tcp_out_bandwidth.reset();
+        tcp_out_bandwidth.inc_by(bandwidth.total_tcp_outbound());
+    }
+    if let Some(quic_in_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["inbound", "quic"]) {
+        quic_in_bandwidth.reset();
+        quic_in_bandwidth.inc_by(bandwidth.total_quic_inbound());
+    }
+    if let Some(quic_out_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["outbound", "quic"]) {
+        quic_out_bandwidth.reset();
+        quic_out_bandwidth.inc_by(bandwidth.total_quic_outbound());
+    }
 }
 
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
