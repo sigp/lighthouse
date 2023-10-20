@@ -17,25 +17,9 @@ write_to_file() {
 
     # We need to add the header and the backticks to create the code block.
     printf "# %s\n\n\`\`\`\n%s\n\`\`\`" "$program" "$cmd" > "$file"
-    
-    # remove .exe when using Windows
-    sed -i -e 's/\.exe//g' "$file"
 }
 
-# Check if a lighthouse binary exists in the current branch.
-# -f means check if the file exists, to see all options, type "bash test" in a terminal
-release=./target/release/lighthouse
-debug=./target/debug/lighthouse
-
-if [[ -f "$release" ]]; then
-    CMD="$release"
-elif [[ -f "$debug" ]]; then
-    CMD="$debug"
-else
-    # No binary exists, build it.
-    cargo build --locked
-    CMD="$debug"
-fi
+CMD=./target/release/lighthouse
 
 # Store all help strings in variables.
 general_cli=$($CMD --help)
@@ -72,8 +56,8 @@ new_files=($general $bn $vc $vm $vm_create $vm_import $vm_move)
 check() {
     local file="$1"
     local new_file="$2"
-    
-    if [[ -f $file ]]; then # check for existence of file 
+
+    if [[ -f $file ]]; then # check for existence of file
         diff=$(diff $file $new_file || :)
     else
         cp $new_file $file
@@ -81,7 +65,7 @@ check() {
         echo "$file is not found, it has just been created"
     fi
 
-    if [[ -z $diff ]]; then # check for difference 
+    if [[ -z $diff ]]; then # check for difference
         : # do nothing
     else
         cp $new_file $file
