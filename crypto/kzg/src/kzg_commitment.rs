@@ -78,7 +78,7 @@ impl Serialize for KzgCommitment {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        serializer.serialize_str(&*format!("{:?}", self))
     }
 }
 
@@ -127,4 +127,30 @@ impl arbitrary::Arbitrary<'_> for KzgCommitment {
         u.fill_buffer(&mut bytes)?;
         Ok(KzgCommitment(bytes))
     }
+}
+
+#[test]
+fn kzg_commitment_display() {
+    let display_commitment_str = "0x0000…0000";
+    let display_commitment = KzgCommitment::empty_for_testing().to_string();
+
+    assert_eq!(display_commitment, display_commitment_str);
+}
+
+#[test]
+fn kzg_commitment_debug() {
+    let debug_commitment_str = "0x00000000000000000000000000000000000000000000000000000000000\
+        0000000000000000000000000000000000000";
+    let debug_commitment = KzgCommitment::from_str(debug_commitment_str).unwrap();
+
+    assert_eq!(format!("{debug_commitment:?}"), debug_commitment_str);
+}
+
+#[test]
+fn kzg_commitment_from_str() {
+    let commitment_str = "0x00000000000000000000000000000000000000000000000000000000000000000\
+        0000000000000000000000000000000";
+    let commitment = KzgCommitment::from_str(commitment_str).unwrap();
+
+    assert_eq!(KzgCommitment::empty_for_testing(), commitment);
 }
