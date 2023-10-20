@@ -168,7 +168,7 @@ url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 # TODO update to warp 0.3.6 after released.
 warp = { git = "https://github.com/seanmonstar/warp.git", default-features = false, features = ["tls"] }
-xdelta3 = { git = "http://github.com/michaelsproul/xdelta3-rs", rev="d12f71b36a55b5ca0247a38151fb7c2be5c0e742" }
+xdelta3 = { git = "http://github.com/michaelsproul/xdelta3-rs", rev="ae9a1d2585ef998f4656acdc35cf263ee88e6dfa" }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 zip = "0.6"
 zstd = "0.11.2"

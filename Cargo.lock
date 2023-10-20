@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "4.5.333-exp"
+version = "4.5.444-exp"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "4.5.333-exp"
+version = "4.5.444-exp"
 dependencies = [
  "beacon_node",
  "clap",
@@ -3889,7 +3889,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "4.5.333-exp"
+version = "4.5.444-exp"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -4457,7 +4457,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "4.5.333-exp"
+version = "4.5.444-exp"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -9280,7 +9280,7 @@ dependencies = [
 [[package]]
 name = "xdelta3"
 version = "0.1.5"
-source = "git+http://github.com/michaelsproul/xdelta3-rs?rev=d12f71b36a55b5ca0247a38151fb7c2be5c0e742#d12f71b36a55b5ca0247a38151fb7c2be5c0e742"
+source = "git+http://github.com/michaelsproul/xdelta3-rs?rev=ae9a1d2585ef998f4656acdc35cf263ee88e6dfa#ae9a1d2585ef998f4656acdc35cf263ee88e6dfa"
 dependencies = [
  "bindgen 0.66.1",
  "cc",
