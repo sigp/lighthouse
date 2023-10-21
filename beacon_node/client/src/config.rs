@@ -1,10 +1,11 @@
 use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
+use beacon_chain::TrustedSetup;
 use beacon_processor::BeaconProcessorConfig;
 use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
 use network::NetworkConfig;
 use sensitive_url::SensitiveUrl;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -45,6 +46,8 @@ pub struct Config {
     pub db_name: String,
     /// Path where the freezer database will be located.
     pub freezer_db_path: Option<PathBuf>,
+    /// Path where the blobs database will be located if blobs should be in a separate database.
+    pub blobs_db_path: Option<PathBuf>,
     pub log_file: PathBuf,
     /// If true, the node will use co-ordinated junk for eth1 values.
     ///
@@ -71,6 +74,7 @@ pub struct Config {
     pub chain: beacon_chain::ChainConfig,
     pub eth1: eth1::Config,
     pub execution_layer: Option<execution_layer::Config>,
+    pub trusted_setup: Option<TrustedSetup>,
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
     pub monitoring_api: Option<monitoring_api::Config>,
@@ -87,6 +91,7 @@ impl Default for Config {
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
             db_name: "chain_db".to_string(),
             freezer_db_path: None,
+            blobs_db_path: None,
             log_file: PathBuf::from(""),
             genesis: <_>::default(),
             store: <_>::default(),
@@ -96,6 +101,7 @@ impl Default for Config {
             sync_eth1_chain: false,
             eth1: <_>::default(),
             execution_layer: None,
+            trusted_setup: None,
             graffiti: Graffiti::default(),
             http_api: <_>::default(),
             http_metrics: <_>::default(),
@@ -150,9 +156,25 @@ impl Config {
             .unwrap_or_else(|| self.default_freezer_db_path())
     }
 
+    /// Returns the path to which the client may initialize the on-disk blobs database.
+    ///
+    /// Will attempt to use the user-supplied path from e.g. the CLI, or will default
+    /// to None.
+    pub fn get_blobs_db_path(&self) -> Option<PathBuf> {
+        self.blobs_db_path.clone()
+    }
+
     /// Get the freezer DB path, creating it if necessary.
     pub fn create_freezer_db_path(&self) -> Result<PathBuf, String> {
         ensure_dir_exists(self.get_freezer_db_path())
+    }
+
+    /// Get the blobs DB path, creating it if necessary.
+    pub fn create_blobs_db_path(&self) -> Result<Option<PathBuf>, String> {
+        match self.get_blobs_db_path() {
+            Some(blobs_db_path) => Ok(Some(ensure_dir_exists(blobs_db_path)?)),
+            None => Ok(None),
+        }
     }
 
     /// Returns the "modern" path to the data_dir.

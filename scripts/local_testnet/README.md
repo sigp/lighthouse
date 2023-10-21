@@ -128,3 +128,16 @@ Update the genesis time to now using:
 
 > Note: you probably want to just rerun `./start_local_testnet.sh` to start over
 > but this is another option.
+
+### Testing builder flow
+
+1. Add builder URL to `BN_ARGS` in `./var.env`, e.g. `--builder http://localhost:8650`. Some mock builder server options: 
+    - [`mock-relay`](https://github.com/realbigsean/mock-relay)
+    - [`dummy-builder`](https://github.com/michaelsproul/dummy_builder)
+2. (Optional) Add `--always-prefer-builder-payload` to `BN_ARGS`.
+3. The above mock builders do not support non-mainnet presets as of now, and will require setting `SECONDS_PER_SLOT` and `SECONDS_PER_ETH1_BLOCK` to `12` in `./vars.env`. 
+4. Start the testnet with the following command (the `-p` flag enables the validator client `--builder-proposals` flag:
+    ```bash
+    ./start_local_testnet.sh -p genesis.json
+    ```
+5. Block production using builder flow will start at epoch 4.
