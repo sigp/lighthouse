@@ -10,14 +10,14 @@ const PERIOD: u64 = 604800;
 
 /// Structure storing current Ephemery configuration.
 struct EphemeryConfig {
-    purge_after_update: bool,
+    current_id: u64,
     iteration: u64,
 }
 
 lazy_static! {
     static ref EPHEMERY_CONFIG: Mutex<EphemeryConfig> = Mutex::new(EphemeryConfig {
+        current_id: 39438000,
         iteration: u64::MAX,
-        purge_after_update: false
     });
 }
 
@@ -31,14 +31,13 @@ pub fn check_update_config(
     let iteration = calculate_iteration()?;
     set_iteration(iteration);
     if genesis_outdated(genesis_time) {
-        set_purge_after_update(true);
         let mut updated_config = eth2_network_config;
         let genesis_0 = get_genesis_0()?;
         let new_genesis_time = PERIOD * get_iteration()? + genesis_0.get_min_genesis_time();
-        let new_id = genesis_0.get_chain_id() + get_iteration()?;
+        set_current_id(genesis_0.get_chain_id() + get_iteration()?);
         updated_config.config.set_min_genesis_time(new_genesis_time);
-        updated_config.config.set_chain_id(new_id);
-        updated_config.config.set_network_id(new_id);
+        updated_config.config.set_chain_id(get_current_id());
+        updated_config.config.set_network_id(get_current_id());
         Ok(updated_config)
     } else {
         Ok(eth2_network_config)
@@ -60,8 +59,7 @@ fn get_genesis_0() -> Result<Config, String> {
     }
 }
 
-/// If the genesis time of the stored network config is outdated,
-/// remove the datadir and return true.
+/// If the genesis time of the stored network config is outdated, return true.
 pub fn genesis_outdated(min_genesis_time: u64) -> bool {
     if min_genesis_time + PERIOD < timestamp_now() {
         true
@@ -78,12 +76,13 @@ fn timestamp_now() -> u64 {
         .as_secs()
 }
 
-/// Setters and getters for Ephemery configuration.
+/// Set the current iteration in Ephemery config.
 pub fn set_iteration(iteration: u64) {
     let mut data = EPHEMERY_CONFIG.lock().unwrap();
     data.iteration = iteration;
 }
 
+/// Get the current iteration from Ephemery config.
 pub fn get_iteration() -> Result<u64, String> {
     let data = EPHEMERY_CONFIG.lock().unwrap();
     match data.iteration {
@@ -92,12 +91,14 @@ pub fn get_iteration() -> Result<u64, String> {
     }
 }
 
-pub fn set_purge_after_update(purge_after_update: bool) {
+/// Set the current chain id in Ephemery config.
+fn set_current_id(current_id: u64) {
     let mut data = EPHEMERY_CONFIG.lock().unwrap();
-    data.purge_after_update = purge_after_update;
+    data.current_id = current_id;
 }
 
-pub fn get_purge_after_update() -> bool {
+/// Get the current chain id from Ephemery config.
+pub fn get_current_id() -> u64 {
     let data = EPHEMERY_CONFIG.lock().unwrap();
-    data.purge_after_update
+    data.current_id
 }

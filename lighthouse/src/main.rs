@@ -7,7 +7,8 @@ use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATO
 use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{
-    ephemery::get_iteration, Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES,
+    ephemery::{get_iteration, get_current_id}, 
+    Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES,
 };
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
@@ -622,7 +623,12 @@ fn run<E: EthSpec>(
     );
 
     if network_name == "ephemery" {
-        info!(log, "Current Ephemery iteration: {}", get_iteration()?,);
+        info!(
+            log,
+            "Launching Ephemery. Current iteration: {} Current chain ID: {}",
+            get_iteration()?,
+            get_current_id(),
+        );
     }
 
     match matches.subcommand() {
