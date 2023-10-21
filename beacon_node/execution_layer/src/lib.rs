@@ -1085,18 +1085,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 current_fork,
                                 spec,
                             ) {
-                                /*
-                                // TODO
-                                Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    BlockProposalContentsType::Blinded(
-                                        BlockProposalContents::Payload {
-                                            payload: relay.data.message.header,
-                                            block_value: relay.data.message.value,
-                                            _phantom: PhantomData,
-                                        },
-                                    ),
-                                )),
-                                */
                                 Ok(()) => Ok(ProvenancedPayload::try_from(relay.data.message)?),
                                 Err(reason) if !reason.payload_invalid() => {
                                     info!(
@@ -1150,29 +1138,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 current_fork,
                                 spec,
                             ) {
-                                /*
-                                // TODO
-                                Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    BlockProposalContentsType::Blinded(
-                                        BlockProposalContents::Payload {
-                                            payload: relay.data.message.header,
-                                            block_value: relay.data.message.value,
-                                            _phantom: PhantomData,
-                                        },
-                                    ),
-                                )),
-                                // If the payload is valid then use it. The local EE failed
-                                // to produce a payload so we have no alternative.
-                                Err(e) if !e.payload_invalid() => Ok(ProvenancedPayload::Builder(
-                                    BlockProposalContentsType::Blinded(
-                                        BlockProposalContents::Payload {
-                                            payload: relay.data.message.header,
-                                            block_value: relay.data.message.value,
-                                            _phantom: PhantomData,
-                                        },
-                                    ),
-                                )),
-                                */
                                 Ok(()) => Ok(ProvenancedPayload::try_from(relay.data.message)?),
                                 // If the payload is valid then use it. The local EE failed
                                 // to produce a payload so we have no alternative.
