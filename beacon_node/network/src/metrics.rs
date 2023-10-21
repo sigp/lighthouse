@@ -319,22 +319,26 @@ lazy_static! {
 }
 
 pub fn update_bandwidth_metrics(bandwidth: &AggregatedBandwidthSinks) {
-    if let Some(tcp_in_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["inbound", "tcp"]) {
-        tcp_in_bandwidth.reset();
-        tcp_in_bandwidth.inc_by(bandwidth.total_tcp_inbound());
-    }
-    if let Some(tcp_out_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["outbound", "tcp"]) {
-        tcp_out_bandwidth.reset();
-        tcp_out_bandwidth.inc_by(bandwidth.total_tcp_outbound());
-    }
-    if let Some(quic_in_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["inbound", "quic"]) {
-        quic_in_bandwidth.reset();
-        quic_in_bandwidth.inc_by(bandwidth.total_quic_inbound());
-    }
-    if let Some(quic_out_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["outbound", "quic"]) {
-        quic_out_bandwidth.reset();
-        quic_out_bandwidth.inc_by(bandwidth.total_quic_outbound());
-    }
+    set_counter_vec_by(
+        &LIBP2P_BYTES,
+        &["inbound", "tcp"],
+        bandwidth.total_tcp_inbound(),
+    );
+    set_counter_vec_by(
+        &LIBP2P_BYTES,
+        &["outbound", "tcp"],
+        bandwidth.total_tcp_outbound(),
+    );
+    set_counter_vec_by(
+        &LIBP2P_BYTES,
+        &["inbound", "quic"],
+        bandwidth.total_quic_inbound(),
+    );
+    set_counter_vec_by(
+        &LIBP2P_BYTES,
+        &["outbound", "quic"],
+        bandwidth.total_quic_outbound(),
+    );
 }
 
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
