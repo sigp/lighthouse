@@ -626,9 +626,7 @@ pub async fn proposer_boost_re_org_test(
         .unwrap();
 
     let (unsigned_block_c, block_c_blobs) = match unsigned_block_type {
-        Full(unsigned_block_contents_c) => {
-            unsigned_block_contents_c.data.deconstruct()
-        },
+        Full(unsigned_block_contents_c) => unsigned_block_contents_c.data.deconstruct(),
         Blinded(_) => {
             panic!("Should not be a blinded block");
         }
