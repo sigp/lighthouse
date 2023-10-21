@@ -874,21 +874,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/ethereum//c-kzg-4844?rev=f5f6f863d475847876a2bd5ee252058d37c3a15d#f5f6f863d475847876a2bd5ee252058d37c3a15d"
-dependencies = [
- "bindgen 0.66.1",
- "blst",
- "cc",
- "glob",
- "hex",
- "libc",
- "serde",
-]
-
-[[package]]
-name = "c-kzg"
-version = "0.1.0"
-source = "git+https://github.com/ethereum/c-kzg-4844?rev=f5f6f863d475847876a2bd5ee252058d37c3a15d#f5f6f863d475847876a2bd5ee252058d37c3a15d"
+source = "git+https://github.com/ethereum/c-kzg-4844?rev=748283cced543c486145d5f3f38684becdfe3e1b#748283cced543c486145d5f3f38684becdfe3e1b"
 dependencies = [
  "bindgen 0.66.1",
  "blst",
@@ -2203,7 +2189,6 @@ dependencies = [
  "discv5",
  "eth2_config",
  "ethereum_ssz",
- "kzg",
  "logging",
  "pretty_reqwest_error",
  "reqwest",
@@ -3844,8 +3829,7 @@ name = "kzg"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "c-kzg 0.1.0 (git+https://github.com/ethereum//c-kzg-4844?rev=f5f6f863d475847876a2bd5ee252058d37c3a15d)",
- "c-kzg 0.1.0 (git+https://github.com/ethereum/c-kzg-4844?rev=f5f6f863d475847876a2bd5ee252058d37c3a15d)",
+ "c-kzg",
  "derivative",
  "ethereum_hashing",
  "ethereum_serde_utils",
@@ -3892,7 +3876,6 @@ dependencies = [
  "ethereum_ssz",
  "genesis",
  "int_to_bytes",
- "kzg",
  "lighthouse_network",
  "lighthouse_version",
  "log",

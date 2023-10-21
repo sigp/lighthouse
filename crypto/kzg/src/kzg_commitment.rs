@@ -34,12 +34,6 @@ impl From<KzgCommitment> for c_kzg::Bytes48 {
     }
 }
 
-impl From<KzgCommitment> for c_kzg_min::Bytes48 {
-    fn from(value: KzgCommitment) -> Self {
-        value.0.into()
-    }
-}
-
 impl Display for KzgCommitment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", serde_utils::hex::encode(self.0))
