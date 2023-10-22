@@ -187,13 +187,14 @@ mod tests {
         fn all_claimed_cliques_are_cliques(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
             let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
             let claimed_cliques = bron_kerbosch(&vertices, is_compatible);
+            println!("{:?}", claimed_cliques);
             for clique in claimed_cliques {
                 for (ind1, vertex) in clique.iter().enumerate() {
                     for (ind2, other_vertex) in clique.iter().enumerate() {
                         if ind1 == ind2 {
                             continue
                         }
-                        if !is_compatible(vertex, other_vertex) {
+                        if !is_compatible(&vertices[*vertex], &vertices[*other_vertex]) {
                             return false;
                         }
                     }
