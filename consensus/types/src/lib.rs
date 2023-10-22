@@ -208,5 +208,7 @@ pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
     Signature, SignatureBytes,
 };
-pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, Optional, VariableList};
+pub use ssz_types::{
+    typenum, typenum::Unsigned, BitList, BitVector, FixedVector, Optional, VariableList,
+};
 pub use superstruct::superstruct;

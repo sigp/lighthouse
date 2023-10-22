@@ -1744,7 +1744,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     block_hash: verge_block.block_hash,
                     transactions,
                     withdrawals,
-                    execution_witness: verge_block.execution_witness,
+                    execution_witness: verge_block.execution_witness.into(),
                 })
             }
         };

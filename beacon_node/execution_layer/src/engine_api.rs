@@ -9,7 +9,7 @@ use eth2::types::{SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttrib
 pub use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
-pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
+pub use json_structures::{JsonExecutionWitness, JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -175,7 +175,7 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[superstruct(only(Capella, Verge))]
     pub withdrawals: Vec<JsonWithdrawal>,
     #[superstruct(only(Verge))]
-    pub execution_witness: ExecutionWitness<T>,
+    pub execution_witness: JsonExecutionWitness<T>,
 }
 
 impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T> {
@@ -252,7 +252,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     .into_iter()
                     .map(|withdrawal| withdrawal.into())
                     .collect(),
-                execution_witness: block.execution_witness,
+                execution_witness: block.execution_witness.into(),
             }),
         };
         Ok(json_payload)
