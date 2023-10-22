@@ -215,6 +215,7 @@ impl Eth2NetworkConfig {
 
     fn get_genesis_state_from_bytes<E: EthSpec>(&self) -> Result<BeaconState<E>, String> {
         let spec = self.chain_spec::<E>()?;
+        eprintln!("{:?}", spec);
         self.genesis_state_bytes
             .as_ref()
             .map(|bytes| {
