@@ -119,8 +119,7 @@ pub struct SuffixStateDiff<T: EthSpec> {
     // `None` means not currently present.
     pub current_value: Optional<StateDiffValue<T>>,
     // `None` means value is not updated.
-    // Not present for the Kaustinen testnet.
-    //pub new_value: Optional<StateDiffValue<T>>,
+    pub new_value: Optional<StateDiffValue<T>>,
 }
 
 #[derive(

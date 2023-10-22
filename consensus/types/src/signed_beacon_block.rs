@@ -37,7 +37,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Verge),
+    variants(Base, Altair, Merge, Capella, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -76,8 +76,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub message: BeaconBlockMerge<E, Payload>,
     #[superstruct(only(Capella), partial_getter(rename = "message_capella"))]
     pub message: BeaconBlockCapella<E, Payload>,
-    #[superstruct(only(Verge), partial_getter(rename = "message_verge"))]
-    pub message: BeaconBlockVerge<E, Payload>,
+    #[superstruct(only(Electra), partial_getter(rename = "message_electra"))]
+    pub message: BeaconBlockElectra<E, Payload>,
     pub signature: Signature,
 }
 
@@ -138,8 +138,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             BeaconBlock::Capella(message) => {
                 SignedBeaconBlock::Capella(SignedBeaconBlockCapella { message, signature })
             }
-            BeaconBlock::Verge(message) => {
-                SignedBeaconBlock::Verge(SignedBeaconBlockVerge { message, signature })
+            BeaconBlock::Electra(message) => {
+                SignedBeaconBlock::Electra(SignedBeaconBlockElectra { message, signature })
             }
         }
     }
@@ -372,20 +372,20 @@ impl<E: EthSpec> SignedBeaconBlockCapella<E, BlindedPayload<E>> {
         }
     }
 }
-impl<E: EthSpec> SignedBeaconBlockVerge<E, BlindedPayload<E>> {
+impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
-        execution_payload: ExecutionPayloadVerge<E>,
-    ) -> SignedBeaconBlockVerge<E, FullPayload<E>> {
-        let SignedBeaconBlockVerge {
+        execution_payload: ExecutionPayloadElectra<E>,
+    ) -> SignedBeaconBlockElectra<E, FullPayload<E>> {
+        let SignedBeaconBlockElectra {
             message:
-                BeaconBlockVerge {
+                BeaconBlockElectra {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root,
                     body:
-                        BeaconBlockBodyVerge {
+                        BeaconBlockBodyElectra {
                             randao_reveal,
                             eth1_data,
                             graffiti,
@@ -395,19 +395,19 @@ impl<E: EthSpec> SignedBeaconBlockVerge<E, BlindedPayload<E>> {
                             deposits,
                             voluntary_exits,
                             sync_aggregate,
-                            execution_payload: BlindedPayloadVerge { .. },
+                            execution_payload: BlindedPayloadElectra { .. },
                             bls_to_execution_changes,
                         },
                 },
             signature,
         } = self;
-        SignedBeaconBlockVerge {
-            message: BeaconBlockVerge {
+        SignedBeaconBlockElectra {
+            message: BeaconBlockElectra {
                 slot,
                 proposer_index,
                 parent_root,
                 state_root,
-                body: BeaconBlockBodyVerge {
+                body: BeaconBlockBodyElectra {
                     randao_reveal,
                     eth1_data,
                     graffiti,
@@ -417,7 +417,7 @@ impl<E: EthSpec> SignedBeaconBlockVerge<E, BlindedPayload<E>> {
                     deposits,
                     voluntary_exits,
                     sync_aggregate,
-                    execution_payload: FullPayloadVerge { execution_payload },
+                    execution_payload: FullPayloadElectra { execution_payload },
                     bls_to_execution_changes,
                 },
             },
@@ -440,14 +440,14 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Capella(block), Some(ExecutionPayload::Capella(payload))) => {
                 SignedBeaconBlock::Capella(block.into_full_block(payload))
             }
-            (SignedBeaconBlock::Verge(block), Some(ExecutionPayload::Verge(payload))) => {
-                SignedBeaconBlock::Verge(block.into_full_block(payload))
+            (SignedBeaconBlock::Electra(block), Some(ExecutionPayload::Electra(payload))) => {
+                SignedBeaconBlock::Electra(block.into_full_block(payload))
             }
             // avoid wildcard matching forks so that compiler will
             // direct us here when a new fork has been added
             (SignedBeaconBlock::Merge(_), _) => return None,
             (SignedBeaconBlock::Capella(_), _) => return None,
-            (SignedBeaconBlock::Verge(_), _) => return None,
+            (SignedBeaconBlock::Electra(_), _) => return None,
         };
         Some(full_block)
     }

@@ -7,7 +7,7 @@ use types::{
         BanderwagonFieldElement, BanderwagonGroupElement, IpaProof, StateDiff, StateDiffValue,
         Stem, StemStateDiff, StemValue, SuffixStateDiff, VerkleProof,
     },
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge, ExecutionPayloadVerge,
+    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadMerge,
     ExecutionWitness,
 };
 use types::{
@@ -154,8 +154,8 @@ impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for JsonExecutionPayloadV2<T> 
         }
     }
 }
-impl<T: EthSpec> From<ExecutionPayloadVerge<T>> for JsonExecutionPayloadV4<T> {
-    fn from(payload: ExecutionPayloadVerge<T>) -> Self {
+impl<T: EthSpec> From<ExecutionPayloadElectra<T>> for JsonExecutionPayloadV4<T> {
+    fn from(payload: ExecutionPayloadElectra<T>) -> Self {
         JsonExecutionPayloadV4 {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -187,7 +187,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
         match execution_payload {
             ExecutionPayload::Merge(payload) => JsonExecutionPayload::V1(payload.into()),
             ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
-            ExecutionPayload::Verge(payload) => JsonExecutionPayload::V4(payload.into()),
+            ExecutionPayload::Electra(payload) => JsonExecutionPayload::V4(payload.into()),
         }
     }
 }
@@ -238,9 +238,9 @@ impl<T: EthSpec> From<JsonExecutionPayloadV2<T>> for ExecutionPayloadCapella<T> 
         }
     }
 }
-impl<T: EthSpec> From<JsonExecutionPayloadV4<T>> for ExecutionPayloadVerge<T> {
+impl<T: EthSpec> From<JsonExecutionPayloadV4<T>> for ExecutionPayloadElectra<T> {
     fn from(payload: JsonExecutionPayloadV4<T>) -> Self {
-        ExecutionPayloadVerge {
+        ExecutionPayloadElectra {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -271,7 +271,7 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
         match json_execution_payload {
             JsonExecutionPayload::V1(payload) => ExecutionPayload::Merge(payload.into()),
             JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
-            JsonExecutionPayload::V4(payload) => ExecutionPayload::Verge(payload.into()),
+            JsonExecutionPayload::V4(payload) => ExecutionPayload::Electra(payload.into()),
         }
     }
 }
@@ -314,7 +314,7 @@ impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
                 })
             }
             JsonGetPayloadResponse::V4(response) => {
-                GetPayloadResponse::Verge(GetPayloadResponseVerge {
+                GetPayloadResponse::Electra(GetPayloadResponseElectra {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
                 })
@@ -641,8 +641,7 @@ pub struct JsonSuffixStateDiff<E: EthSpec> {
     // `None` means not currently present.
     current_value: Optional<StateDiffValue<E>>,
     // `None` means value is not updated.
-    // Not present for the Kaustinen testnet.
-    //new_value: Optional<StateDiffValue<T>>,
+    new_value: Optional<StateDiffValue<E>>,
 }
 
 impl<E: EthSpec> From<JsonSuffixStateDiff<E>> for SuffixStateDiff<E> {
@@ -650,6 +649,7 @@ impl<E: EthSpec> From<JsonSuffixStateDiff<E>> for SuffixStateDiff<E> {
         Self {
             suffix: value.suffix,
             current_value: value.current_value,
+            new_value: value.new_value,
         }
     }
 }
@@ -659,6 +659,7 @@ impl<E: EthSpec> From<SuffixStateDiff<E>> for JsonSuffixStateDiff<E> {
         Self {
             suffix: value.suffix,
             current_value: value.current_value,
+            new_value: value.new_value,
         }
     }
 }

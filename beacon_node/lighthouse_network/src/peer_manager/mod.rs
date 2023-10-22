@@ -1549,7 +1549,7 @@ mod tests {
             "/ip4/0.0.0.0".parse().unwrap(),
             None,
         );
-        // Have one peer be on the verge of disconnection.
+        // Have one peer be on the electra of disconnection.
         peer_manager.inject_connect_ingoing(
             &inbound_only_peer1,
             "/ip4/0.0.0.0".parse().unwrap(),

@@ -63,7 +63,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V4,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
-    ENGINE_NEW_PAYLOAD_V4,
+    ENGINE_GET_PAYLOAD_V4,
     ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
@@ -747,7 +747,7 @@ impl HttpJsonRpc {
                 )
                 .await?,
             ),
-            ForkName::Verge => ExecutionBlockWithTransactions::Verge(
+            ForkName::Electra => ExecutionBlockWithTransactions::Electra(
                 self.rpc_request(
                     ETH_GET_BLOCK_BY_HASH,
                     params,
@@ -849,7 +849,7 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
-            ForkName::Verge => {
+            ForkName::Electra => {
                 let response: JsonGetPayloadResponseV2<T> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,

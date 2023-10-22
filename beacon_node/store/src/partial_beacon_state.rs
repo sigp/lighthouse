@@ -15,7 +15,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Verge),
+    variants(Base, Altair, Merge, Capella, Electra),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -67,9 +67,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella, Verge))]
+    #[superstruct(only(Altair, Merge, Capella, Electra))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella, Verge))]
+    #[superstruct(only(Altair, Merge, Capella, Electra))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -79,13 +79,13 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Merge, Capella, Verge))]
+    #[superstruct(only(Altair, Merge, Capella, Electra))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella, Verge))]
+    #[superstruct(only(Altair, Merge, Capella, Electra))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge, Capella, Verge))]
+    #[superstruct(only(Altair, Merge, Capella, Electra))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
@@ -100,19 +100,19 @@ where
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<T>,
     #[superstruct(
-        only(Verge),
-        partial_getter(rename = "latest_execution_payload_header_verge")
+        only(Electra),
+        partial_getter(rename = "latest_execution_payload_header_electra")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderVerge<T>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<T>,
 
     // Capella
-    #[superstruct(only(Capella, Verge))]
+    #[superstruct(only(Capella, Electra))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Verge))]
+    #[superstruct(only(Capella, Electra))]
     pub next_withdrawal_validator_index: u64,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    #[superstruct(only(Capella, Verge))]
+    #[superstruct(only(Capella, Electra))]
     pub historical_summaries: Option<VariableList<HistoricalSummary, T::HistoricalRootsLimit>>,
 }
 
@@ -227,11 +227,11 @@ impl<T: EthSpec> PartialBeaconState<T> {
                 ],
                 [historical_summaries]
             ),
-            BeaconState::Verge(s) => impl_from_state_forgetful!(
+            BeaconState::Electra(s) => impl_from_state_forgetful!(
                 s,
                 outer,
-                Verge,
-                PartialBeaconStateVerge,
+                Electra,
+                PartialBeaconStateElectra,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -473,10 +473,10 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 ],
                 [historical_summaries]
             ),
-            PartialBeaconState::Verge(inner) => impl_try_into_beacon_state!(
+            PartialBeaconState::Electra(inner) => impl_try_into_beacon_state!(
                 inner,
-                Verge,
-                BeaconStateVerge,
+                Electra,
+                BeaconStateElectra,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

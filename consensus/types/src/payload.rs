@@ -82,13 +82,13 @@ pub trait AbstractExecPayload<T: EthSpec>:
     + TryFrom<ExecutionPayloadHeader<T>>
     + TryInto<Self::Merge>
     + TryInto<Self::Capella>
-    + TryInto<Self::Verge>
+    + TryInto<Self::Electra>
 {
     type Ref<'a>: ExecPayload<T>
         + Copy
         + From<&'a Self::Merge>
         + From<&'a Self::Capella>
-        + From<&'a Self::Verge>;
+        + From<&'a Self::Electra>;
 
     type Merge: OwnedExecPayload<T>
         + Into<Self>
@@ -98,16 +98,16 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + Into<Self>
         + for<'a> From<Cow<'a, ExecutionPayloadCapella<T>>>
         + TryFrom<ExecutionPayloadHeaderCapella<T>>;
-    type Verge: OwnedExecPayload<T>
+    type Electra: OwnedExecPayload<T>
         + Into<Self>
-        + for<'a> From<Cow<'a, ExecutionPayloadVerge<T>>>
-        + TryFrom<ExecutionPayloadHeaderVerge<T>>;
+        + for<'a> From<Cow<'a, ExecutionPayloadElectra<T>>>
+        + TryFrom<ExecutionPayloadHeaderElectra<T>>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
 }
 
 #[superstruct(
-    variants(Merge, Capella, Verge),
+    variants(Merge, Capella, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -146,8 +146,8 @@ pub struct FullPayload<T: EthSpec> {
     pub execution_payload: ExecutionPayloadMerge<T>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload: ExecutionPayloadCapella<T>,
-    #[superstruct(only(Verge), partial_getter(rename = "execution_payload_verge"))]
-    pub execution_payload: ExecutionPayloadVerge<T>,
+    #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
+    pub execution_payload: ExecutionPayloadElectra<T>,
 }
 
 impl<T: EthSpec> From<FullPayload<T>> for ExecutionPayload<T> {
@@ -251,7 +251,7 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
             FullPayload::Capella(ref inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
-            FullPayload::Verge(ref inner) => {
+            FullPayload::Electra(ref inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
         }
@@ -261,7 +261,7 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         match self {
             FullPayload::Merge(_) => Err(Error::IncorrectStateVariant),
             FullPayload::Capella(_) => Err(Error::IncorrectStateVariant),
-            FullPayload::Verge(ref inner) => {
+            FullPayload::Electra(ref inner) => {
                 Ok(inner.execution_payload.execution_witness.tree_hash_root())
             }
         }
@@ -370,7 +370,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
             FullPayloadRef::Capella(inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
-            FullPayloadRef::Verge(inner) => {
+            FullPayloadRef::Electra(inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
         }
@@ -380,7 +380,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         match self {
             FullPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
             FullPayloadRef::Capella(_) => Err(Error::IncorrectStateVariant),
-            FullPayloadRef::Verge(inner) => {
+            FullPayloadRef::Electra(inner) => {
                 Ok(inner.execution_payload.execution_witness.tree_hash_root())
             }
         }
@@ -403,14 +403,14 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
     type Ref<'a> = FullPayloadRef<'a, T>;
     type Merge = FullPayloadMerge<T>;
     type Capella = FullPayloadCapella<T>;
-    type Verge = FullPayloadVerge<T>;
+    type Electra = FullPayloadElectra<T>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
             ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
             ForkName::Merge => Ok(FullPayloadMerge::default().into()),
             ForkName::Capella => Ok(FullPayloadCapella::default().into()),
-            ForkName::Verge => Ok(FullPayloadVerge::default().into()),
+            ForkName::Electra => Ok(FullPayloadElectra::default().into()),
         }
     }
 }
@@ -431,7 +431,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for FullPayload<T> {
 }
 
 #[superstruct(
-    variants(Merge, Capella, Verge),
+    variants(Merge, Capella, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -469,8 +469,8 @@ pub struct BlindedPayload<T: EthSpec> {
     pub execution_payload_header: ExecutionPayloadHeaderMerge<T>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload_header: ExecutionPayloadHeaderCapella<T>,
-    #[superstruct(only(Verge), partial_getter(rename = "execution_payload_verge"))]
-    pub execution_payload_header: ExecutionPayloadHeaderVerge<T>,
+    #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
+    pub execution_payload_header: ExecutionPayloadHeaderElectra<T>,
 }
 
 impl<'a, T: EthSpec> From<BlindedPayloadRef<'a, T>> for BlindedPayload<T> {
@@ -552,7 +552,9 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
             BlindedPayload::Capella(ref inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
-            BlindedPayload::Verge(ref inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayload::Electra(ref inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
         }
     }
 
@@ -560,7 +562,7 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         match self {
             BlindedPayload::Merge(_) => Err(Error::IncorrectStateVariant),
             BlindedPayload::Capella(_) => Err(Error::IncorrectStateVariant),
-            BlindedPayload::Verge(ref inner) => {
+            BlindedPayload::Electra(ref inner) => {
                 Ok(inner.execution_payload_header.execution_witness_root)
             }
         }
@@ -650,7 +652,9 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
             BlindedPayloadRef::Capella(inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
-            BlindedPayloadRef::Verge(inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayloadRef::Electra(inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
         }
     }
 
@@ -658,7 +662,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
         match self {
             BlindedPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
             BlindedPayloadRef::Capella(_) => Err(Error::IncorrectStateVariant),
-            BlindedPayloadRef::Verge(inner) => {
+            BlindedPayloadRef::Electra(inner) => {
                 Ok(inner.execution_payload_header.execution_witness_root)
             }
         }
@@ -947,25 +951,25 @@ impl_exec_payload_for_fork!(
     Capella
 );
 impl_exec_payload_for_fork!(
-    BlindedPayloadVerge,
-    FullPayloadVerge,
-    ExecutionPayloadHeaderVerge,
-    ExecutionPayloadVerge,
-    Verge
+    BlindedPayloadElectra,
+    FullPayloadElectra,
+    ExecutionPayloadHeaderElectra,
+    ExecutionPayloadElectra,
+    Electra
 );
 
 impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Ref<'a> = BlindedPayloadRef<'a, T>;
     type Merge = BlindedPayloadMerge<T>;
     type Capella = BlindedPayloadCapella<T>;
-    type Verge = BlindedPayloadVerge<T>;
+    type Electra = BlindedPayloadElectra<T>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
             ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
             ForkName::Merge => Ok(BlindedPayloadMerge::default().into()),
             ForkName::Capella => Ok(BlindedPayloadCapella::default().into()),
-            ForkName::Verge => Ok(BlindedPayloadVerge::default().into()),
+            ForkName::Electra => Ok(BlindedPayloadElectra::default().into()),
         }
     }
 }
@@ -994,8 +998,8 @@ impl<T: EthSpec> From<ExecutionPayloadHeader<T>> for BlindedPayload<T> {
                     execution_payload_header,
                 })
             }
-            ExecutionPayloadHeader::Verge(execution_payload_header) => {
-                Self::Verge(BlindedPayloadVerge {
+            ExecutionPayloadHeader::Electra(execution_payload_header) => {
+                Self::Electra(BlindedPayloadElectra {
                     execution_payload_header,
                 })
             }
@@ -1012,8 +1016,8 @@ impl<T: EthSpec> From<BlindedPayload<T>> for ExecutionPayloadHeader<T> {
             BlindedPayload::Capella(blinded_payload) => {
                 ExecutionPayloadHeader::Capella(blinded_payload.execution_payload_header)
             }
-            BlindedPayload::Verge(blinded_payload) => {
-                ExecutionPayloadHeader::Verge(blinded_payload.execution_payload_header)
+            BlindedPayload::Electra(blinded_payload) => {
+                ExecutionPayloadHeader::Electra(blinded_payload.execution_payload_header)
             }
         }
     }

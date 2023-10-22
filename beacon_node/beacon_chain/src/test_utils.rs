@@ -440,14 +440,14 @@ where
         let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
-        let verge_time = spec.verge_fork_epoch.map(|epoch| {
+        let electra_time = spec.electra_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
             DEFAULT_TERMINAL_BLOCK,
             shanghai_time,
-            verge_time,
+            electra_time,
             builder_threshold,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,

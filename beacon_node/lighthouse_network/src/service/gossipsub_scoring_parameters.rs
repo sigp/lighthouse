@@ -99,7 +99,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             ..Default::default()
         };
 
-        let target_value = Self::decay_convergence(
+        let target_value = Self::decay_conelectrance(
             params.behaviour_penalty_decay,
             10.0 / TSpec::slots_per_epoch() as f64,
         ) - params.behaviour_penalty_threshold;
@@ -245,12 +245,12 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
         decay_to_zero.powf(1.0 / ticks)
     }
 
-    fn decay_convergence(decay: f64, rate: f64) -> f64 {
+    fn decay_conelectrance(decay: f64, rate: f64) -> f64 {
         rate / (1.0 - decay)
     }
 
     fn threshold(decay: f64, rate: f64) -> f64 {
-        Self::decay_convergence(decay, rate) * decay
+        Self::decay_conelectrance(decay, rate) * decay
     }
 
     fn expected_aggregator_count_per_slot(
@@ -310,7 +310,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
 
         t_params.first_message_deliveries_decay =
             self.score_parameter_decay(first_message_decay_time);
-        t_params.first_message_deliveries_cap = Self::decay_convergence(
+        t_params.first_message_deliveries_cap = Self::decay_conelectrance(
             t_params.first_message_deliveries_decay,
             2.0 * expected_message_rate / self.mesh_n as f64,
         );

@@ -81,7 +81,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
             BlindedPayloadRefMut::Capella(payload) => {
                 payload.execution_payload_header.fee_recipient = fee_recipient;
             }
-            BlindedPayloadRefMut::Verge(payload) => {
+            BlindedPayloadRefMut::Electra(payload) => {
                 payload.execution_payload_header.fee_recipient = fee_recipient;
             }
         }
@@ -94,7 +94,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
             BlindedPayloadRefMut::Capella(payload) => {
                 payload.execution_payload_header.gas_limit = gas_limit;
             }
-            BlindedPayloadRefMut::Verge(payload) => {
+            BlindedPayloadRefMut::Electra(payload) => {
                 payload.execution_payload_header.gas_limit = gas_limit;
             }
         }
@@ -112,7 +112,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
                 payload.execution_payload_header.parent_hash =
                     ExecutionBlockHash::from_root(parent_hash);
             }
-            BlindedPayloadRefMut::Verge(payload) => {
+            BlindedPayloadRefMut::Electra(payload) => {
                 payload.execution_payload_header.parent_hash =
                     ExecutionBlockHash::from_root(parent_hash);
             }
@@ -126,7 +126,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
             BlindedPayloadRefMut::Capella(payload) => {
                 payload.execution_payload_header.prev_randao = prev_randao;
             }
-            BlindedPayloadRefMut::Verge(payload) => {
+            BlindedPayloadRefMut::Electra(payload) => {
                 payload.execution_payload_header.prev_randao = prev_randao;
             }
         }
@@ -139,7 +139,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
             BlindedPayloadRefMut::Capella(payload) => {
                 payload.execution_payload_header.block_number = block_number;
             }
-            BlindedPayloadRefMut::Verge(payload) => {
+            BlindedPayloadRefMut::Electra(payload) => {
                 payload.execution_payload_header.block_number = block_number;
             }
         }
@@ -152,7 +152,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
             BlindedPayloadRefMut::Capella(payload) => {
                 payload.execution_payload_header.timestamp = timestamp;
             }
-            BlindedPayloadRefMut::Verge(payload) => {
+            BlindedPayloadRefMut::Electra(payload) => {
                 payload.execution_payload_header.timestamp = timestamp;
             }
         }
@@ -165,7 +165,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E, BlindedPayload<E>> {
             BlindedPayloadRefMut::Capella(payload) => {
                 payload.execution_payload_header.withdrawals_root = withdrawals_root;
             }
-            BlindedPayloadRefMut::Verge(payload) => {
+            BlindedPayloadRefMut::Electra(payload) => {
                 payload.execution_payload_header.withdrawals_root = withdrawals_root;
             }
         }
@@ -319,7 +319,7 @@ pub fn serve<E: EthSpec>(
                     SignedBlindedBeaconBlock::Capella(block) => {
                         block.message.body.execution_payload.tree_hash_root()
                     }
-                    SignedBlindedBeaconBlock::Verge(block) => {
+                    SignedBlindedBeaconBlock::Electra(block) => {
                         block.message.body.execution_payload.tree_hash_root()
                     }
                 };
@@ -463,7 +463,7 @@ pub fn serve<E: EthSpec>(
                     ForkName::Capella => {
                         PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]))
                     }
-                    ForkName::Verge => {
+                    ForkName::Electra => {
                         PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]))
                     }
                     ForkName::Base | ForkName::Altair => {

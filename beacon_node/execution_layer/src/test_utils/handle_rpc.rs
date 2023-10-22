@@ -156,17 +156,17 @@ pub async fn handle_rpc<T: EthSpec>(
                     }
                 }
                 // TODO(4844) add 4844 error checking here
-                ForkName::Verge => {
+                ForkName::Electra => {
                     if method == ENGINE_NEW_PAYLOAD_V1 || method == ENGINE_NEW_PAYLOAD_V2 {
                         return Err((
-                            format!("{} called after verge fork!", method),
+                            format!("{} called after electra fork!", method),
                             GENERIC_ERROR_CODE,
                         ));
                     }
                     if matches!(request, JsonExecutionPayload::V1(_)) {
                         return Err((
                             format!(
-                                "{} called with `ExecutionPayloadV1` after verge fork!",
+                                "{} called with `ExecutionPayloadV1` after electra fork!",
                                 method
                             ),
                             GENERIC_ERROR_CODE,
@@ -175,7 +175,7 @@ pub async fn handle_rpc<T: EthSpec>(
                     if matches!(request, JsonExecutionPayload::V2(_)) {
                         return Err((
                             format!(
-                                "{} called with `ExecutionPayloadV2` after verge fork!",
+                                "{} called with `ExecutionPayloadV2` after electra fork!",
                                 method
                             ),
                             GENERIC_ERROR_CODE,
@@ -247,16 +247,16 @@ pub async fn handle_rpc<T: EthSpec>(
                 ));
             }
             // TODO(4844) add 4844 error checking here
-            // validate method called correctly according to verge fork time
+            // validate method called correctly according to electra fork time
             if ctx
                 .execution_block_generator
                 .read()
                 .get_fork_at_timestamp(response.timestamp())
-                == ForkName::Verge
+                == ForkName::Electra
                 && (method == ENGINE_GET_PAYLOAD_V1 || method == ENGINE_GET_PAYLOAD_V2)
             {
                 return Err((
-                    format!("{} called after verge fork!", method),
+                    format!("{} called after electra fork!", method),
                     FORK_REQUEST_MISMATCH_ERROR_CODE,
                 ));
             }
@@ -334,7 +334,7 @@ pub async fn handle_rpc<T: EthSpec>(
                                             .map(|opt| opt.map(JsonPayloadAttributes::V1))
                                             .transpose()
                                     }
-                                    ForkName::Capella | ForkName::Verge => {
+                                    ForkName::Capella | ForkName::Electra => {
                                         get_param::<Option<JsonPayloadAttributesV2>>(params, 1)
                                             .map(|opt| opt.map(JsonPayloadAttributes::V2))
                                             .transpose()
@@ -367,7 +367,7 @@ pub async fn handle_rpc<T: EthSpec>(
                             ));
                         }
                     }
-                    ForkName::Capella | ForkName::Verge => {
+                    ForkName::Capella | ForkName::Electra => {
                         if method == ENGINE_FORKCHOICE_UPDATED_V1 {
                             return Err((
                                 format!("{} called after Capella fork!", method),

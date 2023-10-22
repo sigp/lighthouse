@@ -3,7 +3,7 @@ use super::per_block_processing::{
 };
 use crate::common::DepositDataTree;
 use crate::upgrade::{
-    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_verge,
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_electra,
 };
 use safe_arith::{ArithError, SafeArith};
 use tree_hash::TreeHash;
@@ -93,20 +93,20 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         }
     }
 
-    // Upgrade to verge if configured from genesis.
+    // Upgrade to electra if configured from genesis.
     if spec
-        .verge_fork_epoch
+        .electra_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
     {
-        upgrade_to_verge(&mut state, spec)?;
+        upgrade_to_electra(&mut state, spec)?;
 
         // Remove intermediate Bellatrix fork from `state.fork`.
-        state.fork_mut().previous_version = spec.verge_fork_version;
+        state.fork_mut().previous_version = spec.electra_fork_version;
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#testing
-        if let Some(ExecutionPayloadHeader::Verge(ref header)) = execution_payload_header {
-            *state.latest_execution_payload_header_verge_mut()? = header.clone();
+        if let Some(ExecutionPayloadHeader::Electra(ref header)) = execution_payload_header {
+            *state.latest_execution_payload_header_electra_mut()? = header.clone();
         }
     }
 

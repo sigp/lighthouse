@@ -183,7 +183,7 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Verge),
+    variants(Base, Altair, Merge, Capella, Electra),
     variant_attributes(
         derive(
             Derivative,
@@ -263,9 +263,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella, Verge))]
+    #[superstruct(only(Altair, Merge, Capella, Electra))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella, Verge))]
+    #[superstruct(only(Altair, Merge, Capella, Electra))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -280,13 +280,13 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Merge, Capella, Verge))]
+    #[superstruct(only(Altair, Merge, Capella, Electra))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella, Verge))]
+    #[superstruct(only(Altair, Merge, Capella, Electra))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge, Capella, Verge))]
+    #[superstruct(only(Altair, Merge, Capella, Electra))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
@@ -301,20 +301,20 @@ where
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<T>,
     #[superstruct(
-        only(Verge),
-        partial_getter(rename = "latest_execution_payload_header_verge")
+        only(Electra),
+        partial_getter(rename = "latest_execution_payload_header_electra")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderVerge<T>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<T>,
 
     // Capella
-    #[superstruct(only(Capella, Verge), partial_getter(copy))]
+    #[superstruct(only(Capella, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Verge), partial_getter(copy))]
+    #[superstruct(only(Capella, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
-    #[superstruct(only(Capella, Verge))]
+    #[superstruct(only(Capella, Electra))]
     pub historical_summaries: VariableList<HistoricalSummary, T::HistoricalRootsLimit>,
 
     // Caching (not in the spec)
@@ -434,7 +434,7 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Altair { .. } => ForkName::Altair,
             BeaconState::Merge { .. } => ForkName::Merge,
             BeaconState::Capella { .. } => ForkName::Capella,
-            BeaconState::Verge { .. } => ForkName::Verge,
+            BeaconState::Electra { .. } => ForkName::Electra,
         };
 
         if fork_at_slot == object_fork {
@@ -734,7 +734,7 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRef::Capella(
                 &state.latest_execution_payload_header,
             )),
-            BeaconState::Verge(state) => Ok(ExecutionPayloadHeaderRef::Verge(
+            BeaconState::Electra(state) => Ok(ExecutionPayloadHeaderRef::Electra(
                 &state.latest_execution_payload_header,
             )),
         }
@@ -751,7 +751,7 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRefMut::Capella(
                 &mut state.latest_execution_payload_header,
             )),
-            BeaconState::Verge(state) => Ok(ExecutionPayloadHeaderRefMut::Verge(
+            BeaconState::Electra(state) => Ok(ExecutionPayloadHeaderRefMut::Electra(
                 &mut state.latest_execution_payload_header,
             )),
         }
@@ -1200,7 +1200,7 @@ impl<T: EthSpec> BeaconState<T> {
                 &mut state.balances,
                 &mut state.progressive_balances_cache,
             ),
-            BeaconState::Verge(state) => (
+            BeaconState::Electra(state) => (
                 &mut state.validators,
                 &mut state.balances,
                 &mut state.progressive_balances_cache,
@@ -1402,7 +1402,7 @@ impl<T: EthSpec> BeaconState<T> {
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.current_epoch_participation),
-                BeaconState::Verge(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Electra(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == self.previous_epoch() {
             match self {
@@ -1410,7 +1410,7 @@ impl<T: EthSpec> BeaconState<T> {
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.previous_epoch_participation),
-                BeaconState::Verge(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Electra(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
@@ -1722,7 +1722,7 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Altair(inner) => BeaconState::Altair(inner.clone()),
             BeaconState::Merge(inner) => BeaconState::Merge(inner.clone()),
             BeaconState::Capella(inner) => BeaconState::Capella(inner.clone()),
-            BeaconState::Verge(inner) => BeaconState::Verge(inner.clone()),
+            BeaconState::Electra(inner) => BeaconState::Electra(inner.clone()),
         };
         if config.committee_caches {
             *res.committee_caches_mut() = self.committee_caches().clone();
@@ -1899,7 +1899,7 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
             (BeaconState::Base(x), BeaconState::Base(y)) => x.compare_fields(y),
             (BeaconState::Altair(x), BeaconState::Altair(y)) => x.compare_fields(y),
             (BeaconState::Merge(x), BeaconState::Merge(y)) => x.compare_fields(y),
-            (BeaconState::Verge(x), BeaconState::Verge(y)) => x.compare_fields(y),
+            (BeaconState::Electra(x), BeaconState::Electra(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
     }

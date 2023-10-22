@@ -10,7 +10,7 @@ use ssz::Decode;
 use ssz::Encode;
 use state_processing::process_activations;
 use state_processing::upgrade::{
-    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_verge,
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_electra,
 };
 use std::fs::File;
 use std::io::Read;
@@ -21,7 +21,7 @@ use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
     Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRefMut, ExecutionPayloadHeaderVerge,
+    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRefMut,
     ForkName, Hash256, Keypair, PublicKey, Validator,
 };
 
@@ -87,8 +87,8 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.capella_fork_epoch = Some(fork_epoch);
     }
 
-    if let Some(fork_epoch) = parse_optional(matches, "verge-fork-epoch")? {
-        spec.verge_fork_epoch = Some(fork_epoch);
+    if let Some(fork_epoch) = parse_optional(matches, "electra-fork-epoch")? {
+        spec.electra_fork_epoch = Some(fork_epoch);
     }
 
     if let Some(ttd) = parse_optional(matches, "ttd")? {
@@ -117,9 +117,9 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                         ExecutionPayloadHeaderCapella::<T>::from_ssz_bytes(bytes.as_slice())
                             .map(ExecutionPayloadHeader::Capella)
                     }
-                    ForkName::Verge => {
-                        ExecutionPayloadHeaderVerge::<T>::from_ssz_bytes(bytes.as_slice())
-                            .map(ExecutionPayloadHeader::Verge)
+                    ForkName::Electra => {
+                        ExecutionPayloadHeaderElectra::<T>::from_ssz_bytes(bytes.as_slice())
+                            .map(ExecutionPayloadHeader::Electra)
                     }
                 }
                 .map_err(|e| format!("SSZ decode failed: {:?}", e))
@@ -225,11 +225,11 @@ fn initialize_state_with_validators<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
     // If no header is provided, then start from a default state.
-    let default_header = if spec.verge_fork_epoch == Some(T::genesis_epoch()) {
-        ExecutionPayloadHeader::Verge(ExecutionPayloadHeaderVerge {
+    let default_header = if spec.electra_fork_epoch == Some(T::genesis_epoch()) {
+        ExecutionPayloadHeader::Electra(ExecutionPayloadHeaderElectra {
             block_hash: ExecutionBlockHash::from_root(eth1_block_hash),
             parent_hash: ExecutionBlockHash::zero(),
-            ..ExecutionPayloadHeaderVerge::default()
+            ..ExecutionPayloadHeaderElectra::default()
         })
     } else if spec.capella_fork_epoch == Some(T::genesis_epoch()) {
         ExecutionPayloadHeader::Capella(ExecutionPayloadHeaderCapella {
@@ -325,15 +325,15 @@ fn initialize_state_with_validators<T: EthSpec>(
         post_merge = true;
     }
 
-    // Similarly, perform an upgrade to Verge if configured from genesis.
+    // Similarly, perform an upgrade to Electra if configured from genesis.
     if spec
-        .verge_fork_epoch
+        .electra_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
     {
-        upgrade_to_verge(&mut state, spec).unwrap();
+        upgrade_to_electra(&mut state, spec).unwrap();
 
         // Remove intermediate Capella fork from `state.fork`.
-        state.fork_mut().previous_version = spec.verge_fork_version;
+        state.fork_mut().previous_version = spec.electra_fork_version;
 
         post_merge = true;
     }
@@ -362,11 +362,11 @@ fn initialize_state_with_validators<T: EthSpec>(
                     return Err("Execution payload header must be a capella header".to_string());
                 }
             }
-            ExecutionPayloadHeaderRefMut::Verge(header_mut) => {
-                if let ExecutionPayloadHeader::Verge(eph) = execution_payload_header {
+            ExecutionPayloadHeaderRefMut::Electra(header_mut) => {
+                if let ExecutionPayloadHeader::Electra(eph) = execution_payload_header {
                     *header_mut = eph;
                 } else {
-                    return Err("Execution payload header must be a verge header".to_string());
+                    return Err("Execution payload header must be a electra header".to_string());
                 }
             }
         }

@@ -9,7 +9,7 @@ use tree_hash_derive::TreeHash;
 use BeaconStateError;
 
 #[superstruct(
-    variants(Merge, Capella, Verge),
+    variants(Merge, Capella, Electra),
     variant_attributes(
         derive(
             Default,
@@ -77,10 +77,10 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
-    #[superstruct(only(Capella, Verge))]
+    #[superstruct(only(Capella, Electra))]
     #[superstruct(getter(copy))]
     pub withdrawals_root: Hash256,
-    #[superstruct(only(Verge))]
+    #[superstruct(only(Electra))]
     #[superstruct(getter(copy))]
     pub execution_witness_root: Hash256,
 }
@@ -99,7 +99,9 @@ impl<T: EthSpec> ExecutionPayloadHeader<T> {
             ForkName::Capella => {
                 ExecutionPayloadHeaderCapella::from_ssz_bytes(bytes).map(Self::Capella)
             }
-            ForkName::Verge => ExecutionPayloadHeaderVerge::from_ssz_bytes(bytes).map(Self::Verge),
+            ForkName::Electra => {
+                ExecutionPayloadHeaderElectra::from_ssz_bytes(bytes).map(Self::Electra)
+            }
         }
     }
 }
@@ -136,8 +138,8 @@ impl<T: EthSpec> ExecutionPayloadHeaderMerge<T> {
 }
 
 impl<T: EthSpec> ExecutionPayloadHeaderCapella<T> {
-    pub fn upgrade_to_verge(&self) -> ExecutionPayloadHeaderVerge<T> {
-        ExecutionPayloadHeaderVerge {
+    pub fn upgrade_to_electra(&self) -> ExecutionPayloadHeaderElectra<T> {
+        ExecutionPayloadHeaderElectra {
             parent_hash: self.parent_hash,
             fee_recipient: self.fee_recipient,
             state_root: self.state_root,
@@ -199,8 +201,8 @@ impl<'a, T: EthSpec> From<&'a ExecutionPayloadCapella<T>> for ExecutionPayloadHe
         }
     }
 }
-impl<'a, T: EthSpec> From<&'a ExecutionPayloadVerge<T>> for ExecutionPayloadHeaderVerge<T> {
-    fn from(payload: &'a ExecutionPayloadVerge<T>) -> Self {
+impl<'a, T: EthSpec> From<&'a ExecutionPayloadElectra<T>> for ExecutionPayloadHeaderElectra<T> {
+    fn from(payload: &'a ExecutionPayloadElectra<T>) -> Self {
         Self {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -236,7 +238,7 @@ impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderCapella<T> {
     }
 }
 
-impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderVerge<T> {
+impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderElectra<T> {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
@@ -272,11 +274,13 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderCa
         }
     }
 }
-impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderVerge<T> {
+impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderElectra<T> {
     type Error = BeaconStateError;
     fn try_from(header: ExecutionPayloadHeader<T>) -> Result<Self, Self::Error> {
         match header {
-            ExecutionPayloadHeader::Verge(execution_payload_header) => Ok(execution_payload_header),
+            ExecutionPayloadHeader::Electra(execution_payload_header) => {
+                Ok(execution_payload_header)
+            }
             _ => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
@@ -297,7 +301,7 @@ impl<T: EthSpec> ForkVersionDeserialize for ExecutionPayloadHeader<T> {
         Ok(match fork_name {
             ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Verge => Self::Verge(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Electra => Self::Electra(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(
                     "ExecutionPayloadHeader failed to deserialize: unsupported fork '{}'",

@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge,
-    ExecutionPayloadVerge, ExecutionWitness, ForkName, Hash256, Uint256,
+    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    ExecutionPayloadElectra, ExecutionPayloadMerge, ExecutionWitness, ForkName, Hash256, Uint256,
 };
 
 const GAS_LIMIT: u64 = 16384;
@@ -118,7 +118,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * Post-merge fork triggers
      */
     pub shanghai_time: Option<u64>, // withdrawals
-    pub verge_time: Option<u64>,    // TODO(mac): Get actualy execution fork name
+    pub electra_time: Option<u64>,  // TODO(mac): Get actualy execution fork name
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
@@ -127,7 +127,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_number: u64,
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
-        verge_time: Option<u64>,
+        electra_time: Option<u64>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -141,7 +141,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             next_payload_id: 0,
             payload_ids: <_>::default(),
             shanghai_time,
-            verge_time,
+            electra_time,
         };
 
         gen.insert_pow_block(0).unwrap();
@@ -174,8 +174,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn get_fork_at_timestamp(&self, timestamp: u64) -> ForkName {
-        match self.verge_time {
-            Some(fork_time) if timestamp >= fork_time => ForkName::Verge,
+        match self.electra_time {
+            Some(fork_time) if timestamp >= fork_time => ForkName::Electra,
             _ => match self.shanghai_time {
                 Some(fork_time) if timestamp >= fork_time => ForkName::Capella,
                 _ => ForkName::Merge,
@@ -532,7 +532,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                             transactions: vec![].into(),
                             withdrawals: pa.withdrawals.clone().into(),
                         }),
-                        ForkName::Verge => ExecutionPayload::Verge(ExecutionPayloadVerge {
+                        ForkName::Electra => ExecutionPayload::Electra(ExecutionPayloadElectra {
                             parent_hash: forkchoice_state.head_block_hash,
                             fee_recipient: pa.suggested_fee_recipient,
                             receipts_root: Hash256::repeat_byte(42),

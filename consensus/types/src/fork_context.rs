@@ -54,10 +54,10 @@ impl ForkContext {
             ));
         }
 
-        if spec.verge_fork_epoch.is_some() {
+        if spec.electra_fork_epoch.is_some() {
             fork_to_digest.push((
-                ForkName::Verge,
-                ChainSpec::compute_fork_digest(spec.verge_fork_version, genesis_validators_root),
+                ForkName::Electra,
+                ChainSpec::compute_fork_digest(spec.electra_fork_version, genesis_validators_root),
             ));
         }
 

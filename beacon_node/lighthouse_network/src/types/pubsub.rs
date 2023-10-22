@@ -12,7 +12,7 @@ use types::{
     Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockMerge, SignedBeaconBlockVerge, SignedBlsToExecutionChange,
+    SignedBeaconBlockElectra, SignedBeaconBlockMerge, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
@@ -183,8 +183,8 @@ impl<T: EthSpec> PubsubMessage<T> {
                                     SignedBeaconBlockCapella::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Verge) => SignedBeaconBlock::<T>::Verge(
-                                    SignedBeaconBlockVerge::from_ssz_bytes(data)
+                                Some(ForkName::Electra) => SignedBeaconBlock::<T>::Electra(
+                                    SignedBeaconBlockElectra::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 None => {

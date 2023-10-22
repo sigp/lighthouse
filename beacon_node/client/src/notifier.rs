@@ -1,8 +1,8 @@
 use crate::metrics;
 use beacon_chain::{
     capella_readiness::CapellaReadiness,
+    electra_readiness::ElectraReadiness,
     merge_readiness::{GenesisExecutionPayloadStatus, MergeConfig, MergeReadiness},
-    verge_readiness::VergeReadiness,
     BeaconChain, BeaconChainTypes, ExecutionStatus,
 };
 use lighthouse_network::{types::SyncState, NetworkGlobals};
@@ -320,7 +320,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             eth1_logging(&beacon_chain, &log);
             merge_readiness_logging(current_slot, &beacon_chain, &log).await;
             capella_readiness_logging(current_slot, &beacon_chain, &log).await;
-            verge_readiness_logging(current_slot, &beacon_chain, &log).await;
+            electra_readiness_logging(current_slot, &beacon_chain, &log).await;
         }
     };
 
@@ -447,8 +447,8 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
     }
 
     if capella_completed && !has_execution_layer {
-        if !beacon_chain.is_time_to_prepare_for_verge(current_slot) {
-            // logging of the EE being offline is handled in `verge_readiness_logging()`
+        if !beacon_chain.is_time_to_prepare_for_electra(current_slot) {
+            // logging of the EE being offline is handled in `electra_readiness_logging()`
             error!(
                 log,
                 "Execution endpoint required";
@@ -484,13 +484,13 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
     }
 }
 
-/// Provides some helpful logging to users to indicate if their node is ready for Verge.
-async fn verge_readiness_logging<T: BeaconChainTypes>(
+/// Provides some helpful logging to users to indicate if their node is ready for Electra.
+async fn electra_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
     log: &Logger,
 ) {
-    let verge_completed = beacon_chain
+    let electra_completed = beacon_chain
         .canonical_head
         .cached_head()
         .snapshot
@@ -502,42 +502,42 @@ async fn verge_readiness_logging<T: BeaconChainTypes>(
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
-    if verge_completed && has_execution_layer
-        || !beacon_chain.is_time_to_prepare_for_verge(current_slot)
+    if electra_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_electra(current_slot)
     {
         return;
     }
 
-    if verge_completed && !has_execution_layer {
+    if electra_completed && !has_execution_layer {
         // When adding a new fork, add a check for the next fork readiness here.
         error!(
             log,
             "Execution endpoint required";
-            "info" => "you need a Verge enabled execution engine to validate blocks, see: \
+            "info" => "you need a Electra enabled execution engine to validate blocks, see: \
                        https://lighthouse-book.sigmaprime.io/merge-migration.html"
         );
         return;
     }
 
-    match beacon_chain.check_verge_readiness().await {
-        VergeReadiness::Ready => {
+    match beacon_chain.check_electra_readiness().await {
+        ElectraReadiness::Ready => {
             info!(
                 log,
-                "Ready for Verge";
-                "info" => "ensure the execution endpoint is updated to the latest Verge/Prague release"
+                "Ready for Electra";
+                "info" => "ensure the execution endpoint is updated to the latest Electra/Prague release"
             )
         }
-        readiness @ VergeReadiness::ExchangeCapabilitiesFailed { error: _ } => {
+        readiness @ ElectraReadiness::ExchangeCapabilitiesFailed { error: _ } => {
             error!(
                 log,
-                "Not ready for Verge";
+                "Not ready for Electra";
                 "hint" => "the execution endpoint may be offline",
                 "info" => %readiness,
             )
         }
         readiness => warn!(
             log,
-            "Not ready for Verge";
+            "Not ready for Electra";
             "hint" => "try updating the execution endpoint",
             "info" => %readiness,
         ),

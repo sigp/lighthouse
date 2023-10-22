@@ -18,8 +18,8 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::light_client_bootstrap::LightClientBootstrap;
 use types::{
     EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockMerge,
-    SignedBeaconBlockVerge,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockElectra,
+    SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -397,9 +397,9 @@ fn context_bytes<T: EthSpec>(
                 return match **ref_box_block {
                     // NOTE: If you are adding another fork type here, be sure to modify the
                     //       `fork_context.to_context_bytes()` function to support it as well!
-                    SignedBeaconBlock::Verge { .. } => {
-                        // Verge context being `None` implies that "merge never happened".
-                        fork_context.to_context_bytes(ForkName::Verge)
+                    SignedBeaconBlock::Electra { .. } => {
+                        // Electra context being `None` implies that "merge never happened".
+                        fork_context.to_context_bytes(ForkName::Electra)
                     }
                     SignedBeaconBlock::Capella { .. } => {
                         // Capella context being `None` implies that "merge never happened".
@@ -560,8 +560,10 @@ fn handle_rpc_response<T: EthSpec>(
                     decoded_buffer,
                 )?),
             )))),
-            Some(ForkName::Verge) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Verge(SignedBeaconBlockVerge::from_ssz_bytes(decoded_buffer)?),
+            Some(ForkName::Electra) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
             )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
@@ -586,8 +588,10 @@ fn handle_rpc_response<T: EthSpec>(
                     decoded_buffer,
                 )?),
             )))),
-            Some(ForkName::Verge) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Verge(SignedBeaconBlockVerge::from_ssz_bytes(decoded_buffer)?),
+            Some(ForkName::Electra) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
             )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
@@ -641,19 +645,19 @@ mod tests {
         let altair_fork_epoch = Epoch::new(1);
         let merge_fork_epoch = Epoch::new(2);
         let capella_fork_epoch = Epoch::new(3);
-        let verge_fork_epoch = Epoch::new(4);
+        let electra_fork_epoch = Epoch::new(4);
 
         chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
         chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
         chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
-        chain_spec.verge_fork_epoch = Some(verge_fork_epoch);
+        chain_spec.electra_fork_epoch = Some(electra_fork_epoch);
 
         let current_slot = match fork_name {
             ForkName::Base => Slot::new(0),
             ForkName::Altair => altair_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Merge => merge_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Capella => capella_fork_epoch.start_slot(Spec::slots_per_epoch()),
-            ForkName::Verge => verge_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Electra => electra_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }

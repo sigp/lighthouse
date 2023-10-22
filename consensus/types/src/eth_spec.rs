@@ -121,7 +121,7 @@ pub trait EthSpec:
     type SyncSubcommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     /*
-     * New in Verge
+     * New in Electra
      */
     type BytesPerBanderwagonElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxStems: Unsigned + Clone + Sync + Send + Debug + PartialEq;

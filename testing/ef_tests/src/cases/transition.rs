@@ -47,11 +47,11 @@ impl<E: EthSpec> LoadCase for TransitionTest<E> {
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = Some(metadata.fork_epoch);
             }
-            ForkName::Verge => {
+            ForkName::Electra => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = Some(Epoch::new(0));
-                spec.verge_fork_epoch = Some(metadata.fork_epoch);
+                spec.electra_fork_epoch = Some(metadata.fork_epoch);
             }
         }
 

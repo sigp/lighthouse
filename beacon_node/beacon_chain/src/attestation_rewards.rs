@@ -53,7 +53,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Verge(_) => self.compute_attestation_rewards_altair(state, validators),
+            | BeaconState::Electra(_) => self.compute_attestation_rewards_altair(state, validators),
         }
     }
 

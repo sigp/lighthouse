@@ -15,6 +15,7 @@ pub mod canonical_head;
 pub mod capella_readiness;
 pub mod chain_config;
 mod early_attester_cache;
+pub mod electra_readiness;
 mod errors;
 pub mod eth1_chain;
 mod eth1_finalization_cache;
@@ -49,7 +50,6 @@ pub mod test_utils;
 mod timeout_rw_lock;
 pub mod validator_monitor;
 pub mod validator_pubkey_cache;
-pub mod verge_readiness;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,

@@ -1893,9 +1893,9 @@ async fn pruning_test(
     };
 
     let start_slot = Slot::new(1);
-    let divergence_slot = start_slot + num_initial_blocks;
+    let dielectrance_slot = start_slot + num_initial_blocks;
     let (state, state_root) = harness.get_current_state_and_root();
-    let (_, _, _, divergence_state) = harness
+    let (_, _, _, dielectrance_state) = harness
         .add_attested_blocks_at_slots(
             state,
             state_root,
@@ -1908,17 +1908,17 @@ async fn pruning_test(
         .add_blocks_on_multiple_chains(vec![
             // Canonical chain
             (
-                divergence_state.clone(),
+                dielectrance_state.clone(),
                 slots(
-                    divergence_slot + num_canonical_skips,
+                    dielectrance_slot + num_canonical_skips,
                     num_canonical_middle_blocks,
                 ),
                 honest_validators.clone(),
             ),
             // Fork chain
             (
-                divergence_state.clone(),
-                slots(divergence_slot + num_fork_skips, num_fork_blocks),
+                dielectrance_state.clone(),
+                slots(dielectrance_slot + num_fork_skips, num_fork_blocks),
                 faulty_validators,
             ),
         ])
@@ -1926,7 +1926,7 @@ async fn pruning_test(
     let (_, _, _, mut canonical_state) = chains.remove(0);
     let (stray_blocks, stray_states, _, stray_head_state) = chains.remove(0);
 
-    let stray_head_slot = divergence_slot + num_fork_skips + num_fork_blocks - 1;
+    let stray_head_slot = dielectrance_slot + num_fork_skips + num_fork_blocks - 1;
     let stray_head_state_root = stray_states[&stray_head_slot];
     let stray_states = harness
         .chain
@@ -1946,7 +1946,7 @@ async fn pruning_test(
 
     // Trigger finalization
     let num_finalization_blocks = 4 * E::slots_per_epoch();
-    let canonical_slot = divergence_slot + num_canonical_skips + num_canonical_middle_blocks;
+    let canonical_slot = dielectrance_slot + num_canonical_skips + num_canonical_middle_blocks;
     let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     harness
         .add_attested_blocks_at_slots(
@@ -1957,13 +1957,13 @@ async fn pruning_test(
         )
         .await;
 
-    // Check that finalization has advanced past the divergence slot.
+    // Check that finalization has advanced past the dielectrance slot.
     assert!(
         harness
             .finalized_checkpoint()
             .epoch
             .start_slot(E::slots_per_epoch())
-            > divergence_slot
+            > dielectrance_slot
     );
     check_chain_dump(
         &harness,

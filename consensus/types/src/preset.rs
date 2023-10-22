@@ -207,7 +207,7 @@ impl CapellaPreset {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
-pub struct VergePreset {
+pub struct ElectraPreset {
     #[serde(with = "serde_utils::quoted_u64")]
     pub bytes_per_banderwagon_element: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -226,7 +226,7 @@ pub struct VergePreset {
     pub ipa_proof_depth: u64,
 }
 
-impl VergePreset {
+impl ElectraPreset {
     pub fn from_chain_spec<T: EthSpec>(_spec: &ChainSpec) -> Self {
         Self {
             bytes_per_banderwagon_element: T::bytes_per_banderwagon_element() as u64,
@@ -280,8 +280,8 @@ mod test {
         let capella: CapellaPreset = preset_from_file(&preset_name, "capella.yaml");
         assert_eq!(capella, CapellaPreset::from_chain_spec::<E>(&spec));
 
-        let verge: VergePreset = preset_from_file(&preset_name, "verge.yaml");
-        assert_eq!(verge, VergePreset::from_chain_spec::<E>(&spec));
+        let electra: ElectraPreset = preset_from_file(&preset_name, "electra.yaml");
+        assert_eq!(electra, ElectraPreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]

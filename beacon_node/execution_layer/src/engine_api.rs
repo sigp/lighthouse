@@ -21,7 +21,7 @@ pub use types::{
     ExecutionPayloadRef, ExecutionWitness, FixedVector, ForkName, Hash256, Transactions, Uint256,
     VariableList, Withdrawal, Withdrawals,
 };
-use types::{ExecutionPayloadCapella, ExecutionPayloadMerge, ExecutionPayloadVerge};
+use types::{ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadMerge};
 
 pub mod auth;
 pub mod http;
@@ -138,7 +138,7 @@ pub struct ExecutionBlock {
 
 /// Representation of an execution block with enough detail to reconstruct a payload.
 #[superstruct(
-    variants(Merge, Capella, Verge),
+    variants(Merge, Capella, Electra),
     variant_attributes(
         derive(Clone, Debug, PartialEq, Serialize, Deserialize,),
         serde(bound = "T: EthSpec", rename_all = "camelCase"),
@@ -172,9 +172,9 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
-    #[superstruct(only(Capella, Verge))]
+    #[superstruct(only(Capella, Electra))]
     pub withdrawals: Vec<JsonWithdrawal>,
-    #[superstruct(only(Verge))]
+    #[superstruct(only(Electra))]
     pub execution_witness: JsonExecutionWitness<T>,
 }
 
@@ -229,31 +229,33 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                         .collect(),
                 })
             }
-            ExecutionPayload::Verge(block) => Self::Verge(ExecutionBlockWithTransactionsVerge {
-                parent_hash: block.parent_hash,
-                fee_recipient: block.fee_recipient,
-                state_root: block.state_root,
-                receipts_root: block.receipts_root,
-                logs_bloom: block.logs_bloom,
-                prev_randao: block.prev_randao,
-                block_number: block.block_number,
-                gas_limit: block.gas_limit,
-                gas_used: block.gas_used,
-                timestamp: block.timestamp,
-                extra_data: block.extra_data,
-                base_fee_per_gas: block.base_fee_per_gas,
-                block_hash: block.block_hash,
-                transactions: block
-                    .transactions
-                    .iter()
-                    .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                    .collect::<Result<Vec<_>, _>>()?,
-                withdrawals: Vec::from(block.withdrawals)
-                    .into_iter()
-                    .map(|withdrawal| withdrawal.into())
-                    .collect(),
-                execution_witness: block.execution_witness.into(),
-            }),
+            ExecutionPayload::Electra(block) => {
+                Self::Electra(ExecutionBlockWithTransactionsElectra {
+                    parent_hash: block.parent_hash,
+                    fee_recipient: block.fee_recipient,
+                    state_root: block.state_root,
+                    receipts_root: block.receipts_root,
+                    logs_bloom: block.logs_bloom,
+                    prev_randao: block.prev_randao,
+                    block_number: block.block_number,
+                    gas_limit: block.gas_limit,
+                    gas_used: block.gas_used,
+                    timestamp: block.timestamp,
+                    extra_data: block.extra_data,
+                    base_fee_per_gas: block.base_fee_per_gas,
+                    block_hash: block.block_hash,
+                    transactions: block
+                        .transactions
+                        .iter()
+                        .map(|tx| Transaction::decode(&Rlp::new(tx)))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    withdrawals: Vec::from(block.withdrawals)
+                        .into_iter()
+                        .map(|withdrawal| withdrawal.into())
+                        .collect(),
+                    execution_witness: block.execution_witness.into(),
+                })
+            }
         };
         Ok(json_payload)
     }
@@ -348,7 +350,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Merge, Capella, Verge),
+    variants(Merge, Capella, Electra),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -361,8 +363,8 @@ pub struct GetPayloadResponse<T: EthSpec> {
     pub execution_payload: ExecutionPayloadMerge<T>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload: ExecutionPayloadCapella<T>,
-    #[superstruct(only(Verge), partial_getter(rename = "execution_payload_verge"))]
-    pub execution_payload: ExecutionPayloadVerge<T>,
+    #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
+    pub execution_payload: ExecutionPayloadElectra<T>,
     pub block_value: Uint256,
 }
 
@@ -393,8 +395,8 @@ impl<T: EthSpec> From<GetPayloadResponse<T>> for (ExecutionPayload<T>, Uint256) 
                 ExecutionPayload::Capella(inner.execution_payload),
                 inner.block_value,
             ),
-            GetPayloadResponse::Verge(inner) => (
-                ExecutionPayload::Verge(inner.execution_payload),
+            GetPayloadResponse::Electra(inner) => (
+                ExecutionPayload::Electra(inner.execution_payload),
                 inner.block_value,
             ),
         }
@@ -470,10 +472,10 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     ))
                 }
             }
-            ExecutionPayloadHeader::Verge(header) => {
+            ExecutionPayloadHeader::Electra(header) => {
                 if let Some(withdrawals) = self.withdrawals {
                     if let Some(execution_witness) = self.execution_witness {
-                        Ok(ExecutionPayload::Verge(ExecutionPayloadVerge {
+                        Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
                             parent_hash: header.parent_hash,
                             fee_recipient: header.fee_recipient,
                             state_root: header.state_root,
@@ -493,7 +495,7 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                         }))
                     } else {
                         Err(format!(
-                        "block {} is post verge but payload body doesn't have the execution witness",
+                        "block {} is post electra but payload body doesn't have the execution witness",
                         header.block_hash
                     ))
                     }

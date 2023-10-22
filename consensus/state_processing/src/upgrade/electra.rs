@@ -1,8 +1,8 @@
 use std::mem;
-use types::{BeaconState, BeaconStateError as Error, BeaconStateVerge, ChainSpec, EthSpec, Fork};
+use types::{BeaconState, BeaconStateElectra, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
 
-/// Transform a `Capella` state into an `Verge` state.
-pub fn upgrade_to_verge<E: EthSpec>(
+/// Transform a `Capella` state into an `Electra` state.
+pub fn upgrade_to_electra<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -14,14 +14,14 @@ pub fn upgrade_to_verge<E: EthSpec>(
     //
     // Fixed size vectors get cloned because replacing them would require the same size
     // allocation as cloning.
-    let post = BeaconState::Verge(BeaconStateVerge {
+    let post = BeaconState::Electra(BeaconStateElectra {
         // Versioning
         genesis_time: pre.genesis_time,
         genesis_validators_root: pre.genesis_validators_root,
         slot: pre.slot,
         fork: Fork {
             previous_version: pre.fork.current_version,
-            current_version: spec.verge_fork_version,
+            current_version: spec.electra_fork_version,
             epoch,
         },
         // History
@@ -54,7 +54,7 @@ pub fn upgrade_to_verge<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution
-        latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_verge(),
+        latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_electra(),
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,

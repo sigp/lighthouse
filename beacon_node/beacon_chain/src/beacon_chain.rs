@@ -4353,7 +4353,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Verge(_) => {
+            BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Electra(_) => {
                 let prepare_payload_handle =
                     get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
                 Some(prepare_payload_handle)
@@ -4643,12 +4643,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     bls_to_execution_changes: bls_to_execution_changes.into(),
                 },
             }),
-            BeaconState::Verge(_) => BeaconBlock::Verge(BeaconBlockVerge {
+            BeaconState::Electra(_) => BeaconBlock::Electra(BeaconBlockElectra {
                 slot,
                 proposer_index,
                 parent_root,
                 state_root: Hash256::zero(),
-                body: BeaconBlockBodyVerge {
+                body: BeaconBlockBodyElectra {
                     randao_reveal,
                     eth1_data,
                     graffiti,
@@ -4936,7 +4936,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             let withdrawals = match self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot) {
                 ForkName::Base | ForkName::Altair | ForkName::Merge => None,
-                ForkName::Capella | ForkName::Verge => {
+                ForkName::Capella | ForkName::Electra => {
                     let chain = self.clone();
                     self.spawn_blocking_handle(
                         move || {

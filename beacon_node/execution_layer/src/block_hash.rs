@@ -37,7 +37,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             None
         };
 
-        // TODO(mac): Calculate the execution witness root (post-Verge).
+        // TODO(mac): Calculate the execution witness root (post-Electra).
         let rlp_execution_witness_root = None;
         //let rlp_execution_witness_root = if let Ok(execution_witness) = payload.execution_witness() {
         //    Some(keccak_hash::keccak(execution_witness.))

@@ -456,7 +456,7 @@ fn main() {
                     .takes_value(true)
                     .default_value("bellatrix")
                     .help("The fork for which the execution payload header should be created.")
-                    .possible_values(&["merge", "bellatrix", "capella", "verge"])
+                    .possible_values(&["merge", "bellatrix", "capella", "electra"])
             )
         )
         .subcommand(
@@ -633,12 +633,12 @@ fn main() {
                         ),
                 )
                 .arg(
-                    Arg::with_name("verge-fork-epoch")
-                        .long("verge-fork-epoch")
+                    Arg::with_name("electra-fork-epoch")
+                        .long("electra-fork-epoch")
                         .value_name("EPOCH")
                         .takes_value(true)
                         .help(
-                            "The epoch at which to enable the Verge hard fork",
+                            "The epoch at which to enable the Electra hard fork",
                         ),
                 )
                 .arg(

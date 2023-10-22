@@ -182,6 +182,6 @@ pub fn is_progressive_balances_enabled<E: EthSpec>(state: &BeaconState<E>) -> bo
         BeaconState::Altair(_)
         | BeaconState::Merge(_)
         | BeaconState::Capella(_)
-        | BeaconState::Verge(_) => true,
+        | BeaconState::Electra(_) => true,
     }
 }

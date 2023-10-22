@@ -107,12 +107,12 @@ pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BeaconBlockRef, BeaconBlockRefMut, BeaconBlockVerge, BlindedBeaconBlock, EmptyBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
+    BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock, EmptyBlock,
 };
 pub use crate::beacon_block_body::{
     BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyCapella,
-    BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut, BeaconBlockBodyVerge,
+    BeaconBlockBodyElectra, BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
@@ -121,7 +121,7 @@ pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
 pub use crate::config_and_preset::{
-    ConfigAndPreset, ConfigAndPresetBellatrix, ConfigAndPresetCapella, ConfigAndPresetVerge,
+    ConfigAndPreset, ConfigAndPresetBellatrix, ConfigAndPresetCapella, ConfigAndPresetElectra,
 };
 pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
@@ -134,12 +134,12 @@ pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::ExecutionBlockHeader;
 pub use crate::execution_payload::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge, ExecutionPayloadRef,
-    ExecutionPayloadVerge, Transaction, Transactions, Withdrawals,
+    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadMerge,
+    ExecutionPayloadRef, Transaction, Transactions, Withdrawals,
 };
 pub use crate::execution_payload_header::{
-    ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderMerge,
-    ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ExecutionPayloadHeaderVerge,
+    ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderElectra,
+    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
 pub use crate::execution_witness::ExecutionWitness;
 pub use crate::fork::Fork;
@@ -155,12 +155,12 @@ pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
-    AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadMerge,
-    BlindedPayloadRef, BlindedPayloadVerge, BlockType, ExecPayload, FullPayload,
-    FullPayloadCapella, FullPayloadMerge, FullPayloadRef, FullPayloadVerge, OwnedExecPayload,
+    AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadElectra,
+    BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload, FullPayload,
+    FullPayloadCapella, FullPayloadElectra, FullPayloadMerge, FullPayloadRef, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
-pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, VergePreset};
+pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ElectraPreset};
 pub use crate::proposer_preparation_data::ProposerPreparationData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
@@ -169,7 +169,7 @@ pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockHash, SignedBeaconBlockMerge, SignedBeaconBlockVerge,
+    SignedBeaconBlockElectra, SignedBeaconBlockHash, SignedBeaconBlockMerge,
     SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;

@@ -108,9 +108,9 @@ echo $GENESIS_TIME
 CAPELLA_TIME=$((GENESIS_TIME + (CAPELLA_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
 echo $CAPELLA_TIME
 sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' $genesis_file
-VERGE_TIME=$((GENESIS_TIME + (VERGE_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
-echo $VERGE_TIME
-sed -i 's/"vergeTime".*$/"vergeTime": '"$VERGE_TIME"',/g' $genesis_file
+ELECTRA_TIME=$((GENESIS_TIME + (ELECTRA_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
+echo $ELECTRA_TIME
+sed -i 's/"electraTime".*$/"electraTime": '"$ELECTRA_TIME"',/g' $genesis_file
 cat $genesis_file
 
 # Delay to let boot_enr.yaml to be created
@@ -140,7 +140,7 @@ EL_base_auth_http=5000
 
 # Reset the `genesis.json` config file fork times.
 sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' $genesis_file
-sed -i 's/"vergeTime".*$/"vergeTime": 0,/g' $genesis_file
+sed -i 's/"electraTime".*$/"electraTime": 0,/g' $genesis_file
 
 for (( el=2; el<=$BN_COUNT; el++ )); do
     execute_command_add_PID geth_$el.log ./geth.sh $DATADIR/geth_datadir$el $((EL_base_network + $el)) $((EL_base_http + $el)) $((EL_base_auth_http + $el)) $genesis_file
