@@ -494,6 +494,15 @@ pub struct ValidatorsQuery {
     pub status: Option<Vec<ValidatorStatus>>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ValidatorsRequestBody {
+    #[serde(default)]
+    pub ids: Option<Vec<ValidatorId>>,
+    #[serde(default)]
+    pub statuses: Option<Vec<ValidatorStatus>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommitteeData {
     #[serde(with = "serde_utils::quoted_u64")]
