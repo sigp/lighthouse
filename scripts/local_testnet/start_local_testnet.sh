@@ -40,18 +40,6 @@ if (( $VC_COUNT > $BN_COUNT )); then
     exit
 fi
 
-# Create a function that returns SLOT_PER_EPOCH which depends on mainnet or minimal
-get_spec_preset_value() {
-  case "$SPEC_PRESET" in
-    mainnet)   echo 32 ;;
-    minimal)   echo 8  ;;
-    *)         echo "Unsupported preset: $SPEC_PRESET" >&2; exit 1 ;;
-  esac
-}
-
-SLOT_PER_EPOCH=$(get_spec_preset_value $SPEC_PRESET)
-echo "slot_per_epoch=$SLOT_PER_EPOCH"
-
 genesis_file=${@:$OPTIND+0:1}
 
 # Init some constants
@@ -115,12 +103,7 @@ echo "executing: ./setup.sh >> $LOG_DIR/setup.log"
 ./setup.sh >> $LOG_DIR/setup.log 2>&1
 
 # Update future hardforks time in the EL genesis file based on the CL genesis time
-GENESIS_TIME=$(lcli pretty-ssz --spec $SPEC_PRESET --testnet-dir $TESTNET_DIR BeaconState $TESTNET_DIR/genesis.ssz | jq | grep -Po 'genesis_time": "\K.*\d')
-echo $GENESIS_TIME
-CAPELLA_TIME=$((GENESIS_TIME + (CAPELLA_FORK_EPOCH * $SLOT_PER_EPOCH * SECONDS_PER_SLOT)))
-echo $CAPELLA_TIME
-sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' $genesis_file
-cat $genesis_file
+./setup_time.sh genesis.json
 
 # Delay to let boot_enr.yaml to be created
 execute_command_add_PID bootnode.log ./bootnode.sh
