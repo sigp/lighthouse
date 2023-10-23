@@ -2,7 +2,9 @@
 //! transition.
 
 use crate::{BeaconChain, BeaconChainTypes};
-use execution_layer::http::{ENGINE_GET_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V4};
+use execution_layer::http::{
+    ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_GET_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V2,
+};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
@@ -19,8 +21,8 @@ pub const ENGINE_CAPABILITIES_REFRESH_INTERVAL: u64 = 300;
 pub enum ElectraReadiness {
     /// The execution engine is electra-enabled (as far as we can tell)
     Ready,
-    /// We are connected to an execution engine which doesn't support the V4 engine api methods
-    V4MethodsNotSupported { error: String },
+    /// We are connected to an execution engine which doesn't support the V2 engine api methods
+    V2MethodsNotSupported { error: String },
     /// The transition configuration with the EL failed, there might be a problem with
     /// connectivity, authentication or a difference in configuration.
     ExchangeCapabilitiesFailed { error: String },
@@ -45,7 +47,7 @@ impl fmt::Display for ElectraReadiness {
                 "The --execution-endpoint flag is not specified, this is a \
                     requirement post-merge"
             ),
-            ElectraReadiness::V4MethodsNotSupported { error } => write!(
+            ElectraReadiness::V2MethodsNotSupported { error } => write!(
                 f,
                 "Execution endpoint does not support Electra methods: {}",
                 error
@@ -90,24 +92,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let mut all_good = true;
                     if !capabilities.get_payload_v2 {
                         missing_methods.push(' ');
-                        missing_methods.push_str(ENGINE_GET_PAYLOAD_V4);
+                        missing_methods.push_str(ENGINE_GET_PAYLOAD_V2);
                         all_good = false;
                     }
-                    //if !capabilities.forkchoice_updated_v2 {
-                    //    missing_methods.push(' ');
-                    //    missing_methods.push_str(ENGINE_FORKCHOICE_UPDATED_V2);
-                    //    all_good = false;
-                    //}
+                    if !capabilities.forkchoice_updated_v2 {
+                        missing_methods.push(' ');
+                        missing_methods.push_str(ENGINE_FORKCHOICE_UPDATED_V2);
+                        all_good = false;
+                    }
                     if !capabilities.new_payload_v2 {
                         missing_methods.push(' ');
-                        missing_methods.push_str(ENGINE_NEW_PAYLOAD_V4);
+                        missing_methods.push_str(ENGINE_NEW_PAYLOAD_V2);
                         all_good = false;
                     }
 
                     if all_good {
                         ElectraReadiness::Ready
                     } else {
-                        ElectraReadiness::V4MethodsNotSupported {
+                        ElectraReadiness::V2MethodsNotSupported {
                             error: missing_methods,
                         }
                     }

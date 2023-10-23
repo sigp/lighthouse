@@ -37,14 +37,12 @@ pub const DEFAULT_BUILDER_PAYLOAD_VALUE_WEI: u128 = 20_000_000_000_000_000;
 pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v1: true,
     new_payload_v2: true,
-    new_payload_v4: true,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: true,
     get_payload_bodies_by_hash_v1: true,
     get_payload_bodies_by_range_v1: true,
     get_payload_v1: true,
     get_payload_v2: true,
-    get_payload_v4: true,
 };
 
 mod execution_block_generator;

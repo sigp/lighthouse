@@ -32,12 +32,10 @@ pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
 pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
-pub const ENGINE_NEW_PAYLOAD_V4: &str = "engine_newPayloadV3";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
-pub const ENGINE_GET_PAYLOAD_V4: &str = "engine_getPayloadV3";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
@@ -60,10 +58,8 @@ pub const METHOD_NOT_FOUND_CODE: i64 = -32601;
 pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V1,
     ENGINE_NEW_PAYLOAD_V2,
-    ENGINE_NEW_PAYLOAD_V4,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
-    ENGINE_GET_PAYLOAD_V4,
     ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
@@ -76,14 +72,12 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
 pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v1: true,
     new_payload_v2: false,
-    new_payload_v4: false,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: false,
     get_payload_bodies_by_hash_v1: false,
     get_payload_bodies_by_range_v1: false,
     get_payload_v1: true,
     get_payload_v2: false,
-    get_payload_v4: false,
 };
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
@@ -974,7 +968,6 @@ impl HttpJsonRpc {
             Ok(capabilities) => Ok(EngineCapabilities {
                 new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
                 new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
-                new_payload_v4: capabilities.contains(ENGINE_NEW_PAYLOAD_V4),
                 forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
                 forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
                 get_payload_bodies_by_hash_v1: capabilities
@@ -983,7 +976,6 @@ impl HttpJsonRpc {
                     .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
                 get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
                 get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
-                get_payload_v4: capabilities.contains(ENGINE_GET_PAYLOAD_V4),
             }),
         }
     }

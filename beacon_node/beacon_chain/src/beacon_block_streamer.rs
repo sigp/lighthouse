@@ -721,12 +721,14 @@ mod tests {
         let num_epochs = 8;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
+        let electra_fork_epoch = 6usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
+        spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
 
         let harness = get_harness(VALIDATOR_COUNT, spec);
         // go to bellatrix fork
@@ -840,12 +842,14 @@ mod tests {
         let num_epochs = 8;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
+        let electra_fork_epoch = 6usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
+        spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
 
         let harness = get_harness(VALIDATOR_COUNT, spec);
 
