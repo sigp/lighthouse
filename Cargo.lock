@@ -6025,6 +6025,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "promise_cache"
+version = "0.1.0"
+dependencies = [
+ "derivative",
+ "oneshot_broadcast",
+]
+
+[[package]]
 name = "proto_array"
 version = "0.2.0"
 dependencies = [
