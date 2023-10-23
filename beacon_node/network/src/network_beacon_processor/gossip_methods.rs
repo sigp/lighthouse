@@ -49,7 +49,7 @@ use beacon_processor::{
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
-const STRICT_LATE_MESSAGE_PENALTIES: bool = false;
+const STRICT_LATE_MESSAGE_PENALTIES: bool = true;
 
 /// An attestation that has been validated by the `BeaconChain`.
 ///
@@ -1921,7 +1921,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if STRICT_LATE_MESSAGE_PENALTIES && hindsight_verification.is_err() {
                     self.gossip_penalize_peer(
                         peer_id,
-                        PeerAction::LowToleranceError,
+                        PeerAction::HighToleranceError,
                         "attn_past_slot",
                     );
                 }
