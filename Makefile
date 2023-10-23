@@ -195,12 +195,9 @@ test: test-release
 
 # Updates the CLI help text pages in the Lighthouse book.
 cli:
-	docker run --rm \
+	docker run --rm --user=root \
 	-v ${PWD}:/home/runner/actions-runner/lighthouse sigmaprime/github-runner \
-	bash -c 'owner=$$(ls -ld lighthouse | cut -d" " -f 3) && \
-		sudo chown -R $$(whoami) lighthouse; \
-		cd lighthouse && make && ./scripts/cli.sh; \
-		cd .. && sudo chown -R $$owner lighthouse'
+	bash -c 'cd lighthouse && make && ./scripts/cli.sh'
 
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
