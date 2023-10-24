@@ -350,6 +350,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "slot" => %slot,
                 );
             }
+            Err(BlockError::BlockIsAlreadyKnown) => {
+                debug!(
+                    self.log,
+                    "Blobs have already been imported";
+                    "block_hash" => %block_root,
+                    "slot" => %slot,
+                );
+            }
             Err(e) => {
                 warn!(
                     self.log,
