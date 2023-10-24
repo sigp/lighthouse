@@ -4,6 +4,7 @@ set -Eeuo pipefail
 
 source ./vars.env
 
+# Function to output SLOT_PER_EPOCH for mainnet or minimal
 get_spec_preset_value() {
   case "$SPEC_PRESET" in
     mainnet)   echo 32 ;;
