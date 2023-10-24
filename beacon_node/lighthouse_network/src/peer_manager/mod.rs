@@ -415,7 +415,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Reports if a peer is banned or not.
     ///
     /// This is used to determine if we should accept incoming connections.
-    pub fn ban_status(&self, peer_id: &PeerId) -> BanResult {
+    pub fn ban_status(&self, peer_id: &PeerId) -> Option<BanResult> {
         self.network_globals.peers.read().ban_status(peer_id)
     }
 
@@ -517,6 +517,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             RPCError::ErrorResponse(code, _) => match code {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ResourceUnavailable => {
+                    // Don't ban on this because we want to retry with a block by root request.
+                    if matches!(protocol, Protocol::BlobsByRoot) {
+                        return;
+                    }
+
                     // NOTE: This error only makes sense for the `BlocksByRange` and `BlocksByRoot`
                     // protocols.
                     //
@@ -545,11 +550,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Ping => PeerAction::MidToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::BlobsByRange => PeerAction::MidToleranceError,
                     Protocol::LightClientBootstrap => PeerAction::LowToleranceError,
+                    Protocol::BlobsByRoot => PeerAction::MidToleranceError,
                     Protocol::Goodbye => PeerAction::LowToleranceError,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
                 },
+                RPCResponseErrorCode::BlobsNotFoundForBlock => PeerAction::LowToleranceError,
             },
             RPCError::SSZDecodeError(_) => PeerAction::Fatal,
             RPCError::UnsupportedProtocol => {
@@ -561,6 +569,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Ping => PeerAction::Fatal,
                     Protocol::BlocksByRange => return,
                     Protocol::BlocksByRoot => return,
+                    Protocol::BlobsByRange => return,
+                    Protocol::BlobsByRoot => return,
                     Protocol::Goodbye => return,
                     Protocol::LightClientBootstrap => return,
                     Protocol::MetaData => PeerAction::Fatal,
@@ -577,6 +587,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Ping => PeerAction::LowToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::BlobsByRange => PeerAction::MidToleranceError,
+                    Protocol::BlobsByRoot => PeerAction::MidToleranceError,
                     Protocol::LightClientBootstrap => return,
                     Protocol::Goodbye => return,
                     Protocol::MetaData => return,
@@ -803,7 +815,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ) -> bool {
         {
             let mut peerdb = self.network_globals.peers.write();
-            if !matches!(peerdb.ban_status(peer_id), BanResult::NotBanned) {
+            if peerdb.ban_status(peer_id).is_some() {
                 // don't connect if the peer is banned
                 error!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => %peer_id);
             }
@@ -1043,7 +1055,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         Subnet::Attestation(_) => {
                             subnet_to_peer
                                 .entry(subnet)
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push((*peer_id, info.clone()));
                         }
                         Subnet::SyncCommittee(id) => {

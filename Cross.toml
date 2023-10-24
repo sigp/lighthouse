@@ -1,5 +1,5 @@
 [target.x86_64-unknown-linux-gnu]
-pre-build = ["apt-get install -y cmake clang-3.9"]
+pre-build = ["apt-get install -y cmake clang-5.0"]
 
 [target.aarch64-unknown-linux-gnu]
-pre-build = ["apt-get install -y cmake clang-3.9"]
+pre-build = ["apt-get install -y cmake clang-5.0"]

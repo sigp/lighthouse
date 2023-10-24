@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use state_processing::{
     per_block_processing, state_advance::complete_state_advance, BlockSignatureStrategy,
     ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
@@ -46,6 +46,12 @@ impl<E: EthSpec> LoadCase for TransitionTest<E> {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = Some(metadata.fork_epoch);
+            }
+            ForkName::Deneb => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(metadata.fork_epoch);
             }
         }
 

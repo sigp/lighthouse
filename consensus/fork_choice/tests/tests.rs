@@ -1,9 +1,5 @@
 #![cfg(not(debug_assertions))]
 
-use std::fmt;
-use std::sync::Mutex;
-use std::time::Duration;
-
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
@@ -14,6 +10,9 @@ use beacon_chain::{
 use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
 };
+use std::fmt;
+use std::sync::Mutex;
+use std::time::Duration;
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
@@ -195,12 +194,13 @@ impl ForkChoiceTest {
         let validators = self.harness.get_all_validators();
         loop {
             let slot = self.harness.get_current_slot();
-            let (block, state_) = self.harness.make_block(state, slot).await;
+            let (block_contents, state_) = self.harness.make_block(state, slot).await;
             state = state_;
-            if !predicate(block.message(), &state) {
+            if !predicate(block_contents.0.message(), &state) {
                 break;
             }
-            if let Ok(block_hash) = self.harness.process_block_result(block.clone()).await {
+            let block = block_contents.0.clone();
+            if let Ok(block_hash) = self.harness.process_block_result(block_contents).await {
                 self.harness.attest_block(
                     &state,
                     block.state_root(),
@@ -324,8 +324,8 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let (mut signed_block, mut state) = self.harness.make_block(state, slot).await;
-        func(&mut signed_block, &mut state);
+        let (mut block_tuple, mut state) = self.harness.make_block(state, slot).await;
+        func(&mut block_tuple.0, &mut state);
         let current_slot = self.harness.get_current_slot();
         self.harness
             .chain
@@ -333,8 +333,8 @@ impl ForkChoiceTest {
             .fork_choice_write_lock()
             .on_block(
                 current_slot,
-                signed_block.message(),
-                signed_block.canonical_root(),
+                block_tuple.0.message(),
+                block_tuple.0.canonical_root(),
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
@@ -367,8 +367,8 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let (mut signed_block, mut state) = self.harness.make_block(state, slot).await;
-        mutation_func(&mut signed_block, &mut state);
+        let (mut block_tuple, mut state) = self.harness.make_block(state, slot).await;
+        mutation_func(&mut block_tuple.0, &mut state);
         let current_slot = self.harness.get_current_slot();
         let err = self
             .harness
@@ -377,8 +377,8 @@ impl ForkChoiceTest {
             .fork_choice_write_lock()
             .on_block(
                 current_slot,
-                signed_block.message(),
-                signed_block.canonical_root(),
+                block_tuple.0.message(),
+                block_tuple.0.canonical_root(),
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
@@ -1353,6 +1353,14 @@ async fn progressive_balances_cache_attester_slashing() {
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
         .await
         .unwrap()
+        // Note: This test may fail if the shuffling used changes, right now it re-runs with
+        // deterministic shuffling. A shuffling change my cause the slashed proposer to propose
+        // again in the next epoch, which results in a block processing failure
+        // (`HeaderInvalid::ProposerSlashed`). The harness should be re-worked to successfully skip
+        // the slot in this scenario rather than panic-ing. The same applies to
+        // `progressive_balances_cache_proposer_slashing`.
+        .apply_blocks(1)
+        .await
         .add_previous_epoch_attester_slashing()
         .await
         // expect fork choice to import blocks successfully after a previous epoch attester is
@@ -1376,6 +1384,14 @@ async fn progressive_balances_cache_proposer_slashing() {
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
         .await
         .unwrap()
+        // Note: This test may fail if the shuffling used changes, right now it re-runs with
+        // deterministic shuffling. A shuffling change my cause the slashed proposer to propose
+        // again in the next epoch, which results in a block processing failure
+        // (`HeaderInvalid::ProposerSlashed`). The harness should be re-worked to successfully skip
+        // the slot in this scenario rather than panic-ing. The same applies to
+        // `progressive_balances_cache_attester_slashing`.
+        .apply_blocks(1)
+        .await
         .add_previous_epoch_proposer_slashing(MainnetEthSpec::slots_per_epoch())
         .await
         // expect fork choice to import blocks successfully after a previous epoch proposer is

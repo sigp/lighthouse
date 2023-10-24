@@ -193,7 +193,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .fold(HashMap::new(), |mut map, duty_and_proof| {
                 map.entry(duty_and_proof.duty.committee_index)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(duty_and_proof);
                 map
             });
@@ -490,6 +490,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         validator_duties: &[DutyAndProof],
     ) -> Result<(), String> {
         let log = self.context.log();
+
+        if !validator_duties
+            .iter()
+            .any(|duty_and_proof| duty_and_proof.selection_proof.is_some())
+        {
+            // Exit early if no validator is aggregator
+            return Ok(());
+        }
 
         let aggregated_attestation = &self
             .beacon_nodes

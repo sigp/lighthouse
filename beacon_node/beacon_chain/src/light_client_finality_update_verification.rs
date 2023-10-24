@@ -34,7 +34,7 @@ pub enum Error {
     SigSlotStartIsNone,
     /// Failed to construct a LightClientFinalityUpdate from state.
     FailedConstructingUpdate,
-    /// Beacon chain error occured.
+    /// Beacon chain error occurred.
     BeaconChainError(BeaconChainError),
     LightClientUpdateError(LightClientUpdateError),
 }

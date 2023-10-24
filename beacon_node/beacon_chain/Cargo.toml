@@ -10,6 +10,7 @@ default = ["participation_metrics"]
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
 participation_metrics = []  # Exposes validator participation metrics to Prometheus.
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
+portable = ["bls/supranational-portable"]
 
 [dev-dependencies]
 maplit = { workspace = true }
@@ -17,6 +18,8 @@ environment = { workspace = true }
 serde_json = { workspace = true }
 
 [dependencies]
+serde_json = { workspace = true }
+eth2_network_config = { workspace = true }
 merkle_proof = { workspace = true }
 store = { workspace = true }
 parking_lot = { workspace = true }
@@ -50,6 +53,7 @@ lru = { workspace = true }
 tempfile = { workspace = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
+kzg = { workspace = true }
 safe_arith = { workspace = true }
 fork_choice = { workspace = true }
 task_executor = { workspace = true }
@@ -65,6 +69,8 @@ superstruct = { workspace = true }
 hex = { workspace = true }
 exit-future = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
+slog-term = { workspace = true }
+slog-async = { workspace = true }
 
 [[test]]
 name = "beacon_chain_tests"

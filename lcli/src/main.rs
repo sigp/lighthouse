@@ -432,7 +432,7 @@ fn main() {
                     .takes_value(true)
                     .default_value("bellatrix")
                     .help("The fork for which the execution payload header should be created.")
-                    .possible_values(&["merge", "bellatrix", "capella"])
+                    .possible_values(&["merge", "bellatrix", "capella", "deneb"])
             )
         )
         .subcommand(
@@ -606,6 +606,15 @@ fn main() {
                         .takes_value(true)
                         .help(
                             "The epoch at which to enable the Capella hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("deneb-fork-epoch")
+                        .long("deneb-fork-epoch")
+                        .value_name("EPOCH")
+                        .takes_value(true)
+                        .help(
+                            "The epoch at which to enable the deneb hard fork",
                         ),
                 )
                 .arg(
