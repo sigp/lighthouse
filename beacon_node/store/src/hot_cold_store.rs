@@ -2218,6 +2218,35 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         Ok(())
     }
+
+    pub fn heal_freezer_block_roots(&self) -> Result<(), Error> {
+        let split = self.get_split_info();
+        let last_restore_point_slot = (split.slot - 1) / self.config.slots_per_restore_point
+            * self.config.slots_per_restore_point;
+
+        // Load split state (which has access to block roots).
+        let (_, split_state) = self
+            .get_advanced_hot_state(split.block_root, split.slot, split.state_root)?
+            .ok_or(HotColdDBError::MissingSplitState(
+                split.state_root,
+                split.slot,
+            ))?;
+
+        let mut batch = vec![];
+        let mut chunk_writer = ChunkWriter::<BlockRoots, _, _>::new(
+            &self.cold_db,
+            last_restore_point_slot.as_usize(),
+        )?;
+
+        for slot in (last_restore_point_slot.as_u64()..split.slot.as_u64()).map(Slot::new) {
+            let block_root = *split_state.get_block_root(slot)?;
+            chunk_writer.set(slot.as_usize(), block_root, &mut batch)?;
+        }
+        chunk_writer.write(&mut batch)?;
+        self.cold_db.do_atomically(batch)?;
+
+        Ok(())
+    }
 }
 
 /// Advance the split point of the store, moving new finalized states to the freezer.
