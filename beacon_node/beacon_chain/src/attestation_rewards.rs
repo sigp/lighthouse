@@ -29,6 +29,7 @@ use state_processing::per_epoch_processing::base::rewards_and_penalties::{
 };
 use state_processing::per_epoch_processing::base::validator_statuses::InclusionInfo;
 use state_processing::per_epoch_processing::base::{
+    process_justification_and_finalization as process_justification_and_finalization_base,
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
 
@@ -68,6 +69,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let spec = &self.spec;
         let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
         validator_statuses.process_attestations(&state)?;
+
+        process_justification_and_finalization_base(
+            &state,
+            &validator_statuses.total_balances,
+            spec,
+        )?
+        .apply_changes_to_state(&mut state);
 
         let ideal_rewards =
             self.compute_ideal_rewards_base(&state, &validator_statuses.total_balances)?;

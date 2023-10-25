@@ -220,6 +220,75 @@ async fn test_verify_attestation_rewards_base_inactivity_leak() {
 }
 
 #[tokio::test]
+async fn test_verify_attestation_rewards_base_inactivity_leak_justification_epoch() {
+    let spec = E::default_spec();
+    let harness = get_harness(spec.clone());
+
+    let half = VALIDATOR_COUNT / 2;
+    let half_validators: Vec<usize> = (0..half).collect();
+    // target epoch is the epoch where the chain enters inactivity leak
+    let mut target_epoch = &spec.min_epochs_to_inactivity_penalty + 2;
+
+    // advance until beginning of epoch N + 2
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * (target_epoch + 1)) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(half_validators.clone()),
+        )
+        .await;
+
+    // advance to create first justification epoch and get initial balances
+    harness.extend_slots(E::slots_per_epoch() as usize).await;
+    target_epoch += 1;
+    let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+
+    //assert previous_justified_checkpoint matches 0 as we are in inactivity leak
+    assert_eq!(
+        0,
+        harness
+            .get_current_state()
+            .previous_justified_checkpoint()
+            .epoch
+            .as_u64()
+    );
+
+    // extend slots to beginning of epoch N + 1
+    harness.extend_slots(E::slots_per_epoch() as usize).await;
+
+    //assert target epoch and previous_justified_checkpoint match
+    assert_eq!(
+        target_epoch,
+        harness
+            .get_current_state()
+            .previous_justified_checkpoint()
+            .epoch
+            .as_u64()
+    );
+
+    // compute reward deltas for all validators in epoch N
+    let StandardAttestationRewards {
+        ideal_rewards,
+        total_rewards,
+    } = harness
+        .chain
+        .compute_attestation_rewards(Epoch::new(target_epoch), vec![])
+        .unwrap();
+
+    // assert we successfully get ideal rewards for justified epoch out of inactivity leak
+    assert!(ideal_rewards
+        .iter()
+        .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0));
+
+    // apply attestation rewards to initial balances
+    let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
+
+    // verify expected balances against actual balances
+    let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+    assert_eq!(expected_balances, balances);
+}
+
+#[tokio::test]
 async fn test_verify_attestation_rewards_altair_inactivity_leak() {
     let spec = ForkName::Altair.make_genesis_spec(E::default_spec());
     let harness = get_harness(spec.clone());
@@ -323,7 +392,7 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak_justification_ep
     // target epoch is the epoch where the chain enters inactivity leak + 1
     let mut target_epoch = &spec.min_epochs_to_inactivity_penalty + 2;
 
-    // advance until beginning of epoch N + 1 and get balances
+    // advance until beginning of epoch N + 1
     harness
         .extend_slots_some_validators(
             (E::slots_per_epoch() * (target_epoch + 1)) as usize,
@@ -339,10 +408,11 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak_justification_ep
     //assert to ensure we are in inactivity leak
     assert_eq!(4, validator_inactivity_score);
 
+    // advance for first justification epoch and get balances
     harness.extend_slots(E::slots_per_epoch() as usize).await;
     target_epoch += 1;
-
     let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+
     // advance until epoch N + 2 and build proposal rewards map
     let mut proposal_rewards_map: HashMap<u64, u64> = HashMap::new();
     let mut sync_committee_rewards_map: HashMap<u64, i64> = HashMap::new();
