@@ -48,28 +48,35 @@ async fn attester_per_slot_service<T: BeaconChainTypes>(
                         if let Ok(current_slot) = inner_chain.slot() {
 
                             // Get the committee cache for the current slot
-                            let committee_cache = state.committee_cache(RelativeEpoch::Current).unwrap();
-                            let committee_count = committee_cache.committees_per_slot();
+                            if let Ok(committee_cache) = state.committee_cache(RelativeEpoch::Current) {
+                                let committee_count = committee_cache.committees_per_slot();
 
-                            // Produce an unaggregated attestation for each committee
-                            for index in 0..committee_count {
-                                if let Some(beacon_committee) = committee_cache.get_beacon_committee(current_slot, index) {
-                                    if let Err(e) = inner_chain
-                                        .produce_unaggregated_attestation(current_slot, index)
-                                    {
-                                        error!(
+                                // Produce an unaggregated attestation for each committee
+                                for index in 0..committee_count {
+                                    if let Some(beacon_committee) = committee_cache.get_beacon_committee(current_slot, index) {
+                                        if let Err(e) = inner_chain
+                                            .produce_unaggregated_attestation(current_slot, beacon_committee.index)
+                                        {
+                                            error!(
                                             inner_chain.log,
                                             "Produce unaggregated attestation failed";
                                             "error" => ?e
                                         );
-                                    }
-                                } else {
-                                    error!(
+                                        }
+                                    } else {
+                                        error!(
                                             inner_chain.log,
                                             "No beacon committee found";
                                             "slot" => current_slot,
                                         );
+                                    }
                                 }
+                            } else {
+                                error!(
+                                    inner_chain.log,
+                                    "No committee cache found";
+                                    "slot" => current_slot,
+                                );
                             }
                         }
                     },
