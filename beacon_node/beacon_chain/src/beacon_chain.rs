@@ -3116,10 +3116,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         match availability {
             Availability::Available(block) => {
+                debug!(
+                    self.log,
+                    "Importing fully available block";
+                    "block_root" => ?block.import_data.block_root,
+                    "slot" => %slot,
+                    "num_blobs" => %block.block.blobs().map_or(0, |blobs| blobs.len()),
+                );
                 // This is the time since start of the slot where all the components of the block have become available
                 let delay =
                     get_slot_delay_ms(timestamp_now(), block.block.slot(), &self.slot_clock);
-                metrics::observe_duration(&metrics::BLOCK_AVAILABILITY_DELAY, delay);
+                if delay < self.slot_clock.slot_duration() * 4 {
+                    metrics::observe_duration(&metrics::BLOCK_AVAILABILITY_DELAY, delay);
+                }
                 // Block is fully available, import into fork choice
                 self.import_available_block(block).await
             }
