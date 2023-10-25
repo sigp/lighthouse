@@ -243,7 +243,7 @@ async fn test_verify_attestation_rewards_base_inactivity_leak_justification_epoc
     target_epoch += 1;
     let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
 
-    //assert previous_justified_checkpoint matches 0 as we are in inactivity leak
+    //assert previous_justified_checkpoint matches 0 as we were in inactivity leak from beginning
     assert_eq!(
         0,
         harness
@@ -285,6 +285,87 @@ async fn test_verify_attestation_rewards_base_inactivity_leak_justification_epoc
 
     // verify expected balances against actual balances
     let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+    assert_eq!(expected_balances, balances);
+}
+
+#[tokio::test]
+async fn test_verify_attestation_rewards_altair() {
+    let spec = ForkName::Altair.make_genesis_spec(E::default_spec());
+    let harness = get_harness(spec.clone());
+    let target_epoch = 0;
+
+    // advance until epoch N + 1 and get initial balances
+    harness
+        .extend_slots((E::slots_per_epoch() * (target_epoch + 1)) as usize)
+        .await;
+    let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+
+    // advance until epoch N + 2 and build proposal rewards map
+    let mut proposal_rewards_map: HashMap<u64, u64> = HashMap::new();
+    let mut sync_committee_rewards_map: HashMap<u64, i64> = HashMap::new();
+    for _ in 0..E::slots_per_epoch() {
+        let state = harness.get_current_state();
+        let slot = state.slot() + Slot::new(1);
+
+        // calculate beacon block rewards / penalties
+        let ((signed_block, _maybe_blob_sidecars), mut state) =
+            harness.make_block_return_pre_state(state, slot).await;
+        let beacon_block_reward = harness
+            .chain
+            .compute_beacon_block_reward(
+                signed_block.message(),
+                signed_block.canonical_root(),
+                &mut state,
+            )
+            .unwrap();
+
+        let total_proposer_reward = proposal_rewards_map
+            .get(&beacon_block_reward.proposer_index)
+            .unwrap_or(&0u64)
+            + beacon_block_reward.total;
+
+        proposal_rewards_map.insert(beacon_block_reward.proposer_index, total_proposer_reward);
+
+        // calculate sync committee rewards / penalties
+        let reward_payload = harness
+            .chain
+            .compute_sync_committee_rewards(signed_block.message(), &mut state)
+            .unwrap();
+
+        reward_payload.iter().for_each(|reward| {
+            let mut amount = *sync_committee_rewards_map
+                .get(&reward.validator_index)
+                .unwrap_or(&0);
+            amount += reward.reward;
+            sync_committee_rewards_map.insert(reward.validator_index, amount);
+        });
+
+        harness.extend_slots(1).await;
+    }
+
+    // compute reward deltas for all validators in epoch N
+    let StandardAttestationRewards {
+        ideal_rewards,
+        total_rewards,
+    } = harness
+        .chain
+        .compute_attestation_rewards(Epoch::new(target_epoch), vec![])
+        .unwrap();
+
+    // assert ideal rewards are greater than 0
+    assert!(ideal_rewards
+        .iter()
+        .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0));
+
+    // apply attestation, proposal, and sync committee rewards and penalties to initial balances
+    let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
+    let expected_balances = apply_beacon_block_rewards(&proposal_rewards_map, expected_balances);
+    let expected_balances =
+        apply_sync_committee_rewards(&sync_committee_rewards_map, expected_balances);
+
+    // verify expected balances against actual balances
+    let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+
     assert_eq!(expected_balances, balances);
 }
 
@@ -475,7 +556,7 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak_justification_ep
         .compute_attestation_rewards(Epoch::new(target_epoch), vec![])
         .unwrap();
 
-    // assert inactivity penalty for both ideal rewards and individual validators
+    // assert ideal rewards are greater than 0
     assert!(ideal_rewards
         .iter()
         .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0));
