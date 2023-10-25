@@ -529,6 +529,7 @@ dependencies = [
  "oneshot_broadcast",
  "operation_pool",
  "parking_lot 0.12.1",
+ "promise_cache",
  "proto_array",
  "rand 0.8.5",
  "rayon",

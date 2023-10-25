@@ -11,6 +11,7 @@ pub enum CacheItem<T> {
     Promise(Receiver<Arc<T>>),
 }
 
+#[derive(Debug)]
 pub enum PromiseCacheError {
     Failed(oneshot_broadcast::Error),
     MaxConcurrentPromises(usize),

@@ -1,8 +1,10 @@
 use crate::ExecutionOptimistic;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::StateId as CoreStateId;
+use slog::{info, warn};
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
 use types::{BeaconState, Checkpoint, EthSpec, Fork, Hash256, Slot};
 
 /// Wraps `eth2::types::StateId` and provides common state-access functionality. E.g., reading
@@ -187,6 +189,49 @@ impl StateId {
             _ => (self.root(chain)?, None),
         };
 
+        let mut opt_state_cache = Some(chain.http_state_cache.write());
+
+        // Try the cache.
+        if let Some(cache_item) = opt_state_cache
+            .as_mut()
+            .and_then(|cache| cache.get(&state_root))
+        {
+            drop(opt_state_cache.take());
+            match cache_item.wait() {
+                Ok(state) => {
+                    info!(
+                        chain.logger(),
+                        "HTTP state cache hit";
+                        "state_root" => ?state_root,
+                        "slot" => state.slot(),
+                    );
+                    return Ok(((*state).clone(), execution_optimistic, finalized));
+                }
+                Err(e) => {
+                    warn!(
+                        chain.logger(),
+                        "State promise failed";
+                        "state_root" => ?state_root,
+                        "outcome" => "re-computing",
+                        "error" => ?e,
+                    );
+                }
+            }
+        }
+
+        // Re-lock only in case of failed promise.
+        warn!(
+            chain.logger(),
+           "HTTP state cache miss";
+            "state_root" => ?state_root
+        );
+        let mut state_cache = opt_state_cache.unwrap_or_else(|| chain.http_state_cache.write());
+
+        let sender = state_cache.create_promise(state_root).map_err(|e| {
+            warp_utils::reject::custom_server_error(format!("too many concurrent requests: {e:?}"))
+        })?;
+        drop(state_cache);
+
         let state = chain
             .get_state(&state_root, slot_opt)
             .map_err(warp_utils::reject::beacon_chain_error)
@@ -198,6 +243,9 @@ impl StateId {
                     ))
                 })
             })?;
+
+        // Fulfil promise.
+        sender.send(Arc::new(state.clone()));
 
         Ok((state, execution_optimistic, finalized))
     }

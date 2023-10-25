@@ -22,6 +22,7 @@ use futures::channel::mpsc::Sender;
 use kzg::{Kzg, TrustedSetup};
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
+use promise_cache::PromiseCache;
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
 use slog::{crit, debug, error, info, Logger};
@@ -946,6 +947,8 @@ where
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
+            // FIXME(sproul): make configurable
+            http_state_cache: Arc::new(RwLock::new(PromiseCache::new(3, 8))),
             validator_pubkey_cache,
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),

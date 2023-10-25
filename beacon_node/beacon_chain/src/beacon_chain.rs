@@ -84,6 +84,7 @@ use itertools::Itertools;
 use kzg::Kzg;
 use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella};
 use parking_lot::{Mutex, RwLock};
+use promise_cache::PromiseCache;
 use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
 use slasher::Slasher;
@@ -458,6 +459,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
+    /// A cache used to de-duplicate HTTP state requests.
+    ///
+    /// The cache is keyed by `state_root`.
+    pub http_state_cache: Arc<RwLock<PromiseCache<Hash256, BeaconState<T::EthSpec>>>>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,
@@ -6315,6 +6320,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
         self.data_availability_checker.data_availability_boundary()
+    }
+
+    pub fn logger(&self) -> &Logger {
+        &self.log
     }
 }
 
