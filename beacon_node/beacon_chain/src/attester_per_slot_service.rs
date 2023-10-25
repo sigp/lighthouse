@@ -67,7 +67,7 @@ async fn attester_per_slot_service<T: BeaconChainTypes>(
                                     error!(
                                             inner_chain.log,
                                             "No beacon committee found";
-                                            "slot" => ?current_slot,
+                                            "slot" => current_slot,
                                         );
                                 }
                             }
