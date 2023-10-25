@@ -858,9 +858,7 @@ fn is_compatible<T: EthSpec>(
     x: &&CompactIndexedAttestation<T>,
     y: &&CompactIndexedAttestation<T>,
 ) -> bool {
-    let x_attester_set: HashSet<u64> = x.attesting_indices.iter().cloned().collect();
-    let y_attester_set: HashSet<u64> = y.attesting_indices.iter().cloned().collect();
-    x_attester_set.is_disjoint(&y_attester_set)
+    x.signers_disjoint_from(y)
 }
 
 /// Filter up to a maximum number of operations out of an iterator.
@@ -929,6 +927,7 @@ mod release_tests {
     };
     use lazy_static::lazy_static;
     use maplit::hashset;
+    use state_processing::state_advance::complete_state_advance;
     use state_processing::{common::get_attesting_indices_from_state, VerifyOperation};
     use std::collections::BTreeSet;
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
@@ -1192,6 +1191,110 @@ mod release_tests {
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
+    }
+
+    /// Adding lots of attestations that only intersect pairwise should lead to two aggregate
+    /// attestations.
+    #[test]
+    fn attestation_pairwise_overlapping() {
+        let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
+
+        let mut state = harness.get_current_state();
+
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+
+        let slot = state.slot();
+        let committees = state
+            .get_beacon_committees_at_slot(slot)
+            .unwrap()
+            .into_iter()
+            .map(BeaconCommittee::into_owned)
+            .collect::<Vec<_>>();
+
+        let num_validators = 16 as usize * spec.target_committee_size;
+
+        let attestations = harness.make_attestations(
+            (0..num_validators).collect::<Vec<_>>().as_slice(),
+            &state,
+            Hash256::zero(),
+            SignedBeaconBlockHash::from(Hash256::zero()),
+            slot,
+        );
+
+        let step_size = 2;
+        // Create attestations that overlap on `step_size` validators, like:
+        // {0,1,2,3}, {2,3,4,5}, {4,5,6,7}, ...
+        for (atts1, _) in attestations {
+            let atts2 = atts1.clone();
+            let aggs1 = atts1
+                .chunks_exact(step_size * 2)
+                .map(|chunk| {
+                    let agg = chunk.into_iter().map(|(att, _)| att).fold::<Option<
+                        Attestation<MainnetEthSpec>,
+                    >, _>(
+                        None,
+                        |att, new_att| {
+                            if let Some(mut a) = att {
+                                a.aggregate(new_att);
+                                Some(a)
+                            } else {
+                                Some(new_att.clone())
+                            }
+                        },
+                    );
+                    agg.unwrap()
+                })
+                .collect::<Vec<_>>();
+            let aggs2 = atts2
+                .into_iter()
+                .skip(step_size)
+                .collect::<Vec<_>>()
+                .as_slice()
+                .chunks_exact(step_size * 2)
+                .map(|chunk| {
+                    let agg = chunk.into_iter().map(|(att, _)| att).fold::<Option<
+                        Attestation<MainnetEthSpec>,
+                    >, _>(
+                        None,
+                        |att, new_att| {
+                            if let Some(mut a) = att {
+                                a.aggregate(new_att);
+                                Some(a)
+                            } else {
+                                Some(new_att.clone())
+                            }
+                        },
+                    );
+                    agg.unwrap()
+                })
+                .collect::<Vec<_>>();
+
+            for att in aggs1.into_iter().chain(aggs2.into_iter()) {
+                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                op_pool.insert_attestation(att, attesting_indices).unwrap();
+            }
+        }
+
+        let mut num_valid = 0;
+        let (prev, curr) = CheckpointKey::keys_for_state(&state);
+        let all_attestations = op_pool.attestations.read();
+
+        complete_state_advance(&mut state, None, Slot::new(1), spec).unwrap();
+        let aggregated_attestations = op_pool.get_clique_aggregate_attestations_for_epoch(
+            &curr,
+            &all_attestations,
+            &state,
+            |_| true,
+            &mut num_valid,
+            spec
+        );
+
+        // The attestations should get aggregated into two attestations that comprise all
+        // validators.
+        let stats = op_pool.attestation_stats();
+        assert_eq!(stats.num_attestation_data, committees.len());
+        // assert_eq!(stats.num_attestations, 2 * committees.len());
+        assert_eq!(aggregated_attestations[0].1.len(), 2);
     }
 
     /// Create a bunch of attestations signed by a small number of validators, and another
