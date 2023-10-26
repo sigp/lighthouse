@@ -791,7 +791,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         match result {
             BlockProcessingResult::Ok(status) => match status {
                 AvailabilityProcessingStatus::Imported(root) => {
-                    debug!(self.log, "Single block processing succeeded"; "block" => %root);
+                    trace!(self.log, "Single block processing succeeded"; "block" => %root);
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _block_root) => {
                     match self.handle_missing_components::<R>(cx, &mut lookup) {
