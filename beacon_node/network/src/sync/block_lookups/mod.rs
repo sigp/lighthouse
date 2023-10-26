@@ -786,13 +786,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             self.log,
             "Block component processed for lookup";
             "response_type" => ?R::response_type(),
-            "result" => ?result,
         );
 
         match result {
             BlockProcessingResult::Ok(status) => match status {
                 AvailabilityProcessingStatus::Imported(root) => {
-                    trace!(self.log, "Single block processing succeeded"; "block" => %root);
+                    debug!(self.log, "Single block processing succeeded"; "block" => %root);
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _block_root) => {
                     match self.handle_missing_components::<R>(cx, &mut lookup) {
