@@ -1,6 +1,7 @@
 pub mod attestation_rewards;
 pub mod attestation_verification;
 mod attester_cache;
+pub mod attester_per_slot_service;
 pub mod beacon_block_reward;
 mod beacon_block_streamer;
 mod beacon_chain;
@@ -49,7 +50,6 @@ pub mod test_utils;
 mod timeout_rw_lock;
 pub mod validator_monitor;
 pub mod validator_pubkey_cache;
-pub mod attester_per_slot_service;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,

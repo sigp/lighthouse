@@ -13,6 +13,9 @@ pub fn start_attester_per_slot_service<T: BeaconChainTypes>(
     executor: TaskExecutor,
     chain: Arc<BeaconChain<T>>,
 ) {
+    // TODO: AI(joel) Only run the service if validator monitor is enabled
+    // Paul has made a refacto of that bit in another PR, I will rebase
+    // once it's merged
     executor.clone().spawn(
         async move { attester_per_slot_service(executor, chain).await },
         "attester_per_slot_service",
@@ -46,22 +49,46 @@ async fn attester_per_slot_service<T: BeaconChainTypes>(
                 executor.spawn(
                     async move {
                         if let Ok(current_slot) = inner_chain.slot() {
-
                             // Get the committee cache for the current slot
-                            if let Ok(committee_cache) = state.committee_cache(RelativeEpoch::Current) {
+                            if let Ok(committee_cache) =
+                                state.committee_cache(RelativeEpoch::Current)
+                            {
                                 let committee_count = committee_cache.committees_per_slot();
 
                                 // Produce an unaggregated attestation for each committee
                                 for index in 0..committee_count {
-                                    if let Some(beacon_committee) = committee_cache.get_beacon_committee(current_slot, index) {
-                                        if let Err(e) = inner_chain
-                                            .produce_unaggregated_attestation(current_slot, beacon_committee.index)
-                                        {
-                                            error!(
-                                            inner_chain.log,
-                                            "Produce unaggregated attestation failed";
-                                            "error" => ?e
-                                        );
+                                    if let Some(beacon_committee) =
+                                        committee_cache.get_beacon_committee(current_slot, index)
+                                    {
+                                        // Store the unaggregated attestation in the validator monitor
+                                        // or log an error if it fails
+                                        match inner_chain.produce_unaggregated_attestation(
+                                            current_slot,
+                                            beacon_committee.index,
+                                        ) {
+                                            Ok(unaggregated_attestion) => {
+                                                debug!(
+                                                inner_chain.log,
+                                                "Produce unaggregated attestation";
+                                                "slot" => current_slot,
+                                                "committee_index" => beacon_committee.index,
+                                                "committee_len" => beacon_committee.committee.len(),
+                                                "attestation" => ?unaggregated_attestion
+                                                );
+
+                                                inner_chain
+                                                    .validator_monitor
+                                                    .set_unaggregated_attestation(
+                                                        unaggregated_attestion,
+                                                    );
+                                            }
+                                            Err(e) => {
+                                                error!(
+                                                inner_chain.log,
+                                                "Produce unaggregated attestation failed";
+                                                "error" => ?e
+                                                );
+                                            }
                                         }
                                     } else {
                                         error!(
