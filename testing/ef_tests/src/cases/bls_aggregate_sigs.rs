@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result;
 use crate::impl_bls_load_case;
 use bls::{AggregateSignature, Signature};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsAggregateSigs {

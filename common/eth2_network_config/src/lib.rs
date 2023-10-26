@@ -14,6 +14,7 @@
 use bytes::Bytes;
 use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
+use kzg::{KzgPreset, KzgPresetId, TrustedSetup};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
@@ -24,7 +25,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
-use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId, Hash256};
+use types::{BeaconState, ChainSpec, Config, Epoch, EthSpec, EthSpecId, Hash256};
 use url::Url;
 
 pub use eth2_config::GenesisStateSource;
@@ -42,6 +43,42 @@ pub const BASE_CONFIG_FILE: &str = "config.yaml";
 instantiate_hardcoded_nets!(eth2_config);
 
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
+
+/// Contains the bytes from the trusted setup json.
+/// The mainnet trusted setup is also reused in testnets.
+///
+/// This is done to ensure that testnets also inherit the high security and
+/// randomness of the mainnet kzg trusted setup ceremony.
+const TRUSTED_SETUP: &[u8] =
+    include_bytes!("../built_in_network_configs/testing_trusted_setups.json");
+
+const TRUSTED_SETUP_MINIMAL: &[u8] =
+    include_bytes!("../built_in_network_configs/minimal_testing_trusted_setups.json");
+
+pub fn get_trusted_setup<P: KzgPreset>() -> &'static [u8] {
+    get_trusted_setup_from_id(P::spec_name())
+}
+
+pub fn get_trusted_setup_from_id(id: KzgPresetId) -> &'static [u8] {
+    match id {
+        KzgPresetId::Mainnet => TRUSTED_SETUP,
+        KzgPresetId::Minimal => TRUSTED_SETUP_MINIMAL,
+    }
+}
+
+fn get_trusted_setup_from_config(config: &Config) -> Result<Option<TrustedSetup>, String> {
+    config
+        .deneb_fork_epoch
+        .filter(|epoch| epoch.value != Epoch::max_value())
+        .map(|_| {
+            let id = KzgPresetId::from_str(&config.preset_base)
+                .map_err(|e| format!("Unable to parse preset_base as KZG preset: {:?}", e))?;
+            let trusted_setup_bytes = get_trusted_setup_from_id(id);
+            serde_json::from_reader(trusted_setup_bytes)
+                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+        })
+        .transpose()
+}
 
 /// A simple slice-or-vec enum to avoid cloning the beacon state bytes in the
 /// binary whilst also supporting loading them from a file at runtime.
@@ -84,6 +121,7 @@ pub struct Eth2NetworkConfig {
     pub genesis_state_source: GenesisStateSource,
     pub genesis_state_bytes: Option<GenesisStateBytes>,
     pub config: Config,
+    pub kzg_trusted_setup: Option<TrustedSetup>,
 }
 
 impl Eth2NetworkConfig {
@@ -99,6 +137,9 @@ impl Eth2NetworkConfig {
 
     /// Instantiates `Self` from a `HardcodedNet`.
     fn from_hardcoded_net(net: &HardcodedNet) -> Result<Self, String> {
+        let config: Config = serde_yaml::from_reader(net.config)
+            .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?;
+        let kzg_trusted_setup = get_trusted_setup_from_config(&config)?;
         Ok(Self {
             deposit_contract_deploy_block: serde_yaml::from_reader(net.deploy_block)
                 .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
@@ -110,8 +151,8 @@ impl Eth2NetworkConfig {
             genesis_state_bytes: Some(net.genesis_state_bytes)
                 .filter(|bytes| !bytes.is_empty())
                 .map(Into::into),
-            config: serde_yaml::from_reader(net.config)
-                .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?,
+            config,
+            kzg_trusted_setup,
         })
     }
 
@@ -335,12 +376,15 @@ impl Eth2NetworkConfig {
             (None, GenesisStateSource::Unknown)
         };
 
+        let kzg_trusted_setup = get_trusted_setup_from_config(&config)?;
+
         Ok(Self {
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_source,
             genesis_state_bytes: genesis_state_bytes.map(Into::into),
             config,
+            kzg_trusted_setup,
         })
     }
 }
@@ -557,7 +601,7 @@ mod tests {
             GenesisStateSource::Unknown
         };
 
-        let testnet: Eth2NetworkConfig = Eth2NetworkConfig {
+        let testnet = Eth2NetworkConfig {
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_source,
@@ -566,6 +610,7 @@ mod tests {
                 .map(Encode::as_ssz_bytes)
                 .map(Into::into),
             config,
+            kzg_trusted_setup: None,
         };
 
         testnet

@@ -57,7 +57,7 @@ impl ExitTest {
                 block_modifier(&harness, block);
             })
             .await;
-        (signed_block, state)
+        (signed_block.0, state)
     }
 
     fn process(

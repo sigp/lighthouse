@@ -1,3 +1,6 @@
+use libp2p::bandwidth::BandwidthSinks;
+use std::sync::Arc;
+
 pub use lighthouse_metrics::*;
 
 lazy_static! {
@@ -183,4 +186,47 @@ pub fn scrape_discovery_metrics() {
     set_gauge(&DISCOVERY_SESSIONS, metrics.active_sessions as i64);
     set_gauge(&DISCOVERY_SENT_BYTES, metrics.bytes_sent as i64);
     set_gauge(&DISCOVERY_RECV_BYTES, metrics.bytes_recv as i64);
+}
+
+/// Aggregated `BandwidthSinks` of tcp and quic transports
+/// used in libp2p.
+pub struct AggregatedBandwidthSinks {
+    tcp_sinks: Arc<BandwidthSinks>,
+    quic_sinks: Option<Arc<BandwidthSinks>>,
+}
+
+impl AggregatedBandwidthSinks {
+    /// Create a new `AggregatedBandwidthSinks`.
+    pub fn new(tcp_sinks: Arc<BandwidthSinks>, quic_sinks: Option<Arc<BandwidthSinks>>) -> Self {
+        AggregatedBandwidthSinks {
+            tcp_sinks,
+            quic_sinks,
+        }
+    }
+
+    /// Total QUIC inbound bandwidth.
+    pub fn total_quic_inbound(&self) -> u64 {
+        self.quic_sinks
+            .as_ref()
+            .map(|q| q.total_inbound())
+            .unwrap_or_default()
+    }
+
+    /// Total TCP inbound bandwidth.
+    pub fn total_tcp_inbound(&self) -> u64 {
+        self.tcp_sinks.total_inbound()
+    }
+
+    /// Total QUIC outbound bandwidth.
+    pub fn total_quic_outbound(&self) -> u64 {
+        self.quic_sinks
+            .as_ref()
+            .map(|q| q.total_outbound())
+            .unwrap_or_default()
+    }
+
+    /// Total TCP outbound bandwidth.
+    pub fn total_tcp_outbound(&self) -> u64 {
+        self.tcp_sinks.total_outbound()
+    }
 }
