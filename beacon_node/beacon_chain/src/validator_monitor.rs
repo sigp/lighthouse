@@ -41,12 +41,12 @@ pub const DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD: usize = 64;
 /// https://github.com/sigp/lighthouse/issues/4526
 /// The goal is to check the behaviour of the BN if it pretends to attest at each slot
 /// Check the head/target/source once the state.slot is some slots beyond attestation.data.slot
-/// to defend against re-orgs.
+/// to defend against re-orgs. 16 slots is the minimum to defend against re-orgs of up to 16 slots.
 pub const UNAGGREGATED_ATTESTATION_LAG_SLOTS: usize = 16;
 
 /// This is a variable used in an experimental feature, as per:
 /// https://github.com/sigp/lighthouse/issues/4526
-///
+/// We do not want to have more than 32 slots worth of unaggregated attestations in memory
 pub const MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH: usize = 32;
 
 #[derive(Debug)]
@@ -410,15 +410,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     pub fn set_unaggregated_attestation(&mut self, attestation: Attestation<T>) {
-        let slot = attestation.data.slot;
-        self.unaggregated_attestations.insert(slot, attestation);
-
         // Pruning, this removes the oldest key/pair of the hashmap if it's greater than MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH
-        if self.unaggregated_attestations.len() > MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH {
+        if self.unaggregated_attestations.len() >= MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH {
             if let Some(oldest_slot) = self.unaggregated_attestations.keys().min() {
                 self.unaggregated_attestations.remove(&oldest_slot);
             }
         }
+        let slot = attestation.data.slot;
+        self.unaggregated_attestations.insert(slot, attestation);
     }
 
     /// Reads information from the given `state`. The `state` *must* be valid (i.e, able to be
