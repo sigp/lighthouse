@@ -88,16 +88,16 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         })?;
 
     match block_response_type {
-        BeaconBlockResponseType::Full(block_response) => {
-            build_response_v3(chain, block_response, endpoint_version, accept_header, false)
-        }
-        BeaconBlockResponseType::Blinded(block_response) => build_response_v3(
+        BeaconBlockResponseType::Full(block_response) => build_response_v3(
             chain,
             block_response,
             endpoint_version,
             accept_header,
-            true,
+            false,
         ),
+        BeaconBlockResponseType::Blinded(block_response) => {
+            build_response_v3(chain, block_response, endpoint_version, accept_header, true)
+        }
     }
 }
 
