@@ -3,7 +3,7 @@ use crate::common::base::SqrtTotalActiveBalance;
 use crate::common::{altair, base};
 use safe_arith::SafeArith;
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
-use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, Hash256};
+use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, ForkName, Hash256};
 
 /// Precursor to an `EpochCache`.
 pub struct PreEpochCache {
@@ -54,10 +54,7 @@ impl PreEpochCache {
 
         for effective_balance_eth in 0..=max_effective_balance_eth {
             let effective_balance = effective_balance_eth.safe_mul(effective_balance_increment)?;
-            let base_reward = if spec
-                .altair_fork_epoch
-                .map_or(false, |altair_epoch| epoch < altair_epoch)
-            {
+            let base_reward = if spec.fork_name_at_epoch(epoch) == ForkName::Base {
                 base::get_base_reward(effective_balance, sqrt_total_active_balance, spec)?
             } else {
                 altair::get_base_reward(effective_balance, base_reward_per_increment, spec)?
