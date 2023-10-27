@@ -1856,6 +1856,7 @@ dependencies = [
  "fs2",
  "hex",
  "kzg",
+ "proto_array",
  "rayon",
  "serde",
  "serde_json",

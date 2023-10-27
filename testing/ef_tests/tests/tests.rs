@@ -547,6 +547,12 @@ fn fork_choice_withholding() {
 }
 
 #[test]
+fn fork_choice_get_proposer_head() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("get_proposer_head").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("get_proposer_head").run();
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();

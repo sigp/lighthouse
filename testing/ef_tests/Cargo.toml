@@ -28,6 +28,7 @@ eth2_network_config = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+proto_array = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 cached_tree_hash = { workspace = true }

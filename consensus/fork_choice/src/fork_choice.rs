@@ -291,7 +291,7 @@ pub enum AttestationFromBlock {
 }
 
 /// Parameters which are cached between calls to `ForkChoice::get_head`.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ForkchoiceUpdateParameters {
     /// The most recent result of running `ForkChoice::get_head`.
     pub head_root: Hash256,

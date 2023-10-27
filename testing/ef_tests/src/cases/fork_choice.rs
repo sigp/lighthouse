@@ -1,16 +1,19 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::PayloadVerificationStatus;
-use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     attestation_verification::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
+    beacon_proposer_cache::compute_proposer_duties_from_head,
     blob_verification::GossipVerifiedBlob,
+    chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
+    slot_clock::SlotClock,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
 };
 use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
+use proto_array::ProposerHeadError;
 use serde::Deserialize;
 use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
@@ -19,8 +22,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
-    EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
-    ProgressiveBalancesMode, Signature, SignedBeaconBlock, SignedBlobSidecar, Slot, Uint256,
+    Epoch, EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
+    ProgressiveBalancesMode, ProposerPreparationData, Signature, SignedBeaconBlock,
+    SignedBlobSidecar, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -38,6 +42,13 @@ pub struct Head {
     root: Hash256,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShouldOverrideForkchoiceUpdate {
+    validator_is_connected: bool,
+    result: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Checks {
@@ -50,6 +61,8 @@ pub struct Checks {
     u_justified_checkpoint: Option<Checkpoint>,
     u_finalized_checkpoint: Option<Checkpoint>,
     proposer_boost_root: Option<Hash256>,
+    should_override_forkchoice_update: Option<ShouldOverrideForkchoiceUpdate>,
+    get_proposer_head: Option<Hash256>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -256,6 +269,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         u_justified_checkpoint,
                         u_finalized_checkpoint,
                         proposer_boost_root,
+                        should_override_forkchoice_update,
+                        get_proposer_head,
                     } = checks.as_ref();
 
                     if let Some(expected_head) = head {
@@ -293,6 +308,21 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 
                     if let Some(expected_proposer_boost_root) = proposer_boost_root {
                         tester.check_expected_proposer_boost_root(*expected_proposer_boost_root)?;
+                    }
+
+                    if let Some(ShouldOverrideForkchoiceUpdate {
+                        validator_is_connected,
+                        result,
+                    }) = should_override_forkchoice_update
+                    {
+                        tester.check_should_override_forkchoice_update(
+                            *validator_is_connected,
+                            *result,
+                        )?;
+                    }
+
+                    if let Some(expected_proposer_head) = get_proposer_head {
+                        tester.check_get_proposer_head(*expected_proposer_head)?;
                     }
                 }
             }
@@ -702,6 +732,85 @@ impl<E: EthSpec> Tester<E> {
             proposer_boost_root,
             expected_proposer_boost_root,
         )
+    }
+
+    pub fn check_should_override_forkchoice_update(
+        &self,
+        validator_is_connected: bool,
+        expected: bool,
+    ) -> Result<(), Error> {
+        // Determine proposer.
+        let next_slot = self.harness.chain.slot().unwrap() + 1;
+        let next_slot_epoch = next_slot.epoch(E::slots_per_epoch());
+        let (proposer_indices, decision_root, _, fork) =
+            compute_proposer_duties_from_head(next_slot_epoch, &self.harness.chain).unwrap();
+        let proposer_index = proposer_indices[next_slot.as_usize() % E::slots_per_epoch() as usize];
+
+        // Ensure the proposer index cache is primed.
+        self.harness
+            .chain
+            .beacon_proposer_cache
+            .lock()
+            .insert(next_slot_epoch, decision_root, proposer_indices, fork)
+            .unwrap();
+
+        // Update the execution layer proposer preparation to match the test config.
+        let el = self.harness.chain.execution_layer.clone().unwrap();
+        self.block_on_dangerous(async {
+            if validator_is_connected {
+                el.update_proposer_preparation(
+                    next_slot_epoch,
+                    &[ProposerPreparationData {
+                        validator_index: proposer_index as u64,
+                        fee_recipient: Default::default(),
+                    }],
+                )
+                .await;
+            } else {
+                el.clear_proposer_preparation(proposer_index as u64).await;
+            }
+        })
+        .unwrap();
+
+        // Check forkchoice override.
+        let cached_head = self.harness.chain.canonical_head.cached_head();
+        let canonical_fcu_params = cached_head.forkchoice_update_parameters();
+        let fcu_params = self
+            .harness
+            .chain
+            .overridden_forkchoice_update_params(canonical_fcu_params)
+            .unwrap();
+
+        check_equal(
+            "should_override_forkchoice_update",
+            fcu_params != canonical_fcu_params,
+            expected,
+        )
+    }
+
+    pub fn check_get_proposer_head(&self, expected_proposer_head: Hash256) -> Result<(), Error> {
+        let cached_head = self.harness.chain.canonical_head.cached_head();
+        let current_slot = self.harness.chain.slot().unwrap();
+
+        let proposer_head = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_proposer_head(
+                current_slot,
+                cached_head.head_block_root(),
+                ReOrgThreshold(20),
+                &DisallowedReOrgOffsets::default(),
+                Epoch::new(2),
+            )
+            .map(|proposer_head| proposer_head.parent_node.root)
+            .or_else(|e| match e {
+                ProposerHeadError::DoNotReOrg(_) => Ok(cached_head.head_block_root()),
+                ProposerHeadError::Error(e) => Err(e),
+            })
+            .unwrap();
+        check_equal("get_proposer_head", proposer_head, expected_proposer_head)
     }
 }
 
