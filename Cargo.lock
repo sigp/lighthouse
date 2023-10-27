@@ -2293,6 +2293,7 @@ dependencies = [
  "hex",
  "kzg",
  "logging",
+ "proto_array",
  "rayon",
  "serde",
  "serde_json",
