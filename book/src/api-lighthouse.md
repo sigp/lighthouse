@@ -817,3 +817,23 @@ An open port will return:
 {
   "data": true
 }
+```
+
+### `/lighthouse/malloc/prof_dump`
+
+Creates a jemalloc `prof.dump` (memory profile dump).
+
+The POST body expects a JSON string (with quotes) describing a path for the
+dump.
+
+For more information about profile dumps, see:
+
+- [Use Case: Heap Profiling](https://github.com/jemalloc/jemalloc/wiki/Use-Case%3A-Heap-Profiling)
+- [jemalloc opt.prof docs](http://jemalloc.net/jemalloc.3.html#opt.prof)
+
+Requires Lighthouse to be built on Linux with the `jemalloc` and
+`jemalloc_profiling` features.
+
+```bash
+curl -d "\"/home/karlm/dump\"" -H "Content-Type: application/json" localhost:5052/lighthouse/malloc/prof_dump
+```
