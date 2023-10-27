@@ -7,10 +7,12 @@
 //!
 //! A) `JEMALLOC_SYS_WITH_MALLOC_CONF` at compile-time.
 //! B) `_RJEM_MALLOC_CONF` at runtime.
-use jemalloc_ctl::{arenas, epoch, raw, stats, Error};
+use jemalloc_ctl::{arenas, epoch, stats, Error};
 use lazy_static::lazy_static;
 use lighthouse_metrics::{set_gauge, try_create_int_gauge, IntGauge};
 use std::ffi::c_char;
+use std::mem;
+use std::ptr;
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
@@ -52,17 +54,42 @@ pub fn scrape_jemalloc_metrics_fallible() -> Result<(), Error> {
     Ok(())
 }
 
+/// A convenience wrapper around `mallctl` for writing `value` to `name`.
+pub unsafe fn mallctl_write<T>(name: &[u8], mut value: T) -> Result<(), c_int> {
+    // Use `jemalloc_sys::mallctl` directly since the `jemalloc_ctl::raw`
+    // functions artifically limit the `name` values.
+    let status = jemalloc_sys::mallctl(
+        name as *const _ as *const c_char,
+        ptr::null_mut(),
+        ptr::null_mut(),
+        &mut value as *mut _ as *mut _,
+        mem::size_of::<T>(),
+    );
+
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(status)
+    }
+}
+
+/// Add a C-style `0x00` terminator to the string and return it as a `Vec` of
+/// bytes.
+fn terminate_string_for_c(s: &str) -> Vec<u8> {
+    let mut terminated = vec![0x00_u8; s.len() + 1];
+    terminated[..s.len()].copy_from_slice(s.as_ref());
+    terminated
+}
+
 /// Uses `mallctl` to call `"prof.dump"`.
 ///
 /// This generates a heap profile at `filename`.
 #[allow(dead_code)]
 pub fn prof_dump(filename: &str) -> Result<(), String> {
-    // Add a C-style `0x00` terminator to the filename.
-    let mut terminated_filename = vec![0x00_u8; filename.len() + 1];
-    terminated_filename[..filename.len()].copy_from_slice(filename.as_ref());
+    let terminated_filename = terminate_string_for_c(filename);
 
     unsafe {
-        raw::write(
+        mallctl_write(
             "prof.dump\0".as_ref(),
             terminated_filename.as_ptr() as *const c_char,
         )

@@ -4689,6 +4689,7 @@ name = "malloc_utils"
 version = "0.1.0"
 dependencies = [
  "jemalloc-ctl",
+ "jemalloc-sys",
  "jemallocator",
  "lazy_static",
  "libc",
