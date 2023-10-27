@@ -19,7 +19,8 @@ CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 ifeq ($(OS),Windows_NT)
     FEATURES?=
 else
-    FEATURES?=jemalloc
+# TODO(paul): remove `jemalloc_profiling`
+    FEATURES?=jemalloc,jemalloc_profiling
 endif
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
