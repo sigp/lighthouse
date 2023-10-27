@@ -364,10 +364,8 @@ jobs:
       run:  make arbitrary-fuzz
     - name: Run cargo audit
       run: make audit-CI
-# TODO(sean): re-enable this when we can figure it out with c-kzg
-# Issue: https://github.com/sigp/lighthouse/issues/4440
-#    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
-#      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
+    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
+      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest
