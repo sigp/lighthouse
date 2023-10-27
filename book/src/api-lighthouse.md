@@ -831,7 +831,7 @@ For more information about profile dumps, see:
 - [Use Case: Heap Profiling](https://github.com/jemalloc/jemalloc/wiki/Use-Case%3A-Heap-Profiling)
 - [jemalloc opt.prof docs](http://jemalloc.net/jemalloc.3.html#opt.prof)
 
-Requires Lighthouse to be built on Linux with the `jemalloc` and
+Requires Lighthouse to be built for Linux with the `jemalloc` and
 `jemalloc_profiling` features.
 
 ```bash
