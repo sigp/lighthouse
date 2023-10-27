@@ -1495,6 +1495,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "environment",
+ "hex",
  "logging",
  "slog",
  "sloggers",
