@@ -28,7 +28,7 @@ slasher-lmdb = ["slasher/lmdb"]
 # Use jemalloc.
 jemalloc = ["malloc_utils/jemalloc"]
 # Enable profiling in jemalloc.
-jemalloc_profiling = ["malloc_utils/jemalloc"]
+jemalloc_profiling = ["malloc_utils/jemalloc_profiling"]
 
 [dependencies]
 beacon_node = { workspace = true }
