@@ -11,6 +11,7 @@ harness = false
 [dependencies]
 merkle_proof = { workspace = true }
 bls = { workspace = true, features = ["arbitrary"] }
+kzg = { workspace = true }
 compare_fields = { workspace = true }
 compare_fields_derive = { workspace = true }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
@@ -23,7 +24,6 @@ rayon = { workspace = true }
 rand = { workspace = true }
 safe_arith = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
-serde_derive = "1.0.116"
 slog = { workspace = true }
 ethereum_ssz = { workspace = true, features = ["arbitrary"] }
 ethereum_ssz_derive = { workspace = true }
@@ -50,7 +50,6 @@ superstruct = { workspace = true }
 metastruct = "0.1.0"
 serde_json = { workspace = true }
 smallvec = { workspace = true }
-serde_with = "1.13.0"
 maplit = { workspace = true }
 strum = { workspace = true }
 
@@ -69,3 +68,4 @@ sqlite = []
 # The `arbitrary-fuzz` feature is a no-op provided for backwards compatibility.
 # For simplicity `Arbitrary` is now derived regardless of the feature's presence.
 arbitrary-fuzz = []
+portable = ["bls/supranational-portable"]

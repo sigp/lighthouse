@@ -20,7 +20,7 @@ use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
-use store::{AnchorInfo, Split, StoreConfig};
+use store::{AnchorInfo, BlobInfo, Split, StoreConfig};
 
 pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
@@ -364,6 +364,7 @@ pub struct DatabaseInfo {
     pub config: StoreConfig,
     pub split: Split,
     pub anchor: Option<AnchorInfo>,
+    pub blob_info: BlobInfo,
 }
 
 impl BeaconNodeHttpClient {

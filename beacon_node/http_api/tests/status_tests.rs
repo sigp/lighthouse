@@ -100,9 +100,10 @@ async fn el_error_on_new_payload() {
 
     // Make a block.
     let pre_state = harness.get_current_state();
-    let (block, _) = harness
+    let (block_contents, _) = harness
         .make_block(pre_state, Slot::new(num_blocks + 1))
         .await;
+    let (block, blobs) = block_contents;
     let block_hash = block
         .message()
         .body()
@@ -118,7 +119,9 @@ async fn el_error_on_new_payload() {
     // Attempt to process the block, which should error.
     harness.advance_slot();
     assert!(matches!(
-        harness.process_block_result(block.clone()).await,
+        harness
+            .process_block_result((block.clone(), blobs.clone()))
+            .await,
         Err(BlockError::ExecutionPayloadError(_))
     ));
 
@@ -137,7 +140,7 @@ async fn el_error_on_new_payload() {
             validation_error: None,
         },
     );
-    harness.process_block_result(block).await.unwrap();
+    harness.process_block_result((block, blobs)).await.unwrap();
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
     assert_eq!(api_response.el_offline, Some(false));

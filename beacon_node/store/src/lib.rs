@@ -34,6 +34,7 @@ pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
+pub use crate::metadata::BlobInfo;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metadata::AnchorInfo;
@@ -45,6 +46,9 @@ pub use types::*;
 
 pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
 pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
+
+pub type RawEntryIter<'a> = Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>;
+pub type RawKeyIter<'a> = Box<dyn Iterator<Item = Result<Vec<u8>, Error>> + 'a>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
@@ -87,6 +91,14 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Iterate through all keys and values in a column from a given starting point.
     fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
 
+    fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
+        Box::new(std::iter::empty())
+    }
+
+    fn iter_raw_keys(&self, _column: DBColumn, _prefix: &[u8]) -> RawKeyIter {
+        Box::new(std::iter::empty())
+    }
+
     /// Iterate through all keys in a particular column.
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
 }
@@ -118,6 +130,7 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
 }
 
 #[must_use]
+#[derive(Clone)]
 pub enum KeyValueStoreOp {
     PutKeyValue(Vec<u8>, Vec<u8>),
     DeleteKey(Vec<u8>),
@@ -171,13 +184,16 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
 /// See also https://github.com/sigp/lighthouse/issues/692
+#[derive(Clone)]
 pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
+    PutBlobs(Hash256, BlobSidecarList<E>),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
+    DeleteBlobs(Hash256),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
     KeyValueOp(KeyValueStoreOp),
@@ -191,6 +207,8 @@ pub enum DBColumn {
     BeaconMeta,
     #[strum(serialize = "blk")]
     BeaconBlock,
+    #[strum(serialize = "blb")]
+    BeaconBlob,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     #[strum(serialize = "ste")]
     BeaconState,
@@ -233,6 +251,8 @@ pub enum DBColumn {
     OptimisticTransitionBlock,
     #[strum(serialize = "bhs")]
     BeaconHistoricalSummaries,
+    #[strum(serialize = "olc")]
+    OverflowLRUCache,
 }
 
 /// A block from the database, which might have an execution payload or not.

@@ -40,3 +40,4 @@ arbitrary-fuzz = [
   "ssz_types/arbitrary",
   "tree_hash/arbitrary",
 ]
+portable = ["bls/supranational-portable"]

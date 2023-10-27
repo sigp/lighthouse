@@ -37,7 +37,7 @@ pub enum Error {
     FailedConstructingUpdate,
     /// Unknown block with parent root.
     UnknownBlockParentRoot(Hash256),
-    /// Beacon chain error occured.
+    /// Beacon chain error occurred.
     BeaconChainError(BeaconChainError),
     LightClientUpdateError(LightClientUpdateError),
 }

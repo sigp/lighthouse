@@ -49,3 +49,4 @@ custom RPC error messages.
 | Code | Message | Description |
 | ---- | ---- | ---- |
 | 139 | Rate Limited | The peer has been rate limited so we return this error as a response |
+| 140 | Blobs Not Found For Block | We do not possess the blobs for the requested block |
