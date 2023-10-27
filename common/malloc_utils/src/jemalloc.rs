@@ -10,7 +10,7 @@
 use jemalloc_ctl::{arenas, epoch, raw, stats, Error};
 use lazy_static::lazy_static;
 use lighthouse_metrics::{set_gauge, try_create_int_gauge, IntGauge};
-use std::ffi::CStr;
+use std::ffi::c_char;
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
@@ -57,13 +57,15 @@ pub fn scrape_jemalloc_metrics_fallible() -> Result<(), Error> {
 /// This generates a heap profile at `filename`.
 #[allow(dead_code)]
 pub fn prof_dump(filename: &str) -> Result<(), String> {
-    // Add a C-style `0x00` terminator to the filename and convert it to a
-    // `CStr`.
+    // Add a C-style `0x00` terminator to the filename.
     let mut terminated_filename = vec![0x00_u8; filename.len() + 1];
     terminated_filename[..filename.len()].copy_from_slice(filename.as_ref());
-    let cstr = CStr::from_bytes_with_nul(&terminated_filename)
-        .map_err(|e| format!("Cannot convert filename to CStr: {e:?}"))?;
 
-    unsafe { raw::write("prof.dump".as_ref(), cstr) }
-        .map_err(|e| format!("Failed to call prof.dump on mallctl: {e:?}"))
+    unsafe {
+        raw::write(
+            "prof.dump\0".as_ref(),
+            terminated_filename.as_ptr() as *const c_char,
+        )
+    }
+    .map_err(|e| format!("Failed to call prof.dump on mallctl: {e:?}"))
 }
