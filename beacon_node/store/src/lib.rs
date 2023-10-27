@@ -288,6 +288,8 @@ impl DBColumn {
             | Self::PubkeyCache
             | Self::BeaconRestorePoint
             | Self::DhtEnrs
+            | Self::BeaconBlob
+            | Self::OverflowLRUCache
             | Self::OptimisticTransitionBlock => 32,
             Self::BeaconBlockRoots
             | Self::BeaconStateRoots
