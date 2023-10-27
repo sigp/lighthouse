@@ -4373,7 +4373,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // POST lighthouse/malloc/prof_dump
-    let post_lighthouse_malloc_prof_dump = database_path
+    let post_lighthouse_malloc_prof_dump = warp::path("lighthouse")
         .and(warp::path("malloc"))
         .and(warp::path("prof_dump"))
         .and(warp::body::json())
