@@ -62,6 +62,8 @@ mod interface {
     pub use super::prof_dump_unsupported as prof_dump;
     #[cfg(feature = "jemalloc_profiling")]
     pub use crate::jemalloc::prof_dump;
+
+    pub use crate::jemalloc::prof_active;
 }
 
 #[cfg(all(
