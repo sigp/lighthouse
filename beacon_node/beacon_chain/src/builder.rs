@@ -763,6 +763,7 @@ where
             validator_monitor.process_valid_state(
                 slot.epoch(TEthSpec::slots_per_epoch()),
                 &head_snapshot.beacon_state,
+                &self.spec,
             );
         }
 

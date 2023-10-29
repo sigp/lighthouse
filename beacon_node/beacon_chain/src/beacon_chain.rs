@@ -3217,9 +3217,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Allow the validator monitor to learn about a new valid state.
-        self.validator_monitor
-            .write()
-            .process_valid_state(current_slot.epoch(T::EthSpec::slots_per_epoch()), state);
+        self.validator_monitor.write().process_valid_state(
+            current_slot.epoch(T::EthSpec::slots_per_epoch()),
+            state,
+            &self.spec,
+        );
 
         let validator_monitor = self.validator_monitor.read();
 

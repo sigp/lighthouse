@@ -78,6 +78,7 @@ async fn attester_per_slot_service<T: BeaconChainTypes>(
 
                                                 inner_chain
                                                     .validator_monitor
+                                                    .write()
                                                     .set_unaggregated_attestation(
                                                         unaggregated_attestion,
                                                     );
