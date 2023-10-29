@@ -970,6 +970,7 @@ mod test {
     ) -> (
         BeaconChainHarness<DiskHarnessType<E>>,
         Arc<OverflowLRUCache<T>>,
+        TempDir,
     )
     where
         E: EthSpec,
@@ -984,7 +985,7 @@ mod test {
             OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
                 .expect("should create cache"),
         );
-        (harness, cache)
+        (harness, cache, chain_db_path)
     }
 
     #[tokio::test]
@@ -992,7 +993,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = 4;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let (pending_block, blobs) = availability_pending_block(&harness).await;
         let root = pending_block.import_data.block_root;
@@ -1104,7 +1105,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = 4;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let mut pending_blocks = VecDeque::new();
         let mut pending_blobs = VecDeque::new();
@@ -1255,7 +1256,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = E::slots_per_epoch() as usize;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let n_epochs = 4;
         let mut pending_blocks = VecDeque::new();
@@ -1395,7 +1396,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = E::slots_per_epoch() as usize;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let n_epochs = 4;
         let mut pending_blocks = VecDeque::new();
@@ -1573,7 +1574,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = STATE_LRU_CAPACITY * 2;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let mut pending_blocks = VecDeque::new();
         let mut states = Vec::new();

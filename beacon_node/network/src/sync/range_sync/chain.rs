@@ -827,9 +827,24 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
             if !batch.is_expecting_block(peer_id, &request_id) {
+                debug!(
+                    self.log,
+                    "Batch not expecting block";
+                    "batch_epoch" => batch_id,
+                    "batch_state" => ?batch.state(),
+                    "peer_id" => %peer_id,
+                    "request_id" => %request_id
+                );
                 return Ok(KeepChain);
             }
-            debug!(self.log, "Batch failed. RPC Error"; "batch_epoch" => batch_id);
+            debug!(
+                self.log,
+                "Batch failed. RPC Error";
+                "batch_epoch" => batch_id,
+                "batch_state" => ?batch.state(),
+                "peer_id" => %peer_id,
+                "request_id" => %request_id
+            );
             if let Some(active_requests) = self.peers.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
             }
@@ -841,6 +856,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
             self.retry_batch_download(network, batch_id)
         } else {
+            debug!(
+                self.log,
+                "Batch not found";
+                "batch_epoch" => batch_id,
+                "peer_id" => %peer_id,
+                "request_id" => %request_id
+            );
             // this could be an error for an old batch, removed when the chain advances
             Ok(KeepChain)
         }

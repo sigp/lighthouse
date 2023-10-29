@@ -224,7 +224,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request_id: PeerRequestId,
         request: BlobsByRootRequest,
     ) {
-        let requested_blobs = request.blob_ids.len();
+        let Some(requested_root) = request.blob_ids.get(0).map(|id| id.block_root) else {
+            // No blob ids requested.
+            return;
+        };
+        let requested_indices = request
+            .blob_ids
+            .iter()
+            .map(|id| id.index)
+            .collect::<Vec<_>>();
         let mut send_blob_count = 0;
         let send_response = true;
 
@@ -277,7 +285,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.log,
             "Received BlobsByRoot Request";
             "peer" => %peer_id,
-            "requested" => requested_blobs,
+            "request_root" => %requested_root,
+            "request_indices" => ?requested_indices,
             "returned" => send_blob_count
         );
 

@@ -482,7 +482,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// they are collected and combined.
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     /// The KZG trusted setup used by this chain.
-    pub kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
+    pub kzg: Option<Arc<Kzg>>,
 }
 
 pub enum BeaconBlockResponseType<T: EthSpec> {
@@ -2769,12 +2769,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                     match GossipVerifiedBlock::new(block, &chain) {
                         Ok(verified) => {
+                            let commitments_formatted = verified.block.commitments_formatted();
                             debug!(
                                 chain.log,
                                 "Successfully verified gossip block";
                                 "graffiti" => graffiti_string,
                                 "slot" => slot,
                                 "root" => ?verified.block_root(),
+                                "commitments" => commitments_formatted,
                             );
 
                             Ok(verified)

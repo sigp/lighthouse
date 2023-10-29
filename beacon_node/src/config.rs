@@ -389,10 +389,12 @@ pub fn get_config<E: EthSpec>(
     client_config.trusted_setup = context
         .eth2_network_config
         .as_ref()
-        .and_then(|config| config.kzg_trusted_setup.clone());
+        .and_then(|config| config.kzg_trusted_setup.as_ref())
+        .map(|trusted_setup_bytes| serde_json::from_slice(trusted_setup_bytes))
+        .transpose()
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
 
     // Override default trusted setup file if required
-    // TODO: consider removing this when we get closer to launch
     if let Some(trusted_setup_file_path) = cli_args.value_of("trusted-setup-file-override") {
         let file = std::fs::File::open(trusted_setup_file_path)
             .map_err(|e| format!("Failed to open trusted setup file: {}", e))?;

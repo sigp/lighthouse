@@ -14,22 +14,21 @@ use kzg::{Kzg, KzgCommitment, KzgProof};
 use parking_lot::Mutex;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
+use ssz::Decode;
 use ssz_types::VariableList;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    Blob, ChainSpec, EthSpec, EthSpecId, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge,
-    ForkName, Hash256, Transaction, Transactions, Uint256,
+    Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge, ForkName, Hash256,
+    Transaction, Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
-use ssz::Decode;
 
-const TEST_BLOB_BUNDLE_MAINNET: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
-const TEST_BLOB_BUNDLE_MINIMAL: &[u8] = include_bytes!("fixtures/minimal/test_blobs_bundle.ssz");
+const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
 
 const GAS_LIMIT: u64 = 16384;
 const GAS_USED: u64 = GAS_LIMIT - 1;
@@ -137,7 +136,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * deneb stuff
      */
     pub blobs_bundles: HashMap<PayloadId, BlobsBundle<T>>,
-    pub kzg: Option<Arc<Kzg<T::Kzg>>>,
+    pub kzg: Option<Arc<Kzg>>,
     rng: Arc<Mutex<StdRng>>,
 }
 
@@ -154,7 +153,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
-        kzg: Option<Kzg<T::Kzg>>,
+        kzg: Option<Kzg>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -649,20 +648,12 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 }
 
 pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, Blob<E>), String> {
-    let blob_bundle_bytes = match E::spec_name() {
-        EthSpecId::Mainnet => TEST_BLOB_BUNDLE_MAINNET,
-        EthSpecId::Minimal => TEST_BLOB_BUNDLE_MINIMAL,
-        EthSpecId::Gnosis => {
-            return Err("Test blobs bundle not available for Gnosis preset".to_string())
-        }
-    };
-
-    let BlobsBundle {
+    let BlobsBundle::<E> {
         commitments,
         proofs,
         blobs,
-    } = BlobsBundle::<E>::from_ssz_bytes(blob_bundle_bytes)
-        .map_err(|e| format!("Unable to decode SSZ: {:?}", e))?;
+    } = BlobsBundle::from_ssz_bytes(TEST_BLOB_BUNDLE)
+        .map_err(|e| format!("Unable to decode ssz: {:?}", e))?;
 
     Ok((
         commitments
@@ -821,6 +812,7 @@ pub fn generate_pow_block(
 #[cfg(test)]
 mod test {
     use super::*;
+    use eth2_network_config::TRUSTED_SETUP_BYTES;
     use kzg::TrustedSetup;
     use types::{MainnetEthSpec, MinimalEthSpec};
 
@@ -898,18 +890,17 @@ mod test {
     }
 
     fn validate_blob<E: EthSpec>() -> Result<bool, String> {
-        let kzg = load_kzg::<E>()?;
+        let kzg = load_kzg()?;
         let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle::<E>()?;
-        let kzg_blob = E::blob_from_bytes(blob.as_ref())
+        let kzg_blob = kzg::Blob::from_bytes(blob.as_ref())
             .map_err(|e| format!("Error converting blob to kzg blob: {e:?}"))?;
         kzg.verify_blob_kzg_proof(&kzg_blob, kzg_commitment, kzg_proof)
             .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
     }
 
-    fn load_kzg<E: EthSpec>() -> Result<Kzg<E::Kzg>, String> {
-        let trusted_setup: TrustedSetup =
-            serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
-                .map_err(|e| format!("Unable to read trusted setup file: {e:?}"))?;
+    fn load_kzg() -> Result<Kzg, String> {
+        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+            .map_err(|e| format!("Unable to read trusted setup file: {e:?}"))?;
         Kzg::new_from_trusted_setup(trusted_setup)
             .map_err(|e| format!("Failed to load trusted setup: {e:?}"))
     }
