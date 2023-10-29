@@ -66,7 +66,7 @@ async fn attester_per_slot_service<T: BeaconChainTypes>(
                                             current_slot,
                                             beacon_committee.index,
                                         ) {
-                                            Ok(unaggregated_attestion) => {
+                                            Ok(unaggregated_attestation) => {
                                                 debug!(
                                                 inner_chain.log,
                                                 "Produce unaggregated attestation";
@@ -80,7 +80,7 @@ async fn attester_per_slot_service<T: BeaconChainTypes>(
                                                     .validator_monitor
                                                     .write()
                                                     .set_unaggregated_attestation(
-                                                        unaggregated_attestion,
+                                                        unaggregated_attestation,
                                                     );
                                             }
                                             Err(e) => {
