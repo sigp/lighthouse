@@ -266,7 +266,7 @@ impl<T: EthSpec> OperationPool<T> {
                             .iter()
                             .map(|clique| {
                                 clique.iter().skip(1).fold(
-                                    aggregates[clique[0]].clone(),
+                                    aggregates[*clique.iter().next().unwrap()].clone(),
                                     |mut acc, &ind| {
                                         acc.aggregate(&aggregates[ind]);
                                         acc

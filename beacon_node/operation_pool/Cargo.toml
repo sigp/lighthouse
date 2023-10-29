@@ -19,6 +19,7 @@ serde = { workspace = true }
 store = { workspace = true }
 bitvec = { workspace = true }
 rand = { workspace = true }
+rpds = { workspace = true }
 
 [dev-dependencies]
 beacon_chain = { workspace = true }

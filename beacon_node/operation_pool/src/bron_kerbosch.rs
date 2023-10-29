@@ -1,12 +1,13 @@
+use rpds::HashTrieSet;
 /// Entry point for the Bron-Kerbosh algorithm. Takes a vector of `vertices` of type
 /// `T : Compatible<T>`. Returns all the maximal cliques (as a matrix of indices) for the graph
 /// `G = (V,E)` where `V` is `vertices` and `E` encodes the `is_compatible` relationship.
 pub fn bron_kerbosch<T, F: Fn(&T, &T) -> bool>(
     vertices: &Vec<T>,
     is_compatible: F,
-) -> Vec<Vec<usize>> {
+) -> Vec<HashTrieSet<usize>> {
     // create empty vector to store cliques
-    let mut cliques: Vec<Vec<usize>> = vec![];
+    let mut cliques: Vec<HashTrieSet<usize>> = vec![];
 
     if vertices.len() > 0 {
         // build neighbourhoods and degeneracy ordering, also move to index-based reasoning
@@ -21,7 +22,7 @@ pub fn bron_kerbosch<T, F: Fn(&T, &T) -> bool>(
                 .filter(|j| neighbourhoods[vi].contains(&ordering[*j]))
                 .map(|j| ordering[j])
                 .collect();
-            let r = vec![vi];
+            let r = HashTrieSet::default().insert(vi);
             let x = (0..i)
                 .filter(|j| neighbourhoods[vi].contains(&ordering[*j]))
                 .map(|j| ordering[j])
@@ -80,54 +81,40 @@ fn degeneracy_order(num_vertices: usize, neighbourhoods: &[Vec<usize>]) -> Vec<u
 ///  * `neighbourhoods` - a data structure to hold the neighbourhoods of each vertex
 ///  * `publish_clique` - a callback function to call whenever a clique has been produced
 fn bron_kerbosch_aux<F>(
-    r: Vec<usize>,
-    p: Vec<usize>,
-    x: Vec<usize>,
+    r: HashTrieSet<usize>,
+    mut p: HashTrieSet<usize>,
+    mut x: HashTrieSet<usize>,
     neighbourhoods: &Vec<Vec<usize>>,
     publish_clique: &mut F,
 ) where
-    F: FnMut(Vec<usize>),
+    F: FnMut(HashTrieSet<usize>),
 {
     if p.is_empty() && x.is_empty() {
         publish_clique(r);
         return;
     }
 
-    // modified p (p \ neighbourhood(pivot)), modified x
-    let (mut ip, mut mp, mut mx) = (p.clone(), p.clone(), x.clone());
     let pivot = find_pivot(&p, &x, neighbourhoods);
-    ip.retain(|e| !neighbourhoods[pivot].contains(e));
+    let pivot_neighbours: HashTrieSet<usize> = neighbourhoods[pivot].iter().cloned().collect();
+    
+    let ip = p.iter().cloned().filter(|e| !pivot_neighbours.contains(e)).collect::<HashTrieSet<_>>();
 
-    while !ip.is_empty() {
-        // v
-        let v = ip[0];
+    for v in ip.iter() {
+        let n_set: HashTrieSet<usize> = neighbourhoods[*v].iter().cloned().collect();
 
-        let n = &neighbourhoods[v];
+        let nr = r.insert(*v);
+        let np = p.iter().cloned().filter(|e| n_set.contains(e)).collect::<HashTrieSet<_>>();
+        let nx = x.iter().cloned().filter(|e| n_set.contains(e)).collect::<HashTrieSet<_>>();
 
-        let (mut nr, mut np, mut nx) = (r.clone(), mp.clone(), mx.clone());
-
-        // r U { v }
-        nr.push(v);
-
-        // p intersect neighbourhood { v }
-        np.retain(|e| n.contains(e));
-
-        // x intersect neighbourhood { v }
-        nx.retain(|e| n.contains(e));
-
-        // recursive call
         bron_kerbosch_aux(nr, np, nx, neighbourhoods, publish_clique);
 
-        // p \ { v }, x U { v }
-        mp.remove(mp.iter().position(|x| *x == v).unwrap());
-        ip = mp.clone();
-        ip.retain(|e| !neighbourhoods[pivot].contains(e));
-        mx.push(v);
+        p = p.remove(v);
+        x = x.insert(*v);
     }
 }
 
 /// Identifies pivot for Bron-Kerbosh pivoting technique.
-fn find_pivot(p: &[usize], x: &[usize], neighbourhoods: &[Vec<usize>]) -> usize {
+fn find_pivot(p: &HashTrieSet<usize>, x: &HashTrieSet<usize>, neighbourhoods: &[Vec<usize>]) -> usize {
     *p.iter()
         .chain(x.iter())
         .min_by_key(|&e| {
@@ -184,10 +171,23 @@ mod tests {
             res.len() >= 1
         }
 
+        fn no_clique_is_empty(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
+            if vertices.len() == 0 {
+                return true;
+            }
+            let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
+            let res = bron_kerbosch(&vertices, is_compatible);
+            for clique in res.iter() {
+                if clique.is_empty() {
+                    return false;
+                }
+            }
+            true
+        }
+
         fn all_claimed_cliques_are_cliques(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
             let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
             let claimed_cliques = bron_kerbosch(&vertices, is_compatible);
-            println!("{:?}", claimed_cliques);
             for clique in claimed_cliques {
                 for (ind1, vertex) in clique.iter().enumerate() {
                     for (ind2, other_vertex) in clique.iter().enumerate() {
@@ -206,8 +206,8 @@ mod tests {
         fn no_clique_is_a_subset_of_other_clique(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
             let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
             let claimed_cliques = bron_kerbosch(&vertices, is_compatible);
-            let is_subset = |set1: Vec<usize>, set2: Vec<usize>| -> bool {
-                for vertex in set1 {
+            let is_subset = |set1: HashTrieSet<usize>, set2: HashTrieSet<usize>| -> bool {
+                for vertex in set1.iter() {
                     if !set2.contains(&vertex) {
                         return false;
                     }
