@@ -96,7 +96,7 @@ fn bron_kerbosch_aux<F>(
 
     let pivot = find_pivot(&p, &x, neighbourhoods);
     let pivot_neighbours: HashTrieSet<usize> = neighbourhoods[pivot].iter().cloned().collect();
-    
+
     let ip = hash_set_filter(&p, |e| pivot_neighbours.contains(e));
 
     for v in ip.iter() {
@@ -114,7 +114,11 @@ fn bron_kerbosch_aux<F>(
 }
 
 /// Identifies pivot for Bron-Kerbosh pivoting technique.
-fn find_pivot(p: &HashTrieSet<usize>, x: &HashTrieSet<usize>, neighbourhoods: &[Vec<usize>]) -> usize {
+fn find_pivot(
+    p: &HashTrieSet<usize>,
+    x: &HashTrieSet<usize>,
+    neighbourhoods: &[Vec<usize>],
+) -> usize {
     *p.iter()
         .chain(x.iter())
         .min_by_key(|&e| {
@@ -125,9 +129,9 @@ fn find_pivot(p: &HashTrieSet<usize>, x: &HashTrieSet<usize>, neighbourhoods: &[
         .unwrap()
 }
 
-fn hash_set_filter<P>(set: &HashTrieSet<usize>, predicate: P) -> HashTrieSet<usize> 
+fn hash_set_filter<P>(set: &HashTrieSet<usize>, predicate: P) -> HashTrieSet<usize>
 where
-    P: Fn(&usize) -> bool
+    P: Fn(&usize) -> bool,
 {
     let mut new_set = set.clone();
     for e in set.iter() {
