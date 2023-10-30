@@ -1014,7 +1014,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             // We have SOCKET_UPDATED messages. This occurs when discovery has a majority of
                             // users reporting an external port and our ENR gets updated.
                             // Which means we are able to do NAT traversal.
-                            metrics::set_gauge(&metrics::NAT_OPEN, 1);
+                            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["discv5"], 1);
 
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.

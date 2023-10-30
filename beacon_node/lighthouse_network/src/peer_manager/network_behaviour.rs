@@ -153,7 +153,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             }
             FromSwarm::ExternalAddrConfirmed(_) => {
                 // We have an external address confirmed, means we are able to do NAT traversal.
-                metrics::set_gauge(&metrics::NAT_OPEN, 1);
+                metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p"], 1);
                 // TODO: we likely want to check this against our assumed external tcp
                 // address
             }

@@ -4,9 +4,10 @@ use std::sync::Arc;
 pub use lighthouse_metrics::*;
 
 lazy_static! {
-    pub static ref NAT_OPEN: Result<IntGauge> = try_create_int_gauge(
+    pub static ref NAT_OPEN: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "nat_open",
-        "An estimate indicating if the local node is exposed to the internet."
+        "An estimate indicating if the local node is reachable from external nodes",
+        &["protocol"]
     );
     pub static ref ADDRESS_UPDATE_COUNT: Result<IntCounter> = try_create_int_counter(
         "libp2p_address_update_total",
