@@ -23,13 +23,10 @@ lazy_static! {
         "libp2p_peer_disconnect_event_total",
         "Count of libp2p peer disconnect events"
     );
-    pub static ref DISCOVERY_SENT_BYTES: Result<IntGauge> = try_create_int_gauge(
-        "discovery_sent_bytes",
-        "The number of bytes sent in discovery"
-    );
-    pub static ref DISCOVERY_RECV_BYTES: Result<IntGauge> = try_create_int_gauge(
-        "discovery_recv_bytes",
-        "The number of bytes received in discovery"
+    pub static ref DISCOVERY_BYTES: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "discovery_bytes",
+        "The number of bytes sent and received in discovery",
+        &["direction"]
     );
     pub static ref DISCOVERY_QUEUE: Result<IntGauge> = try_create_int_gauge(
         "discovery_queue_size",
@@ -141,8 +138,8 @@ pub fn scrape_discovery_metrics() {
         discv5::metrics::Metrics::from(discv5::Discv5::<discv5::DefaultProtocolId>::raw_metrics());
     set_float_gauge(&DISCOVERY_REQS, metrics.unsolicited_requests_per_second);
     set_gauge(&DISCOVERY_SESSIONS, metrics.active_sessions as i64);
-    set_gauge(&DISCOVERY_SENT_BYTES, metrics.bytes_sent as i64);
-    set_gauge(&DISCOVERY_RECV_BYTES, metrics.bytes_recv as i64);
+    set_gauge_vec(&DISCOVERY_BYTES, &["inbound"], metrics.bytes_recv as i64);
+    set_gauge_vec(&DISCOVERY_BYTES, &["outbound"], metrics.bytes_sent as i64);
 }
 
 /// Aggregated `BandwidthSinks` of tcp and quic transports
