@@ -432,9 +432,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // Load the blinded block.
-        let blinded_block = match self.get_blinded_block(block_root)? {
-            Some(block) => block,
-            None => return Ok(None),
+        let Some(blinded_block) = self.get_blinded_block(block_root)? else {
+            return Ok(None);
         };
 
         // If the block is after the split point then we should have the full execution payload
@@ -2053,12 +2052,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Try to prune blobs, approximating the current epoch from the split slot.
     pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
-        let deneb_fork_epoch = match self.spec.deneb_fork_epoch {
-            Some(epoch) => epoch,
-            None => {
-                debug!(self.log, "Deneb fork is disabled");
-                return Ok(());
-            }
+        let Some(deneb_fork_epoch) = self.spec.deneb_fork_epoch else {
+            debug!(self.log, "Deneb fork is disabled");
+            return Ok(());
         };
         // The current epoch is >= split_epoch + 2. It could be greater if the database is
         // configured to delay updating the split or finalization has ceased. In this instance we
