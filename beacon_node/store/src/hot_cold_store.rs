@@ -1490,10 +1490,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let split_slot = self.get_split_slot();
         let anchor = self.get_anchor_info();
 
-        // There are no restore points stored if the state upper limit lies in the hot database.
-        // It hasn't been reached yet, and may never be.
-        if anchor.map_or(false, |a| a.state_upper_limit >= split_slot) {
+        // There are no restore points stored if the state upper limit lies in the hot database,
+        // and the lower limit is zero. It hasn't been reached yet, and may never be.
+        if anchor.as_ref().map_or(false, |a| {
+            a.state_upper_limit >= split_slot && a.state_lower_limit == 0
+        }) {
             None
+        } else if let Some(lower_limit) = anchor
+            .map(|a| a.state_lower_limit)
+            .filter(|limit| *limit > 0)
+        {
+            Some(lower_limit)
         } else {
             Some(
                 (split_slot - 1) / self.config.slots_per_restore_point

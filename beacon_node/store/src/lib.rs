@@ -275,9 +275,11 @@ impl DBColumn {
     /// This function returns the number of bytes used by keys in a given column.
     pub fn key_size(self) -> usize {
         match self {
+            Self::OverflowLRUCache => 40,
             Self::BeaconMeta
             | Self::BeaconBlock
             | Self::BeaconState
+            | Self::BeaconBlob
             | Self::BeaconStateSummary
             | Self::BeaconStateTemporary
             | Self::ExecPayload
@@ -288,8 +290,6 @@ impl DBColumn {
             | Self::PubkeyCache
             | Self::BeaconRestorePoint
             | Self::DhtEnrs
-            | Self::BeaconBlob
-            | Self::OverflowLRUCache
             | Self::OptimisticTransitionBlock => 32,
             Self::BeaconBlockRoots
             | Self::BeaconStateRoots

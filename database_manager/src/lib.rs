@@ -366,8 +366,6 @@ pub fn inspect_db<E: EthSpec>(
                 } else {
                     println!("Successfully saved values to file: {:?}", file_path);
                 }
-
-                total += value.len();
             }
         }
         total += value.len();
