@@ -2219,6 +2219,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
+    /// This function fills in missing block roots between last restore point slot and split
+    /// slot, if any.  
     pub fn heal_freezer_block_roots(&self) -> Result<(), Error> {
         let split = self.get_split_info();
         let last_restore_point_slot = (split.slot - 1) / self.config.slots_per_restore_point
@@ -2259,6 +2261,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         genesis_state_root: Hash256,
         genesis_state: &BeaconState<E>,
     ) -> Result<(), Error> {
+        // Make sure there is no missing block roots before pruning
+        self.heal_freezer_block_roots()?;
+
         // Update the anchor to use the dummy state upper limit and disable historic state storage.
         let old_anchor = self.get_anchor_info();
         let new_anchor = if let Some(old_anchor) = old_anchor.clone() {
