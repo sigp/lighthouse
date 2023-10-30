@@ -97,14 +97,14 @@ fn bron_kerbosch_aux<F>(
     let pivot = find_pivot(&p, &x, neighbourhoods);
     let pivot_neighbours: HashTrieSet<usize> = neighbourhoods[pivot].iter().cloned().collect();
     
-    let ip = p.iter().cloned().filter(|e| !pivot_neighbours.contains(e)).collect::<HashTrieSet<_>>();
+    let ip = hash_set_filter(&p, |e| pivot_neighbours.contains(e));
 
     for v in ip.iter() {
         let n_set: HashTrieSet<usize> = neighbourhoods[*v].iter().cloned().collect();
 
         let nr = r.insert(*v);
-        let np = p.iter().cloned().filter(|e| n_set.contains(e)).collect::<HashTrieSet<_>>();
-        let nx = x.iter().cloned().filter(|e| n_set.contains(e)).collect::<HashTrieSet<_>>();
+        let np = hash_set_filter(&p, |e| !n_set.contains(e));
+        let nx = hash_set_filter(&x, |e| !n_set.contains(e));
 
         bron_kerbosch_aux(nr, np, nx, neighbourhoods, publish_clique);
 
@@ -123,6 +123,19 @@ fn find_pivot(p: &HashTrieSet<usize>, x: &HashTrieSet<usize>, neighbourhoods: &[
                 .count()
         })
         .unwrap()
+}
+
+fn hash_set_filter<P>(set: &HashTrieSet<usize>, predicate: P) -> HashTrieSet<usize> 
+where
+    P: Fn(&usize) -> bool
+{
+    let mut new_set = set.clone();
+    for e in set.iter() {
+        if predicate(e) {
+            new_set.remove_mut(e);
+        }
+    }
+    new_set
 }
 
 #[cfg(test)]

@@ -1211,7 +1211,7 @@ mod release_tests {
             .map(BeaconCommittee::into_owned)
             .collect::<Vec<_>>();
 
-        let num_validators = 16 as usize * spec.target_committee_size;
+        let num_validators = 32 as usize * spec.target_committee_size;
 
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
