@@ -42,14 +42,14 @@ pub fn bron_kerbosch<T, F: Fn(&T, &T) -> bool>(
 fn compute_neighbourhoods<T, F: Fn(&T, &T) -> bool>(
     vertices: &Vec<T>,
     is_compatible: F,
-) -> Vec<HashTrieSet<usize>> {
+) -> Vec<Vec<usize>> {
     let mut neighbourhoods = vec![];
-    neighbourhoods.resize_with(vertices.len(), HashTrieSet::new);
+    neighbourhoods.resize_with(vertices.len(), Vec::new);
     for i in 0..vertices.len() - 1 {
         for j in i + 1..vertices.len() {
             if is_compatible(&vertices[i], &vertices[j]) {
-                neighbourhoods[i].insert_mut(j);
-                neighbourhoods[j].insert_mut(i);
+                neighbourhoods[i].push(j);
+                neighbourhoods[j].push(i);
             }
         }
     }
@@ -57,9 +57,9 @@ fn compute_neighbourhoods<T, F: Fn(&T, &T) -> bool>(
 }
 
 /// Produces a degeneracy ordering of a set of vertices.
-fn degeneracy_order(num_vertices: usize, neighbourhoods: &[HashTrieSet<usize>]) -> Vec<usize> {
+fn degeneracy_order(num_vertices: usize, neighbourhoods: &[Vec<usize>]) -> Vec<usize> {
     let mut v: Vec<usize> = (0..num_vertices).collect();
-    v.sort_unstable_by_key(|i| neighbourhoods[*i].size());
+    v.sort_unstable_by_key(|i| neighbourhoods[*i].len());
     v
 }
 
@@ -74,7 +74,7 @@ fn bron_kerbosch_aux<F>(
     r: HashTrieSet<usize>,
     mut p: HashTrieSet<usize>,
     mut x: HashTrieSet<usize>,
-    neighbourhoods: &Vec<HashTrieSet<usize>>,
+    neighbourhoods: &Vec<Vec<usize>>,
     publish_clique: &mut F,
 ) where
     F: FnMut(HashTrieSet<usize>),
@@ -85,12 +85,12 @@ fn bron_kerbosch_aux<F>(
     }
 
     let pivot = find_pivot(&p, &x, neighbourhoods);
-    let pivot_neighbours: &HashTrieSet<usize> = &neighbourhoods[pivot];
+    let pivot_neighbours = &neighbourhoods[pivot];
 
     let ip = hash_set_filter(&p, |e| pivot_neighbours.contains(e));
 
     for v in ip.iter() {
-        let n_set: &HashTrieSet<usize> = &neighbourhoods[*v];
+        let n_set = &neighbourhoods[*v];
 
         let nr = r.insert(*v);
         let np = hash_set_filter(&p, |e| !n_set.contains(e));
@@ -107,7 +107,7 @@ fn bron_kerbosch_aux<F>(
 fn find_pivot(
     p: &HashTrieSet<usize>,
     x: &HashTrieSet<usize>,
-    neighbourhoods: &[HashTrieSet<usize>],
+    neighbourhoods: &[Vec<usize>],
 ) -> usize {
     *p.iter()
         .chain(x.iter())
