@@ -7164,7 +7164,7 @@ dependencies = [
 [[package]]
 name = "ssz_types"
 version = "0.5.4"
-source = "git+https://github.com/macladson/ssz_types.git?branch=optional#7e3b960c63a042b7b0e25de188c608e3de86ac7f"
+source = "git+https://github.com/macladson/ssz_types.git?branch=optional#6a187e66213d42c748e477585ec43e79d057f2cf"
 dependencies = [
  "arbitrary",
  "derivative",

@@ -118,7 +118,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * Post-merge fork triggers
      */
     pub shanghai_time: Option<u64>, // withdrawals
-    pub prague_time: Option<u64>,  // verkle trees
+    pub prague_time: Option<u64>,   // verkle trees
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {

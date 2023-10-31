@@ -105,6 +105,7 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     #[superstruct(only(V2, V4))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
     #[superstruct(only(V4))]
+    #[serde(deserialize_with = "serde_execution_witness")]
     pub execution_witness: JsonExecutionWitness<T>,
 }
 
@@ -630,6 +631,15 @@ pub mod serde_logs_bloom {
         FixedVector::new(vec)
             .map_err(|e| serde::de::Error::custom(format!("invalid logs bloom: {:?}", e)))
     }
+}
+
+pub fn serde_execution_witness<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Default + Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
 }
 
 /// Execution Witness JSON types.
