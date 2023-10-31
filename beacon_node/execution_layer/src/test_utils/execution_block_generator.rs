@@ -118,7 +118,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * Post-merge fork triggers
      */
     pub shanghai_time: Option<u64>, // withdrawals
-    pub electra_time: Option<u64>,  // TODO(mac): Get actualy execution fork name
+    pub prague_time: Option<u64>,  // verkle trees
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
@@ -127,7 +127,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_number: u64,
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
-        electra_time: Option<u64>,
+        prague_time: Option<u64>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -141,7 +141,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             next_payload_id: 0,
             payload_ids: <_>::default(),
             shanghai_time,
-            electra_time,
+            prague_time,
         };
 
         gen.insert_pow_block(0).unwrap();
@@ -174,7 +174,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn get_fork_at_timestamp(&self, timestamp: u64) -> ForkName {
-        match self.electra_time {
+        match self.prague_time {
             Some(fork_time) if timestamp >= fork_time => ForkName::Electra,
             _ => match self.shanghai_time {
                 Some(fork_time) if timestamp >= fork_time => ForkName::Capella,

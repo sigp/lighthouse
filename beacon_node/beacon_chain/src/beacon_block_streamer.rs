@@ -716,9 +716,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_all_blocks_from_altair_to_capella() {
+    async fn check_all_blocks_from_altair_to_electra() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 8;
+        let num_epochs = 10;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
         let electra_fork_epoch = 6usize;
@@ -837,9 +837,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_fallback_altair_to_capella() {
+    async fn check_fallback_altair_to_electra() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 8;
+        let num_epochs = 10;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
         let electra_fork_epoch = 6usize;

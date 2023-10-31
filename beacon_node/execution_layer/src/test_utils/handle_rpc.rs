@@ -99,11 +99,15 @@ pub async fn handle_rpc<T: EthSpec>(
                     get_param::<JsonExecutionPayloadV1<T>>(params, 0)
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 ),
-                ENGINE_NEW_PAYLOAD_V2 => get_param::<JsonExecutionPayloadV2<T>>(params, 0)
-                    .map(|jep| JsonExecutionPayload::V2(jep))
+                ENGINE_NEW_PAYLOAD_V2 => get_param::<JsonExecutionPayloadV4<T>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::V4(jep))
                     .or_else(|_| {
-                        get_param::<JsonExecutionPayloadV1<T>>(params, 0)
-                            .map(|jep| JsonExecutionPayload::V1(jep))
+                        get_param::<JsonExecutionPayloadV2<T>>(params, 0)
+                            .map(|jep| JsonExecutionPayload::V2(jep))
+                            .or_else(|_| {
+                                get_param::<JsonExecutionPayloadV1<T>>(params, 0)
+                                    .map(|jep| JsonExecutionPayload::V1(jep))
+                            })
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 // TODO(4844) add that here..

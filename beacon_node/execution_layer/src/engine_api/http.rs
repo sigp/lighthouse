@@ -844,14 +844,14 @@ impl HttpJsonRpc {
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
             ForkName::Electra => {
-                let response: JsonGetPayloadResponseV2<T> = self
+                let response: JsonGetPayloadResponseV4<T> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V2(response).into())
+                Ok(JsonGetPayloadResponse::V4(response).into())
             }
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v2 with {}",

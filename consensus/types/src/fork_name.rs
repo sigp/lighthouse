@@ -40,24 +40,28 @@ impl ForkName {
                 spec.altair_fork_epoch = None;
                 spec.bellatrix_fork_epoch = None;
                 spec.capella_fork_epoch = None;
+                spec.electra_fork_epoch = None;
                 spec
             }
             ForkName::Altair => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = None;
                 spec.capella_fork_epoch = None;
+                spec.electra_fork_epoch = None;
                 spec
             }
             ForkName::Merge => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = None;
+                spec.electra_fork_epoch = None;
                 spec
             }
             ForkName::Capella => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.electra_fork_epoch = None;
                 spec
             }
             ForkName::Electra => {
