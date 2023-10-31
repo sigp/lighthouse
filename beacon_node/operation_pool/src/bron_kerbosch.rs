@@ -11,7 +11,7 @@ pub fn bron_kerbosch<T, F: Fn(&T, &T) -> bool>(
 
     if vertices.len() > 0 {
         // build neighbourhoods and degeneracy ordering, also move to index-based reasoning
-        let neighbourhoods = compute_neigbourhoods(vertices, is_compatible);
+        let neighbourhoods = compute_neighbourhoods(vertices, is_compatible);
         let ordering = degeneracy_order(vertices.len(), &neighbourhoods);
 
         let mut publish_clique = |c| cliques.push(c);
@@ -39,17 +39,17 @@ pub fn bron_kerbosch<T, F: Fn(&T, &T) -> bool>(
 /// `is_compatible(&a, &b) == true`. The function assumes that `is_compatible` is symmetric,
 /// and returns a symmetric matrix (`Vec<Vec<usize>>`) of indices, where each index corresponds
 /// to the relative vertex in `vertices`.
-fn compute_neigbourhoods<T, F: Fn(&T, &T) -> bool>(
+fn compute_neighbourhoods<T, F: Fn(&T, &T) -> bool>(
     vertices: &Vec<T>,
     is_compatible: F,
-) -> Vec<Vec<usize>> {
+) -> Vec<HashTrieSet<usize>> {
     let mut neighbourhoods = vec![];
-    neighbourhoods.resize_with(vertices.len(), Vec::new);
+    neighbourhoods.resize_with(vertices.len(), HashTrieSet::new);
     for i in 0..vertices.len() - 1 {
         for j in i + 1..vertices.len() {
             if is_compatible(&vertices[i], &vertices[j]) {
-                neighbourhoods[i].push(j);
-                neighbourhoods[j].push(i);
+                neighbourhoods[i].insert_mut(j);
+                neighbourhoods[j].insert_mut(i);
             }
         }
     }
@@ -57,20 +57,10 @@ fn compute_neigbourhoods<T, F: Fn(&T, &T) -> bool>(
 }
 
 /// Produces a degeneracy ordering of a set of vertices.
-fn degeneracy_order(num_vertices: usize, neighbourhoods: &[Vec<usize>]) -> Vec<usize> {
+fn degeneracy_order(num_vertices: usize, neighbourhoods: &[HashTrieSet<usize>]) -> Vec<usize> {
     let mut v: Vec<usize> = (0..num_vertices).collect();
-    let mut o = vec![];
-    // move vertices from v to o in order of minimum degree
-    while !v.is_empty() {
-        let m: Option<usize> = (0..v.len()).min_by_key(|i| neighbourhoods[*i].len());
-        if let Some(i) = m {
-            o.push(v[i]);
-            v.remove(i);
-        } else {
-            break;
-        }
-    }
-    o
+    v.sort_unstable_by_key(|i| neighbourhoods[*i].size());
+    v
 }
 
 /// Auxiliary function to be used in the recursive call of the Bron-Kerbosh algorithm.
@@ -84,7 +74,7 @@ fn bron_kerbosch_aux<F>(
     r: HashTrieSet<usize>,
     mut p: HashTrieSet<usize>,
     mut x: HashTrieSet<usize>,
-    neighbourhoods: &Vec<Vec<usize>>,
+    neighbourhoods: &Vec<HashTrieSet<usize>>,
     publish_clique: &mut F,
 ) where
     F: FnMut(HashTrieSet<usize>),
@@ -95,12 +85,12 @@ fn bron_kerbosch_aux<F>(
     }
 
     let pivot = find_pivot(&p, &x, neighbourhoods);
-    let pivot_neighbours: HashTrieSet<usize> = neighbourhoods[pivot].iter().cloned().collect();
+    let pivot_neighbours: &HashTrieSet<usize> = &neighbourhoods[pivot];
 
     let ip = hash_set_filter(&p, |e| pivot_neighbours.contains(e));
 
     for v in ip.iter() {
-        let n_set: HashTrieSet<usize> = neighbourhoods[*v].iter().cloned().collect();
+        let n_set: &HashTrieSet<usize> = &neighbourhoods[*v];
 
         let nr = r.insert(*v);
         let np = hash_set_filter(&p, |e| !n_set.contains(e));
@@ -108,8 +98,8 @@ fn bron_kerbosch_aux<F>(
 
         bron_kerbosch_aux(nr, np, nx, neighbourhoods, publish_clique);
 
-        p = p.remove(v);
-        x = x.insert(*v);
+        p.remove_mut(v);
+        x.insert_mut(*v);
     }
 }
 
@@ -117,7 +107,7 @@ fn bron_kerbosch_aux<F>(
 fn find_pivot(
     p: &HashTrieSet<usize>,
     x: &HashTrieSet<usize>,
-    neighbourhoods: &[Vec<usize>],
+    neighbourhoods: &[HashTrieSet<usize>],
 ) -> usize {
     *p.iter()
         .chain(x.iter())

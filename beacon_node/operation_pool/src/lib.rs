@@ -1211,7 +1211,8 @@ mod release_tests {
             .map(BeaconCommittee::into_owned)
             .collect::<Vec<_>>();
 
-        let num_validators = 16 as usize * spec.target_committee_size;
+        // NOTE: this test is VERY sensitive to the number of attestations
+        let num_validators = 16 * spec.target_committee_size;
 
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
@@ -1225,6 +1226,11 @@ mod release_tests {
         // Create attestations that overlap on `step_size` validators, like:
         // {0,1,2,3}, {2,3,4,5}, {4,5,6,7}, ...
         for (atts1, _) in attestations {
+            assert_eq!(
+                (atts1.len() - step_size) % (2 * step_size),
+                0,
+                "to get two aggregates we need to be able to split by 2*step_size"
+            );
             let atts2 = atts1.clone();
             let aggs1 = atts1
                 .chunks_exact(step_size * 2)
@@ -1276,11 +1282,11 @@ mod release_tests {
         }
 
         let mut num_valid = 0;
-        let (prev, curr) = CheckpointKey::keys_for_state(&state);
+        let (_, curr) = CheckpointKey::keys_for_state(&state);
         let all_attestations = op_pool.attestations.read();
 
         complete_state_advance(&mut state, None, Slot::new(1), spec).unwrap();
-        let aggregated_attestations = op_pool.get_clique_aggregate_attestations_for_epoch(
+        let clique_attestations = op_pool.get_clique_aggregate_attestations_for_epoch(
             &curr,
             &all_attestations,
             &state,
@@ -1288,13 +1294,22 @@ mod release_tests {
             &mut num_valid,
             spec,
         );
+        let best_attestations = op_pool
+            .get_attestations(&state, |_| true, |_| true, spec)
+            .unwrap();
+
+        // There should only be attestations for 1 attestation data.
+        let stats = op_pool.attestation_stats();
+        assert_eq!(committees.len(), 1);
+        assert_eq!(stats.num_attestation_data, 1);
+
+        // There should be multiple cliques for this single attestation data.
+        assert_eq!(clique_attestations.len(), 1);
+        assert!(clique_attestations[0].1.len() > 1);
 
         // The attestations should get aggregated into two attestations that comprise all
         // validators.
-        let stats = op_pool.attestation_stats();
-        assert_eq!(stats.num_attestation_data, committees.len());
-        // assert_eq!(stats.num_attestations, 2 * committees.len());
-        assert_eq!(aggregated_attestations[0].1.len(), 2);
+        assert_eq!(best_attestations.len(), 2);
     }
 
     /// Create a bunch of attestations signed by a small number of validators, and another
