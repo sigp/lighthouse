@@ -85,7 +85,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                     .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
             }
             SignedBeaconBlock::Deneb(_) => {
-                let mut pubsub_messages = vec![PubsubMessage::BeaconBlock(block.clone())];
+                let mut pubsub_messages = Vec::with_capacity(T::EthSpec::max_blobs_per_block() + 1);
                 if let Some(signed_blobs) = blobs_opt {
                     for (blob_index, blob) in signed_blobs.into_iter().enumerate() {
                         pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((
@@ -94,6 +94,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                         ))));
                     }
                 }
+                pubsub_messages.push(PubsubMessage::BeaconBlock(block.clone()));
                 crate::publish_pubsub_messages(&sender, pubsub_messages)
                     .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
             }
