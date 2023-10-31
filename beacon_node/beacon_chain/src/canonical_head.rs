@@ -1413,13 +1413,24 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 .start_of(head_block_slot)
                 .unwrap_or_else(|| Duration::from_secs(0)),
         );
-
-        metrics::observe_duration(
+        let peer_info = block_times_cache.get_peer_info(head_block_root);
+        metrics::observe_timer_vec(
             &metrics::BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME,
+            &[peer_info.graffiti.as_ref().unwrap_or(&String::new())],
             block_delays
                 .observed
                 .unwrap_or_else(|| Duration::from_secs(0)),
         );
+
+        if let Some(delays) = block_delays.observed_blobs {
+            for delay in delays.iter() {
+                metrics::observe_timer_vec(
+                    &metrics::BEACON_BLOB_OBSERVED_SLOT_START_DELAY_TIME,
+                    &[peer_info.graffiti.as_ref().unwrap_or(&String::new())],
+                    *delay,
+                );
+            }
+        }
 
         metrics::observe_duration(
             &metrics::BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME,

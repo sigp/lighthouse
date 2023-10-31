@@ -618,6 +618,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(&metrics::BEACON_BLOB_GOSSIP_SLOT_START_DELAY_TIME, delay);
         metrics::set_gauge(&metrics::BEACON_BLOB_LAST_DELAY, delay.as_millis() as i64);
+
+        // Write the time the blob was observed into delay cache.
+        self.chain
+            .block_times_cache
+            .write()
+            .set_time_observed_blob(root, slot, seen_duration);
+
         match self
             .chain
             .verify_blob_sidecar_for_gossip(signed_blob, blob_index)
@@ -907,6 +914,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             block.canonical_root()
         };
 
+        let graffiti = block.message().body().graffiti().as_utf8_lossy();
+        let proposer_client = if graffiti.contains("lighthouse") {
+            "lighthouse"
+        } else if graffiti.contains("prysm") {
+            "prysm"
+        } else if graffiti.contains("nimbus") {
+            "nimbus"
+        } else if graffiti.contains("teku") {
+            "teku"
+        } else if graffiti.contains("lodestar") {
+            "lodestar"
+        } else {
+            ""
+        };
         // Write the time the block was observed into delay cache.
         self.chain.block_times_cache.write().set_time_observed(
             block_root,
@@ -914,6 +935,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             seen_duration,
             Some(peer_id.to_string()),
             Some(peer_client.to_string()),
+            Some(proposer_client.to_string()),
         );
 
         let verified_block = match verification_result {

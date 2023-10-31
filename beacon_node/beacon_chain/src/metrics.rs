@@ -825,11 +825,19 @@ lazy_static! {
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
+    pub static ref BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME: Result<HistogramVec> = try_create_histogram_vec_with_buckets(
         "beacon_block_observed_slot_start_delay_time",
         "Duration between the start of the block's slot and the time the block was observed.",
         // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
-        decimal_buckets(-1,2)
+        Ok(vec![0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.5,2.0,2.5,4.0,5.0,10.0,20.0]),
+        &["proposer_client"]
+    );
+    pub static ref BEACON_BLOB_OBSERVED_SLOT_START_DELAY_TIME: Result<HistogramVec> = try_create_histogram_vec_with_buckets(
+        "beacon_blob_observed_slot_start_delay_time",
+        "Duration between the start of the blob's slot and the time the blob was observed.",
+        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
+        Ok(vec![0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.5,2.0,2.5,4.0,5.0,10.0,20.0]),
+        &["proposer_client"]
     );
     pub static ref BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_imported_observed_delay_time",

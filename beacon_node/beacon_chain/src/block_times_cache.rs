@@ -18,6 +18,7 @@ type BlockRoot = Hash256;
 #[derive(Clone, Default)]
 pub struct Timestamps {
     pub observed: Option<Duration>,
+    pub observed_blobs: Vec<Duration>,
     pub imported: Option<Duration>,
     pub set_as_head: Option<Duration>,
 }
@@ -26,6 +27,7 @@ pub struct Timestamps {
 #[derive(Default)]
 pub struct BlockDelays {
     pub observed: Option<Duration>,
+    pub observed_blobs: Option<Vec<Duration>>,
     pub imported: Option<Duration>,
     pub set_as_head: Option<Duration>,
 }
@@ -35,6 +37,16 @@ impl BlockDelays {
         let observed = times
             .observed
             .and_then(|observed_time| observed_time.checked_sub(slot_start_time));
+        let observed_blobs: Vec<_> = times
+            .observed_blobs
+            .iter()
+            .map(|observed| observed.saturating_sub(slot_start_time))
+            .collect();
+        let observed_blobs = if observed_blobs.is_empty() {
+            None
+        } else {
+            Some(observed_blobs)
+        };
         let imported = times
             .imported
             .and_then(|imported_time| imported_time.checked_sub(times.observed?));
@@ -45,6 +57,7 @@ impl BlockDelays {
             observed,
             imported,
             set_as_head,
+            observed_blobs,
         }
     }
 }
@@ -55,6 +68,7 @@ impl BlockDelays {
 pub struct BlockPeerInfo {
     pub id: Option<String>,
     pub client: Option<String>,
+    pub graffiti: Option<String>,
 }
 
 pub struct BlockTimesCacheValue {
@@ -87,6 +101,7 @@ impl BlockTimesCache {
         timestamp: Duration,
         peer_id: Option<String>,
         peer_client: Option<String>,
+        graffiti: Option<String>,
     ) {
         let block_times = self
             .cache
@@ -96,7 +111,21 @@ impl BlockTimesCache {
         block_times.peer_info = BlockPeerInfo {
             id: peer_id,
             client: peer_client,
+            graffiti: graffiti,
         };
+    }
+
+    pub fn set_time_observed_blob(
+        &mut self,
+        block_root: BlockRoot,
+        slot: Slot,
+        timestamp: Duration,
+    ) {
+        let block_times = self
+            .cache
+            .entry(block_root)
+            .or_insert_with(|| BlockTimesCacheValue::new(slot));
+        block_times.timestamps.observed_blobs.push(timestamp);
     }
 
     pub fn set_time_imported(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
