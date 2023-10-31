@@ -208,14 +208,14 @@ test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 lint:
 	cargo clippy --workspace --tests $(EXTRA_CLIPPY_OPTS) --features "$(TEST_FEATURES)" -- \
 		-D clippy::fn_to_numeric_cast_any \
+		-D clippy::manual_let_else \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push \
 		-A clippy::question-mark \
-		-A clippy::uninlined-format-args \
-		-D clippy::manual_let_else
+		-A clippy::uninlined-format-args
 
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:

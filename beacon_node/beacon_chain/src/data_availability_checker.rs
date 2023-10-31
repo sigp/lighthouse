@@ -452,6 +452,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 tokio::time::sleep(duration + additional_delay).await;
 
                 let Some(deneb_fork_epoch) = chain.spec.deneb_fork_epoch else {
+                    // shutdown service if deneb fork epoch not set
                     break;
                 };
 
