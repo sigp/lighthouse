@@ -1,5 +1,4 @@
-#![cfg(not(debug_assertions))]
-
+use beacon_chain::attester_per_slot_service::produce_unaggregated_attestation;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
 use lazy_static::lazy_static;
@@ -12,6 +11,57 @@ pub const VALIDATOR_COUNT: usize = 16;
 lazy_static! {
     /// A cached set of keys.
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
+}
+
+#[tokio::test]
+async fn produces_attestations_from_attester_per_slot_service() {
+    // Produce 2 epochs, or 64 blocks
+    let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 2;
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let chain = &harness.chain;
+
+    // Test all valid committee indices and their rewards for all slots in the chain
+    // using validator monitor
+    for slot in 0..=num_blocks_produced {
+        // We do not produce at slot=0, and there's no committe cache available anyway
+        if slot > 0 && slot <= num_blocks_produced {
+            harness.advance_slot();
+
+            harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+        }
+        // Set the state to the current slot
+        let slot = Slot::from(slot);
+        let mut state = chain
+            .state_at_slot(slot, StateSkipConfig::WithStateRoots)
+            .expect("should get state");
+
+        // Prebuild the committee cache for the current epoch
+        state
+            .build_committee_cache(RelativeEpoch::Current, &harness.chain.spec)
+            .unwrap();
+
+        // Produce an unaggragetated attestation
+        produce_unaggregated_attestation(chain.clone(), state.clone(), chain.slot().unwrap());
+
+        // Verify that the ua is stored in validator monitor
+        let validator_monitor = chain.validator_monitor.read();
+        validator_monitor
+            .get_unaggregated_attestation(slot)
+            .expect("should get unaggregated attestation");
+    }
 }
 
 /// This test builds a chain that is just long enough to finalize an epoch then it produces an

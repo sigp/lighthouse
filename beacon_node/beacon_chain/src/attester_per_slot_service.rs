@@ -64,7 +64,7 @@ async fn attester_per_slot_service<T: BeaconChainTypes>(
     }
 }
 
-fn produce_unaggregated_attestation<T: BeaconChainTypes>(
+pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
     inner_chain: Arc<BeaconChain<T>>,
     state: BeaconState<<T as BeaconChainTypes>::EthSpec>,
     current_slot: Slot,
@@ -78,8 +78,7 @@ fn produce_unaggregated_attestation<T: BeaconChainTypes>(
             if let Some(beacon_committee) =
                 committee_cache.get_beacon_committee(current_slot, index)
             {
-                // Store the unaggregated attestation in the validator monitor
-                // or log an error if it fails
+                // Store the unaggregated attestation in the validator monitor for later processing
                 match inner_chain
                     .produce_unaggregated_attestation(current_slot, beacon_committee.index)
                 {
@@ -92,7 +91,6 @@ fn produce_unaggregated_attestation<T: BeaconChainTypes>(
                         "committee_len" => beacon_committee.committee.len(),
                         "attestation" => ?unaggregated_attestation
                         );
-
                         inner_chain
                             .validator_monitor
                             .write()
