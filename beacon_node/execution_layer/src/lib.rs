@@ -1799,13 +1799,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
             };
         }
 
-        let block = if let Some(block) = engine
+        let Some(block) = engine
             .api
             .get_block_by_hash_with_txns::<T>(hash, fork)
             .await?
-        {
-            block
-        } else {
+        else {
             return Ok(None);
         };
 

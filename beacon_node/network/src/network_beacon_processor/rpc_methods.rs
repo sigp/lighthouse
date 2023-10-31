@@ -350,17 +350,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 return;
             }
         };
-        let bootstrap = match LightClientBootstrap::from_beacon_state(&mut beacon_state) {
-            Ok(bootstrap) => bootstrap,
-            Err(_) => {
-                self.send_error_response(
-                    peer_id,
-                    RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not available".into(),
-                    request_id,
-                );
-                return;
-            }
+        let Ok(bootstrap) = LightClientBootstrap::from_beacon_state(&mut beacon_state) else {
+            self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::ResourceUnavailable,
+                "Bootstrap not available".into(),
+                request_id,
+            );
+            return;
         };
         self.send_response(
             peer_id,

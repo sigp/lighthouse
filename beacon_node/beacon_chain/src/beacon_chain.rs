@@ -601,11 +601,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
-        let persisted_fork_choice =
-            match store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)? {
-                Some(fc) => fc,
-                None => return Ok(None),
-            };
+        let Some(persisted_fork_choice) =
+            store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
+        else {
+            return Ok(None);
+        };
 
         let fc_store =
             BeaconForkChoiceStore::from_persisted(persisted_fork_choice.fork_choice_store, store)?;
@@ -3485,9 +3485,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
     ) -> Result<(), BlockError<T::EthSpec>> {
         // Only perform the weak subjectivity check if it was configured.
-        let wss_checkpoint = if let Some(checkpoint) = self.config.weak_subjectivity_checkpoint {
-            checkpoint
-        } else {
+        let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint else {
             return Ok(());
         };
         // Note: we're using the finalized checkpoint from the head state, rather than fork
@@ -5336,14 +5334,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .await??;
 
-        let (forkchoice_update_params, pre_payload_attributes) =
-            if let Some((fcu, Some(pre_payload))) = maybe_prep_data {
-                (fcu, pre_payload)
-            } else {
-                // Appropriate log messages have already been logged above and in
-                // `get_pre_payload_attributes`.
-                return Ok(());
-            };
+        let Some((forkchoice_update_params, Some(pre_payload_attributes))) = maybe_prep_data else {
+            // Appropriate log messages have already been logged above and in
+            // `get_pre_payload_attributes`.
+            return Ok(());
+        };
 
         // If the execution layer doesn't have any proposer data for this validator then we assume
         // it's not connected to this BN and no action is required.
@@ -5436,23 +5431,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let till_prepare_slot =
-            if let Some(duration) = self.slot_clock.duration_to_slot(prepare_slot) {
-                duration
-            } else {
-                // `SlotClock::duration_to_slot` will return `None` when we are past the start
-                // of `prepare_slot`. Don't bother sending a `forkchoiceUpdated` in that case,
-                // it's too late.
-                //
-                // This scenario might occur on an overloaded/under-resourced node.
-                warn!(
-                    self.log,
-                    "Delayed proposer preparation";
-                    "prepare_slot" => prepare_slot,
-                    "validator" => proposer,
-                );
-                return Ok(());
-            };
+        let Some(till_prepare_slot) = self.slot_clock.duration_to_slot(prepare_slot) else {
+            // `SlotClock::duration_to_slot` will return `None` when we are past the start
+            // of `prepare_slot`. Don't bother sending a `forkchoiceUpdated` in that case,
+            // it's too late.
+            //
+            // This scenario might occur on an overloaded/under-resourced node.
+            warn!(
+                self.log,
+                "Delayed proposer preparation";
+                "prepare_slot" => prepare_slot,
+                "validator" => proposer,
+            );
+            return Ok(());
+        };
 
         // If we are close enough to the proposal slot, send an fcU, which will have payload
         // attributes filled in by the execution layer cache we just primed.
