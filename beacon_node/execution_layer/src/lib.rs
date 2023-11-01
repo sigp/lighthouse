@@ -1305,6 +1305,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "timestamp" => payload_attributes.timestamp(),
                         "parent_hash" => ?parent_hash,
                     );
+                    let _timer = metrics::start_timer_vec(
+                        &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+                        &[metrics::GET_PAYLOAD],
+                    );
                     engine.api.get_payload::<T>(current_fork, payload_id).await
                 }.await?;
 

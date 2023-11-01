@@ -2,6 +2,7 @@ pub use lighthouse_metrics::*;
 
 pub const HIT: &str = "hit";
 pub const MISS: &str = "miss";
+pub const GET_PAYLOAD: &str = "get_payload";
 pub const GET_BLINDED_PAYLOAD: &str = "get_blinded_payload";
 pub const GET_BLINDED_PAYLOAD_LOCAL: &str = "get_blinded_payload_local";
 pub const GET_BLINDED_PAYLOAD_BUILDER: &str = "get_blinded_payload_builder";

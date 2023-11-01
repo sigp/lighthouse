@@ -70,7 +70,6 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
-use eth2::lighthouse::StandardBlockReward;
 use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
@@ -4575,16 +4574,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .clone()
             .spawn_handle(
                 async move {
-                    chain
-                        .produce_partial_beacon_block(
-                            state,
-                            state_root_opt,
-                            produce_at_slot,
-                            randao_reveal,
-                            validator_graffiti,
-                            block_production_version,
-                        )
-                        .await
+                    chain.produce_partial_beacon_block(
+                        state,
+                        state_root_opt,
+                        produce_at_slot,
+                        randao_reveal,
+                        validator_graffiti,
+                        block_production_version,
+                    )
                 },
                 "produce_partial_beacon_block",
             )
@@ -4673,7 +4670,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    async fn produce_partial_beacon_block(
+    fn produce_partial_beacon_block(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
@@ -5099,7 +5096,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let block = SignedBeaconBlock::from_block(
-            inner_block.clone(),
+            inner_block,
             // The block is not signed here, that is the task of a validator client.
             Signature::empty(),
         );
@@ -5127,16 +5124,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut ctxt = ConsensusContext::new(block.slot());
 
         let consensus_block_value = self
-            .compute_beacon_block_reward(inner_block.to_ref(), Hash256::zero(), &mut state)
-            .unwrap_or(StandardBlockReward {
-                proposer_index: 0,
-                total: 0,
-                attestations: 0,
-                sync_aggregate: 0,
-                proposer_slashings: 0,
-                attester_slashings: 0,
-            })
-            .total;
+            .compute_beacon_block_reward(block.message(), Hash256::zero(), &mut state)
+            .map(|reward| reward.total)
+            .unwrap_or(0);
 
         per_block_processing(
             &mut state,
