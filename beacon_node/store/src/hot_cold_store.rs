@@ -432,9 +432,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // Load the blinded block.
-        let blinded_block = match self.get_blinded_block(block_root)? {
-            Some(block) => block,
-            None => return Ok(None),
+        let Some(blinded_block) = self.get_blinded_block(block_root)? else {
+            return Ok(None);
         };
 
         // If the block is after the split point then we should have the full execution payload
@@ -1490,10 +1489,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let split_slot = self.get_split_slot();
         let anchor = self.get_anchor_info();
 
-        // There are no restore points stored if the state upper limit lies in the hot database.
-        // It hasn't been reached yet, and may never be.
-        if anchor.map_or(false, |a| a.state_upper_limit >= split_slot) {
+        // There are no restore points stored if the state upper limit lies in the hot database,
+        // and the lower limit is zero. It hasn't been reached yet, and may never be.
+        if anchor.as_ref().map_or(false, |a| {
+            a.state_upper_limit >= split_slot && a.state_lower_limit == 0
+        }) {
             None
+        } else if let Some(lower_limit) = anchor
+            .map(|a| a.state_lower_limit)
+            .filter(|limit| *limit > 0)
+        {
+            Some(lower_limit)
         } else {
             Some(
                 (split_slot - 1) / self.config.slots_per_restore_point
@@ -2046,12 +2052,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Try to prune blobs, approximating the current epoch from the split slot.
     pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
-        let deneb_fork_epoch = match self.spec.deneb_fork_epoch {
-            Some(epoch) => epoch,
-            None => {
-                debug!(self.log, "Deneb fork is disabled");
-                return Ok(());
-            }
+        let Some(deneb_fork_epoch) = self.spec.deneb_fork_epoch else {
+            debug!(self.log, "Deneb fork is disabled");
+            return Ok(());
         };
         // The current epoch is >= split_epoch + 2. It could be greater if the database is
         // configured to delay updating the split or finalization has ceased. In this instance we
@@ -2215,6 +2218,35 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "Blob pruning complete";
             "blob_lists_pruned" => blob_lists_pruned,
         );
+
+        Ok(())
+    }
+
+    pub fn heal_freezer_block_roots(&self) -> Result<(), Error> {
+        let split = self.get_split_info();
+        let last_restore_point_slot = (split.slot - 1) / self.config.slots_per_restore_point
+            * self.config.slots_per_restore_point;
+
+        // Load split state (which has access to block roots).
+        let (_, split_state) = self
+            .get_advanced_hot_state(split.block_root, split.slot, split.state_root)?
+            .ok_or(HotColdDBError::MissingSplitState(
+                split.state_root,
+                split.slot,
+            ))?;
+
+        let mut batch = vec![];
+        let mut chunk_writer = ChunkWriter::<BlockRoots, _, _>::new(
+            &self.cold_db,
+            last_restore_point_slot.as_usize(),
+        )?;
+
+        for slot in (last_restore_point_slot.as_u64()..split.slot.as_u64()).map(Slot::new) {
+            let block_root = *split_state.get_block_root(slot)?;
+            chunk_writer.set(slot.as_usize(), block_root, &mut batch)?;
+        }
+        chunk_writer.write(&mut batch)?;
+        self.cold_db.do_atomically(batch)?;
 
         Ok(())
     }

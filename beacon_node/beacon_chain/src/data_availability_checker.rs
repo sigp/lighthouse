@@ -50,7 +50,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     processing_cache: RwLock<ProcessingCache<T::EthSpec>>,
     availability_cache: Arc<OverflowLRUCache<T>>,
     slot_clock: T::SlotClock,
-    kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
+    kzg: Option<Arc<Kzg>>,
     log: Logger,
     spec: ChainSpec,
 }
@@ -79,7 +79,7 @@ impl<T: EthSpec> Debug for Availability<T> {
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
         slot_clock: T::SlotClock,
-        kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
+        kzg: Option<Arc<Kzg>>,
         store: BeaconStore<T>,
         log: &Logger,
         spec: ChainSpec,
@@ -451,23 +451,21 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 let additional_delay = (epoch_duration * 3) / 4;
                 tokio::time::sleep(duration + additional_delay).await;
 
-                let deneb_fork_epoch = match chain.spec.deneb_fork_epoch {
-                    Some(epoch) => epoch,
-                    None => break, // shutdown service if deneb fork epoch not set
+                let Some(deneb_fork_epoch) = chain.spec.deneb_fork_epoch else {
+                    // shutdown service if deneb fork epoch not set
+                    break;
                 };
 
                 debug!(
                     chain.log,
                     "Availability cache maintenance service firing";
                 );
-
-                let current_epoch = match chain
+                let Some(current_epoch) = chain
                     .slot_clock
                     .now()
                     .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
-                {
-                    Some(epoch) => epoch,
-                    None => continue, // we'll have to try again next time I suppose..
+                else {
+                    continue;
                 };
 
                 if current_epoch < deneb_fork_epoch {

@@ -920,9 +920,8 @@ impl BeaconNodeHttpClient {
         Error,
     > {
         let path = self.get_beacon_blocks_path(block_id)?;
-        let response = match self.get_response(path, |b| b).await.optional()? {
-            Some(res) => res,
-            None => return Ok(None),
+        let Some(response) = self.get_response(path, |b| b).await.optional()? else {
+            return Ok(None);
         };
 
         Ok(Some(response.json().await?))
@@ -936,9 +935,8 @@ impl BeaconNodeHttpClient {
         block_id: BlockId,
     ) -> Result<Option<GenericResponse<BlobSidecarList<T>>>, Error> {
         let path = self.get_blobs_path(block_id)?;
-        let response = match self.get_response(path, |b| b).await.optional()? {
-            Some(res) => res,
-            None => return Ok(None),
+        let Some(response) = self.get_response(path, |b| b).await.optional()? else {
+            return Ok(None);
         };
 
         Ok(Some(response.json().await?))
@@ -955,9 +953,8 @@ impl BeaconNodeHttpClient {
         Error,
     > {
         let path = self.get_beacon_blinded_blocks_path(block_id)?;
-        let response = match self.get_response(path, |b| b).await.optional()? {
-            Some(res) => res,
-            None => return Ok(None),
+        let Some(response) = self.get_response(path, |b| b).await.optional()? else {
+            return Ok(None);
         };
 
         Ok(Some(response.json().await?))

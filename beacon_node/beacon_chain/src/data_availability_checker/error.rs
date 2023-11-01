@@ -1,8 +1,7 @@
 use kzg::{Error as KzgError, KzgCommitment};
-use strum::IntoStaticStr;
 use types::{BeaconStateError, Hash256};
 
-#[derive(Debug, IntoStaticStr)]
+#[derive(Debug)]
 pub enum Error {
     Kzg(KzgError),
     KzgNotInitialized,

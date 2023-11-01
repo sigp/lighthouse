@@ -613,6 +613,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let slot = signed_blob.message.slot;
         let root = signed_blob.message.block_root;
         let index = signed_blob.message.index;
+        let commitment = signed_blob.message.kzg_commitment;
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(&metrics::BEACON_BLOB_GOSSIP_SLOT_START_DELAY_TIME, delay);
@@ -633,6 +634,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "proposer_index" => gossip_verified_blob.proposer_index(),
                         "slot" => gossip_verified_blob.slot(),
                         "delay" => ?delay,
+                        "commitment" => %gossip_verified_blob.kzg_commitment(),
                     );
                 }
 
@@ -641,7 +643,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Successfully verified gossip blob";
                     "slot" => %slot,
                     "root" => %root,
-                    "index" => %index
+                    "index" => %index,
+                    "commitment" => %gossip_verified_blob.kzg_commitment(),
                 );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
@@ -668,7 +671,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Unknown parent hash for blob";
                             "action" => "requesting parent",
                             "block_root" => %blob.block_root,
-                            "parent_root" => %blob.block_parent_root
+                            "parent_root" => %blob.block_parent_root,
+                            "commitment" => %commitment,
                         );
                         self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
                     }
@@ -683,7 +687,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "error" => ?err,
                             "slot" => %slot,
                             "root" => %root,
-                            "index" => %index
+                            "index" => %index,
+                            "commitment" => %commitment,
                         );
                         // Prevent recurring behaviour by penalizing the peer slightly.
                         self.gossip_penalize_peer(
@@ -707,7 +712,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "error" => ?err,
                             "slot" => %slot,
                             "root" => %root,
-                            "index" => %index
+                            "index" => %index,
+                            "commitment" => %commitment,
                         );
                         // Prevent recurring behaviour by penalizing the peer slightly.
                         self.gossip_penalize_peer(
@@ -743,13 +749,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .should_delay_lookup(blob_slot);
 
         match self.chain.process_gossip_blob(verified_blob).await {
-            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
                 // Note: Reusing block imported metric here
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
                 info!(
                     self.log,
                     "Gossipsub blob processed, imported fully available block";
-                    "hash" => %hash
+                    "block_root" => %block_root
                 );
                 self.chain.recompute_head_at_current_slot().await;
             }

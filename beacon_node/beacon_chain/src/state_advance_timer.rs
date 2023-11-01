@@ -113,14 +113,11 @@ async fn state_advance_timer<T: BeaconChainTypes>(
     let slot_duration = slot_clock.slot_duration();
 
     loop {
-        let duration_to_next_slot = match beacon_chain.slot_clock.duration_to_next_slot() {
-            Some(duration) => duration,
-            None => {
-                error!(log, "Failed to read slot clock");
-                // If we can't read the slot clock, just wait another slot.
-                sleep(slot_duration).await;
-                continue;
-            }
+        let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot() else {
+            error!(log, "Failed to read slot clock");
+            // If we can't read the slot clock, just wait another slot.
+            sleep(slot_duration).await;
+            continue;
         };
 
         // Run the state advance 3/4 of the way through the slot (9s on mainnet).
