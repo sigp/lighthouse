@@ -4571,9 +4571,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let chain = self.clone();
         let mut partial_beacon_block = self
             .task_executor
-            .clone()
-            .spawn_handle(
-                async move {
+            .spawn_blocking_handle(
+                move || {
                     chain.produce_partial_beacon_block(
                         state,
                         state_root_opt,
@@ -4587,8 +4586,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
-            .map_err(BlockProductionError::TokioJoin)?
-            .ok_or(BlockProductionError::ShuttingDown)??;
+            .map_err(BlockProductionError::TokioJoin)??;
         // Part 2/3 (async)
         //
         // Wait for the execution layer to return an execution payload (if one is required).
