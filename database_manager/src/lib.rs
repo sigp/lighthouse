@@ -95,7 +95,8 @@ pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn prune_blobs_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("prune_blobs")
+    App::new("prune-blobs")
+        .alias("prune-blobs")
         .setting(clap::AppSettings::ColoredHelp)
         .about("Prune blobs older than data availability boundary")
 }
@@ -579,7 +580,7 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
         ("prune-payloads", Some(_)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)
         }
-        ("prune_blobs", Some(_)) => prune_blobs(client_config, &context, log).map_err(format_err),
+        ("prune-blobs", Some(_)) => prune_blobs(client_config, &context, log).map_err(format_err),
         ("prune-states", Some(cli_args)) => {
             let executor = env.core_context().executor;
             let network_config = context
