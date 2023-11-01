@@ -181,7 +181,6 @@ pub struct StateDiff<T: EthSpec> {
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[arbitrary(bound = "T: EthSpec")]
 #[serde(bound = "T: EthSpec")]
-#[serde(rename_all = "camelCase")]
 pub struct IpaProof<T: EthSpec> {
     pub cl: FixedVector<BanderwagonGroupElement<T>, T::IpaProofDepth>,
     pub cr: FixedVector<BanderwagonGroupElement<T>, T::IpaProofDepth>,
