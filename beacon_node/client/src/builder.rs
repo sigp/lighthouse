@@ -909,7 +909,7 @@ where
         mut self,
         hot_path: &Path,
         cold_path: &Path,
-        blobs_path: Option<PathBuf>,
+        blobs_path: &Path,
         config: StoreConfig,
         log: Logger,
     ) -> Result<Self, String> {

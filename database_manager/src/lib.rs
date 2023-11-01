@@ -190,7 +190,7 @@ pub fn display_db_version<E: EthSpec>(
     HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
-        blobs_path,
+        &blobs_path,
         |_, from, _| {
             version = from;
             Ok(())
@@ -266,7 +266,7 @@ pub fn inspect_db<E: EthSpec>(
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
-        blobs_path,
+        &blobs_path,
         |_, _, _| Ok(()),
         client_config.store,
         spec,
@@ -364,7 +364,7 @@ pub fn migrate_db<E: EthSpec>(
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
-        blobs_path,
+        &blobs_path,
         |_, db_initial_version, _| {
             from = db_initial_version;
             Ok(())
@@ -404,7 +404,7 @@ pub fn prune_payloads<E: EthSpec>(
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
-        blobs_path,
+        &blobs_path,
         |_, _, _| Ok(()),
         client_config.store,
         spec.clone(),
@@ -430,7 +430,7 @@ pub fn prune_blobs<E: EthSpec>(
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
-        blobs_path,
+        &blobs_path,
         |_, _, _| Ok(()),
         client_config.store,
         spec.clone(),
