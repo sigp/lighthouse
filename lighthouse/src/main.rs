@@ -82,16 +82,6 @@ fn main() {
             ).as_str()
         )
         .arg(
-            Arg::with_name("spec")
-                .short("s")
-                .long("spec")
-                .value_name("DEPRECATED")
-                .help("This flag is deprecated, it will be disallowed in a future release. This \
-                    value is now derived from the --network or --testnet-dir flags.")
-                .takes_value(true)
-                .global(true)
-        )
-        .arg(
             Arg::with_name("env_log")
                 .short("l")
                 .help("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
@@ -548,13 +538,6 @@ fn run<E: EthSpec>(
 
     // Allow Prometheus access to the version and commit of the Lighthouse build.
     metrics::expose_lighthouse_version();
-
-    if matches.is_present("spec") {
-        warn!(
-            log,
-            "The --spec flag is deprecated and will be removed in a future release"
-        );
-    }
 
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {

@@ -172,16 +172,6 @@ impl Config {
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
         // To be deprecated.
-        else if let Some(beacon_node) = parse_optional::<String>(cli_args, "beacon-node")? {
-            warn!(
-                log,
-                "The --beacon-node flag is deprecated";
-                "msg" => "please use --beacon-nodes instead"
-            );
-            config.beacon_nodes = vec![SensitiveUrl::parse(&beacon_node)
-                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
-        }
-        // To be deprecated.
         else if let Some(server) = parse_optional::<String>(cli_args, "server")? {
             warn!(
                 log,

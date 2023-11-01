@@ -8,15 +8,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             "When connected to a beacon node, performs the duties of a staked \
                 validator (e.g., proposing blocks and attestations).",
         )
-        // This argument is deprecated, use `--beacon-nodes` instead.
-        .arg(
-            Arg::with_name("beacon-node")
-                .long("beacon-node")
-                .value_name("NETWORK_ADDRESS")
-                .help("Deprecated. Use --beacon-nodes.")
-                .takes_value(true)
-                .conflicts_with("beacon-nodes"),
-        )
         .arg(
             Arg::with_name("beacon-nodes")
                 .long("beacon-nodes")
