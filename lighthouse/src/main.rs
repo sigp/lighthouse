@@ -11,7 +11,7 @@ use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
-use slog::{crit, info, warn};
+use slog::{crit, info};
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
