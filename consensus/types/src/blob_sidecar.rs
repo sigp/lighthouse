@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{BeaconBlockHeader, Blob, EthSpec, Hash256, SignedBeaconBlockHeader};
+use crate::{BeaconBlockHeader, Blob, EthSpec, Hash256, SignedBeaconBlockHeader, Slot};
 use bls::Signature;
 use derivative::Derivative;
 use kzg::{
@@ -104,6 +104,8 @@ impl<E: EthSpec> From<BlobSidecar<E>> for BlindedBlobSidecar<E> {
     }
 }
 
+
+
 impl<T: EthSpec> PartialOrd for BlobSidecar<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -119,10 +121,18 @@ impl<T: EthSpec> Ord for BlobSidecar<T> {
 impl<T: EthSpec> BlobSidecar<T> {
     pub fn id(&self) -> BlobIdentifier {
         BlobIdentifier {
-            // TODO(pawan): cache this value in the Sidecar
-            block_root: self.signed_block_header.tree_hash_root(),
+            block_root: self.block_root(),
             index: self.index,
         }
+    }
+
+    pub fn slot(&self) -> Slot {
+        self.signed_block_header.message.slot
+    }
+
+    pub fn block_root(&self) -> Hash256 {
+        // TODO(pawan): cache the block root
+        self.signed_block_header.message.tree_hash_root()
     }
 
     pub fn empty() -> Self {
@@ -233,6 +243,18 @@ impl<T: EthSpec> BlindedBlobSidecar<T> {
                 signature: Signature::empty(),
             },
         }
+    }
+    // TODO(pawan): recheck if we want to impl this function on a different type alias
+    pub fn into_full_blob_sidecars(self: Arc<Self>, blob: Blob<T>) -> Arc<BlobSidecar<T>> {
+        let blinded_sidecar = self;
+        Arc::new(BlobSidecar {
+            index: blinded_sidecar.index,
+            blob,
+            kzg_commitment: blinded_sidecar.kzg_commitment,
+            kzg_proof: blinded_sidecar.kzg_proof,
+            kzg_commitment_inclusion_proof: blinded_sidecar.kzg_commitment_inclusion_proof.clone(),
+            signed_block_header: blinded_sidecar.signed_block_header.clone(),
+        })
     }
 }
 

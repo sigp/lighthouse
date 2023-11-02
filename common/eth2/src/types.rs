@@ -11,6 +11,7 @@ use ssz_derive::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
+use std::sync::Arc;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
@@ -889,6 +890,7 @@ pub struct SseBlock {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+// TODO(pawan): modify spec to maybe include proofs too?
 pub struct SseBlobSidecar {
     pub block_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -901,9 +903,9 @@ pub struct SseBlobSidecar {
 impl SseBlobSidecar {
     pub fn from_blob_sidecar<E: EthSpec>(blob_sidecar: &BlobSidecar<E>) -> SseBlobSidecar {
         SseBlobSidecar {
-            block_root: blob_sidecar.block_root,
+            block_root: blob_sidecar.block_root(),
             index: blob_sidecar.index,
-            slot: blob_sidecar.slot,
+            slot: blob_sidecar.slot(),
             kzg_commitment: blob_sidecar.kzg_commitment,
             versioned_hash: blob_sidecar.kzg_commitment.calculate_versioned_hash(),
         }
@@ -1605,14 +1607,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
     ) -> SignedBlockContents<T, Payload> {
         let (block, maybe_blobs) = self.deconstruct();
         let signed_block = block.sign(secret_key, fork, genesis_validators_root, spec);
-        let signed_blobs = maybe_blobs.map(|blobs| {
-            blobs
-                .into_iter()
-                .map(|blob| blob.sign(secret_key, fork, genesis_validators_root, spec))
-                .collect::<Vec<_>>()
-                .into()
-        });
-        SignedBlockContents::new(signed_block, signed_blobs)
+        SignedBlockContents::new(signed_block, maybe_blobs)
     }
 }
 
@@ -1665,7 +1660,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> Into<BeaconBlock<T, Payload>>
 
 pub type SignedBlockContentsTuple<T, Payload> = (
     SignedBeaconBlock<T, Payload>,
-    Option<SignedSidecarList<T, <Payload as AbstractExecPayload<T>>::Sidecar>>,
+    Option<SidecarList<T, <Payload as AbstractExecPayload<T>>::Sidecar>>,
 );
 
 pub type SignedBlindedBlockContents<E> = SignedBlockContents<E, BlindedPayload<E>>;
@@ -1684,13 +1679,13 @@ pub enum SignedBlockContents<T: EthSpec, Payload: AbstractExecPayload<T> = FullP
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload> {
     pub fn new(
         block: SignedBeaconBlock<T, Payload>,
-        blobs: Option<SignedSidecarList<T, Payload::Sidecar>>,
+        blobs: Option<SidecarList<T, Payload::Sidecar>>,
     ) -> Self {
         match (Payload::block_type(), blobs) {
             (BlockType::Full, Some(blobs)) => {
                 Self::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
                     signed_block: block,
-                    signed_blob_sidecars: blobs,
+                    blob_sidecars: blobs,
                 })
             }
             (BlockType::Blinded, Some(blobs)) => {
@@ -1724,7 +1719,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
             ForkName::Deneb => {
                 let mut builder = ssz::SszDecoderBuilder::new(bytes);
                 builder.register_anonymous_variable_length_item()?;
-                builder.register_type::<SignedSidecarList<T, Payload::Sidecar>>()?;
+                builder.register_type::<SidecarList<T, Payload::Sidecar>>()?;
 
                 let mut decoder = builder.build()?;
                 let block = decoder
@@ -1747,10 +1742,10 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
         }
     }
 
-    pub fn blobs_cloned(&self) -> Option<SignedSidecarList<T, Payload::Sidecar>> {
+    pub fn blobs_cloned(&self) -> Option<SidecarList<T, Payload::Sidecar>> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
-                Some(block_and_sidecars.signed_blob_sidecars.clone())
+                Some(block_and_sidecars.blob_sidecars.clone())
             }
             SignedBlockContents::BlindedBlockAndBlobSidecars(block_and_sidecars) => {
                 Some(block_and_sidecars.signed_blinded_blob_sidecars.clone())
@@ -1763,7 +1758,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
                 block_and_sidecars.signed_block,
-                Some(block_and_sidecars.signed_blob_sidecars),
+                Some(block_and_sidecars.blob_sidecars),
             ),
             SignedBlockContents::BlindedBlockAndBlobSidecars(block_and_sidecars) => (
                 block_and_sidecars.signed_blinded_block,
@@ -1790,7 +1785,7 @@ impl<T: EthSpec> SignedBlockContents<T, BlindedPayload<T>> {
                             .signed_blinded_block
                             .try_into_full_block(Some(payload_and_blobs.execution_payload))
                             .ok_or("Failed to build full block with payload".to_string())?;
-                        let signed_blob_sidecars: SignedBlobSidecarList<T> =
+                        let signed_blob_sidecars: BlobSidecarList<T> =
                             blinded_block_and_blob_sidecars
                                 .signed_blinded_blob_sidecars
                                 .into_iter()
@@ -1828,7 +1823,7 @@ impl<T: EthSpec> SignedBlockContents<T> {
         let blinded_blobs = self.blobs_cloned().map(|blob_sidecars| {
             blob_sidecars
                 .into_iter()
-                .map(|blob| blob.into())
+                .map(|blob| Arc::new(blob.into()))
                 .collect::<Vec<_>>()
                 .into()
         });
@@ -1865,7 +1860,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBlockContentsTuple<
 #[serde(bound = "T: EthSpec")]
 pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub signed_block: SignedBeaconBlock<T, Payload>,
-    pub signed_blob_sidecars: SignedSidecarList<T, Payload::Sidecar>,
+    pub blob_sidecars: SidecarList<T, Payload::Sidecar>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
@@ -1905,7 +1900,7 @@ pub struct SignedBlindedBeaconBlockAndBlobSidecars<
     Payload: AbstractExecPayload<T> = BlindedPayload<T>,
 > {
     pub signed_blinded_block: SignedBeaconBlock<T, Payload>,
-    pub signed_blinded_blob_sidecars: SignedSidecarList<T, Payload::Sidecar>,
+    pub signed_blinded_blob_sidecars: SidecarList<T, Payload::Sidecar>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]

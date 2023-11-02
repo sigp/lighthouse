@@ -15,7 +15,6 @@ pub enum Domain {
     BlsToExecutionChange,
     BeaconProposer,
     BeaconAttester,
-    BlobSidecar,
     Randao,
     Deposit,
     VoluntaryExit,
@@ -102,7 +101,6 @@ pub struct ChainSpec {
      */
     pub(crate) domain_beacon_proposer: u32,
     pub(crate) domain_beacon_attester: u32,
-    pub(crate) domain_blob_sidecar: u32,
     pub(crate) domain_randao: u32,
     pub(crate) domain_deposit: u32,
     pub(crate) domain_voluntary_exit: u32,
@@ -374,7 +372,6 @@ impl ChainSpec {
         match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
             Domain::BeaconAttester => self.domain_beacon_attester,
-            Domain::BlobSidecar => self.domain_blob_sidecar,
             Domain::Randao => self.domain_randao,
             Domain::Deposit => self.domain_deposit,
             Domain::VoluntaryExit => self.domain_voluntary_exit,
@@ -579,7 +576,6 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_blob_sidecar: 11, // 0x0B000000
 
             /*
              * Fork choice
@@ -822,7 +818,6 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_blob_sidecar: 11,
 
             /*
              * Fork choice
