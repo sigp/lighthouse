@@ -165,6 +165,13 @@ const PREPARE_PROPOSER_HISTORIC_EPOCHS: u64 = 4;
 /// impact whilst having 8 epochs without a block is a comfortable grace period.
 const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 256;
 
+/// The maximum number of aggregates per `AttestationData` to supply to Bron-Kerbosch (BK).
+///
+/// This value is chosen to be sufficient for ~16 aggregators on mainnet, and in practice should
+/// never be reached. Higher values *could* lead to exponential blow-up in the running time of BK
+/// if an attacker found a way to generate a lot of distinct aggregates.
+const MAX_AGGREGATES_PER_DATA_FOR_CLIQUES: usize = 20;
+
 /// Reported to the user when the justified block has an invalid execution payload.
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
     "Justified block has an invalid execution payload.";
@@ -4743,7 +4750,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &state,
                 prev_attestation_filter,
                 curr_attestation_filter,
-                16,
+                MAX_AGGREGATES_PER_DATA_FOR_CLIQUES,
                 &self.spec,
             )
             .map_err(BlockProductionError::OpPoolError)?;
