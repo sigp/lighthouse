@@ -2485,15 +2485,19 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("bootstrap"))
         .and(warp::path::param::<Hash256>())
         .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             block_root: Hash256| {
+             block_root: Hash256,
+             accept_header: Option<api_types::Accept>| {
                 task_spawner.spawn_async_with_rejection(Priority::P1, async move {
-                    light_client::get_light_client_bootstrap::<T, T::EthSpec>(chain, block_root)
-                        .await;
-
-                    Ok(warp::reply::json().into_response())
+                    light_client::get_light_client_bootstrap::<T, T::EthSpec>(
+                        chain,
+                        block_root,
+                        accept_header,
+                    )
+                    .await
                 })
             },
         );
@@ -4636,6 +4640,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_merge_readiness)
                 .uor(get_events)
                 .uor(get_expected_withdrawals)
+                .uor(get_light_client_bootstrap)
                 .uor(lighthouse_log_events.boxed())
                 .recover(warp_utils::reject::handle_rejection),
         )

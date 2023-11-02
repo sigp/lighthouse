@@ -29,6 +29,7 @@ pub enum Error {
     NotEnoughSyncCommitteeParticipants,
     MismatchingPeriods,
     InvalidFinalizedBlock,
+    CreateBootstrapError,
 }
 
 impl From<ssz_types::Error> for Error {
