@@ -13,6 +13,7 @@ mod block_rewards;
 mod build_block_contents;
 mod builder_states;
 mod database;
+mod light_client;
 mod metrics;
 mod proposer_duties;
 mod publish_blocks;
@@ -76,7 +77,7 @@ use tokio_stream::{
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
     BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    Hash256, ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
     SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
@@ -2466,6 +2467,33 @@ pub fn serve<T: BeaconChainTypes>(
                         .map(|resp| {
                             resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
                         })
+                })
+            },
+        );
+
+    /*
+     * light client
+     */
+
+    let light_client_path = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("light_client"))
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone());
+
+    let get_light_client_bootstrap = light_client_path
+        .and(warp::path("bootstrap"))
+        .and(warp::path::param::<Hash256>())
+        .and(warp::path::end())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             block_root: Hash256| {
+                task_spawner.spawn_async_with_rejection(Priority::P1, async move {
+                    light_client::get_light_client_bootstrap::<T, T::EthSpec>(chain, block_root)
+                        .await;
+
+                    Ok(warp::reply::json().into_response())
                 })
             },
         );
