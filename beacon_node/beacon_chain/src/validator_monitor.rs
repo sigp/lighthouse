@@ -355,6 +355,13 @@ impl MonitoredValidator {
     }
 }
 
+#[derive(PartialEq, Hash, Eq)]
+struct MissedBlock {
+    slot: Slot,
+    parent_root: Hash256,
+    validator_index: u64,
+}
+
 /// Holds a collection of `MonitoredValidator` and is notified about a variety of events on the P2P
 /// network, HTTP API and `BeaconChain`.
 ///
@@ -376,7 +383,7 @@ pub struct ValidatorMonitor<T> {
     /// Prometheus and high log volumes.
     individual_tracking_threshold: usize,
     /// A Map representing the (non-finalized) missed blocks by epoch, validator_index(state.validators) and slot
-    missed_blocks: HashSet<(Epoch, u64, Slot)>,
+    missed_blocks: HashSet<MissedBlock>,
     // A beacon proposer cache
     beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
     log: Logger,
@@ -547,17 +554,18 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let mut validators_missed_blocks: HashMap<u64, u64> = self
             .missed_blocks
             .iter()
-            .map(|(_, validator_index, _)| (*validator_index, 0))
+            .map(|missed_block| (missed_block.validator_index, 0))
             .collect();
 
-        // Count the amount of times a monitored validator missed block for the non-finalized epochs
+        // Count the amount of times a monitored validator missed block for the non-finalized slots
         let finalized_epoch = state.finalized_checkpoint().epoch;
+        let finalized_epoch_start_slot = finalized_epoch.start_slot(T::slots_per_epoch());
         self.missed_blocks
             .iter()
-            .filter(|(epoch, _, _)| *epoch > finalized_epoch)
-            .for_each(|(_, validator_index, _)| {
+            .filter(|missed_block| missed_block.slot > finalized_epoch_start_slot)
+            .for_each(|missed_block| {
                 *validators_missed_blocks
-                    .entry(*validator_index)
+                    .entry(missed_block.validator_index)
                     .or_default() += 1;
             });
 
@@ -584,8 +592,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
         // Prune missed blocks that are prior to last finalized epochs - MISSED_BLOCK_LOOKBACK_EPOCHS
         let finalized_epoch = state.finalized_checkpoint().epoch;
-        self.missed_blocks.retain(|(epoch, _, _)| {
-            *epoch > finalized_epoch - Epoch::new(MISSED_BLOCK_LOOKBACK_EPOCHS as u64)
+        self.missed_blocks.retain(|missed_block| {
+            let epoch = missed_block.slot.epoch(T::slots_per_epoch());
+            epoch > finalized_epoch - Epoch::new(MISSED_BLOCK_LOOKBACK_EPOCHS as u64)
         });
     }
 
@@ -638,8 +647,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             let i = *proposer_index as u64;
                             if let Some(pub_key) = self.indices.get(&i) {
                                 if self.validators.get(pub_key).is_some() {
+                                    let missed_block = MissedBlock {
+                                        slot,
+                                        parent_root: *prev_block_root,
+                                        validator_index: i,
+                                    };
                                     // Incr missed block counter for the validator only if it doesn't already exist in the hashset
-                                    if self.missed_blocks.insert((slot_epoch, i, slot)) {
+                                    if self.missed_blocks.insert(missed_block) {
                                         self.aggregatable_metric(i.to_string().as_str(), |label| {
                                             metrics::inc_counter_vec(
                                                 &metrics::VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL,
