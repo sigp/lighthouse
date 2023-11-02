@@ -786,6 +786,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             self.log,
             "Block component processed for lookup";
             "response_type" => ?R::response_type(),
+            "block_root" => ?root,
         );
 
         match result {
