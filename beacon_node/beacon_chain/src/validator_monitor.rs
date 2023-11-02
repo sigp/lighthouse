@@ -1034,7 +1034,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn get_monitored_validator_missed_block_count(&self, validator_index: u64) -> u64 {
         self.missed_blocks
             .iter()
-            .filter(|(_, index, _)| *index == validator_index)
+            .filter(|missed_block| missed_block.validator_index == validator_index)
             .count() as u64
     }
 
