@@ -283,7 +283,6 @@ pub enum BlockProductionError {
     TokioJoin(JoinError),
     BeaconChain(BeaconChainError),
     InvalidPayloadFork,
-    FailedToFetchBlock,
     TrustedSetupNotInitialized,
     InvalidBlockVariant(String),
     KzgError(kzg::Error),
