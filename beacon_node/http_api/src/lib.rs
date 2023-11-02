@@ -142,6 +142,7 @@ pub struct Config {
     pub enable_beacon_processor: bool,
     #[serde(with = "eth2::types::serde_status_code")]
     pub duplicate_block_status_code: StatusCode,
+    pub blocks_first: bool,
 }
 
 impl Default for Config {
@@ -158,6 +159,7 @@ impl Default for Config {
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
             duplicate_block_status_code: StatusCode::ACCEPTED,
+            blocks_first: false,
         }
     }
 }
@@ -1278,6 +1280,7 @@ pub fn serve<T: BeaconChainTypes>(
     /*
      * beacon/blocks
      */
+    let blocks_first = ctx.config.blocks_first;
 
     // POST beacon/blocks
     let post_beacon_blocks = eth_v1
@@ -1304,6 +1307,7 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
+                        blocks_first,
                     )
                     .await
                 })
@@ -1341,6 +1345,7 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
+                        blocks_first,
                     )
                     .await
                 })
@@ -1373,6 +1378,7 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
+                        blocks_first,
                     )
                     .await
                 })
@@ -1412,6 +1418,7 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
+                        blocks_first,
                     )
                     .await
                 })
@@ -1446,6 +1453,7 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
+                        blocks_first,
                     )
                     .await
                 })
@@ -1484,6 +1492,7 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
+                        blocks_first,
                     )
                     .await
                 })
@@ -1515,6 +1524,7 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
+                        blocks_first,
                     )
                     .await
                 })
@@ -1554,6 +1564,7 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
+                        blocks_first,
                     )
                     .await
                 })

@@ -52,6 +52,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     log: Logger,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
+    blocks_first: bool,
 ) -> Result<Response, Rejection> {
     let seen_timestamp = timestamp_now();
 
@@ -94,7 +95,11 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                         ))));
                     }
                 }
-                pubsub_messages.push(PubsubMessage::BeaconBlock(block.clone()));
+                if blocks_first {
+                    pubsub_messages.insert(0, PubsubMessage::BeaconBlock(block.clone()))
+                } else {
+                    pubsub_messages.push(PubsubMessage::BeaconBlock(block.clone()));
+                }
                 crate::publish_pubsub_messages(&sender, pubsub_messages)
                     .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
             }
@@ -299,6 +304,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     log: Logger,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
+    blocks_first: bool,
 ) -> Result<Response, Rejection> {
     let block_root = block_contents.signed_block().canonical_root();
     let full_block: ProvenancedBlock<T, SignedBlockContents<T::EthSpec>> =
@@ -311,6 +317,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
         log,
         validation_level,
         duplicate_status_code,
+        blocks_first,
     )
     .await
 }

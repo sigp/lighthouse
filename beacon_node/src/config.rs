@@ -110,6 +110,7 @@ pub fn get_config<E: EthSpec>(
                 .parse::<u16>()
                 .map_err(|_| "http-port is not a valid u16.")?;
         }
+        client_config.http_api.blocks_first = cli_args.is_present("publish-blocks-first");
 
         if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
