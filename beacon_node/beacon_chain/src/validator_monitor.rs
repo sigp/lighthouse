@@ -49,7 +49,7 @@ pub const MISSED_BLOCK_LAG_SLOTS: usize = 4;
 /// the beacon_proposer_cache to determine if a validator has missed a block.
 /// And so, setting this value to anything higher than 1 is likely going to be problematic because the beacon_proposer_cache
 /// is only populated for the current and the previous epoch.
-pub const MISSED_BLOCK_LOOKBACK_EPOCHS: usize = 1;
+pub const MISSED_BLOCK_LOOKBACK_EPOCHS: u64 = 1;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 // Initial configuration values for the `ValidatorMonitor`.
@@ -593,7 +593,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let finalized_epoch = state.finalized_checkpoint().epoch;
         self.missed_blocks.retain(|missed_block| {
             let epoch = missed_block.slot.epoch(T::slots_per_epoch());
-            epoch > finalized_epoch - Epoch::new(MISSED_BLOCK_LOOKBACK_EPOCHS as u64)
+            epoch + Epoch::new(MISSED_BLOCK_LOOKBACK_EPOCHS) >= finalized_epoch
         });
     }
 
@@ -604,7 +604,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let current_epoch = current_slot.epoch(T::slots_per_epoch());
         // start_slot needs to be coherent with what can be retrieved from the beacon_proposer_cache
         let start_slot = current_epoch.start_slot(T::slots_per_epoch())
-            - Slot::new(MISSED_BLOCK_LOOKBACK_EPOCHS as u64 * T::slots_per_epoch());
+            - Slot::new(MISSED_BLOCK_LOOKBACK_EPOCHS * T::slots_per_epoch());
 
         let end_slot = current_slot.saturating_sub(MISSED_BLOCK_LAG_SLOTS).as_u64();
 
