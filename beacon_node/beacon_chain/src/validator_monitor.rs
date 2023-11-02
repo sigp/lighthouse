@@ -543,8 +543,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             }
         }
 
-        //
-        // Add missed non-finalized blocks for each monitored validators //
+        // Add missed non-finalized blocks for each monitored validators
         //
         // Count the amount of times a monitored validator missed a non-finalized block
 
