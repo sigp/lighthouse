@@ -165,7 +165,8 @@ impl<E: EthSpec> Sidecar<E> for BlindedBlobSidecar<E> {
 
                     let kzg_proof = kzg_proofs.get(blob_index).ok_or(format!(
                         "Missing KZG proof for slot {} blob index: {}",
-                        block.slot(), blob_index
+                        block.slot(),
+                        blob_index
                     ))?;
 
                     Ok(Arc::new(BlindedBlobSidecar {

@@ -50,12 +50,12 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
     /// This will update `self` so future calls to it indicate that this `blob_sidecar` is known.
     ///
     /// The supplied `blob_sidecar` **MUST** have completed proposer signature verification.
-    pub fn observe_sidecar(&mut self, blob_sidecar: &Arc<BlobSidecar<T>>) -> Result<bool, Error> {
+    pub fn observe_sidecar(&mut self, blob_sidecar: &BlobSidecar<T>) -> Result<bool, Error> {
         self.sanitize_blob_sidecar(blob_sidecar)?;
 
         let did_not_exist = self
             .items
-            .entry((blob_sidecar.block_root, blob_sidecar.slot))
+            .entry((blob_sidecar.block_root(), blob_sidecar.slot()))
             .or_insert_with(|| HashSet::with_capacity(T::max_blobs_per_block()))
             .insert(blob_sidecar.index);
 
@@ -63,23 +63,23 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
     }
 
     /// Returns `true` if the `blob_sidecar` has already been observed in the cache within the prune window.
-    pub fn is_known(&self, blob_sidecar: &Arc<BlobSidecar<T>>) -> Result<bool, Error> {
+    pub fn is_known(&self, blob_sidecar: &BlobSidecar<T>) -> Result<bool, Error> {
         self.sanitize_blob_sidecar(blob_sidecar)?;
         let is_known = self
             .items
-            .get(&(blob_sidecar.block_root, blob_sidecar.slot))
+            .get(&(blob_sidecar.block_root(), blob_sidecar.slot()))
             .map_or(false, |set| set.contains(&blob_sidecar.index));
         Ok(is_known)
     }
 
-    fn sanitize_blob_sidecar(&self, blob_sidecar: &Arc<BlobSidecar<T>>) -> Result<(), Error> {
+    fn sanitize_blob_sidecar(&self, blob_sidecar: &BlobSidecar<T>) -> Result<(), Error> {
         if blob_sidecar.index >= T::max_blobs_per_block() as u64 {
             return Err(Error::InvalidBlobIndex(blob_sidecar.index));
         }
         let finalized_slot = self.finalized_slot;
-        if finalized_slot > 0 && blob_sidecar.slot <= finalized_slot {
+        if finalized_slot > 0 && blob_sidecar.slot() <= finalized_slot {
             return Err(Error::FinalizedBlob {
-                slot: blob_sidecar.slot,
+                slot: blob_sidecar.slot(),
                 finalized_slot,
             });
         }
@@ -107,8 +107,9 @@ mod tests {
 
     fn get_blob_sidecar(slot: u64, block_root: Hash256, index: u64) -> Arc<BlobSidecar<E>> {
         let mut blob_sidecar = BlobSidecar::empty();
-        blob_sidecar.block_root = block_root;
-        blob_sidecar.slot = slot.into();
+        // TODO(pawan): have a block root setter for tests
+        // blob_sidecar.block_root = block_root;
+        blob_sidecar.signed_block_header.message.slot = slot.into();
         blob_sidecar.index = index;
         Arc::new(blob_sidecar)
     }

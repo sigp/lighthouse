@@ -16,10 +16,6 @@ pub enum Error {
     BlobIndexInvalid(u64),
     StoreError(store::Error),
     DecodeError(ssz::DecodeError),
-    InconsistentBlobBlockRoots {
-        block_root: Hash256,
-        blob_block_root: Hash256,
-    },
     ParentStateMissing(Hash256),
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
@@ -47,8 +43,7 @@ impl Error {
             Error::Kzg(_)
             | Error::BlobIndexInvalid(_)
             | Error::KzgCommitmentMismatch { .. }
-            | Error::KzgVerificationFailed
-            | Error::InconsistentBlobBlockRoots { .. } => ErrorCategory::Malicious,
+            | Error::KzgVerificationFailed => ErrorCategory::Malicious,
         }
     }
 }

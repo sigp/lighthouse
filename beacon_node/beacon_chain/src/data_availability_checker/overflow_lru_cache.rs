@@ -125,7 +125,10 @@ impl<T: EthSpec> PendingComponents<T> {
                 for maybe_blob in self.verified_blobs.iter() {
                     if maybe_blob.is_some() {
                         return maybe_blob.as_ref().map(|kzg_verified_blob| {
-                            kzg_verified_blob.as_blob().slot.epoch(T::slots_per_epoch())
+                            kzg_verified_blob
+                                .as_blob()
+                                .slot()
+                                .epoch(T::slots_per_epoch())
                         });
                     }
                 }
@@ -421,12 +424,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         // Initial check to ensure all provided blobs have a consistent block root.
         for blob in kzg_verified_blobs {
             let blob_block_root = blob.block_root();
-            if blob_block_root != block_root {
-                return Err(AvailabilityCheckError::InconsistentBlobBlockRoots {
-                    block_root,
-                    blob_block_root,
-                });
-            }
             if let Some(blob_opt) = fixed_blobs.get_mut(blob.blob_index() as usize) {
                 *blob_opt = Some(blob);
             }
@@ -651,7 +648,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                         OverflowKey::Blob(_, _) => {
                             KzgVerifiedBlob::<T::EthSpec>::from_ssz_bytes(value_bytes.as_slice())?
                                 .as_blob()
-                                .slot
+                                .slot()
                                 .epoch(T::EthSpec::slots_per_epoch())
                         }
                     };

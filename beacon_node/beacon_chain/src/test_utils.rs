@@ -619,21 +619,6 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub rng: Mutex<StdRng>,
 }
 
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub struct BlobSignatureKey {
-    block_root: Hash256,
-    blob_index: u64,
-}
-
-impl BlobSignatureKey {
-    pub fn new(block_root: Hash256, blob_index: u64) -> Self {
-        Self {
-            block_root,
-            blob_index,
-        }
-    }
-}
-
 pub type CommitteeAttestations<E> = Vec<(Attestation<E>, SubnetId)>;
 pub type HarnessAttestations<E> =
     Vec<(CommitteeAttestations<E>, Option<SignedAggregateAndProof<E>>)>;
@@ -909,12 +894,7 @@ where
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) => (
-                signed_block,
-                block_response
-                    .maybe_side_car
-                    .map(|blobs| self.sign_blobs(blobs, &block_response.state, proposer_index)),
-            ),
+            SignedBeaconBlock::Deneb(_) => (signed_block, maybe_blob_sidecars),
         };
 
         (block_contents, block_response.state)
@@ -1037,35 +1017,6 @@ where
             state.genesis_validators_root(),
             &self.spec,
         )
-    }
-
-    /// Sign blobs, and cache their signatures.
-    pub fn sign_blobs(
-        &self,
-        blobs: BlobSidecarList<E>,
-        state: &BeaconState<E>,
-        proposer_index: usize,
-    ) -> SignedSidecarList<E, BlobSidecar<E>> {
-        let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
-            .into_iter()
-            .map(|blob| {
-                blob.sign(
-                    &self.validator_keypairs[proposer_index].sk,
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    &self.spec,
-                )
-            })
-            .collect::<Vec<_>>()
-            .into();
-        let mut guard = self.blob_signature_cache.write();
-        for blob in &signed_blobs {
-            guard.insert(
-                BlobSignatureKey::new(blob.message.block_root, blob.message.index),
-                blob.signature.clone(),
-            );
-        }
-        signed_blobs
     }
 
     /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
@@ -2600,14 +2551,12 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             .enumerate()
         {
             blob_sidecars.push(BlobSidecar {
-                block_root,
                 index: index as u64,
-                slot: block.slot(),
-                block_parent_root: block.parent_root(),
-                proposer_index: block.message().proposer_index(),
                 blob: blob.clone(),
                 kzg_commitment,
                 kzg_proof,
+                signed_block_header: block.signed_block_header(),
+                kzg_commitment_inclusion_proof: block.kzg_commitment_merkle_proof(index).unwrap(),
             });
         }
     }

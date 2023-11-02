@@ -230,7 +230,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         &self,
         _index: usize,
     ) -> Option<FixedVector<Hash256, E::KzgCommitmentInclusionProofDepth>> {
-        todo!()
+        self.message().body().kzg_commitment_merkle_proof(_index)
     }
 
     /// Convenience accessor for the block's slot.

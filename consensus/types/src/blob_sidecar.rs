@@ -104,8 +104,6 @@ impl<E: EthSpec> From<BlobSidecar<E>> for BlindedBlobSidecar<E> {
     }
 }
 
-
-
 impl<T: EthSpec> PartialOrd for BlobSidecar<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -133,6 +131,14 @@ impl<T: EthSpec> BlobSidecar<T> {
     pub fn block_root(&self) -> Hash256 {
         // TODO(pawan): cache the block root
         self.signed_block_header.message.tree_hash_root()
+    }
+
+    pub fn block_parent_root(&self) -> Hash256 {
+        self.signed_block_header.message.parent_root
+    }
+
+    pub fn block_proposer_index(&self) -> u64 {
+        self.signed_block_header.message.proposer_index
     }
 
     pub fn empty() -> Self {

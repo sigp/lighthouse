@@ -682,12 +682,12 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedB
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.0.block.as_block()
     }
-    fn inner_blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>> {
+    fn inner_blobs(&self) -> Option<BlobSidecarList<T::EthSpec>> {
         self.1.as_ref().map(|blobs| {
             VariableList::from(
                 blobs
                     .into_iter()
-                    .map(GossipVerifiedBlob::signed_blob)
+                    .map(GossipVerifiedBlob::cloned)
                     .collect::<Vec<_>>(),
             )
         })

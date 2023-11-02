@@ -221,7 +221,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         // Verify the KZG commitments.
         let kzg_verified_blob = if let Some(kzg) = self.kzg.as_ref() {
-            verify_kzg_for_blob(gossip_blob.to_blob(), kzg)?
+            verify_kzg_for_blob(gossip_blob.into_inner(), kzg)?
         } else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
@@ -310,8 +310,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         blob: &GossipVerifiedBlob<T>,
     ) {
-        let index = blob.as_blob().index;
-        let commitment = blob.as_blob().kzg_commitment;
+        let index = blob.index();
+        let commitment = blob.kzg_commitment();
         self.processing_cache
             .write()
             .entry(block_root)

@@ -98,6 +98,14 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
             Self::Deneb(body) => Ok(Payload::Ref::from(&body.execution_payload)),
         }
     }
+
+    /// Produces the proof of inclusion for a `KzgCommitment` in `self`.
+    pub fn kzg_commitment_merkle_proof(
+        &self,
+        _index: usize,
+    ) -> Option<FixedVector<Hash256, T::KzgCommitmentInclusionProofDepth>> {
+        todo!()
+    }
 }
 
 impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, Payload> {
