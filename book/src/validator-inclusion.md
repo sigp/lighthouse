@@ -8,7 +8,7 @@ These endpoints are not stable or included in the Ethereum consensus standard AP
 they are subject to change or removal without a change in major release
 version.
 
-In order to apply these APIs, you need to have historical states information in the database of your node. This means adding the flag `--reconstruct-historic-states` in the beacon node or using the [/lighthouse/database/reconstruct API](./api-lighthouse.md#lighthousedatabasereconstruct). Once the state reconstruction process is completed, you can apply these APIs to any epoch.
+In order to apply these APIs, you need to have historical states information in the database of your node. This means adding the flag `--reconstruct-historic-states` in the beacon node. Once the state reconstruction process is completed, you can apply these APIs to any epoch.
 
 ## Endpoints
 

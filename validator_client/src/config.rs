@@ -8,7 +8,7 @@ use directory::{
 };
 use eth2::types::Graffiti;
 use sensitive_url::SensitiveUrl;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;

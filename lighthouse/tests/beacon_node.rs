@@ -11,6 +11,7 @@ use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
@@ -21,9 +22,14 @@ use types::{
     Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
     ProgressiveBalancesMode,
 };
-use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
+const DUMMY_ENR_TCP_PORT: u16 = 7777;
+const DUMMY_ENR_UDP_PORT: u16 = 8888;
+const DUMMY_ENR_QUIC_PORT: u16 = 9999;
+
+const _: () =
+    assert!(DUMMY_ENR_QUIC_PORT != 0 && DUMMY_ENR_TCP_PORT != 0 && DUMMY_ENR_UDP_PORT != 0);
 
 /// Returns the `lighthouse beacon_node` command.
 fn base_cmd() -> Command {
@@ -752,6 +758,38 @@ fn builder_fallback_flags() {
             );
         },
     );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("ignore-builder-override-suggestion-threshold"),
+        Some("53.4"),
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .ignore_builder_override_suggestion_threshold,
+                53.4f32
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .ignore_builder_override_suggestion_threshold,
+                10.0f32
+            );
+        },
+    );
 }
 
 #[test]
@@ -797,7 +835,7 @@ fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_fl
     let id = "bn-1";
     let version = "Lighthouse-v2.1.3";
     CommandLineTest::new()
-        .flag("execution-endpoint", Some(execution_endpoint.clone()))
+        .flag("execution-endpoint", Some(execution_endpoint))
         .flag(jwt_flag, dir.path().join(jwt_file).as_os_str().to_str())
         .flag(jwt_id_flag, Some(id))
         .flag(jwt_version_flag, Some(version))
@@ -1003,46 +1041,46 @@ fn network_listen_address_flag_wrong_double_v6_value_config() {
 }
 #[test]
 fn network_port_flag_over_ipv4() {
-    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    let port = 0;
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .run()
         .with_config(|config| {
             assert_eq!(
-                config
-                    .network
-                    .listen_addrs()
-                    .v4()
-                    .map(|listen_addr| (listen_addr.udp_port, listen_addr.tcp_port)),
-                Some((port, port))
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                Some((port, port + 1, port))
             );
         });
 }
 #[test]
 fn network_port_flag_over_ipv6() {
-    let port = unused_tcp6_port().expect("Unable to find unused port.");
+    let port = 0;
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
         .run()
         .with_config(|config| {
             assert_eq!(
-                config
-                    .network
-                    .listen_addrs()
-                    .v6()
-                    .map(|listen_addr| (listen_addr.udp_port, listen_addr.tcp_port)),
-                Some((port, port))
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                Some((port, port + 1, port))
             );
         });
 }
 #[test]
 fn network_port_and_discovery_port_flags_over_ipv4() {
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
-    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let tcp4_port = 0;
+    let disc4_port = 0;
     CommandLineTest::new()
         .flag("port", Some(tcp4_port.to_string().as_str()))
-        .flag("discovery-port", Some(udp4_port.to_string().as_str()))
+        .flag("discovery-port", Some(disc4_port.to_string().as_str()))
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1050,19 +1088,19 @@ fn network_port_and_discovery_port_flags_over_ipv4() {
                     .network
                     .listen_addrs()
                     .v4()
-                    .map(|listen_addr| (listen_addr.tcp_port, listen_addr.udp_port)),
-                Some((tcp4_port, udp4_port))
+                    .map(|listen_addr| (listen_addr.tcp_port, listen_addr.disc_port)),
+                Some((tcp4_port, disc4_port))
             );
         });
 }
 #[test]
 fn network_port_and_discovery_port_flags_over_ipv6() {
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
-    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp6_port = 0;
+    let disc6_port = 0;
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(tcp6_port.to_string().as_str()))
-        .flag("discovery-port", Some(udp6_port.to_string().as_str()))
+        .flag("discovery-port", Some(disc6_port.to_string().as_str()))
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1070,24 +1108,24 @@ fn network_port_and_discovery_port_flags_over_ipv6() {
                     .network
                     .listen_addrs()
                     .v6()
-                    .map(|listen_addr| (listen_addr.tcp_port, listen_addr.udp_port)),
-                Some((tcp6_port, udp6_port))
+                    .map(|listen_addr| (listen_addr.tcp_port, listen_addr.disc_port)),
+                Some((tcp6_port, disc6_port))
             );
         });
 }
 #[test]
 fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
-    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
-    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp4_port = 0;
+    let disc4_port = 0;
+    let tcp6_port = 0;
+    let disc6_port = 0;
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("listen-address", Some("127.0.0.1"))
         .flag("port", Some(tcp4_port.to_string().as_str()))
-        .flag("discovery-port", Some(udp4_port.to_string().as_str()))
+        .flag("discovery-port", Some(disc4_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
-        .flag("discovery-port6", Some(udp6_port.to_string().as_str()))
+        .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1095,8 +1133,8 @@ fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
                     .network
                     .listen_addrs()
                     .v4()
-                    .map(|listen_addr| (listen_addr.tcp_port, listen_addr.udp_port)),
-                Some((tcp4_port, udp4_port))
+                    .map(|listen_addr| (listen_addr.tcp_port, listen_addr.disc_port)),
+                Some((tcp4_port, disc4_port))
             );
 
             assert_eq!(
@@ -1104,8 +1142,47 @@ fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
                     .network
                     .listen_addrs()
                     .v6()
-                    .map(|listen_addr| (listen_addr.tcp_port, listen_addr.udp_port)),
-                Some((tcp6_port, udp6_port))
+                    .map(|listen_addr| (listen_addr.tcp_port, listen_addr.disc_port)),
+                Some((tcp6_port, disc6_port))
+            );
+        });
+}
+
+#[test]
+fn network_port_discovery_quic_port_flags_over_ipv4_and_ipv6() {
+    let tcp4_port = 0;
+    let disc4_port = 0;
+    let quic4_port = 0;
+    let tcp6_port = 0;
+    let disc6_port = 0;
+    let quic6_port = 0;
+    CommandLineTest::new()
+        .flag("listen-address", Some("::1"))
+        .flag("listen-address", Some("127.0.0.1"))
+        .flag("port", Some(tcp4_port.to_string().as_str()))
+        .flag("discovery-port", Some(disc4_port.to_string().as_str()))
+        .flag("quic-port", Some(quic4_port.to_string().as_str()))
+        .flag("port6", Some(tcp6_port.to_string().as_str()))
+        .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
+        .flag("quic-port6", Some(quic6_port.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.tcp_port,
+                    listen_addr.disc_port,
+                    listen_addr.quic_port
+                )),
+                Some((tcp4_port, disc4_port, quic4_port))
+            );
+
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.tcp_port,
+                    listen_addr.disc_port,
+                    listen_addr.quic_port
+                )),
+                Some((tcp6_port, disc6_port, quic6_port))
             );
         });
 }
@@ -1116,6 +1193,14 @@ fn disable_discovery_flag() {
         .flag("disable-discovery", None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.network.disable_discovery));
+}
+
+#[test]
+fn disable_quic_flag() {
+    CommandLineTest::new()
+        .flag("disable-quic", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.network.disable_quic_support));
 }
 #[test]
 fn disable_peer_scoring_flag() {
@@ -1216,41 +1301,91 @@ fn network_load_flag() {
 // Tests for ENR flags.
 #[test]
 fn enr_udp_port_flag() {
-    let port = unused_udp4_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_UDP_PORT;
+    assert!(port != 0);
     CommandLineTest::new()
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_udp4_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
+}
+#[test]
+fn enr_quic_port_flag() {
+    let port = DUMMY_ENR_QUIC_PORT;
+    CommandLineTest::new()
+        .flag("enr-quic-port", Some(port.to_string().as_str()))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_quic4_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_tcp_port_flag() {
-    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_TCP_PORT;
     CommandLineTest::new()
         .flag("enr-tcp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_tcp4_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_tcp4_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_udp6_port_flag() {
-    let port = unused_udp6_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_UDP_PORT;
     CommandLineTest::new()
         .flag("enr-udp6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_udp6_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_udp6_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
+}
+#[test]
+fn enr_quic6_port_flag() {
+    let port = DUMMY_ENR_QUIC_PORT;
+    CommandLineTest::new()
+        .flag("enr-quic6-port", Some(port.to_string().as_str()))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_quic6_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_tcp6_port_flag() {
-    let port = unused_tcp6_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_TCP_PORT;
     CommandLineTest::new()
         .flag("enr-tcp6-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_tcp6_port, Some(port)));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.enr_tcp6_port.map(|port| port.get()),
+                Some(port)
+            )
+        });
 }
 #[test]
 fn enr_match_flag_over_ipv4() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
-    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
+
+    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
+    let udp4_port = DUMMY_ENR_UDP_PORT;
+    let tcp4_port = DUMMY_ENR_TCP_PORT;
+
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some("127.0.0.2"))
@@ -1261,21 +1396,27 @@ fn enr_match_flag_over_ipv4() {
             assert_eq!(
                 config.network.listen_addrs().v4().map(|listen_addr| (
                     listen_addr.addr,
-                    listen_addr.udp_port,
+                    listen_addr.disc_port,
                     listen_addr.tcp_port
                 )),
                 Some((addr, udp4_port, tcp4_port))
             );
             assert_eq!(config.network.enr_address, (Some(addr), None));
-            assert_eq!(config.network.enr_udp4_port, Some(udp4_port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(udp4_port)
+            );
         });
 }
 #[test]
 fn enr_match_flag_over_ipv6() {
     const ADDR: &str = "::1";
     let addr = ADDR.parse::<Ipv6Addr>().unwrap();
-    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
+
+    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
+    let udp6_port = DUMMY_ENR_UDP_PORT;
+    let tcp6_port = DUMMY_ENR_TCP_PORT;
+
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some(ADDR))
@@ -1286,25 +1427,33 @@ fn enr_match_flag_over_ipv6() {
             assert_eq!(
                 config.network.listen_addrs().v6().map(|listen_addr| (
                     listen_addr.addr,
-                    listen_addr.udp_port,
+                    listen_addr.disc_port,
                     listen_addr.tcp_port
                 )),
                 Some((addr, udp6_port, tcp6_port))
             );
             assert_eq!(config.network.enr_address, (None, Some(addr)));
-            assert_eq!(config.network.enr_udp6_port, Some(udp6_port));
+            assert_eq!(
+                config.network.enr_udp6_port.map(|port| port.get()),
+                Some(udp6_port)
+            );
         });
 }
 #[test]
 fn enr_match_flag_over_ipv4_and_ipv6() {
     const IPV6_ADDR: &str = "::1";
+
+    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
+    let udp6_port = DUMMY_ENR_UDP_PORT;
+    let tcp6_port = DUMMY_ENR_TCP_PORT;
     let ipv6_addr = IPV6_ADDR.parse::<Ipv6Addr>().unwrap();
-    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
+
     const IPV4_ADDR: &str = "127.0.0.1";
+    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
+    let udp4_port = DUMMY_ENR_UDP_PORT;
+    let tcp4_port = DUMMY_ENR_TCP_PORT;
     let ipv4_addr = IPV4_ADDR.parse::<Ipv4Addr>().unwrap();
-    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
+
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some(IPV4_ADDR))
@@ -1318,7 +1467,7 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
             assert_eq!(
                 config.network.listen_addrs().v6().map(|listen_addr| (
                     listen_addr.addr,
-                    listen_addr.udp_port,
+                    listen_addr.disc_port,
                     listen_addr.tcp_port
                 )),
                 Some((ipv6_addr, udp6_port, tcp6_port))
@@ -1326,7 +1475,7 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
             assert_eq!(
                 config.network.listen_addrs().v4().map(|listen_addr| (
                     listen_addr.addr,
-                    listen_addr.udp_port,
+                    listen_addr.disc_port,
                     listen_addr.tcp_port
                 )),
                 Some((ipv4_addr, udp4_port, tcp4_port))
@@ -1335,41 +1484,53 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
                 config.network.enr_address,
                 (Some(ipv4_addr), Some(ipv6_addr))
             );
-            assert_eq!(config.network.enr_udp6_port, Some(udp6_port));
-            assert_eq!(config.network.enr_udp4_port, Some(udp4_port));
+            assert_eq!(
+                config.network.enr_udp6_port.map(|port| port.get()),
+                Some(udp6_port)
+            );
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(udp4_port)
+            );
         });
 }
 #[test]
 fn enr_address_flag_with_ipv4() {
     let addr = "192.167.1.1".parse::<Ipv4Addr>().unwrap();
-    let port = unused_udp4_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_UDP_PORT;
     CommandLineTest::new()
         .flag("enr-address", Some("192.167.1.1"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enr_address, (Some(addr), None));
-            assert_eq!(config.network.enr_udp4_port, Some(port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            );
         });
 }
 #[test]
 fn enr_address_flag_with_ipv6() {
     let addr = "192.167.1.1".parse::<Ipv4Addr>().unwrap();
-    let port = unused_udp4_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_UDP_PORT;
     CommandLineTest::new()
         .flag("enr-address", Some("192.167.1.1"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enr_address, (Some(addr), None));
-            assert_eq!(config.network.enr_udp4_port, Some(port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            );
         });
 }
 #[test]
 fn enr_address_dns_flag() {
     let addr = Ipv4Addr::LOCALHOST;
     let ipv6addr = Ipv6Addr::LOCALHOST;
-    let port = unused_udp4_port().expect("Unable to find unused port.");
+    let port = DUMMY_ENR_UDP_PORT;
     CommandLineTest::new()
         .flag("enr-address", Some("localhost"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
@@ -1379,7 +1540,10 @@ fn enr_address_dns_flag() {
                 config.network.enr_address.0 == Some(addr)
                     || config.network.enr_address.1 == Some(ipv6addr)
             );
-            assert_eq!(config.network.enr_udp4_port, Some(port));
+            assert_eq!(
+                config.network.enr_udp4_port.map(|port| port.get()),
+                Some(port)
+            );
         });
 }
 #[test]
@@ -1402,6 +1566,7 @@ fn http_flag() {
 fn http_address_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("127.0.0.99"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
@@ -1410,15 +1575,17 @@ fn http_address_flag() {
 fn http_address_ipv6_flag() {
     let addr = "::1".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("::1"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
 }
 #[test]
 fn http_port_flag() {
-    let port1 = unused_tcp4_port().expect("Unable to find unused port.");
-    let port2 = unused_tcp4_port().expect("Unable to find unused port.");
+    let port1 = 0;
+    let port2 = 0;
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
         .run()
@@ -1460,15 +1627,20 @@ fn disable_inbound_rate_limiter_flag() {
 #[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
-        .flag("http-allow-origin", Some("127.0.0.99"))
+        .flag("http", None)
+        .flag("http-allow-origin", Some("http://127.0.0.99"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.http_api.allow_origin, Some("127.0.0.99".to_string()));
+            assert_eq!(
+                config.http_api.allow_origin,
+                Some("http://127.0.0.99".to_string())
+            );
         });
 }
 #[test]
 fn http_allow_origin_all_flag() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-allow-origin", Some("*"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
@@ -1476,6 +1648,7 @@ fn http_allow_origin_all_flag() {
 #[test]
 fn http_allow_sync_stalled_flag() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-allow-sync-stalled", None)
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.allow_sync_stalled, true));
@@ -1483,32 +1656,29 @@ fn http_allow_sync_stalled_flag() {
 #[test]
 fn http_enable_beacon_processor() {
     CommandLineTest::new()
+        .flag("http", None)
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
 
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-enable-beacon-processor", Some("true"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
 
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-enable-beacon-processor", Some("false"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, false));
 }
 #[test]
 fn http_tls_flags() {
-    let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-enable-tls", None)
-        .flag(
-            "http-tls-cert",
-            dir.path().join("certificate.crt").as_os_str().to_str(),
-        )
-        .flag(
-            "http-tls-key",
-            dir.path().join("private.key").as_os_str().to_str(),
-        )
+        .flag("http-tls-cert", Some("tests/tls/cert.pem"))
+        .flag("http-tls-key", Some("tests/tls/key.rsa"))
         .run_with_zero_port()
         .with_config(|config| {
             let tls_config = config
@@ -1516,14 +1686,15 @@ fn http_tls_flags() {
                 .tls_config
                 .as_ref()
                 .expect("tls_config was empty.");
-            assert_eq!(tls_config.cert, dir.path().join("certificate.crt"));
-            assert_eq!(tls_config.key, dir.path().join("private.key"));
+            assert_eq!(tls_config.cert, Path::new("tests/tls/cert.pem"));
+            assert_eq!(tls_config.key, Path::new("tests/tls/key.rsa"));
         });
 }
 
 #[test]
 fn http_spec_fork_default() {
     CommandLineTest::new()
+        .flag("http", None)
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.spec_fork_name, None));
 }
@@ -1531,6 +1702,7 @@ fn http_spec_fork_default() {
 #[test]
 fn http_spec_fork_override() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-spec-fork", Some("altair"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.spec_fork_name, Some(ForkName::Altair)));
@@ -1567,8 +1739,8 @@ fn metrics_address_ipv6_flag() {
 }
 #[test]
 fn metrics_port_flag() {
-    let port1 = unused_tcp4_port().expect("Unable to find unused port.");
-    let port2 = unused_tcp4_port().expect("Unable to find unused port.");
+    let port1 = 0;
+    let port2 = 0;
     CommandLineTest::new()
         .flag("metrics", None)
         .flag("metrics-port", Some(port1.to_string().as_str()))
@@ -1753,6 +1925,45 @@ fn prune_payloads_on_startup_false() {
         .flag("prune-payloads", Some("false"))
         .run_with_zero_port()
         .with_config(|config| assert!(!config.store.prune_payloads));
+}
+#[test]
+fn prune_blobs_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.prune_blobs));
+}
+#[test]
+fn prune_blobs_on_startup_false() {
+    CommandLineTest::new()
+        .flag("prune-blobs", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.store.prune_blobs));
+}
+#[test]
+fn epochs_per_blob_prune_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.epochs_per_blob_prune == 1));
+}
+#[test]
+fn epochs_per_blob_prune_on_startup_five() {
+    CommandLineTest::new()
+        .flag("epochs-per-blob-prune", Some("5"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.epochs_per_blob_prune == 5));
+}
+#[test]
+fn blob_prune_margin_epochs_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.blob_prune_margin_epochs == 0));
+}
+#[test]
+fn blob_prune_margin_epochs_on_startup_ten() {
+    CommandLineTest::new()
+        .flag("blob-prune-margin-epochs", Some("10"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.blob_prune_margin_epochs == 10));
 }
 #[test]
 fn reconstruct_historic_states_flag() {
@@ -2266,6 +2477,18 @@ fn gui_flag() {
 }
 
 #[test]
+fn multiple_http_enabled_flags() {
+    CommandLineTest::new()
+        .flag("gui", None)
+        .flag("http", None)
+        .flag("staking", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.http_api.enabled);
+        });
+}
+
+#[test]
 fn optimistic_finalized_sync_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -2377,7 +2600,53 @@ fn http_sse_capacity_multiplier_default() {
 #[test]
 fn http_sse_capacity_multiplier_override() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-sse-capacity-multiplier", Some("10"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.sse_capacity_multiplier, 10));
+}
+
+#[test]
+fn http_duplicate_block_status_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.http_api.duplicate_block_status_code.as_u16(), 202)
+        });
+}
+
+#[test]
+fn http_duplicate_block_status_override() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("http-duplicate-block-status", Some("301"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.http_api.duplicate_block_status_code.as_u16(), 301)
+        });
+}
+
+#[test]
+fn genesis_state_url_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.genesis_state_url, None);
+            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(180));
+        });
+}
+
+#[test]
+fn genesis_state_url_value() {
+    CommandLineTest::new()
+        .flag("genesis-state-url", Some("http://genesis.com"))
+        .flag("genesis-state-url-timeout", Some("42"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.genesis_state_url.as_deref(),
+                Some("http://genesis.com")
+            );
+            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
+        });
 }

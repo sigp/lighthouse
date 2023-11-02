@@ -260,6 +260,7 @@ fn http_flag() {
 fn http_address_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("127.0.0.99"))
         .flag("unencrypted-http-transport", None)
         .run()
@@ -269,6 +270,7 @@ fn http_address_flag() {
 fn http_address_ipv6_flag() {
     let addr = "::1".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("::1"))
         .flag("unencrypted-http-transport", None)
         .run()
@@ -279,6 +281,7 @@ fn http_address_ipv6_flag() {
 fn missing_unencrypted_http_transport_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("127.0.0.99"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
@@ -286,6 +289,7 @@ fn missing_unencrypted_http_transport_flag() {
 #[test]
 fn http_port_flag() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-port", Some("9090"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, 9090));
@@ -293,6 +297,7 @@ fn http_port_flag() {
 #[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-allow-origin", Some("http://localhost:9009"))
         .run()
         .with_config(|config| {
@@ -305,6 +310,7 @@ fn http_allow_origin_flag() {
 #[test]
 fn http_allow_origin_all_flag() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-allow-origin", Some("*"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
@@ -312,12 +318,14 @@ fn http_allow_origin_all_flag() {
 #[test]
 fn http_allow_keystore_export_default() {
     CommandLineTest::new()
+        .flag("http", None)
         .run()
         .with_config(|config| assert!(!config.http_api.allow_keystore_export));
 }
 #[test]
 fn http_allow_keystore_export_present() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-allow-keystore-export", None)
         .run()
         .with_config(|config| assert!(config.http_api.allow_keystore_export));
@@ -325,12 +333,14 @@ fn http_allow_keystore_export_present() {
 #[test]
 fn http_store_keystore_passwords_in_secrets_dir_default() {
     CommandLineTest::new()
+        .flag("http", None)
         .run()
         .with_config(|config| assert!(!config.http_api.store_passwords_in_secrets_dir));
 }
 #[test]
 fn http_store_keystore_passwords_in_secrets_dir_present() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-store-passwords-in-secrets-dir", None)
         .run()
         .with_config(|config| assert!(config.http_api.store_passwords_in_secrets_dir));
@@ -348,6 +358,7 @@ fn metrics_flag() {
 fn metrics_address_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-address", Some("127.0.0.99"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
@@ -356,6 +367,7 @@ fn metrics_address_flag() {
 fn metrics_address_ipv6_flag() {
     let addr = "::1".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-address", Some("::1"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
@@ -363,6 +375,7 @@ fn metrics_address_ipv6_flag() {
 #[test]
 fn metrics_port_flag() {
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-port", Some("9090"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, 9090));
@@ -370,6 +383,7 @@ fn metrics_port_flag() {
 #[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-allow-origin", Some("http://localhost:9009"))
         .run()
         .with_config(|config| {
@@ -382,6 +396,7 @@ fn metrics_allow_origin_flag() {
 #[test]
 fn metrics_allow_origin_all_flag() {
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-allow-origin", Some("*"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.allow_origin, Some("*".to_string())));

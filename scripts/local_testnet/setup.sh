@@ -28,6 +28,7 @@ lcli \
 	--altair-fork-epoch $ALTAIR_FORK_EPOCH \
 	--bellatrix-fork-epoch $BELLATRIX_FORK_EPOCH \
 	--capella-fork-epoch $CAPELLA_FORK_EPOCH \
+	--deneb-fork-epoch $DENEB_FORK_EPOCH \
 	--ttd $TTD \
 	--eth1-block-hash $ETH1_BLOCK_HASH \
 	--eth1-id $CHAIN_ID \
@@ -46,6 +47,6 @@ lcli \
 	insecure-validators \
 	--count $VALIDATOR_COUNT \
 	--base-dir $DATADIR \
-	--node-count $BN_COUNT
+	--node-count $VC_COUNT
 
 echo Validators generated with keystore passwords at $DATADIR.

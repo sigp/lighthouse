@@ -1,26 +1,26 @@
 [package]
 name = "beacon_processor"
 version = "0.1.0"
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-slog = { version = "2.5.2", features = ["max_level_trace"] }
-itertools = "0.10.0"
-logging = { path = "../../common/logging" }
-tokio = { version = "1.14.0", features = ["full"] }
-tokio-util = { version = "0.6.3", features = ["time"] }
-futures = "0.3.7"
-fnv = "1.0.7"
-strum = "0.24.0"
-task_executor = { path = "../../common/task_executor" }
-slot_clock = { path = "../../common/slot_clock" }
-lighthouse_network =  { path = "../lighthouse_network" }
-hex = "0.4.2"
-derivative = "2.2.0"
-types = { path = "../../consensus/types" }
-ethereum_ssz = "0.5.0"
-lazy_static = "1.4.0"
-lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-parking_lot = "0.12.0"
-num_cpus = "1.13.0"
-serde = { version = "1.0.116", features = ["derive"] }
+slog = { workspace = true }
+itertools = { workspace = true }
+logging = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+fnv = { workspace = true }
+strum = { workspace = true }
+task_executor = { workspace = true }
+slot_clock = { workspace = true }
+lighthouse_network = { workspace = true }
+hex = { workspace = true }
+derivative = { workspace = true }
+types = { workspace = true }
+ethereum_ssz = { workspace = true }
+lazy_static = { workspace = true }
+lighthouse_metrics = { workspace = true }
+parking_lot = { workspace = true }
+num_cpus = { workspace = true }
+serde = { workspace = true }

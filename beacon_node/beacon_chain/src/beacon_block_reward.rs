@@ -64,19 +64,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.compute_beacon_block_attestation_reward_base(block, block_root, state)
                 .map_err(|e| {
                     error!(
-                    self.log,
-                    "Error calculating base block attestation reward";
-                    "error" => ?e
+                        self.log,
+                        "Error calculating base block attestation reward";
+                        "error" => ?e
                     );
                     BeaconChainError::BlockRewardAttestationError
                 })?
         } else {
-            self.compute_beacon_block_attestation_reward_altair(block, state)
+            self.compute_beacon_block_attestation_reward_altair_deneb(block, state)
                 .map_err(|e| {
                     error!(
-                    self.log,
-                    "Error calculating altair block attestation reward";
-                    "error" => ?e
+                        self.log,
+                        "Error calculating altair block attestation reward";
+                        "error" => ?e
                     );
                     BeaconChainError::BlockRewardAttestationError
                 })?
@@ -173,7 +173,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_attestation_reward)
     }
 
-    fn compute_beacon_block_attestation_reward_altair<Payload: AbstractExecPayload<T::EthSpec>>(
+    fn compute_beacon_block_attestation_reward_altair_deneb<
+        Payload: AbstractExecPayload<T::EthSpec>,
+    >(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &mut BeaconState<T::EthSpec>,
@@ -192,6 +194,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for attestation in block.body().attestations() {
             let data = &attestation.data;
             let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
+            // [Modified in Deneb:EIP7045]
             let participation_flag_indices = get_attestation_participation_flag_indices(
                 state,
                 data,

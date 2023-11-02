@@ -98,7 +98,7 @@ pub fn testing_client_config() -> ClientConfig {
     // Setting ports to `0` means that the OS will choose some available port.
     client_config
         .network
-        .set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 0, 0);
+        .set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 0, 0, 0);
     client_config.network.upnp_enabled = false;
     client_config.http_api.enabled = true;
     client_config.http_api.listen_port = 0;
@@ -114,6 +114,9 @@ pub fn testing_client_config() -> ClientConfig {
         validator_count: 8,
         genesis_time: now,
     };
+
+    // Simulator tests expect historic states to be available for post-run checks.
+    client_config.chain.reconstruct_historic_states = true;
 
     // Specify a constant count of beacon processor workers. Having this number
     // too low can cause annoying HTTP timeouts, especially on Github runners
@@ -217,14 +220,13 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         config.validator_dir = files.validator_dir.path().into();
         config.secrets_dir = files.secrets_dir.path().into();
 
-        ProductionValidatorClient::new(context, config)
+        let mut client = ProductionValidatorClient::new(context, config).await?;
+
+        client
+            .start_service()
             .await
-            .map(move |mut client| {
-                client
-                    .start_service()
-                    .expect("should start validator services");
-                Self { client, files }
-            })
+            .expect("should start validator services");
+        Ok(Self { client, files })
     }
 }
 
@@ -248,7 +250,7 @@ impl<E: EthSpec> LocalExecutionNode<E> {
             panic!("Failed to write jwt file {}", e);
         }
         Self {
-            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config),
+            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config, None),
             datadir,
         }
     }

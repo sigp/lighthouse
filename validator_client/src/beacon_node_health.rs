@@ -1,5 +1,5 @@
 use crate::beacon_node_fallback::Config;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use types::Slot;

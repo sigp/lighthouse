@@ -12,7 +12,7 @@ use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
 use parking_lot::RwLock as PLRwLock;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
@@ -320,6 +320,14 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 "Beacon node has mismatched Capella fork epoch";
                 "endpoint" => %self.beacon_node,
                 "endpoint_capella_fork_epoch" => ?beacon_node_spec.capella_fork_epoch,
+                "hint" => UPDATE_REQUIRED_LOG_HINT,
+            );
+        } else if beacon_node_spec.deneb_fork_epoch != spec.deneb_fork_epoch {
+            warn!(
+                log,
+                "Beacon node has mismatched Deneb fork epoch";
+                "endpoint" => %self.beacon_node,
+                "endpoint_deneb_fork_epoch" => ?beacon_node_spec.deneb_fork_epoch,
                 "hint" => UPDATE_REQUIRED_LOG_HINT,
             );
         }

@@ -5,15 +5,22 @@ use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use beacon_processor::SendOnDrop;
 use itertools::process_results;
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, MAX_REQUEST_BLOB_SIDECARS, MAX_REQUEST_BLOCKS_DENEB,
+};
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
+use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
-use types::{light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
+use types::blob_sidecar::BlobIdentifier;
+use types::{
+    light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, ForkName, Hash256, Slot,
+};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -118,7 +125,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 };
                 self.send_sync_message(SyncMessage::AddPeer(peer_id, info));
             }
-            Err(e) => error!(self.log, "Could not process status message"; "error" => ?e),
+            Err(e) => error!(self.log, "Could not process status message";
+                "peer" => %peer_id,
+                "error" => ?e
+            ),
         }
     }
 
@@ -207,6 +217,84 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "load_blocks_by_root_blocks",
         )
     }
+    /// Handle a `BlobsByRoot` request from the peer.
+    pub fn handle_blobs_by_root_request(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRootRequest,
+    ) {
+        let Some(requested_root) = request.blob_ids.get(0).map(|id| id.block_root) else {
+            // No blob ids requested.
+            return;
+        };
+        let requested_indices = request
+            .blob_ids
+            .iter()
+            .map(|id| id.index)
+            .collect::<Vec<_>>();
+        let mut send_blob_count = 0;
+        let send_response = true;
+
+        let mut blob_list_results = HashMap::new();
+        for id in request.blob_ids.into_iter() {
+            // First attempt to get the blobs from the RPC cache.
+            if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(&id) {
+                self.send_response(peer_id, Response::BlobsByRoot(Some(blob)), request_id);
+                send_blob_count += 1;
+            } else {
+                let BlobIdentifier {
+                    block_root: root,
+                    index,
+                } = id;
+
+                let blob_list_result = match blob_list_results.entry(root) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(self.chain.get_blobs_checking_early_attester_cache(&root))
+                    }
+                    Entry::Occupied(entry) => entry.into_mut(),
+                };
+
+                match blob_list_result.as_ref() {
+                    Ok(blobs_sidecar_list) => {
+                        'inner: for blob_sidecar in blobs_sidecar_list.iter() {
+                            if blob_sidecar.index == index {
+                                self.send_response(
+                                    peer_id,
+                                    Response::BlobsByRoot(Some(blob_sidecar.clone())),
+                                    request_id,
+                                );
+                                send_blob_count += 1;
+                                break 'inner;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!(
+                            self.log,
+                            "Error fetching blob for peer";
+                            "peer" => %peer_id,
+                            "request_root" => ?root,
+                            "error" => ?e,
+                        );
+                    }
+                }
+            }
+        }
+        debug!(
+            self.log,
+            "Received BlobsByRoot Request";
+            "peer" => %peer_id,
+            "request_root" => %requested_root,
+            "request_indices" => ?requested_indices,
+            "returned" => send_blob_count
+        );
+
+        // send stream termination
+        if send_response {
+            self.send_response(peer_id, Response::BlobsByRoot(None), request_id);
+        }
+    }
 
     /// Handle a `BlocksByRoot` request from the peer.
     pub fn handle_light_client_bootstrap(
@@ -223,7 +311,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.send_error_response(
                         peer_id,
                         RPCResponseErrorCode::ResourceUnavailable,
-                        "Bootstrap not avaiable".into(),
+                        "Bootstrap not available".into(),
                         request_id,
                     );
                     return;
@@ -233,7 +321,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.send_error_response(
                     peer_id,
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not avaiable".into(),
+                    "Bootstrap not available".into(),
                     request_id,
                 );
                 return;
@@ -246,7 +334,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.send_error_response(
                         peer_id,
                         RPCResponseErrorCode::ResourceUnavailable,
-                        "Bootstrap not avaiable".into(),
+                        "Bootstrap not available".into(),
                         request_id,
                     );
                     return;
@@ -256,23 +344,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.send_error_response(
                     peer_id,
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not avaiable".into(),
+                    "Bootstrap not available".into(),
                     request_id,
                 );
                 return;
             }
         };
-        let bootstrap = match LightClientBootstrap::from_beacon_state(&mut beacon_state) {
-            Ok(bootstrap) => bootstrap,
-            Err(_) => {
-                self.send_error_response(
-                    peer_id,
-                    RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not avaiable".into(),
-                    request_id,
-                );
-                return;
-            }
+        let Ok(bootstrap) = LightClientBootstrap::from_beacon_state(&mut beacon_state) else {
+            self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::ResourceUnavailable,
+                "Bootstrap not available".into(),
+                request_id,
+            );
+            return;
         };
         self.send_response(
             peer_id,
@@ -288,7 +373,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        mut req: BlocksByRangeRequest,
+        req: BlocksByRangeRequest,
     ) {
         debug!(self.log, "Received BlocksByRange Request";
             "peer_id" => %peer_id,
@@ -297,8 +382,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request blocks
-        if *req.count() > MAX_REQUEST_BLOCKS {
-            *req.count_mut() = MAX_REQUEST_BLOCKS;
+        let max_request_size = self.chain.epoch().map_or(MAX_REQUEST_BLOCKS, |epoch| {
+            match self.chain.spec.fork_name_at_epoch(epoch) {
+                ForkName::Deneb => MAX_REQUEST_BLOCKS_DENEB,
+                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                    MAX_REQUEST_BLOCKS
+                }
+            }
+        });
+        if *req.count() > max_request_size {
+            return self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::InvalidRequest,
+                format!("Request exceeded max size {max_request_size}"),
+                request_id,
+            );
         }
 
         let forwards_block_root_iter = match self
@@ -312,7 +410,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     oldest_block_slot,
                 },
             )) => {
-                debug!(self.log, "Range request failed during backfill"; "requested_slot" => slot, "oldest_known_slot" => oldest_block_slot);
+                debug!(self.log, "Range request failed during backfill";
+                    "requested_slot" => slot,
+                    "oldest_known_slot" => oldest_block_slot
+                );
                 return self.send_error_response(
                     peer_id,
                     RPCResponseErrorCode::ResourceUnavailable,
@@ -320,7 +421,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     request_id,
                 );
             }
-            Err(e) => return error!(self.log, "Unable to obtain root iter"; "error" => ?e),
+            Err(e) => {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ServerError,
+                    "Database error".into(),
+                    request_id,
+                );
+                return error!(self.log, "Unable to obtain root iter";
+                    "request" => ?req,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                );
+            }
         };
 
         // Pick out the required blocks, ignoring skip-slots.
@@ -344,7 +457,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let block_roots = match maybe_block_roots {
             Ok(block_roots) => block_roots,
-            Err(e) => return error!(self.log, "Error during iteration over blocks"; "error" => ?e),
+            Err(e) => {
+                return error!(self.log, "Error during iteration over blocks";
+                    "request" => ?req,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                )
+            }
         };
 
         // remove all skip slots
@@ -381,8 +500,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             error!(
                                 self.log,
                                 "Block in the chain is not in the store";
+                                "request" => ?req,
+                                "peer" => %peer_id,
                                 "request_root" => ?root
                             );
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ServerError,
+                                "Database inconsistency".into(),
+                                request_id,
+                            );
+                            send_response = false;
                             break;
                         }
                         Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
@@ -478,5 +606,211 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             },
             "load_blocks_by_range_blocks",
         );
+    }
+
+    /// Handle a `BlobsByRange` request from the peer.
+    pub fn handle_blobs_by_range_request(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        req: BlobsByRangeRequest,
+    ) {
+        debug!(self.log, "Received BlobsByRange Request";
+            "peer_id" => %peer_id,
+            "count" => req.count,
+            "start_slot" => req.start_slot,
+        );
+
+        // Should not send more than max request blocks
+        if req.max_blobs_requested::<T::EthSpec>() > MAX_REQUEST_BLOB_SIDECARS {
+            return self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::InvalidRequest,
+                "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`".into(),
+                request_id,
+            );
+        }
+
+        let request_start_slot = Slot::from(req.start_slot);
+
+        let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
+            Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
+            None => {
+                debug!(self.log, "Deneb fork is disabled");
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::InvalidRequest,
+                    "Deneb fork is disabled".into(),
+                    request_id,
+                );
+                return;
+            }
+        };
+
+        let oldest_blob_slot = self
+            .chain
+            .store
+            .get_blob_info()
+            .oldest_blob_slot
+            .unwrap_or(data_availability_boundary_slot);
+        if request_start_slot < oldest_blob_slot {
+            debug!(
+                self.log,
+                "Range request start slot is older than data availability boundary.";
+                "requested_slot" => request_start_slot,
+                "oldest_blob_slot" => oldest_blob_slot,
+                "data_availability_boundary" => data_availability_boundary_slot
+            );
+
+            return if data_availability_boundary_slot < oldest_blob_slot {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "blobs pruned within boundary".into(),
+                    request_id,
+                )
+            } else {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::InvalidRequest,
+                    "Req outside availability period".into(),
+                    request_id,
+                )
+            };
+        }
+
+        let forwards_block_root_iter =
+            match self.chain.forwards_iter_block_roots(request_start_slot) {
+                Ok(iter) => iter,
+                Err(BeaconChainError::HistoricalBlockError(
+                    HistoricalBlockError::BlockOutOfRange {
+                        slot,
+                        oldest_block_slot,
+                    },
+                )) => {
+                    debug!(self.log, "Range request failed during backfill";
+                        "requested_slot" => slot,
+                        "oldest_known_slot" => oldest_block_slot
+                    );
+                    return self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Backfilling".into(),
+                        request_id,
+                    );
+                }
+                Err(e) => {
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ServerError,
+                        "Database error".into(),
+                        request_id,
+                    );
+                    return error!(self.log, "Unable to obtain root iter";
+                        "request" => ?req,
+                        "peer" => %peer_id,
+                        "error" => ?e
+                    );
+                }
+            };
+
+        // Use `WhenSlotSkipped::Prev` to get the most recent block root prior to
+        // `request_start_slot` in order to check whether the `request_start_slot` is a skip.
+        let mut last_block_root = req.start_slot.checked_sub(1).and_then(|prev_slot| {
+            self.chain
+                .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
+                .ok()
+                .flatten()
+        });
+
+        // Pick out the required blocks, ignoring skip-slots.
+        let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
+            iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
+                // map skip slots to None
+                .map(|(root, _)| {
+                    let result = if Some(root) == last_block_root {
+                        None
+                    } else {
+                        Some(root)
+                    };
+                    last_block_root = Some(root);
+                    result
+                })
+                .collect::<Vec<Option<Hash256>>>()
+        });
+
+        let block_roots = match maybe_block_roots {
+            Ok(block_roots) => block_roots,
+            Err(e) => {
+                return error!(self.log, "Error during iteration over blocks";
+                    "request" => ?req,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                )
+            }
+        };
+
+        // remove all skip slots
+        let block_roots = block_roots.into_iter().flatten();
+
+        let mut blobs_sent = 0;
+        let mut send_response = true;
+
+        for root in block_roots {
+            match self.chain.get_blobs(&root) {
+                Ok(blob_sidecar_list) => {
+                    for blob_sidecar in blob_sidecar_list.iter() {
+                        blobs_sent += 1;
+                        self.send_network_message(NetworkMessage::SendResponse {
+                            peer_id,
+                            response: Response::BlobsByRange(Some(blob_sidecar.clone())),
+                            id: request_id,
+                        });
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        self.log,
+                        "Error fetching blobs block root";
+                        "request" => ?req,
+                        "peer" => %peer_id,
+                        "block_root" => ?root,
+                        "error" => ?e
+                    );
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ServerError,
+                        "No blobs and failed fetching corresponding block".into(),
+                        request_id,
+                    );
+                    send_response = false;
+                    break;
+                }
+            }
+        }
+
+        let current_slot = self
+            .chain
+            .slot()
+            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
+
+        debug!(
+            self.log,
+            "BlobsByRange Response processed";
+            "peer" => %peer_id,
+            "start_slot" => req.start_slot,
+            "current_slot" => current_slot,
+            "requested" => req.count,
+            "returned" => blobs_sent
+        );
+
+        if send_response {
+            // send the stream terminator
+            self.send_network_message(NetworkMessage::SendResponse {
+                peer_id,
+                response: Response::BlobsByRange(None),
+                id: request_id,
+            });
+        }
     }
 }

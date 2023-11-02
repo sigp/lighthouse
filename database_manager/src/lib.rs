@@ -61,6 +61,24 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
                 .possible_values(InspectTarget::VARIANTS),
         )
         .arg(
+            Arg::with_name("skip")
+                .long("skip")
+                .value_name("N")
+                .help("Skip over the first N keys"),
+        )
+        .arg(
+            Arg::with_name("limit")
+                .long("limit")
+                .value_name("N")
+                .help("Output at most N keys"),
+        )
+        .arg(
+            Arg::with_name("freezer")
+                .long("freezer")
+                .help("Inspect the freezer DB rather than the hot DB")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("output-dir")
                 .long("output-dir")
                 .value_name("DIR")
@@ -73,6 +91,12 @@ pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
     App::new("prune_payloads")
         .setting(clap::AppSettings::ColoredHelp)
         .about("Prune finalized execution payloads")
+}
+
+pub fn prune_blobs_app<'a, 'b>() -> App<'a, 'b> {
+    App::new("prune_blobs")
+        .setting(clap::AppSettings::ColoredHelp)
+        .about("Prune blobs older than data availability boundary")
 }
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
@@ -98,10 +122,29 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Data directory for the freezer database.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("blob-prune-margin-epochs")
+                .long("blob-prune-margin-epochs")
+                .value_name("EPOCHS")
+                .help(
+                    "The margin for blob pruning in epochs. The oldest blobs are pruned \
+                       up until data_availability_boundary - blob_prune_margin_epochs.",
+                )
+                .takes_value(true)
+                .default_value("0"),
+        )
+        .arg(
+            Arg::with_name("blobs-dir")
+                .long("blobs-dir")
+                .value_name("DIR")
+                .help("Data directory for the blobs database.")
+                .takes_value(true),
+        )
         .subcommand(migrate_cli_app())
         .subcommand(version_cli_app())
         .subcommand(inspect_cli_app())
         .subcommand(prune_payloads_app())
+        .subcommand(prune_blobs_app())
 }
 
 fn parse_client_config<E: EthSpec>(
@@ -116,9 +159,19 @@ fn parse_client_config<E: EthSpec>(
         client_config.freezer_db_path = Some(freezer_dir);
     }
 
+    if let Some(blobs_db_dir) = clap_utils::parse_optional(cli_args, "blobs-dir")? {
+        client_config.blobs_db_path = Some(blobs_db_dir);
+    }
+
     let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
     client_config.store.slots_per_restore_point = sprp;
     client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
+
+    if let Some(blob_prune_margin_epochs) =
+        clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
+    {
+        client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
+    }
 
     Ok(client_config)
 }
@@ -131,11 +184,13 @@ pub fn display_db_version<E: EthSpec>(
     let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
 
     let mut version = CURRENT_SCHEMA_VERSION;
     HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
+        blobs_path,
         |_, from, _| {
             version = from;
             Ok(())
@@ -171,6 +226,9 @@ pub enum InspectTarget {
 pub struct InspectConfig {
     column: DBColumn,
     target: InspectTarget,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    freezer: bool,
     /// Configures where the inspect output should be stored.
     output_dir: PathBuf,
 }
@@ -178,11 +236,18 @@ pub struct InspectConfig {
 fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> {
     let column = clap_utils::parse_required(cli_args, "column")?;
     let target = clap_utils::parse_required(cli_args, "output")?;
+    let skip = clap_utils::parse_optional(cli_args, "skip")?;
+    let limit = clap_utils::parse_optional(cli_args, "limit")?;
+    let freezer = cli_args.is_present("freezer");
+
     let output_dir: PathBuf =
         clap_utils::parse_optional(cli_args, "output-dir")?.unwrap_or_else(PathBuf::new);
     Ok(InspectConfig {
         column,
         target,
+        skip,
+        limit,
+        freezer,
         output_dir,
     })
 }
@@ -196,10 +261,12 @@ pub fn inspect_db<E: EthSpec>(
     let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
 
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
+        blobs_path,
         |_, _, _| Ok(()),
         client_config.store,
         spec,
@@ -208,6 +275,17 @@ pub fn inspect_db<E: EthSpec>(
     .map_err(|e| format!("{:?}", e))?;
 
     let mut total = 0;
+    let mut num_keys = 0;
+
+    let sub_db = if inspect_config.freezer {
+        &db.cold_db
+    } else {
+        &db.hot_db
+    };
+
+    let skip = inspect_config.skip.unwrap_or(0);
+    let limit = inspect_config.limit.unwrap_or(usize::MAX);
+
     let base_path = &inspect_config.output_dir;
 
     if let InspectTarget::Values = inspect_config.target {
@@ -215,20 +293,24 @@ pub fn inspect_db<E: EthSpec>(
             .map_err(|e| format!("Unable to create import directory: {:?}", e))?;
     }
 
-    for res in db.hot_db.iter_column(inspect_config.column) {
+    for res in sub_db
+        .iter_column::<Vec<u8>>(inspect_config.column)
+        .skip(skip)
+        .take(limit)
+    {
         let (key, value) = res.map_err(|e| format!("{:?}", e))?;
 
         match inspect_config.target {
             InspectTarget::ValueSizes => {
-                println!("{:?}: {} bytes", key, value.len());
-                total += value.len();
+                println!("{}: {} bytes", hex::encode(&key), value.len());
             }
-            InspectTarget::ValueTotal => {
-                total += value.len();
-            }
+            InspectTarget::ValueTotal => (),
             InspectTarget::Values => {
-                let file_path =
-                    base_path.join(format!("{}_{}.ssz", inspect_config.column.as_str(), key));
+                let file_path = base_path.join(format!(
+                    "{}_{}.ssz",
+                    inspect_config.column.as_str(),
+                    hex::encode(&key)
+                ));
 
                 let write_result = fs::OpenOptions::new()
                     .create(true)
@@ -244,17 +326,14 @@ pub fn inspect_db<E: EthSpec>(
                 } else {
                     println!("Successfully saved values to file: {:?}", file_path);
                 }
-
-                total += value.len();
             }
         }
+        total += value.len();
+        num_keys += 1;
     }
 
-    match inspect_config.target {
-        InspectTarget::ValueSizes | InspectTarget::ValueTotal | InspectTarget::Values => {
-            println!("Total: {} bytes", total);
-        }
-    }
+    println!("Num keys: {}", num_keys);
+    println!("Total: {} bytes", total);
 
     Ok(())
 }
@@ -278,12 +357,14 @@ pub fn migrate_db<E: EthSpec>(
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
 
     let mut from = CURRENT_SCHEMA_VERSION;
     let to = migrate_config.to;
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
+        blobs_path,
         |_, db_initial_version, _| {
             from = db_initial_version;
             Ok(())
@@ -318,10 +399,12 @@ pub fn prune_payloads<E: EthSpec>(
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
 
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
+        blobs_path,
         |_, _, _| Ok(()),
         client_config.store,
         spec.clone(),
@@ -332,6 +415,31 @@ pub fn prune_payloads<E: EthSpec>(
     // out early.
     let force = true;
     db.try_prune_execution_payloads(force)
+}
+
+pub fn prune_blobs<E: EthSpec>(
+    client_config: ClientConfig,
+    runtime_context: &RuntimeContext<E>,
+    log: Logger,
+) -> Result<(), Error> {
+    let spec = &runtime_context.eth2_config.spec;
+    let hot_path = client_config.get_db_path();
+    let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
+
+    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+        &hot_path,
+        &cold_path,
+        blobs_path,
+        |_, _, _| Ok(()),
+        client_config.store,
+        spec.clone(),
+        log,
+    )?;
+
+    // If we're triggering a prune manually then ignore the check on `epochs_per_blob_prune` that
+    // bails out early by passing true to the force parameter.
+    db.try_prune_most_blobs(true)
 }
 
 /// Run the database manager, returning an error string if the operation did not succeed.
@@ -356,6 +464,7 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
         ("prune_payloads", Some(_)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)
         }
+        ("prune_blobs", Some(_)) => prune_blobs(client_config, &context, log).map_err(format_err),
         _ => Err("Unknown subcommand, for help `lighthouse database_manager --help`".into()),
     }
 }

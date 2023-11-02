@@ -15,10 +15,11 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::light_client_bootstrap::LightClientBootstrap;
+use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar};
 use types::{
     EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockMerge,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
+    SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -71,6 +72,8 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::BlobsByRange(res) => res.as_ssz_bytes(),
+                RPCResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
@@ -132,9 +135,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV2 {
             return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v2())));
         }
-        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
-            Some(len) => len,
-            None => return Ok(None),
+        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
+            return Ok(None);
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
@@ -222,6 +224,8 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
                 BlocksByRootRequest::V1(req) => req.block_roots.as_ssz_bytes(),
                 BlocksByRootRequest::V2(req) => req.block_roots.as_ssz_bytes(),
             },
+            OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
+            OutboundRequest::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
         };
@@ -272,9 +276,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 return Ok(None);
             }
         }
-        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
-            Some(len) => len,
-            None => return Ok(None),
+        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
+            return Ok(None);
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
@@ -284,8 +287,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
             .rpc_response_limits::<TSpec>(&self.fork_context);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
-                "RPC response length is out of bounds, length {}",
-                length
+                "RPC response length is out of bounds, length {}, max {}, min {}",
+                length, ssz_limits.max, ssz_limits.min
             )));
         }
         // Calculate worst case compression length for given uncompressed length
@@ -319,9 +322,8 @@ impl<TSpec: EthSpec> OutboundCodec<OutboundRequest<TSpec>> for SSZSnappyOutbound
         &mut self,
         src: &mut BytesMut,
     ) -> Result<Option<Self::CodecErrorType>, RPCError> {
-        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
-            Some(len) => len,
-            None => return Ok(None),
+        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
+            return Ok(None);
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
@@ -396,21 +398,23 @@ fn context_bytes<T: EthSpec>(
                 return match **ref_box_block {
                     // NOTE: If you are adding another fork type here, be sure to modify the
                     //       `fork_context.to_context_bytes()` function to support it as well!
+                    SignedBeaconBlock::Deneb { .. } => {
+                        fork_context.to_context_bytes(ForkName::Deneb)
+                    }
                     SignedBeaconBlock::Capella { .. } => {
-                        // Capella context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Capella)
                     }
                     SignedBeaconBlock::Merge { .. } => {
-                        // Merge context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Merge)
                     }
                     SignedBeaconBlock::Altair { .. } => {
-                        // Altair context being `None` implies that "altair never happened".
-                        // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
                         fork_context.to_context_bytes(ForkName::Altair)
                     }
                     SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
                 };
+            }
+            if let RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) = rpc_variant {
+                return fork_context.to_context_bytes(ForkName::Deneb);
             }
         }
     }
@@ -472,6 +476,14 @@ fn handle_rpc_request<T: EthSpec>(
                 block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
             }),
         ))),
+        SupportedProtocol::BlobsByRangeV1 => Ok(Some(InboundRequest::BlobsByRange(
+            BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
+        SupportedProtocol::BlobsByRootV1 => {
+            Ok(Some(InboundRequest::BlobsByRoot(BlobsByRootRequest {
+                blob_ids: VariableList::from_ssz_bytes(decoded_buffer)?,
+            })))
+        }
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -526,6 +538,38 @@ fn handle_rpc_response<T: EthSpec>(
         SupportedProtocol::BlocksByRootV1 => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
+        SupportedProtocol::BlobsByRangeV1 => match fork_name {
+            Some(ForkName::Deneb) => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
+                BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+            )))),
+            Some(_) => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                "Invalid fork name for blobs by range".to_string(),
+            )),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::BlobsByRootV1 => match fork_name {
+            Some(ForkName::Deneb) => Ok(Some(RPCResponse::BlobsByRoot(Arc::new(
+                BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+            )))),
+            Some(_) => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                "Invalid fork name for blobs by root".to_string(),
+            )),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
         SupportedProtocol::PingV1 => Ok(Some(RPCResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -555,6 +599,9 @@ fn handle_rpc_response<T: EthSpec>(
                     decoded_buffer,
                 )?),
             )))),
+            Some(ForkName::Deneb) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(decoded_buffer)?),
+            )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 format!(
@@ -578,6 +625,9 @@ fn handle_rpc_response<T: EthSpec>(
                     decoded_buffer,
                 )?),
             )))),
+            Some(ForkName::Deneb) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(decoded_buffer)?),
+            )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 format!(
@@ -598,9 +648,13 @@ fn context_bytes_to_fork_name(
         .from_context_bytes(context_bytes)
         .cloned()
         .ok_or_else(|| {
+            let encoded = hex::encode(context_bytes);
             RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
-                "Context bytes does not correspond to a valid fork".to_string(),
+                format!(
+                    "Context bytes {} do not correspond to a valid fork",
+                    encoded
+                ),
             )
         })
 }
@@ -615,8 +669,9 @@ mod tests {
     };
     use std::sync::Arc;
     use types::{
-        BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, ChainSpec, EmptyBlock,
-        Epoch, ForkContext, FullPayload, Hash256, Signature, SignedBeaconBlock, Slot,
+        blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
+        BeaconBlockMerge, ChainSpec, EmptyBlock, Epoch, ForkContext, FullPayload, Hash256,
+        Signature, SignedBeaconBlock, Slot,
     };
 
     use snap::write::FrameEncoder;
@@ -630,16 +685,19 @@ mod tests {
         let altair_fork_epoch = Epoch::new(1);
         let merge_fork_epoch = Epoch::new(2);
         let capella_fork_epoch = Epoch::new(3);
+        let deneb_fork_epoch = Epoch::new(4);
 
         chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
         chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
         chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
+        chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
 
         let current_slot = match fork_name {
             ForkName::Base => Slot::new(0),
             ForkName::Altair => altair_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Merge => merge_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Capella => capella_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Deneb => deneb_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }
@@ -655,6 +713,10 @@ mod tests {
         let full_block =
             BeaconBlock::Altair(BeaconBlockAltair::<Spec>::full(&Spec::default_spec()));
         SignedBeaconBlock::from_block(full_block, Signature::empty())
+    }
+
+    fn empty_blob_sidecar() -> Arc<BlobSidecar<Spec>> {
+        Arc::new(BlobSidecar::empty())
     }
 
     /// Merge block with length < max_rpc_size.
@@ -705,12 +767,28 @@ mod tests {
         OldBlocksByRangeRequest::new(0, 10, 1)
     }
 
+    fn blbrange_request() -> BlobsByRangeRequest {
+        BlobsByRangeRequest {
+            start_slot: 0,
+            count: 10,
+        }
+    }
+
     fn bbroot_request_v1() -> BlocksByRootRequest {
         BlocksByRootRequest::new_v1(vec![Hash256::zero()].into())
     }
 
     fn bbroot_request_v2() -> BlocksByRootRequest {
         BlocksByRootRequest::new(vec![Hash256::zero()].into())
+    }
+
+    fn blbroot_request() -> BlobsByRootRequest {
+        BlobsByRootRequest {
+            blob_ids: VariableList::from(vec![BlobIdentifier {
+                block_root: Hash256::zero(),
+                index: 0,
+            }]),
+        }
     }
 
     fn ping_message() -> Ping {
@@ -846,6 +924,12 @@ mod tests {
             OutboundRequest::BlocksByRoot(bbroot) => {
                 assert_eq!(decoded, InboundRequest::BlocksByRoot(bbroot))
             }
+            OutboundRequest::BlobsByRange(blbrange) => {
+                assert_eq!(decoded, InboundRequest::BlobsByRange(blbrange))
+            }
+            OutboundRequest::BlobsByRoot(bbroot) => {
+                assert_eq!(decoded, InboundRequest::BlobsByRoot(bbroot))
+            }
             OutboundRequest::Ping(ping) => {
                 assert_eq!(decoded, InboundRequest::Ping(ping))
             }
@@ -951,6 +1035,26 @@ mod tests {
                 &chain_spec,
             ),
             Ok(Some(RPCResponse::MetaData(metadata()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::BlobsByRangeV1,
+                RPCCodedResponse::Success(RPCResponse::BlobsByRange(empty_blob_sidecar())),
+                ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RPCResponse::BlobsByRange(empty_blob_sidecar()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::BlobsByRootV1,
+                RPCCodedResponse::Success(RPCResponse::BlobsByRoot(empty_blob_sidecar())),
+                ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RPCResponse::BlobsByRoot(empty_blob_sidecar()))),
         );
     }
 
@@ -1297,6 +1401,8 @@ mod tests {
             OutboundRequest::BlocksByRoot(bbroot_request_v1()),
             OutboundRequest::BlocksByRoot(bbroot_request_v2()),
             OutboundRequest::MetaData(MetadataRequest::new_v1()),
+            OutboundRequest::BlobsByRange(blbrange_request()),
+            OutboundRequest::BlobsByRoot(blbroot_request()),
             OutboundRequest::MetaData(MetadataRequest::new_v2()),
         ];
 
