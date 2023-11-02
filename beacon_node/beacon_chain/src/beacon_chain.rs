@@ -4739,6 +4739,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &state,
                 prev_attestation_filter,
                 curr_attestation_filter,
+                16,
                 &self.spec,
             )
             .map_err(BlockProductionError::OpPoolError)?;

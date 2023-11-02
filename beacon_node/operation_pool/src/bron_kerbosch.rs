@@ -3,7 +3,7 @@ use rpds::HashTrieSet;
 /// `T : Compatible<T>`. Returns all the maximal cliques (as a matrix of indices) for the graph
 /// `G = (V,E)` where `V` is `vertices` and `E` encodes the `is_compatible` relationship.
 pub fn bron_kerbosch<T, F: Fn(&T, &T) -> bool>(
-    vertices: &Vec<T>,
+    vertices: &[T],
     is_compatible: F,
 ) -> Vec<HashTrieSet<usize>> {
     // create empty vector to store cliques
@@ -40,7 +40,7 @@ pub fn bron_kerbosch<T, F: Fn(&T, &T) -> bool>(
 /// and returns a symmetric matrix (`Vec<Vec<usize>>`) of indices, where each index corresponds
 /// to the relative vertex in `vertices`.
 fn compute_neighbourhoods<T, F: Fn(&T, &T) -> bool>(
-    vertices: &Vec<T>,
+    vertices: &[T],
     is_compatible: F,
 ) -> Vec<Vec<usize>> {
     let mut neighbourhoods = vec![];

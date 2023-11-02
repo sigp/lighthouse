@@ -230,6 +230,7 @@ impl<T: EthSpec> OperationPool<T> {
         state: &'a BeaconState<T>,
         mut validity_filter: impl FnMut(&AttestationRef<'a, T>) -> bool + Send,
         num_valid: &mut i64,
+        max_vertices: usize,
         spec: &'a ChainSpec,
     ) -> Vec<(&CompactAttestationData, Vec<CompactIndexedAttestation<T>>)> {
         if let Some(AttestationDataMap {
@@ -259,7 +260,18 @@ impl<T: EthSpec> OperationPool<T> {
                 })
                 .collect::<Vec<(&CompactAttestationData, Vec<&CompactIndexedAttestation<_>>)>>()
                 .into_par_iter()
-                .map(|(data, aggregates)| {
+                .map(|(data, mut aggregates)| {
+                    // Take the N aggregates with the highest number of set bits
+                    // This is needed to avoid the bron_kerbosch algorithm generating millions of
+                    // cliques
+                    let aggregates = if aggregates.len() > max_vertices {
+                        let (left, _, _) = aggregates.select_nth_unstable_by_key(max_vertices, |a| {
+                            std::cmp::Reverse(a.aggregation_bits.num_set_bits())
+                        });
+                        left
+                    } else {
+                        aggregates.as_slice()
+                    };
                     // aggregate each cliques corresponding attestaiions
                     let mut clique_aggregates: Vec<CompactIndexedAttestation<_>> =
                         bron_kerbosch(&aggregates, is_compatible)
@@ -363,6 +375,7 @@ impl<T: EthSpec> OperationPool<T> {
         state: &BeaconState<T>,
         prev_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, T>) -> bool + Send,
         curr_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, T>) -> bool + Send,
+        max_vertices: usize,
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<T>>, OpPoolError> {
         // Attestations for the current fork, which may be from the current or previous epoch.
@@ -392,6 +405,7 @@ impl<T: EthSpec> OperationPool<T> {
                 state,
                 prev_epoch_validity_filter,
                 &mut num_prev_valid,
+                max_vertices,
                 spec,
             )
         } else {
@@ -419,6 +433,7 @@ impl<T: EthSpec> OperationPool<T> {
             state,
             curr_epoch_validity_filter,
             &mut num_curr_valid,
+            max_vertices,
             spec,
         );
 
@@ -1123,7 +1138,7 @@ mod release_tests {
         // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
         assert_eq!(
             op_pool
-                .get_attestations(&state, |_| true, |_| true, spec)
+                .get_attestations(&state, |_| true, |_| true, 16, spec)
                 .expect("should have attestations")
                 .len(),
             0
@@ -1133,7 +1148,7 @@ mod release_tests {
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
 
         let block_attestations = op_pool
-            .get_attestations(&state, |_| true, |_| true, spec)
+            .get_attestations(&state, |_| true, |_| true, 16, spec)
             .expect("Should have block attestations");
         assert_eq!(block_attestations.len(), committees.len());
 
@@ -1292,10 +1307,11 @@ mod release_tests {
             &state,
             |_| true,
             &mut num_valid,
+            32,
             spec,
         );
         let best_attestations = op_pool
-            .get_attestations(&state, |_| true, |_| true, spec)
+            .get_attestations(&state, |_| true, |_| true, 32, spec)
             .unwrap();
 
         // There should only be attestations for 1 attestation data.
@@ -1397,7 +1413,7 @@ mod release_tests {
 
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(&state, |_| true, |_| true, spec)
+            .get_attestations(&state, |_| true, |_| true, 32, spec)
             .expect("should have best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
@@ -1494,7 +1510,7 @@ mod release_tests {
 
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(&state, |_| true, |_| true, spec)
+            .get_attestations(&state, |_| true, |_| true, 32, spec)
             .expect("should have valid best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
