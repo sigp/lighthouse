@@ -570,13 +570,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       Identical to the method used at the 2019 Canada interop.")
         )
         .arg(
-            Arg::with_name("eth1-endpoint")
-                .long("eth1-endpoint")
-                .value_name("HTTP-ENDPOINT")
-                .help("Deprecated. Use --eth1-endpoints.")
-                .takes_value(true)
-        )
-        .arg(
             Arg::with_name("eth1-endpoints")
                 .long("eth1-endpoints")
                 .value_name("HTTP-ENDPOINTS")
