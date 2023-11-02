@@ -1,5 +1,6 @@
 use crate::test_utils::TestRandom;
-use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
+use crate::{BeaconBlockHeader, Blob, EthSpec, Hash256, SignedBeaconBlockHeader};
+use bls::Signature;
 use derivative::Derivative;
 use kzg::{
     Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT,
@@ -67,45 +68,38 @@ impl Ord for BlobIdentifier {
 #[arbitrary(bound = "T: EthSpec")]
 #[derivative(PartialEq, Eq, Hash(bound = "T: EthSpec"))]
 pub struct BlobSidecar<T: EthSpec> {
-    pub block_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
-    pub slot: Slot,
-    pub block_parent_root: Hash256,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub proposer_index: u64,
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub blob: Blob<T>,
     pub kzg_commitment: KzgCommitment,
     pub kzg_proof: KzgProof,
+    pub signed_block_header: SignedBeaconBlockHeader,
+    pub kzg_commitment_inclusion_proof: FixedVector<Hash256, T::KzgCommitmentInclusionProofDepth>,
 }
 
-impl<E: EthSpec> From<Arc<BlobSidecar<E>>> for BlindedBlobSidecar {
+impl<E: EthSpec> From<Arc<BlobSidecar<E>>> for BlindedBlobSidecar<E> {
     fn from(blob_sidecar: Arc<BlobSidecar<E>>) -> Self {
         BlindedBlobSidecar {
-            block_root: blob_sidecar.block_root,
             index: blob_sidecar.index,
-            slot: blob_sidecar.slot,
-            block_parent_root: blob_sidecar.block_parent_root,
-            proposer_index: blob_sidecar.proposer_index,
             blob_root: blob_sidecar.blob.tree_hash_root(),
             kzg_commitment: blob_sidecar.kzg_commitment,
             kzg_proof: blob_sidecar.kzg_proof,
+            signed_block_header: blob_sidecar.signed_block_header.clone(),
+            kzg_commitment_inclusion_proof: blob_sidecar.kzg_commitment_inclusion_proof.clone(),
         }
     }
 }
 
-impl<E: EthSpec> From<BlobSidecar<E>> for BlindedBlobSidecar {
+impl<E: EthSpec> From<BlobSidecar<E>> for BlindedBlobSidecar<E> {
     fn from(blob_sidecar: BlobSidecar<E>) -> Self {
         BlindedBlobSidecar {
-            block_root: blob_sidecar.block_root,
             index: blob_sidecar.index,
-            slot: blob_sidecar.slot,
-            block_parent_root: blob_sidecar.block_parent_root,
-            proposer_index: blob_sidecar.proposer_index,
             blob_root: blob_sidecar.blob.tree_hash_root(),
             kzg_commitment: blob_sidecar.kzg_commitment,
             kzg_proof: blob_sidecar.kzg_proof,
+            signed_block_header: blob_sidecar.signed_block_header,
+            kzg_commitment_inclusion_proof: blob_sidecar.kzg_commitment_inclusion_proof,
         }
     }
 }
@@ -122,26 +116,33 @@ impl<T: EthSpec> Ord for BlobSidecar<T> {
     }
 }
 
-impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}
-
 impl<T: EthSpec> BlobSidecar<T> {
     pub fn id(&self) -> BlobIdentifier {
         BlobIdentifier {
-            block_root: self.block_root,
+            // TODO(pawan): cache this value in the Sidecar
+            block_root: self.signed_block_header.tree_hash_root(),
             index: self.index,
         }
     }
 
     pub fn empty() -> Self {
         Self {
-            block_root: Hash256::zero(),
             index: 0,
-            slot: Slot::new(0),
-            block_parent_root: Hash256::zero(),
-            proposer_index: 0,
             blob: Blob::<T>::default(),
             kzg_commitment: KzgCommitment::empty_for_testing(),
             kzg_proof: KzgProof::empty(),
+            // TODO(pawan): make default impl
+            signed_block_header: SignedBeaconBlockHeader {
+                message: BeaconBlockHeader {
+                    body_root: Default::default(),
+                    parent_root: Default::default(),
+                    proposer_index: Default::default(),
+                    slot: Default::default(),
+                    state_root: Default::default(),
+                },
+                signature: Signature::empty(),
+            },
+            kzg_commitment_inclusion_proof: Default::default(),
         }
     }
 
@@ -199,40 +200,45 @@ impl<T: EthSpec> BlobSidecar<T> {
     Derivative,
     arbitrary::Arbitrary,
 )]
-#[derivative(PartialEq, Eq, Hash)]
-pub struct BlindedBlobSidecar {
-    pub block_root: Hash256,
+#[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
+#[derivative(PartialEq, Eq, Hash(bound = "T: EthSpec"))]
+pub struct BlindedBlobSidecar<T: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
-    pub slot: Slot,
-    pub block_parent_root: Hash256,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub proposer_index: u64,
     pub blob_root: Hash256,
     pub kzg_commitment: KzgCommitment,
     pub kzg_proof: KzgProof,
+    pub signed_block_header: SignedBeaconBlockHeader,
+    pub kzg_commitment_inclusion_proof: FixedVector<Hash256, T::KzgCommitmentInclusionProofDepth>,
 }
 
-impl BlindedBlobSidecar {
+impl<T: EthSpec> BlindedBlobSidecar<T> {
     pub fn empty() -> Self {
         Self {
-            block_root: Hash256::zero(),
             index: 0,
-            slot: Slot::new(0),
-            block_parent_root: Hash256::zero(),
-            proposer_index: 0,
             blob_root: Hash256::zero(),
             kzg_commitment: KzgCommitment::empty_for_testing(),
             kzg_proof: KzgProof::empty(),
+            kzg_commitment_inclusion_proof: Default::default(),
+            // TODO(pawan): make default impl
+            signed_block_header: SignedBeaconBlockHeader {
+                message: BeaconBlockHeader {
+                    body_root: Default::default(),
+                    parent_root: Default::default(),
+                    proposer_index: Default::default(),
+                    slot: Default::default(),
+                    state_root: Default::default(),
+                },
+                signature: Signature::empty(),
+            },
         }
     }
 }
 
-impl SignedRoot for BlindedBlobSidecar {}
-
 pub type SidecarList<T, Sidecar> = VariableList<Arc<Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
 pub type BlobSidecarList<T> = SidecarList<T, BlobSidecar<T>>;
-pub type BlindedBlobSidecarList<T> = SidecarList<T, BlindedBlobSidecar>;
+pub type BlindedBlobSidecarList<T> = SidecarList<T, BlindedBlobSidecar<T>>;
 
 pub type FixedBlobSidecarList<T> =
     FixedVector<Option<Arc<BlobSidecar<T>>>, <T as EthSpec>::MaxBlobsPerBlock>;

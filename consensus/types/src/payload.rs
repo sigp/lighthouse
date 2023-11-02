@@ -911,7 +911,7 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Capella = BlindedPayloadCapella<T>;
     type Deneb = BlindedPayloadDeneb<T>;
 
-    type Sidecar = BlindedBlobSidecar;
+    type Sidecar = BlindedBlobSidecar<T>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
