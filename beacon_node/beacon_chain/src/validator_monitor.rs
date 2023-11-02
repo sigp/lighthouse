@@ -645,7 +645,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         {
                             let i = *proposer_index as u64;
                             if let Some(pub_key) = self.indices.get(&i) {
-                                if self.validators.get(pub_key).is_some() {
+                                if let Some(validator) = self.validators.get(pub_key) {
                                     let missed_block = MissedBlock {
                                         slot,
                                         parent_root: *prev_block_root,
@@ -653,7 +653,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                     };
                                     // Incr missed block counter for the validator only if it doesn't already exist in the hashset
                                     if self.missed_blocks.insert(missed_block) {
-                                        self.aggregatable_metric(i.to_string().as_str(), |label| {
+                                        self.aggregatable_metric(&validator.id, |label| {
                                             metrics::inc_counter_vec(
                                                 &metrics::VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL,
                                                 &[label],
