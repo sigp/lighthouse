@@ -1009,11 +1009,6 @@ lazy_static! {
         "beacon_aggregated_attestation_subsets_total",
         "Count of new aggregated attestations that are subsets of already known aggregates"
     );
-    pub static ref VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL: Result<IntGaugeVec> = try_create_int_gauge_vec(
-        "validator_monitor_missed_non_finalized_blocks_total",
-        "Number of non-finalized blocks missed at non-finalized epochs",
-        &["validator"]
-    );
     pub static ref VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "validator_monitor_missed_blocks_total",
         "Number of non-finalized blocks missed",
