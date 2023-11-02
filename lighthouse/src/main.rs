@@ -107,7 +107,7 @@ fn main() {
                 .value_name("LEVEL")
                 .help("The verbosity level used when emitting logs to the log file.")
                 .takes_value(true)
-                .possible_values(&["info", "debug", "trace", "", "error", "crit"])
+                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .default_value("debug")
                 .global(true),
         )
