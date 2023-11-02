@@ -4724,13 +4724,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let attestation_packing_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
 
-        let mut prev_filter_cache = HashMap::new();
+        let prev_chain = self.clone();
+        let prev_filter_cache_lock = Mutex::new(HashMap::new());
         let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
+            let mut prev_filter_cache = prev_filter_cache_lock.lock();
+            prev_chain.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
         };
-        let mut curr_filter_cache = HashMap::new();
+        let curr_chain = self.clone();
+        let curr_filter_cache_lock = Mutex::new(HashMap::new());
         let curr_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
+            let mut curr_filter_cache = curr_filter_cache_lock.lock();
+            curr_chain.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
         };
 
         let mut attestations = self

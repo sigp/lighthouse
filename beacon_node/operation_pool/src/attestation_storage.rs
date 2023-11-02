@@ -163,7 +163,7 @@ impl<T: EthSpec> AttestationMap<T> {
             attestation_map
                 .unaggregate_attestations
                 .entry(data)
-                .or_insert_with(Vec::new)
+                .or_default()
         };
         let mut observed = false;
         for existing_attestation in attestations.iter_mut() {

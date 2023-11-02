@@ -1,37 +1,48 @@
+use crate::OpPoolError as Error;
 use rpds::HashTrieSet;
+
 /// Entry point for the Bron-Kerbosh algorithm. Takes a vector of `vertices` of type
 /// `T : Compatible<T>`. Returns all the maximal cliques (as a matrix of indices) for the graph
 /// `G = (V,E)` where `V` is `vertices` and `E` encodes the `is_compatible` relationship.
 pub fn bron_kerbosch<T, F: Fn(&T, &T) -> bool>(
     vertices: &[T],
     is_compatible: F,
-) -> Vec<HashTrieSet<usize>> {
+) -> Result<Vec<HashTrieSet<usize>>, Error> {
     // create empty vector to store cliques
     let mut cliques: Vec<HashTrieSet<usize>> = vec![];
 
-    if vertices.len() > 0 {
+    if !vertices.is_empty() {
         // build neighbourhoods and degeneracy ordering, also move to index-based reasoning
-        let neighbourhoods = compute_neighbourhoods(vertices, is_compatible);
+        let neighbourhoods =
+            compute_neighbourhoods(vertices, is_compatible).ok_or(Error::BronKerboschLogicError)?;
         let ordering = degeneracy_order(vertices.len(), &neighbourhoods);
 
         let mut publish_clique = |c| cliques.push(c);
 
-        for i in 0..ordering.len() {
-            let vi = ordering[i];
-            let p = (i + 1..ordering.len())
-                .filter(|j| neighbourhoods[vi].contains(&ordering[*j]))
-                .map(|j| ordering[j])
+        for (i, &vi) in ordering.iter().enumerate() {
+            let vi_neighbourhood = neighbourhoods
+                .get(vi)
+                .ok_or(Error::BronKerboschLogicError)?;
+            let p = ordering
+                .get(i + 1..ordering.len())
+                .ok_or(Error::BronKerboschLogicError)?
+                .iter()
+                .filter(|pj| vi_neighbourhood.contains(pj))
+                .copied()
                 .collect();
             let r = HashTrieSet::default().insert(vi);
-            let x = (0..i)
-                .filter(|j| neighbourhoods[vi].contains(&ordering[*j]))
-                .map(|j| ordering[j])
+            let x = ordering
+                .get(0..i)
+                .ok_or(Error::BronKerboschLogicError)?
+                .iter()
+                .filter(|xj| vi_neighbourhood.contains(xj))
+                .copied()
                 .collect();
-            bron_kerbosch_aux(r, p, x, &neighbourhoods, &mut publish_clique)
+            bron_kerbosch_aux(r, p, x, &neighbourhoods, &mut publish_clique)?;
         }
     }
 
-    cliques
+    Ok(cliques)
 }
 
 /// A function to the neighbourhoods for all nodes in the list. The neighbourhood `N(a)` of a
@@ -42,24 +53,24 @@ pub fn bron_kerbosch<T, F: Fn(&T, &T) -> bool>(
 fn compute_neighbourhoods<T, F: Fn(&T, &T) -> bool>(
     vertices: &[T],
     is_compatible: F,
-) -> Vec<Vec<usize>> {
+) -> Option<Vec<Vec<usize>>> {
     let mut neighbourhoods = vec![];
     neighbourhoods.resize_with(vertices.len(), Vec::new);
-    for i in 0..vertices.len() - 1 {
-        for j in i + 1..vertices.len() {
-            if is_compatible(&vertices[i], &vertices[j]) {
-                neighbourhoods[i].push(j);
-                neighbourhoods[j].push(i);
+    for (i, vi) in vertices.get(0..vertices.len() - 1)?.iter().enumerate() {
+        for (j, vj) in vertices.get(i + 1..vertices.len())?.iter().enumerate() {
+            if is_compatible(vi, vj) {
+                neighbourhoods.get_mut(i)?.push(j);
+                neighbourhoods.get_mut(j)?.push(i);
             }
         }
     }
-    neighbourhoods
+    Some(neighbourhoods)
 }
 
 /// Produces a degeneracy ordering of a set of vertices.
 fn degeneracy_order(num_vertices: usize, neighbourhoods: &[Vec<usize>]) -> Vec<usize> {
     let mut v: Vec<usize> = (0..num_vertices).collect();
-    v.sort_unstable_by_key(|i| neighbourhoods[*i].len());
+    v.sort_unstable_by_key(|i| neighbourhoods.get(*i).map(|n| n.len()).unwrap_or(0));
     v
 }
 
@@ -76,31 +87,37 @@ fn bron_kerbosch_aux<F>(
     mut x: HashTrieSet<usize>,
     neighbourhoods: &Vec<Vec<usize>>,
     publish_clique: &mut F,
-) where
+) -> Result<(), Error>
+where
     F: FnMut(HashTrieSet<usize>),
 {
     if p.is_empty() && x.is_empty() {
         publish_clique(r);
-        return;
+        return Ok(());
     }
 
-    let pivot = find_pivot(&p, &x, neighbourhoods);
-    let pivot_neighbours = &neighbourhoods[pivot];
+    let pivot = find_pivot(&p, &x, neighbourhoods)?;
+    let pivot_neighbours = neighbourhoods
+        .get(pivot)
+        .ok_or(Error::BronKerboschLogicError)?;
 
-    let ip = hash_set_filter(&p, |e| pivot_neighbours.contains(e));
+    let ip = hash_set_filter(&p, |e| !pivot_neighbours.contains(e));
 
     for v in ip.iter() {
-        let n_set = &neighbourhoods[*v];
+        let n_set = neighbourhoods
+            .get(*v)
+            .ok_or(Error::BronKerboschLogicError)?;
 
         let nr = r.insert(*v);
-        let np = hash_set_filter(&p, |e| !n_set.contains(e));
-        let nx = hash_set_filter(&x, |e| !n_set.contains(e));
+        let np = hash_set_filter(&p, |e| n_set.contains(e));
+        let nx = hash_set_filter(&x, |e| n_set.contains(e));
 
-        bron_kerbosch_aux(nr, np, nx, neighbourhoods, publish_clique);
+        bron_kerbosch_aux(nr, np, nx, neighbourhoods, publish_clique)?;
 
         p.remove_mut(v);
         x.insert_mut(*v);
     }
+    Ok(())
 }
 
 /// Identifies pivot for Bron-Kerbosh pivoting technique.
@@ -108,24 +125,31 @@ fn find_pivot(
     p: &HashTrieSet<usize>,
     x: &HashTrieSet<usize>,
     neighbourhoods: &[Vec<usize>],
-) -> usize {
-    *p.iter()
+) -> Result<usize, Error> {
+    p.iter()
         .chain(x.iter())
         .min_by_key(|&e| {
             p.iter()
-                .filter(|ee| neighbourhoods[*e].contains(ee))
+                .filter(|ee| {
+                    neighbourhoods
+                        .get(*e)
+                        .map(|n| n.contains(ee))
+                        .unwrap_or(false)
+                })
                 .count()
         })
-        .unwrap()
+        .copied()
+        .ok_or(Error::BronKerboschLogicError)
 }
 
+/// Store the members of `set` matching `predicate` in a new set.
 fn hash_set_filter<P>(set: &HashTrieSet<usize>, predicate: P) -> HashTrieSet<usize>
 where
     P: Fn(&usize) -> bool,
 {
     let mut new_set = set.clone();
     for e in set.iter() {
-        if predicate(e) {
+        if !predicate(e) {
             new_set.remove_mut(e);
         }
     }
@@ -140,7 +164,7 @@ mod tests {
     #[test]
     fn bron_kerbosch_small_test() {
         let vertices: Vec<usize> = (0..7).collect();
-        let edges = vec![
+        let edges = [
             (0, 1),
             (0, 2),
             (0, 3),
@@ -159,31 +183,31 @@ mod tests {
             edges.contains(&(*first, *second)) || edges.contains(&(*first, *second))
         };
 
-        println!("{:?}", bron_kerbosch(&vertices, is_compatible));
+        println!("{:?}", bron_kerbosch(&vertices, is_compatible).unwrap());
     }
 
     quickcheck! {
         fn no_panic(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
             let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
-            bron_kerbosch(&vertices, is_compatible);
+            bron_kerbosch(&vertices, is_compatible).unwrap();
             true
         }
 
         fn at_least_one_clique_returned(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
-            if vertices.len() == 0 {
+            if vertices.is_empty() {
                 return true;
             }
             let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
-            let res = bron_kerbosch(&vertices, is_compatible);
-            res.len() >= 1
+            let res = bron_kerbosch(&vertices, is_compatible).unwrap();
+            !res.is_empty()
         }
 
         fn no_clique_is_empty(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
-            if vertices.len() == 0 {
+            if vertices.is_empty() {
                 return true;
             }
             let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
-            let res = bron_kerbosch(&vertices, is_compatible);
+            let res = bron_kerbosch(&vertices, is_compatible).unwrap();
             for clique in res.iter() {
                 if clique.is_empty() {
                     return false;
@@ -194,7 +218,7 @@ mod tests {
 
         fn all_claimed_cliques_are_cliques(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
             let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
-            let claimed_cliques = bron_kerbosch(&vertices, is_compatible);
+            let claimed_cliques = bron_kerbosch(&vertices, is_compatible).unwrap();
             for clique in claimed_cliques {
                 for (ind1, vertex) in clique.iter().enumerate() {
                     for (ind2, other_vertex) in clique.iter().enumerate() {
@@ -212,10 +236,10 @@ mod tests {
 
         fn no_clique_is_a_subset_of_other_clique(vertices: Vec<usize>, adjacencies: HashSet<(usize, usize)>) -> bool {
             let is_compatible = |i: &usize, j: &usize| adjacencies.contains(&(*i, *j)) || adjacencies.contains(&(*j, *i));
-            let claimed_cliques = bron_kerbosch(&vertices, is_compatible);
+            let claimed_cliques = bron_kerbosch(&vertices, is_compatible).unwrap();
             let is_subset = |set1: HashTrieSet<usize>, set2: HashTrieSet<usize>| -> bool {
                 for vertex in set1.iter() {
-                    if !set2.contains(&vertex) {
+                    if !set2.contains(vertex) {
                         return false;
                     }
                 }
