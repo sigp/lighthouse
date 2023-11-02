@@ -547,46 +547,46 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         //
         // Count the amount of times a monitored validator missed a non-finalized block
 
-        // We need to extract each validator from the missed_blocks variable and initialise it
-        // to 0. We use a Prometheus gauge and so, this step is mandatory in order to only incr the
-        // counter for non-finalized epochs.
-        let mut validators_missed_blocks: HashMap<u64, u64> = self
-            .missed_blocks
-            .iter()
-            .map(|missed_block| (missed_block.validator_index, 0))
-            .collect();
-
-        // Count the amount of times a monitored validator missed block for the non-finalized slots
-        let finalized_epoch = state.finalized_checkpoint().epoch;
-        let finalized_epoch_start_slot = finalized_epoch.start_slot(T::slots_per_epoch());
+        // Iterate through all missed blocks from non-finalized slots and produce:
+        //
+        // - A map of validator index to missed block count.
+        // - A total count of missed blocks.
+        let mut non_finalized_missed_blocks: HashMap<u64, u64> = HashMap::default();
+        let mut total_missed_blocks: u64 = 0;
+        let finalized_epoch_start_slot = state
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(T::slots_per_epoch());
         self.missed_blocks
             .iter()
             .filter(|missed_block| missed_block.slot > finalized_epoch_start_slot)
             .for_each(|missed_block| {
-                *validators_missed_blocks
+                total_missed_blocks += 1;
+                *non_finalized_missed_blocks
                     .entry(missed_block.validator_index)
                     .or_default() += 1;
             });
 
-        // Set the Prometheus metrics for each validator (including missed_blocks_count=0)
+        // Set the Prometheus metrics for each monitored validator (including missed_blocks_count=0)
         if self.individual_tracking() {
-            validators_missed_blocks
-                .iter()
-                .for_each(|(validator_index, missed_blocks_count)| {
-                    metrics::set_int_gauge(
-                        &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
-                        &[validator_index.to_string().as_str()],
-                        u64_to_i64(*missed_blocks_count),
-                    );
-                });
+            for validator_index in self.validators.iter().filter_map(|(_, v)| v.index) {
+                let missed_blocks_count = non_finalized_missed_blocks
+                    .get(&validator_index)
+                    .copied()
+                    .unwrap_or_default();
+                metrics::set_int_gauge(
+                    &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
+                    &[validator_index.to_string().as_str()],
+                    u64_to_i64(missed_blocks_count),
+                );
+            }
         }
 
         // Set the prometheus metric for the total amount of missed blocks for all monitored validators
-        let total_missed_block: u64 = validators_missed_blocks.values().sum();
         metrics::set_int_gauge(
             &metrics::VALIDATOR_MONITOR_MISSED_NON_FINALIZED_BLOCKS_TOTAL,
             &[TOTAL_LABEL],
-            u64_to_i64(total_missed_block),
+            u64_to_i64(total_missed_blocks),
         );
 
         // Prune missed blocks that are prior to last finalized epochs - MISSED_BLOCK_LOOKBACK_EPOCHS
