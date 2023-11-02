@@ -107,7 +107,7 @@ fn main() {
                 .value_name("LEVEL")
                 .help("The verbosity level used when emitting logs to the log file.")
                 .takes_value(true)
-                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
+                .possible_values(&["info", "debug", "trace", "", "error", "crit"])
                 .default_value("debug")
                 .global(true),
         )
@@ -541,7 +541,7 @@ fn run<E: EthSpec>(
 
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
-        warn!(
+        slog::warn!(
             log,
             "CPU seems incompatible with optimized Lighthouse build";
             "advice" => "If you get a SIGILL, please try Lighthouse portable build"
