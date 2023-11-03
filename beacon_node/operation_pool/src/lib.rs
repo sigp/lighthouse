@@ -25,8 +25,10 @@ mod sync_aggregate_id;
 
 pub use crate::bls_to_execution_changes::ReceivedPreCapella;
 pub use attestation::{earliest_attestation_validators, AttMaxCover};
-use attestation_storage::{AttestationDataMap, CompactAttestationData, CompactIndexedAttestation};
-pub use attestation_storage::{AttestationRef, SplitAttestation};
+use attestation_storage::{AttestationDataMap, AttestationMap, CompactIndexedAttestation};
+pub use attestation_storage::{
+    AttestationRef, CheckpointKey, CompactAttestationData, SplitAttestation,
+};
 use bron_kerbosch::bron_kerbosch;
 pub use max_cover::MaxCover;
 pub use persistence::{
@@ -35,7 +37,6 @@ pub use persistence::{
 };
 pub use reward_cache::RewardCache;
 
-use crate::attestation_storage::{AttestationMap, CheckpointKey};
 use crate::bls_to_execution_changes::BlsToExecutionChanges;
 use crate::sync_aggregate_id::SyncAggregateId;
 use attester_slashing::AttesterSlashingMaxCover;
@@ -244,7 +245,7 @@ impl<T: EthSpec> OperationPool<T> {
         checkpoint_key: &'a CheckpointKey,
         all_attestations: &'a AttestationMap<T>,
         state: &'a BeaconState<T>,
-        validity_filter: impl Fn(&AttestationRef<'a, T>) -> bool + Send + Sync,
+        validity_filter: impl Fn(&CheckpointKey, &CompactAttestationData) -> bool + Send + Sync,
         num_valid: &AtomicUsize,
         max_vertices: usize,
         spec: &'a ChainSpec,
@@ -266,13 +267,7 @@ impl<T: EthSpec> OperationPool<T> {
             .map(|(data, aggregates)| {
                 let aggregates: Vec<&CompactIndexedAttestation<T>> = aggregates
                     .iter()
-                    .filter(|indexed| {
-                        validity_filter(&AttestationRef {
-                            checkpoint: checkpoint_key,
-                            data,
-                            indexed,
-                        })
-                    })
+                    .filter(|_| validity_filter(checkpoint_key, data))
                     .collect();
                 num_valid.fetch_add(aggregates.len(), Ordering::Relaxed);
                 (data, aggregates)
@@ -319,13 +314,7 @@ impl<T: EthSpec> OperationPool<T> {
                 // aggregate unaggregate attestations into the clique aggregates
                 // if compatible
                 if let Some(unaggregate_attestations) = unaggregate_attestations.get(data) {
-                    for attestation in unaggregate_attestations.iter().filter(|indexed| {
-                        validity_filter(&AttestationRef {
-                            checkpoint: checkpoint_key,
-                            data,
-                            indexed,
-                        })
-                    }) {
+                    for attestation in unaggregate_attestations {
                         num_valid.fetch_add(1, Ordering::Relaxed);
                         for clique_aggregate in &mut clique_aggregates {
                             if clique_aggregate.signers_disjoint_from(attestation) {
@@ -349,16 +338,14 @@ impl<T: EthSpec> OperationPool<T> {
                     && !aggregate_attestations.contains_key(data)
             })
             .for_each(|(data, unaggregates)| {
-                let mut valid_attestations = unaggregates.iter().filter(|indexed| {
-                    validity_filter(&AttestationRef {
-                        checkpoint: checkpoint_key,
-                        data,
-                        indexed,
-                    })
-                });
-                if let Some(att) = valid_attestations.next() {
+                let mut unaggregates = unaggregates.iter();
+                if let Some(att) = unaggregates.next() {
+                    if !validity_filter(checkpoint_key, data) {
+                        return;
+                    }
+
                     let mut att = att.clone();
-                    valid_attestations.for_each(|valid_att| att.aggregate(valid_att));
+                    unaggregates.for_each(|valid_att| att.aggregate(valid_att));
                     cliques_from_aggregates.push((data, vec![att]))
                 }
             });
@@ -374,8 +361,12 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_attestations(
         &self,
         state: &BeaconState<T>,
-        prev_epoch_validity_filter: impl for<'a> Fn(&AttestationRef<'a, T>) -> bool + Send + Sync,
-        curr_epoch_validity_filter: impl for<'a> Fn(&AttestationRef<'a, T>) -> bool + Send + Sync,
+        prev_epoch_validity_filter: impl for<'a> Fn(&CheckpointKey, &CompactAttestationData) -> bool
+            + Send
+            + Sync,
+        curr_epoch_validity_filter: impl for<'a> Fn(&CheckpointKey, &CompactAttestationData) -> bool
+            + Send
+            + Sync,
         max_vertices: usize,
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<T>>, OpPoolError> {
@@ -1151,7 +1142,7 @@ mod release_tests {
         // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
         assert_eq!(
             op_pool
-                .get_attestations(&state, |_| true, |_| true, 16, spec)
+                .get_attestations(&state, |_, _| true, |_, _| true, 16, spec)
                 .expect("should have attestations")
                 .len(),
             0
@@ -1161,7 +1152,7 @@ mod release_tests {
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
 
         let block_attestations = op_pool
-            .get_attestations(&state, |_| true, |_| true, 16, spec)
+            .get_attestations(&state, |_, _| true, |_, _| true, 16, spec)
             .expect("Should have block attestations");
         assert_eq!(block_attestations.len(), committees.len());
 
@@ -1319,14 +1310,14 @@ mod release_tests {
                 &curr,
                 &all_attestations,
                 &state,
-                |_| true,
+                |_, _| true,
                 &num_valid,
                 32,
                 spec,
             )
             .unwrap();
         let best_attestations = op_pool
-            .get_attestations(&state, |_| true, |_| true, 32, spec)
+            .get_attestations(&state, |_, _| true, |_, _| true, 32, spec)
             .unwrap();
 
         // There should only be attestations for 1 attestation data.
@@ -1428,7 +1419,7 @@ mod release_tests {
 
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(&state, |_| true, |_| true, 32, spec)
+            .get_attestations(&state, |_, _| true, |_, _| true, 32, spec)
             .expect("should have best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
@@ -1525,7 +1516,7 @@ mod release_tests {
 
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(&state, |_| true, |_| true, 32, spec)
+            .get_attestations(&state, |_, _| true, |_, _| true, 32, spec)
             .expect("should have valid best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
