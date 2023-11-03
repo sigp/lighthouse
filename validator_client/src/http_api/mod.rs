@@ -432,14 +432,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(signer.clone())
         .and(block_service_filter.clone())
         .and_then(|signer, block_filter: BlockService<T, E>| async move {
-            let mut result: HashMap<String, Result<BeaconNodeHealth, CandidateError>> =
+            let mut result: HashMap<(usize, String), Result<BeaconNodeHealth, CandidateError>> =
                 HashMap::new();
             for node in &*block_filter.beacon_nodes.candidates.read().await {
-                result.insert(node.beacon_node.to_string(), *node.health.read());
+                result.insert((node.id, node.beacon_node.to_string()), *node.health.read());
             }
             if let Some(proposer_nodes) = &block_filter.proposer_nodes {
                 for node in &*proposer_nodes.candidates.read().await {
-                    result.insert(node.beacon_node.to_string(), *node.health.read());
+                    result.insert((node.id, node.beacon_node.to_string()), *node.health.read());
                 }
             }
 
