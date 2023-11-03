@@ -979,3 +979,10 @@ impl<T: EthSpec> From<BlindedPayload<T>> for ExecutionPayloadHeader<T> {
         }
     }
 }
+
+/// The block production flow version to be used.
+pub enum BlockProductionVersion {
+    V3,
+    BlindedV2,
+    FullV2,
+}

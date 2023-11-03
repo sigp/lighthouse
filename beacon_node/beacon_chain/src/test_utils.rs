@@ -1,6 +1,7 @@
 use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::BeaconBlockResponseType;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
@@ -60,6 +61,7 @@ use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::TaskExecutor;
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
+use types::payload::BlockProductionVersion;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::test_utils::TestRandom;
@@ -878,7 +880,7 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-        let (block, state, maybe_blob_sidecars) = self
+        let BeaconBlockResponseType::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -887,14 +889,18 @@ where
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap();
+            .unwrap()
+        else {
+            panic!("Should always be a full payload response");
+        };
 
-        let signed_block = block.sign(
+        let signed_block = block_response.block.sign(
             &self.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
+            &block_response.state.fork(),
+            block_response.state.genesis_validators_root(),
             &self.spec,
         );
 
@@ -905,11 +911,13 @@ where
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) => (
                 signed_block,
-                maybe_blob_sidecars.map(|blobs| self.sign_blobs(blobs, &state, proposer_index)),
+                block_response
+                    .maybe_side_car
+                    .map(|blobs| self.sign_blobs(blobs, &block_response.state, proposer_index)),
             ),
         };
 
-        (block_contents, state)
+        (block_contents, block_response.state)
     }
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
@@ -938,7 +946,7 @@ where
 
         let pre_state = state.clone();
 
-        let (block, state, maybe_blob_sidecars) = self
+        let BeaconBlockResponseType::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -947,14 +955,18 @@ where
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap();
+            .unwrap()
+        else {
+            panic!("Should always be a full payload response");
+        };
 
-        let signed_block = block.sign(
+        let signed_block = block_response.block.sign(
             &self.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
+            &block_response.state.fork(),
+            block_response.state.genesis_validators_root(),
             &self.spec,
         );
 
@@ -964,14 +976,14 @@ where
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) => {
-                if let Some(blobs) = maybe_blob_sidecars {
+                if let Some(blobs) = block_response.maybe_side_car {
                     let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
                         .into_iter()
                         .map(|blob| {
                             blob.sign(
                                 &self.validator_keypairs[proposer_index].sk,
-                                &state.fork(),
-                                state.genesis_validators_root(),
+                                &block_response.state.fork(),
+                                block_response.state.genesis_validators_root(),
                                 &self.spec,
                             )
                         })
@@ -990,7 +1002,6 @@ where
                 }
             }
         };
-
         (block_contents, pre_state)
     }
 
