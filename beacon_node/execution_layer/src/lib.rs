@@ -1305,6 +1305,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "timestamp" => payload_attributes.timestamp(),
                         "parent_hash" => ?parent_hash,
                     );
+                    let _timer = metrics::start_timer_vec(
+                        &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+                        &[metrics::GET_PAYLOAD],
+                    );
                     engine.api.get_payload::<T>(current_fork, payload_id).await
                 }.await?;
 
@@ -1860,13 +1864,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
             };
         }
 
-        let block = if let Some(block) = engine
+        let Some(block) = engine
             .api
             .get_block_by_hash_with_txns::<T>(hash, fork)
             .await?
-        {
-            block
-        } else {
+        else {
             return Ok(None);
         };
 

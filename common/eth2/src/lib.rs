@@ -920,9 +920,8 @@ impl BeaconNodeHttpClient {
         Error,
     > {
         let path = self.get_beacon_blocks_path(block_id)?;
-        let response = match self.get_response(path, |b| b).await.optional()? {
-            Some(res) => res,
-            None => return Ok(None),
+        let Some(response) = self.get_response(path, |b| b).await.optional()? else {
+            return Ok(None);
         };
 
         Ok(Some(response.json().await?))
@@ -936,9 +935,8 @@ impl BeaconNodeHttpClient {
         block_id: BlockId,
     ) -> Result<Option<GenericResponse<BlobSidecarList<T>>>, Error> {
         let path = self.get_blobs_path(block_id)?;
-        let response = match self.get_response(path, |b| b).await.optional()? {
-            Some(res) => res,
-            None => return Ok(None),
+        let Some(response) = self.get_response(path, |b| b).await.optional()? else {
+            return Ok(None);
         };
 
         Ok(Some(response.json().await?))
@@ -955,9 +953,8 @@ impl BeaconNodeHttpClient {
         Error,
     > {
         let path = self.get_beacon_blinded_blocks_path(block_id)?;
-        let response = match self.get_response(path, |b| b).await.optional()? {
-            Some(res) => res,
-            None => return Ok(None),
+        let Some(response) = self.get_response(path, |b| b).await.optional()? else {
+            return Ok(None);
         };
 
         Ok(Some(response.json().await?))
@@ -1734,19 +1731,23 @@ impl BeaconNodeHttpClient {
 
         let response = self.get_response(path, |b| b).await?;
 
-        if let Some(header_value) = response.headers().get(EXECUTION_PAYLOAD_BLINDED_HEADER) {
-            if header_value.eq("true") {
-                let blinded_payload = response
-                    .json::<ForkVersionedResponse<BlockContents<T, BlindedPayload<T>>>>()
-                    .await?;
-                return Ok(ForkVersionedBeaconBlockType::Blinded(blinded_payload));
-            }
-        };
+        let is_blinded_payload = response
+            .headers()
+            .get(EXECUTION_PAYLOAD_BLINDED_HEADER)
+            .map(|value| value.to_str().unwrap_or_default().to_lowercase() == "true")
+            .unwrap_or(false);
 
-        let full_payload = response
-            .json::<ForkVersionedResponse<BlockContents<T, FullPayload<T>>>>()
-            .await?;
-        Ok(ForkVersionedBeaconBlockType::Full(full_payload))
+        if is_blinded_payload {
+            let blinded_payload = response
+                .json::<ForkVersionedResponse<BlockContents<T, BlindedPayload<T>>>>()
+                .await?;
+            Ok(ForkVersionedBeaconBlockType::Blinded(blinded_payload))
+        } else {
+            let full_payload = response
+                .json::<ForkVersionedResponse<BlockContents<T, FullPayload<T>>>>()
+                .await?;
+            Ok(ForkVersionedBeaconBlockType::Full(full_payload))
+        }
     }
 
     /// `GET v2/validator/blocks/{slot}` in ssz format

@@ -135,9 +135,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV2 {
             return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v2())));
         }
-        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
-            Some(len) => len,
-            None => return Ok(None),
+        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
+            return Ok(None);
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
@@ -277,9 +276,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 return Ok(None);
             }
         }
-        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
-            Some(len) => len,
-            None => return Ok(None),
+        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
+            return Ok(None);
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
@@ -324,9 +322,8 @@ impl<TSpec: EthSpec> OutboundCodec<OutboundRequest<TSpec>> for SSZSnappyOutbound
         &mut self,
         src: &mut BytesMut,
     ) -> Result<Option<Self::CodecErrorType>, RPCError> {
-        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
-            Some(len) => len,
-            None => return Ok(None),
+        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
+            return Ok(None);
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of

@@ -609,11 +609,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
-        let persisted_fork_choice =
-            match store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)? {
-                Some(fc) => fc,
-                None => return Ok(None),
-            };
+        let Some(persisted_fork_choice) =
+            store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
+        else {
+            return Ok(None);
+        };
 
         let fc_store =
             BeaconForkChoiceStore::from_persisted(persisted_fork_choice.fork_choice_store, store)?;
@@ -3493,9 +3493,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
     ) -> Result<(), BlockError<T::EthSpec>> {
         // Only perform the weak subjectivity check if it was configured.
-        let wss_checkpoint = if let Some(checkpoint) = self.config.weak_subjectivity_checkpoint {
-            checkpoint
-        } else {
+        let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint else {
             return Ok(());
         };
         // Note: we're using the finalized checkpoint from the head state, rather than fork
@@ -4574,26 +4572,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let chain = self.clone();
         let mut partial_beacon_block = self
             .task_executor
-            .clone()
-            .spawn_handle(
-                async move {
-                    chain
-                        .produce_partial_beacon_block(
-                            state,
-                            state_root_opt,
-                            produce_at_slot,
-                            randao_reveal,
-                            validator_graffiti,
-                            block_production_version,
-                        )
-                        .await
+            .spawn_blocking_handle(
+                move || {
+                    chain.produce_partial_beacon_block(
+                        state,
+                        state_root_opt,
+                        produce_at_slot,
+                        randao_reveal,
+                        validator_graffiti,
+                        block_production_version,
+                    )
                 },
                 "produce_partial_beacon_block",
             )
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
-            .map_err(BlockProductionError::TokioJoin)?
-            .ok_or(BlockProductionError::ShuttingDown)??;
+            .map_err(BlockProductionError::TokioJoin)??;
         // Part 2/3 (async)
         //
         // Wait for the execution layer to return an execution payload (if one is required).
@@ -4609,7 +4603,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 None
             };
-
+        // Part 3/3 (blocking)
         if let Some(block_contents_type) = block_contents_type_option {
             match block_contents_type {
                 BlockProposalContentsType::Full(block_contents) => {
@@ -4675,7 +4669,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    async fn produce_partial_beacon_block(
+
+    fn produce_partial_beacon_block(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
@@ -5129,16 +5124,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut ctxt = ConsensusContext::new(block.slot());
 
         let consensus_block_value = self
-            .compute_beacon_block_reward(inner_block.to_ref(), Hash256::zero(), &mut state)
-            .unwrap_or(StandardBlockReward {
-                proposer_index: 0,
-                total: 0,
-                attestations: 0,
-                sync_aggregate: 0,
-                proposer_slashings: 0,
-                attester_slashings: 0,
-            })
-            .total;
+            .compute_beacon_block_reward(block.message(), Hash256::zero(), &mut state)
+            .map(|reward| reward.total)
+            .unwrap_or(0);
 
         per_block_processing(
             &mut state,
@@ -5405,14 +5393,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .await??;
 
-        let (forkchoice_update_params, pre_payload_attributes) =
-            if let Some((fcu, Some(pre_payload))) = maybe_prep_data {
-                (fcu, pre_payload)
-            } else {
-                // Appropriate log messages have already been logged above and in
-                // `get_pre_payload_attributes`.
-                return Ok(());
-            };
+        let Some((forkchoice_update_params, Some(pre_payload_attributes))) = maybe_prep_data else {
+            // Appropriate log messages have already been logged above and in
+            // `get_pre_payload_attributes`.
+            return Ok(());
+        };
 
         // If the execution layer doesn't have any proposer data for this validator then we assume
         // it's not connected to this BN and no action is required.
@@ -5505,23 +5490,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let till_prepare_slot =
-            if let Some(duration) = self.slot_clock.duration_to_slot(prepare_slot) {
-                duration
-            } else {
-                // `SlotClock::duration_to_slot` will return `None` when we are past the start
-                // of `prepare_slot`. Don't bother sending a `forkchoiceUpdated` in that case,
-                // it's too late.
-                //
-                // This scenario might occur on an overloaded/under-resourced node.
-                warn!(
-                    self.log,
-                    "Delayed proposer preparation";
-                    "prepare_slot" => prepare_slot,
-                    "validator" => proposer,
-                );
-                return Ok(());
-            };
+        let Some(till_prepare_slot) = self.slot_clock.duration_to_slot(prepare_slot) else {
+            // `SlotClock::duration_to_slot` will return `None` when we are past the start
+            // of `prepare_slot`. Don't bother sending a `forkchoiceUpdated` in that case,
+            // it's too late.
+            //
+            // This scenario might occur on an overloaded/under-resourced node.
+            warn!(
+                self.log,
+                "Delayed proposer preparation";
+                "prepare_slot" => prepare_slot,
+                "validator" => proposer,
+            );
+            return Ok(());
+        };
 
         // If we are close enough to the proposal slot, send an fcU, which will have payload
         // attributes filled in by the execution layer cache we just primed.

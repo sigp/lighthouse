@@ -294,19 +294,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return Ok(KeepChain);
         }
 
-        let beacon_processor = match network.beacon_processor_if_enabled() {
-            Some(beacon_processor) => beacon_processor,
-            None => return Ok(KeepChain),
+        let Some(beacon_processor) = network.beacon_processor_if_enabled() else {
+            return Ok(KeepChain);
         };
 
-        let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => batch,
-            None => {
-                return Err(RemoveChain::WrongChainState(format!(
-                    "Trying to process a batch that does not exist: {}",
-                    batch_id
-                )));
-            }
+        let Some(batch) = self.batches.get_mut(&batch_id) else {
+            return Err(RemoveChain::WrongChainState(format!(
+                "Trying to process a batch that does not exist: {}",
+                batch_id
+            )));
         };
 
         // NOTE: We send empty batches to the processor in order to trigger the block processor
@@ -874,9 +870,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
-        let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => batch,
-            None => return Ok(KeepChain),
+        let Some(batch) = self.batches.get_mut(&batch_id) else {
+            return Ok(KeepChain);
         };
 
         // Find a peer to request the batch

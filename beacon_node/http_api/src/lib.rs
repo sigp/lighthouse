@@ -14,6 +14,7 @@ mod build_block_contents;
 mod builder_states;
 mod database;
 mod metrics;
+mod produce_block;
 mod proposer_duties;
 mod publish_blocks;
 mod standard_block_rewards;
@@ -27,7 +28,7 @@ mod validator;
 mod validator_inclusion;
 mod version;
 
-use crate::validator::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
+use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,

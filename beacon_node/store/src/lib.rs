@@ -45,7 +45,7 @@ use strum::{EnumString, IntoStaticStr};
 pub use types::*;
 
 pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
-pub type ColumnKeyIter<'a> = Box<dyn Iterator<Item = Result<Hash256, Error>> + 'a>;
+pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
 
 pub type RawEntryIter<'a> = Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>;
 pub type RawKeyIter<'a> = Box<dyn Iterator<Item = Result<Vec<u8>, Error>> + 'a>;
@@ -88,6 +88,7 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
+    /// Iterate through all keys and values in a column from a given starting point.
     fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
 
     fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
@@ -99,7 +100,7 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Iterate through all keys in a particular column.
-    fn iter_column_keys(&self, column: DBColumn) -> ColumnKeyIter;
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
 }
 
 pub trait Key: Sized + 'static {
@@ -274,7 +275,7 @@ impl DBColumn {
     /// This function returns the number of bytes used by keys in a given column.
     pub fn key_size(self) -> usize {
         match self {
-            Self::OverflowLRUCache => 40,
+            Self::OverflowLRUCache => 33, // See `OverflowKey` encode impl.
             Self::BeaconMeta
             | Self::BeaconBlock
             | Self::BeaconState

@@ -1,7 +1,9 @@
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use types::{BeaconState, PublicKeyBytes};
+use bytes::Bytes;
+use std::sync::Arc;
+use types::{payload::BlockProductionVersion, *};
+
 use beacon_chain::{
-    BeaconBlockResponse, BeaconBlockResponseType, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconBlockResponse, BeaconBlockResponseType, BeaconChain, BeaconChainTypes,
     ProduceBlockVerification,
 };
 use eth2::types::{self as api_types, EndpointVersion, SkipRandaoVerification};
@@ -19,24 +21,6 @@ use crate::{
         fork_versioned_response, inconsistent_fork_rejection,
     },
 };
-/// Uses the `chain.validator_pubkey_cache` to resolve a pubkey to a validator
-/// index and then ensures that the validator exists in the given `state`.
-pub fn pubkey_to_validator_index<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
-    state: &BeaconState<T::EthSpec>,
-    pubkey: &PublicKeyBytes,
-) -> Result<Option<usize>, BeaconChainError> {
-    chain
-        .validator_index(pubkey)?
-        .filter(|&index| {
-            state
-                .validators()
-                .get(index)
-                .map_or(false, |v| v.pubkey == *pubkey)
-        })
-        .map(Result::Ok)
-        .transpose()
-}
 
 pub fn get_randao_verification(
     query: &api_types::ValidatorBlocksQuery,
@@ -86,15 +70,11 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         })?;
 
     match block_response_type {
-        BeaconBlockResponseType::Full(block_response) => build_response_v3(
-            chain,
-            block_response,
-            endpoint_version,
-            accept_header,
-            false,
-        ),
+        BeaconBlockResponseType::Full(block_response) => {
+            build_response_v3(chain, block_response, endpoint_version, accept_header)
+        }
         BeaconBlockResponseType::Blinded(block_response) => {
-            build_response_v3(chain, block_response, endpoint_version, accept_header, true)
+            build_response_v3(chain, block_response, endpoint_version, accept_header)
         }
     }
 }
@@ -104,7 +84,6 @@ pub fn build_response_v3<T: BeaconChainTypes, E: EthSpec, Payload: AbstractExecP
     block_response: BeaconBlockResponse<E, Payload>,
     endpoint_version: EndpointVersion,
     accept_header: Option<api_types::Accept>,
-    execution_payload_blinded: bool,
 ) -> Result<Response<Body>, warp::Rejection> {
     let fork_name = block_response
         .block
@@ -117,6 +96,8 @@ pub fn build_response_v3<T: BeaconChainTypes, E: EthSpec, Payload: AbstractExecP
         block_response.block,
         block_response.maybe_side_car,
     )?;
+
+    let execution_payload_blinded = Payload::block_type() == BlockType::Blinded;
 
     match accept_header {
         Some(api_types::Accept::Ssz) => Response::builder()

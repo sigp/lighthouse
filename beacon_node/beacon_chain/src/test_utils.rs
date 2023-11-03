@@ -880,7 +880,7 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-        if let BeaconBlockResponseType::Full(block_response) = self
+        let BeaconBlockResponseType::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -893,31 +893,31 @@ where
             )
             .await
             .unwrap()
-        {
-            let signed_block = block_response.block.sign(
-                &self.validator_keypairs[proposer_index].sk,
-                &block_response.state.fork(),
-                block_response.state.genesis_validators_root(),
-                &self.spec,
-            );
+        else {
+            panic!("Should always be a full payload response");
+        };
 
-            let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
-                SignedBeaconBlock::Base(_)
-                | SignedBeaconBlock::Altair(_)
-                | SignedBeaconBlock::Merge(_)
-                | SignedBeaconBlock::Capella(_) => (signed_block, None),
-                SignedBeaconBlock::Deneb(_) => (
-                    signed_block,
-                    block_response
-                        .maybe_side_car
-                        .map(|blobs| self.sign_blobs(blobs, &block_response.state, proposer_index)),
-                ),
-            };
+        let signed_block = block_response.block.sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &block_response.state.fork(),
+            block_response.state.genesis_validators_root(),
+            &self.spec,
+        );
 
-            (block_contents, block_response.state)
-        } else {
-            panic!("Should always be a full payload response")
-        }
+        let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
+            SignedBeaconBlock::Base(_)
+            | SignedBeaconBlock::Altair(_)
+            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Capella(_) => (signed_block, None),
+            SignedBeaconBlock::Deneb(_) => (
+                signed_block,
+                block_response
+                    .maybe_side_car
+                    .map(|blobs| self.sign_blobs(blobs, &block_response.state, proposer_index)),
+            ),
+        };
+
+        (block_contents, block_response.state)
     }
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
@@ -946,7 +946,7 @@ where
 
         let pre_state = state.clone();
 
-        if let BeaconBlockResponseType::Full(block_response) = self
+        let BeaconBlockResponseType::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -959,50 +959,47 @@ where
             )
             .await
             .unwrap()
-        {
-            let signed_block = block_response.block.sign(
-                &self.validator_keypairs[proposer_index].sk,
-                &block_response.state.fork(),
-                block_response.state.genesis_validators_root(),
-                &self.spec,
-            );
+        else {
+            panic!("Should always be a full payload response");
+        };
 
-            let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
-                SignedBeaconBlock::Base(_)
-                | SignedBeaconBlock::Altair(_)
-                | SignedBeaconBlock::Merge(_)
-                | SignedBeaconBlock::Capella(_) => (signed_block, None),
-                SignedBeaconBlock::Deneb(_) => {
-                    if let Some(blobs) = block_response.maybe_side_car {
-                        let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
-                            .into_iter()
-                            .map(|blob| {
-                                blob.sign(
-                                    &self.validator_keypairs[proposer_index].sk,
-                                    &block_response.state.fork(),
-                                    block_response.state.genesis_validators_root(),
-                                    &self.spec,
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .into();
-                        let mut guard = self.blob_signature_cache.write();
-                        for blob in &signed_blobs {
-                            guard.insert(
-                                BlobSignatureKey::new(blob.message.block_root, blob.message.index),
-                                blob.signature.clone(),
-                            );
-                        }
-                        (signed_block, Some(signed_blobs))
-                    } else {
-                        (signed_block, None)
+        let signed_block = block_response.block.sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &block_response.state.fork(),
+            block_response.state.genesis_validators_root(),
+            &self.spec,
+        );
+
+        let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
+            SignedBeaconBlock::Base(_)
+            | SignedBeaconBlock::Altair(_)
+            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Capella(_) => (signed_block, None),
+            SignedBeaconBlock::Deneb(_) => {
+                if let Some(blobs) = block_response.maybe_side_car {
+                    let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
+                        .into_iter()
+                        .map(|blob| {
+                            blob.sign(
+                                &self.validator_keypairs[proposer_index].sk,
+                                &block_response.state.fork(),
+                                block_response.state.genesis_validators_root(),
+                                &self.spec,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                    let mut guard = self.blob_signature_cache.write();
+                    for blob in &signed_blobs {
+                        guard.insert(
+                            BlobSignatureKey::new(blob.message.block_root, blob.message.index),
+                            blob.signature.clone(),
+                        );
                     }
                 }
-            };
-            (block_contents, pre_state)
-        } else {
-            panic!("Should always be a full payload response");
-        }
+            }
+        };
+        (block_contents, pre_state)
     }
 
     /// Create a randao reveal for a block at `slot`.
