@@ -467,45 +467,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         current_slot: Slot,
         graffiti: Option<Graffiti>,
         validator_pubkey: PublicKeyBytes,
-        proposer_index: Option<u64>,
         block_contents: BlockContents<E, Payload>,
     ) -> Result<(), BlockError> {
-        let (block, maybe_blob_sidecars) = block_contents.deconstruct();
-
-        info!(
-            log,
-            "Received unsigned block";
-            "slot" => slot.as_u64(),
-        );
-
-        info!(
-            log,
-            "Received unsigned block";
-            "slot" => slot.as_u64(),
-        );
-
-        if proposer_index != Some(block.proposer_index()) {
-            return Err(BlockError::Recoverable(
-                "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
-            ));
-        }
         let validator_pubkey_ref = &validator_pubkey;
+        let (block, maybe_blob_sidecars) = block_contents.deconstruct();
         let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
 
-        let signing_time_ms =
-            Duration::from_secs_f64(signing_timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
-
-        info!(
-            log,
-            "Publishing signed block";
-            "slot" => slot.as_u64(),
-            "signing_time_ms" => signing_time_ms,
-        );
-        let self_ref = &self;
-
-        let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
-
-        let signed_block = match self_ref
+        let signed_block = match self
             .validator_store
             .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
             .await
@@ -533,7 +501,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let maybe_signed_blobs = match maybe_blob_sidecars {
             Some(blob_sidecars) => {
-                match self_ref
+                match self
                     .validator_store
                     .sign_blobs::<Payload>(*validator_pubkey_ref, blob_sidecars)
                     .await
@@ -561,6 +529,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             }
             None => None,
         };
+
         let signing_time_ms =
             Duration::from_secs_f64(signing_timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
 
@@ -601,7 +570,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
             "slot" => signed_block_contents.signed_block().slot().as_u64(),
         );
-
         Ok(())
     }
 
@@ -653,7 +621,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         );
 
         let randao_reveal_ref = &randao_reveal;
-        let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let proposer_fallback = ProposerFallback {
             beacon_nodes: self.beacon_nodes.clone(),
             proposer_nodes: self.proposer_nodes.clone(),
@@ -702,7 +669,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     current_slot,
                     graffiti,
                     validator_pubkey,
-                    proposer_index,
                     block_contents.data,
                 )
                 .await?;
@@ -715,7 +681,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     current_slot,
                     graffiti,
                     validator_pubkey,
-                    proposer_index,
                     block_contents.data,
                 )
                 .await?;
@@ -788,8 +753,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "slot" => slot.as_u64(),
         );
 
-        
-
         // Request block from first responsive beacon node.
         //
         // Try the proposer nodes last, since it's likely that they don't have a
@@ -818,9 +781,9 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             current_slot,
             graffiti,
             validator_pubkey,
-            proposer_index,
-            block_contents
-        ).await?;
+            block_contents,
+        )
+        .await?;
 
         Ok(())
     }
