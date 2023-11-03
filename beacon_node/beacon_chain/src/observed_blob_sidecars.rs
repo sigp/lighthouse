@@ -87,7 +87,7 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
         Ok(())
     }
 
-    /// Prune all values earlier than the given slot.
+    /// Prune `blob_sidecar` observations for slots less than or equal to the given slot.
     pub fn prune(&mut self, finalized_slot: Slot) {
         if finalized_slot == 0 {
             return;
