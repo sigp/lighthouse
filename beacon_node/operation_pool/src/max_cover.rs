@@ -68,7 +68,7 @@ where
         .filter(|x| x.item.score() != 0)
         .map(|val| (val.item.key(), val))
         .fold(HashMap::new(), |mut acc, (key, val)| {
-            acc.entry(key).or_insert(Vec::new()).push(val);
+            acc.entry(key).or_default().push(val);
             acc
         });
 
@@ -98,7 +98,7 @@ where
 
         // Update the covering sets of the other items, for the inclusion of the selected item.
         // Items covered by the selected item can't be re-covered.
-        all_items.get_mut(&best_key).map(|items| {
+        if let Some(items) = all_items.get_mut(&best_key) {
             items
                 .iter_mut()
                 .filter(|x| x.available && x.item.score() != 0)
@@ -106,7 +106,7 @@ where
                     x.item
                         .update_covering_set(best_item.intermediate(), best_item.covering_set())
                 });
-        });
+        }
 
         result.push(best_item);
     }
@@ -165,7 +165,7 @@ mod test {
             self.len()
         }
 
-        fn key(&self) -> () {}
+        fn key(&self) {}
     }
 
     fn example_system() -> Vec<HashSet<usize>> {

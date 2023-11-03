@@ -193,6 +193,7 @@ pub fn earliest_attestation_validators<T: EthSpec>(
     } else if attestation.checkpoint.target_epoch == state.previous_epoch() {
         &base_state.previous_epoch_attestations
     } else {
+        #[allow(clippy::unwrap_used)]
         return BitList::with_capacity(0).unwrap();
     };
 
