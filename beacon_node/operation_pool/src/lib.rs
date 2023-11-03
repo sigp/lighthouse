@@ -1309,20 +1309,22 @@ mod release_tests {
             }
         }
 
-        let mut num_valid = 0;
+        let num_valid = AtomicUsize::new(0);
         let (_, curr) = CheckpointKey::keys_for_state(&state);
         let all_attestations = op_pool.attestations.read();
 
         complete_state_advance(&mut state, None, Slot::new(1), spec).unwrap();
-        let clique_attestations = op_pool.get_clique_aggregate_attestations_for_epoch(
-            &curr,
-            &all_attestations,
-            &state,
-            |_| true,
-            &mut num_valid,
-            32,
-            spec,
-        );
+        let clique_attestations = op_pool
+            .get_clique_aggregate_attestations_for_epoch(
+                &curr,
+                &all_attestations,
+                &state,
+                |_| true,
+                &num_valid,
+                32,
+                spec,
+            )
+            .unwrap();
         let best_attestations = op_pool
             .get_attestations(&state, |_| true, |_| true, 32, spec)
             .unwrap();
