@@ -2222,6 +2222,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
+    /// This function fills in missing block roots between last restore point slot and split
+    /// slot, if any.  
     pub fn heal_freezer_block_roots(&self) -> Result<(), Error> {
         let split = self.get_split_info();
         let last_restore_point_slot = (split.slot - 1) / self.config.slots_per_restore_point
@@ -2247,6 +2249,93 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
         chunk_writer.write(&mut batch)?;
         self.cold_db.do_atomically(batch)?;
+
+        Ok(())
+    }
+
+    /// Delete *all* states from the freezer database and update the anchor accordingly.
+    ///
+    /// WARNING: this method deletes the genesis state and replaces it with the provided
+    /// `genesis_state`. This is to support its use in schema migrations where the storage scheme of
+    /// the genesis state may be modified. It is the responsibility of the caller to ensure that the
+    /// genesis state is correct, else a corrupt database will be created.
+    pub fn prune_historic_states(
+        &self,
+        genesis_state_root: Hash256,
+        genesis_state: &BeaconState<E>,
+    ) -> Result<(), Error> {
+        // Make sure there is no missing block roots before pruning
+        self.heal_freezer_block_roots()?;
+
+        // Update the anchor to use the dummy state upper limit and disable historic state storage.
+        let old_anchor = self.get_anchor_info();
+        let new_anchor = if let Some(old_anchor) = old_anchor.clone() {
+            AnchorInfo {
+                state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
+                state_lower_limit: Slot::new(0),
+                ..old_anchor.clone()
+            }
+        } else {
+            AnchorInfo {
+                anchor_slot: Slot::new(0),
+                oldest_block_slot: Slot::new(0),
+                oldest_block_parent: Hash256::zero(),
+                state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
+                state_lower_limit: Slot::new(0),
+            }
+        };
+
+        // Commit the anchor change immediately: if the cold database ops fail they can always be
+        // retried, and we can't do them atomically with this change anyway.
+        self.compare_and_set_anchor_info_with_write(old_anchor, Some(new_anchor))?;
+
+        // Stage freezer data for deletion. Do not bother loading and deserializing values as this
+        // wastes time and is less schema-agnostic. My hope is that this method will be useful for
+        // migrating to the tree-states schema (delete everything in the freezer then start afresh).
+        let mut cold_ops = vec![];
+
+        let columns = [
+            DBColumn::BeaconState,
+            DBColumn::BeaconStateSummary,
+            DBColumn::BeaconRestorePoint,
+            DBColumn::BeaconStateRoots,
+            DBColumn::BeaconHistoricalRoots,
+            DBColumn::BeaconRandaoMixes,
+            DBColumn::BeaconHistoricalSummaries,
+        ];
+
+        for column in columns {
+            for res in self.cold_db.iter_column_keys::<Vec<u8>>(column) {
+                let key = res?;
+                cold_ops.push(KeyValueStoreOp::DeleteKey(get_key_for_col(
+                    column.as_str(),
+                    &key,
+                )));
+            }
+        }
+
+        // XXX: We need to commit the mass deletion here *before* re-storing the genesis state, as
+        // the current schema performs reads as part of `store_cold_state`. This can be deleted
+        // once the target schema is tree-states. If the process is killed before the genesis state
+        // is written this can be fixed by re-running.
+        info!(
+            self.log,
+            "Deleting historic states";
+            "num_kv" => cold_ops.len(),
+        );
+        self.cold_db.do_atomically(std::mem::take(&mut cold_ops))?;
+
+        // If we just deleted the the genesis state, re-store it using the *current* schema, which
+        // may be different from the schema of the genesis state we just deleted.
+        if self.get_split_slot() > 0 {
+            info!(
+                self.log,
+                "Re-storing genesis state";
+                "state_root" => ?genesis_state_root,
+            );
+            self.store_cold_state(&genesis_state_root, genesis_state, &mut cold_ops)?;
+            self.cold_db.do_atomically(cold_ops)?;
+        }
 
         Ok(())
     }
