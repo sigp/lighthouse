@@ -26,6 +26,8 @@ env:
   WATCH_HOST: ${{ github.repository == 'sigp/lighthouse' && 'host.docker.internal' || 'localhost' }}
   # Disable incremental compilation
   CARGO_INCREMENTAL: 0
+  # Enable portable to prevent issues with caching `blst` for the wrong CPU type
+  TEST_FEATURES: portable
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -286,6 +288,9 @@ jobs:
   doppelganger-protection-test:
     name: doppelganger-protection-test
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
+    env:
+      # Enable portable to prevent issues with caching `blst` for the wrong CPU type
+      FEATURES: jemalloc,portable
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
@@ -304,8 +309,7 @@ jobs:
       run: |
           make
     - name: Install lcli
-# TODO(jimmy): re-enable this once we merge deneb into unstable
-#      if: env.SELF_HOSTED_RUNNERS == 'false'
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       run: make install-lcli
     - name: Run the doppelganger protection failure test script
       run: |
@@ -317,10 +321,11 @@ jobs:
           ./doppelganger_protection.sh success genesis.json
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
@@ -328,6 +333,9 @@ jobs:
           cache: false
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Add go compiler to $PATH
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      run: echo "/usr/local/go/bin" >> $GITHUB_PATH
     - name: Run exec engine integration tests in release
       run: make test-exec-engine
   check-code:
@@ -356,10 +364,8 @@ jobs:
       run:  make arbitrary-fuzz
     - name: Run cargo audit
       run: make audit-CI
-# TODO(sean): re-enable this when we can figure it out with c-kzg
-# Issue: https://github.com/sigp/lighthouse/issues/4440
-#    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
-#      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
+    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
+      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest

@@ -18,19 +18,14 @@ fn get_slot_clock<T: BeaconChainTypes>(
     log: &Logger,
 ) -> Result<Option<T::SlotClock>, Error> {
     let spec = db.get_chain_spec();
-    let genesis_block = if let Some(block) = db.get_blinded_block(&Hash256::zero())? {
-        block
-    } else {
+    let Some(genesis_block) = db.get_blinded_block(&Hash256::zero())? else {
         error!(log, "Missing genesis block");
         return Ok(None);
     };
-    let genesis_state =
-        if let Some(state) = db.get_state(&genesis_block.state_root(), Some(Slot::new(0)))? {
-            state
-        } else {
-            error!(log, "Missing genesis state"; "state_root" => ?genesis_block.state_root());
-            return Ok(None);
-        };
+    let Some(genesis_state) = db.get_state(&genesis_block.state_root(), Some(Slot::new(0)))? else {
+        error!(log, "Missing genesis state"; "state_root" => ?genesis_block.state_root());
+        return Ok(None);
+    };
     Ok(Some(T::SlotClock::new(
         spec.genesis_slot,
         Duration::from_secs(genesis_state.genesis_time()),
@@ -43,15 +38,14 @@ pub fn upgrade_to_v14<T: BeaconChainTypes>(
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     // Load a V12 op pool and transform it to V14.
-    let PersistedOperationPoolV12::<T::EthSpec> {
+    let Some(PersistedOperationPoolV12::<T::EthSpec> {
         attestations,
         sync_contributions,
         attester_slashings,
         proposer_slashings,
         voluntary_exits,
-    } = if let Some(op_pool_v12) = db.get_item(&OP_POOL_DB_KEY)? {
-        op_pool_v12
-    } else {
+    }) = db.get_item(&OP_POOL_DB_KEY)?
+    else {
         debug!(log, "Nothing to do, no operation pool stored");
         return Ok(vec![]);
     };
@@ -94,16 +88,15 @@ pub fn downgrade_from_v14<T: BeaconChainTypes>(
     }
 
     // Load a V14 op pool and transform it to V12.
-    let PersistedOperationPoolV14::<T::EthSpec> {
+    let Some(PersistedOperationPoolV14::<T::EthSpec> {
         attestations,
         sync_contributions,
         attester_slashings,
         proposer_slashings,
         voluntary_exits,
         bls_to_execution_changes,
-    } = if let Some(op_pool) = db.get_item(&OP_POOL_DB_KEY)? {
-        op_pool
-    } else {
+    }) = db.get_item(&OP_POOL_DB_KEY)?
+    else {
         debug!(log, "Nothing to do, no operation pool stored");
         return Ok(vec![]);
     };

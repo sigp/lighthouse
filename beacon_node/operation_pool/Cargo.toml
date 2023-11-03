@@ -26,3 +26,6 @@ beacon_chain = { workspace = true }
 tokio = { workspace = true }
 maplit = { workspace = true }
 quickcheck = { workspace = true }
+
+[features]
+portable = ["beacon_chain/portable"]

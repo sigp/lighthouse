@@ -21,6 +21,8 @@ use types::{
     MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
+use eth2::types::ForkVersionedBeaconBlockType::{Blinded, Full};
+
 type E = MainnetEthSpec;
 
 // Test that the deposit_contract endpoint returns the correct chain_id and address.
@@ -617,13 +619,18 @@ pub async fn proposer_boost_re_org_test(
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_c)
         .into();
-    let unsigned_block_contents_c = tester
+    let unsigned_block_type = tester
         .client
-        .get_validator_blocks(slot_c, &randao_reveal, None)
+        .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None)
         .await
-        .unwrap()
-        .data;
-    let (unsigned_block_c, block_c_blobs) = unsigned_block_contents_c.deconstruct();
+        .unwrap();
+
+    let (unsigned_block_c, block_c_blobs) = match unsigned_block_type {
+        Full(unsigned_block_contents_c) => unsigned_block_contents_c.data.deconstruct(),
+        Blinded(_) => {
+            panic!("Should not be a blinded block");
+        }
+    };
     let block_c = harness.sign_beacon_block(unsigned_block_c, &state_b);
 
     if should_re_org {

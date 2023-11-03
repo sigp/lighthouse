@@ -267,9 +267,7 @@ pub mod tests {
     use crate::test_utils::{generate_rand_block_and_blobs, NumBlobs};
     use crate::AvailabilityPendingExecutedBlock;
     use crate::PayloadVerificationOutcome;
-    use eth2_network_config::get_trusted_setup;
     use fork_choice::PayloadVerificationStatus;
-    use kzg::{Kzg, TrustedSetup};
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use state_processing::ConsensusContext;
@@ -285,13 +283,9 @@ pub mod tests {
     );
 
     pub fn pre_setup() -> Setup<E> {
-        let trusted_setup: TrustedSetup =
-            serde_json::from_reader(get_trusted_setup::<<E as EthSpec>::Kzg>()).unwrap();
-        let kzg = Kzg::new_from_trusted_setup(trusted_setup).unwrap();
-
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
         let (block, blobs_vec) =
-            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &kzg, &mut rng);
+            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng);
         let mut blobs: FixedVector<_, <E as EthSpec>::MaxBlobsPerBlock> = FixedVector::default();
 
         for blob in blobs_vec {

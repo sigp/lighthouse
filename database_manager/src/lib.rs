@@ -5,17 +5,18 @@ use beacon_chain::{
 use beacon_node::{get_data_dir, get_slots_per_restore_point, ClientConfig};
 use clap::{App, Arg, ArgMatches};
 use environment::{Environment, RuntimeContext};
-use slog::{info, Logger};
+use slog::{info, warn, Logger};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use store::metadata::STATE_UPPER_LIMIT_NO_RETAIN;
 use store::{
     errors::Error,
     metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION},
     DBColumn, HotColdDB, KeyValueStore, LevelDB,
 };
 use strum::{EnumString, EnumVariantNames, VariantNames};
-use types::EthSpec;
+use types::{BeaconState, EthSpec, Slot};
 
 pub const CMD: &str = "database_manager";
 
@@ -61,6 +62,24 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
                 .possible_values(InspectTarget::VARIANTS),
         )
         .arg(
+            Arg::with_name("skip")
+                .long("skip")
+                .value_name("N")
+                .help("Skip over the first N keys"),
+        )
+        .arg(
+            Arg::with_name("limit")
+                .long("limit")
+                .value_name("N")
+                .help("Output at most N keys"),
+        )
+        .arg(
+            Arg::with_name("freezer")
+                .long("freezer")
+                .help("Inspect the freezer DB rather than the hot DB")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("output-dir")
                 .long("output-dir")
                 .value_name("DIR")
@@ -70,15 +89,33 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("prune_payloads")
+    App::new("prune-payloads")
+        .alias("prune_payloads")
         .setting(clap::AppSettings::ColoredHelp)
         .about("Prune finalized execution payloads")
 }
 
 pub fn prune_blobs_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("prune_blobs")
+    App::new("prune-blobs")
+        .alias("prune_blobs")
         .setting(clap::AppSettings::ColoredHelp)
         .about("Prune blobs older than data availability boundary")
+}
+
+pub fn prune_states_app<'a, 'b>() -> App<'a, 'b> {
+    App::new("prune-states")
+        .alias("prune_states")
+        .arg(
+            Arg::with_name("confirm")
+                .long("confirm")
+                .help(
+                    "Commit to pruning states irreversably. Without this flag the command will \
+                     just check that the database is capable of being pruned.",
+                )
+                .takes_value(false),
+        )
+        .setting(clap::AppSettings::ColoredHelp)
+        .about("Prune all beacon states from the freezer database")
 }
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
@@ -127,6 +164,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(inspect_cli_app())
         .subcommand(prune_payloads_app())
         .subcommand(prune_blobs_app())
+        .subcommand(prune_states_app())
 }
 
 fn parse_client_config<E: EthSpec>(
@@ -195,7 +233,7 @@ pub fn display_db_version<E: EthSpec>(
     Ok(())
 }
 
-#[derive(Debug, EnumString, EnumVariantNames)]
+#[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames)]
 pub enum InspectTarget {
     #[strum(serialize = "sizes")]
     ValueSizes,
@@ -203,11 +241,16 @@ pub enum InspectTarget {
     ValueTotal,
     #[strum(serialize = "values")]
     Values,
+    #[strum(serialize = "gaps")]
+    Gaps,
 }
 
 pub struct InspectConfig {
     column: DBColumn,
     target: InspectTarget,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    freezer: bool,
     /// Configures where the inspect output should be stored.
     output_dir: PathBuf,
 }
@@ -215,11 +258,18 @@ pub struct InspectConfig {
 fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> {
     let column = clap_utils::parse_required(cli_args, "column")?;
     let target = clap_utils::parse_required(cli_args, "output")?;
+    let skip = clap_utils::parse_optional(cli_args, "skip")?;
+    let limit = clap_utils::parse_optional(cli_args, "limit")?;
+    let freezer = cli_args.is_present("freezer");
+
     let output_dir: PathBuf =
         clap_utils::parse_optional(cli_args, "output-dir")?.unwrap_or_else(PathBuf::new);
     Ok(InspectConfig {
         column,
         target,
+        skip,
+        limit,
+        freezer,
         output_dir,
     })
 }
@@ -247,6 +297,20 @@ pub fn inspect_db<E: EthSpec>(
     .map_err(|e| format!("{:?}", e))?;
 
     let mut total = 0;
+    let mut num_keys = 0;
+
+    let sub_db = if inspect_config.freezer {
+        &db.cold_db
+    } else {
+        &db.hot_db
+    };
+
+    let skip = inspect_config.skip.unwrap_or(0);
+    let limit = inspect_config.limit.unwrap_or(usize::MAX);
+
+    let mut prev_key = 0;
+    let mut found_gaps = false;
+
     let base_path = &inspect_config.output_dir;
 
     if let InspectTarget::Values = inspect_config.target {
@@ -254,20 +318,41 @@ pub fn inspect_db<E: EthSpec>(
             .map_err(|e| format!("Unable to create import directory: {:?}", e))?;
     }
 
-    for res in db.hot_db.iter_column(inspect_config.column) {
+    for res in sub_db
+        .iter_column::<Vec<u8>>(inspect_config.column)
+        .skip(skip)
+        .take(limit)
+    {
         let (key, value) = res.map_err(|e| format!("{:?}", e))?;
 
         match inspect_config.target {
             InspectTarget::ValueSizes => {
-                println!("{:?}: {} bytes", key, value.len());
-                total += value.len();
+                println!("{}: {} bytes", hex::encode(&key), value.len());
             }
-            InspectTarget::ValueTotal => {
-                total += value.len();
+            InspectTarget::Gaps => {
+                // Convert last 8 bytes of key to u64.
+                let numeric_key = u64::from_be_bytes(
+                    key[key.len() - 8..]
+                        .try_into()
+                        .expect("key is at least 8 bytes"),
+                );
+
+                if numeric_key > prev_key + 1 {
+                    println!(
+                        "gap between keys {} and {} (offset: {})",
+                        prev_key, numeric_key, num_keys,
+                    );
+                    found_gaps = true;
+                }
+                prev_key = numeric_key;
             }
+            InspectTarget::ValueTotal => (),
             InspectTarget::Values => {
-                let file_path =
-                    base_path.join(format!("{}_{}.ssz", inspect_config.column.as_str(), key));
+                let file_path = base_path.join(format!(
+                    "{}_{}.ssz",
+                    inspect_config.column.as_str(),
+                    hex::encode(&key)
+                ));
 
                 let write_result = fs::OpenOptions::new()
                     .create(true)
@@ -283,17 +368,18 @@ pub fn inspect_db<E: EthSpec>(
                 } else {
                     println!("Successfully saved values to file: {:?}", file_path);
                 }
-
-                total += value.len();
             }
         }
+        total += value.len();
+        num_keys += 1;
     }
 
-    match inspect_config.target {
-        InspectTarget::ValueSizes | InspectTarget::ValueTotal | InspectTarget::Values => {
-            println!("Total: {} bytes", total);
-        }
+    if inspect_config.target == InspectTarget::Gaps && !found_gaps {
+        println!("No gaps found!");
     }
+
+    println!("Num keys: {}", num_keys);
+    println!("Total: {} bytes", total);
 
     Ok(())
 }
@@ -402,6 +488,86 @@ pub fn prune_blobs<E: EthSpec>(
     db.try_prune_most_blobs(true)
 }
 
+pub struct PruneStatesConfig {
+    confirm: bool,
+}
+
+fn parse_prune_states_config(cli_args: &ArgMatches) -> Result<PruneStatesConfig, String> {
+    let confirm = cli_args.is_present("confirm");
+    Ok(PruneStatesConfig { confirm })
+}
+
+pub fn prune_states<E: EthSpec>(
+    client_config: ClientConfig,
+    prune_config: PruneStatesConfig,
+    mut genesis_state: BeaconState<E>,
+    runtime_context: &RuntimeContext<E>,
+    log: Logger,
+) -> Result<(), String> {
+    let spec = &runtime_context.eth2_config.spec;
+    let hot_path = client_config.get_db_path();
+    let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
+
+    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+        &hot_path,
+        &cold_path,
+        blobs_path,
+        |_, _, _| Ok(()),
+        client_config.store,
+        spec.clone(),
+        log.clone(),
+    )
+    .map_err(|e| format!("Unable to open database: {e:?}"))?;
+
+    // Load the genesis state from the database to ensure we're deleting states for the
+    // correct network, and that we don't end up storing the wrong genesis state.
+    let genesis_from_db = db
+        .load_cold_state_by_slot(Slot::new(0))
+        .map_err(|e| format!("Error reading genesis state: {e:?}"))?
+        .ok_or("Error: genesis state missing from database. Check schema version.")?;
+
+    if genesis_from_db.genesis_validators_root() != genesis_state.genesis_validators_root() {
+        return Err(format!(
+            "Error: Wrong network. Genesis state in DB does not match {} genesis.",
+            spec.config_name.as_deref().unwrap_or("<unknown network>")
+        ));
+    }
+
+    // Check that the user has confirmed they want to proceed.
+    if !prune_config.confirm {
+        match db.get_anchor_info() {
+            Some(anchor_info) if anchor_info.state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN => {
+                info!(log, "States have already been pruned");
+                return Ok(());
+            }
+            _ => {
+                info!(log, "Ready to prune states");
+            }
+        }
+        warn!(
+            log,
+            "Pruning states is irreversible";
+        );
+        warn!(
+            log,
+            "Re-run this command with --confirm to commit to state deletion"
+        );
+        info!(log, "Nothing has been pruned on this run");
+        return Err("Error: confirmation flag required".into());
+    }
+
+    // Delete all historic state data and *re-store* the genesis state.
+    let genesis_state_root = genesis_state
+        .update_tree_hash_cache()
+        .map_err(|e| format!("Error computing genesis state root: {e:?}"))?;
+    db.prune_historic_states(genesis_state_root, &genesis_state)
+        .map_err(|e| format!("Failed to prune due to error: {e:?}"))?;
+
+    info!(log, "Historic states pruned successfully");
+    Ok(())
+}
+
 /// Run the database manager, returning an error string if the operation did not succeed.
 pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result<(), String> {
     let client_config = parse_client_config(cli_args, &env)?;
@@ -421,10 +587,34 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
             let inspect_config = parse_inspect_config(cli_args)?;
             inspect_db(inspect_config, client_config, &context, log)
         }
-        ("prune_payloads", Some(_)) => {
+        ("prune-payloads", Some(_)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)
         }
-        ("prune_blobs", Some(_)) => prune_blobs(client_config, &context, log).map_err(format_err),
+        ("prune-blobs", Some(_)) => prune_blobs(client_config, &context, log).map_err(format_err),
+        ("prune-states", Some(cli_args)) => {
+            let executor = env.core_context().executor;
+            let network_config = context
+                .eth2_network_config
+                .clone()
+                .ok_or("Missing network config")?;
+
+            let genesis_state = executor
+                .block_on_dangerous(
+                    network_config.genesis_state::<T>(
+                        client_config.genesis_state_url.as_deref(),
+                        client_config.genesis_state_url_timeout,
+                        &log,
+                    ),
+                    "get_genesis_state",
+                )
+                .ok_or("Shutting down")?
+                .map_err(|e| format!("Error getting genesis state: {e}"))?
+                .ok_or("Genesis state missing")?;
+
+            let prune_config = parse_prune_states_config(cli_args)?;
+
+            prune_states(client_config, prune_config, genesis_state, &context, log)
+        }
         _ => Err("Unknown subcommand, for help `lighthouse database_manager --help`".into()),
     }
 }
