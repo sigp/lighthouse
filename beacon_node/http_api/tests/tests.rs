@@ -1258,10 +1258,7 @@ impl ApiTester {
     pub async fn test_post_beacon_blocks_valid(mut self) -> Self {
         let next_block = self.next_block.clone();
 
-        self.client
-            .post_beacon_blocks(next_block)
-            .await
-            .unwrap();
+        self.client.post_beacon_blocks(next_block).await.unwrap();
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
