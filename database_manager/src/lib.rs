@@ -97,7 +97,7 @@ pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
 
 pub fn prune_blobs_app<'a, 'b>() -> App<'a, 'b> {
     App::new("prune-blobs")
-        .alias("prune-blobs")
+        .alias("prune_blobs")
         .setting(clap::AppSettings::ColoredHelp)
         .about("Prune blobs older than data availability boundary")
 }
