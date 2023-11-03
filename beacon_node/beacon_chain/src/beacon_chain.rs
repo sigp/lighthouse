@@ -4602,7 +4602,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 None
             };
-
+        // Part 3/3 (blocking)
         if let Some(block_contents_type) = block_contents_type_option {
             match block_contents_type {
                 BlockProposalContentsType::Full(block_contents) => {
