@@ -1259,7 +1259,6 @@ impl ApiTester {
         let next_block = self.next_block.clone();
 
         self.client
-            .clone()
             .post_beacon_blocks(next_block)
             .await
             .unwrap();
@@ -1303,7 +1302,6 @@ impl ApiTester {
 
         assert!(self
             .client
-            .clone()
             .post_beacon_blocks(&SignedBlockContents::from(block))
             .await
             .is_err());
@@ -2529,7 +2527,6 @@ impl ApiTester {
                 SignedBlockContents::try_from(signed_block.clone()).unwrap();
 
             self.client
-                .clone()
                 .post_beacon_blocks(&signed_block_contents)
                 .await
                 .unwrap();
@@ -4500,7 +4497,6 @@ impl ApiTester {
         });
 
         self.client
-            .clone()
             .post_beacon_blocks(&self.next_block)
             .await
             .unwrap();
@@ -4536,7 +4532,6 @@ impl ApiTester {
         self.harness.advance_slot();
 
         self.client
-            .clone()
             .post_beacon_blocks(&self.reorg_block)
             .await
             .unwrap();
@@ -4680,7 +4675,6 @@ impl ApiTester {
         });
 
         self.client
-            .clone()
             .post_beacon_blocks(&self.next_block)
             .await
             .unwrap();
