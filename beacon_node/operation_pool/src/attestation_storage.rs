@@ -244,17 +244,12 @@ impl<T: EthSpec> AttestationDataMap<T> {
 
     pub fn stats(&self) -> AttestationStats {
         let mut stats = AttestationStats::default();
-        let mut max_aggregates_per_data = 0;
 
-        for (_, aggregates) in self.aggregate_attestations.iter() {
+        for aggregates in self.aggregate_attestations.values() {
             stats.num_attestations += aggregates.len();
             stats.num_attestation_data += 1;
             stats.max_aggregates_per_data =
                 std::cmp::max(stats.max_aggregates_per_data, aggregates.len());
-
-            if aggregates.len() > max_aggregates_per_data {
-                max_aggregates_per_data = aggregates.len();
-            }
         }
 
         for (data, unaggregates) in self.unaggregate_attestations.iter() {
