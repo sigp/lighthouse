@@ -2662,7 +2662,7 @@ impl ApiTester {
                     .post_beacon_blocks_ssz(&signed_block_contents)
                     .await
                     .unwrap();
-                
+
                 // This converts the generic `Payload` to a concrete type for comparison.
                 let signed_block = signed_block_contents.deconstruct().0;
                 let head_block = SignedBeaconBlock::from(signed_block.clone());
