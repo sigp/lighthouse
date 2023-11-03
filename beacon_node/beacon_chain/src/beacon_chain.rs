@@ -70,7 +70,6 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
-use eth2::lighthouse::StandardBlockReward;
 use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
@@ -4669,7 +4668,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-
     fn produce_partial_beacon_block(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
@@ -5096,7 +5094,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let block = SignedBeaconBlock::from_block(
-            inner_block.clone(),
+            inner_block,
             // The block is not signed here, that is the task of a validator client.
             Signature::empty(),
         );

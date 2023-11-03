@@ -996,6 +996,9 @@ where
                             blob.signature.clone(),
                         );
                     }
+                    (signed_block, Some(signed_blobs))
+                } else {
+                    (signed_block, None)
                 }
             }
         };

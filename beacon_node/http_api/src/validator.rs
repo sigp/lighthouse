@@ -1,11 +1,11 @@
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use types::{BeaconState, PublicKeyBytes};
 use beacon_chain::{
     BeaconBlockResponse, BeaconBlockResponseType, BeaconChain, BeaconChainError, BeaconChainTypes,
     ProduceBlockVerification,
 };
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{self as api_types, EndpointVersion, SkipRandaoVerification};
 use ssz::Encode;
+use types::{BeaconState, PublicKeyBytes};
 use warp::{
     hyper::{Body, Response},
     Reply,
