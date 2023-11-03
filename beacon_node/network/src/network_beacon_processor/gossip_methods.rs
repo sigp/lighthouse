@@ -668,9 +668,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     },
                     signature: SignatureBytes::empty(),
                 },
-                selection_proof: Signature::empty().into(),
+                selection_proof: Signature::empty(),
             },
-            signature: Signature::empty().into(),
+            signature: Signature::empty(),
         });
 
         for (idx, attestation_error) in errors {
