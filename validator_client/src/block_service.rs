@@ -738,9 +738,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         );
 
         let randao_reveal_ref = &randao_reveal;
-        let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
-        let validator_pubkey_ref = &validator_pubkey;
         let proposer_fallback = ProposerFallback {
             beacon_nodes: self.beacon_nodes.clone(),
             proposer_nodes: self.proposer_nodes.clone(),
