@@ -342,15 +342,15 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let candidates = beacon_nodes
             .into_iter()
-            .zip(0..num_nodes)
-            .map(|(node, id)| CandidateBeaconNode::new(node, id))
+            .enumerate()
+            .map(|(id, node)| CandidateBeaconNode::new(node, id))
             .collect();
 
         let proposer_nodes_num = proposer_nodes.len();
         let proposer_candidates = proposer_nodes
             .into_iter()
-            .zip(0..num_nodes)
-            .map(|(node, id)| CandidateBeaconNode::new(node, id))
+            .enumerate()
+            .map(|(id, node)| CandidateBeaconNode::new(node, id))
             .collect();
 
         // Set the count for beacon node fallbacks excluding the primary beacon node.

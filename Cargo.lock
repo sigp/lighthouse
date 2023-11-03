@@ -2099,6 +2099,7 @@ version = "0.1.0"
 dependencies = [
  "account_utils",
  "bytes",
+ "derivative",
  "eth2_keystore",
  "ethereum_serde_utils",
  "ethereum_ssz",
