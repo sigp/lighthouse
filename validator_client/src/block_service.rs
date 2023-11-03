@@ -788,6 +788,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "slot" => slot.as_u64(),
         );
 
+        
+
         // Request block from first responsive beacon node.
         //
         // Try the proposer nodes last, since it's likely that they don't have a
@@ -797,7 +799,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 move |beacon_node| {
-                    Self::get_validator_block(
+                    Self::get_validator_block::<Payload>(
                         beacon_node,
                         slot,
                         randao_reveal_ref,
@@ -809,105 +811,16 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
             .await?;
 
-        let (block, maybe_blob_sidecars) = block_contents.deconstruct();
-        let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
-
-        let signed_block = match self_ref
-            .validator_store
-            .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
-            .await
-        {
-            Ok(block) => block,
-            Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
-                // A pubkey can be missing when a validator was recently removed
-                // via the API.
-                warn!(
-                    log,
-                    "Missing pubkey for block";
-                    "info" => "a validator may have recently been removed from this VC",
-                    "pubkey" => ?pubkey,
-                    "slot" => ?slot
-                );
-                return Ok(());
-            }
-            Err(e) => {
-                return Err(BlockError::Recoverable(format!(
-                    "Unable to sign block: {:?}",
-                    e
-                )))
-            }
-        };
-
-        let maybe_signed_blobs = match maybe_blob_sidecars {
-            Some(blob_sidecars) => {
-                match self_ref
-                    .validator_store
-                    .sign_blobs::<Payload>(*validator_pubkey_ref, blob_sidecars)
-                    .await
-                {
-                    Ok(signed_blobs) => Some(signed_blobs),
-                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
-                        // A pubkey can be missing when a validator was recently removed
-                        // via the API.
-                        warn!(
-                            log,
-                            "Missing pubkey for blobs";
-                            "info" => "a validator may have recently been removed from this VC",
-                            "pubkey" => ?pubkey,
-                            "slot" => ?slot
-                        );
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        return Err(BlockError::Recoverable(format!(
-                            "Unable to sign blobs: {:?}",
-                            e
-                        )))
-                    }
-                }
-            }
-            None => None,
-        };
-        let signing_time_ms =
-            Duration::from_secs_f64(signing_timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
-
-        info!(
+        self.handle_block_response(
             log,
-            "Publishing signed block";
-            "slot" => slot.as_u64(),
-            "signing_time_ms" => signing_time_ms,
-        );
-
-        let signed_block_contents = SignedBlockContents::from((signed_block, maybe_signed_blobs));
-
-        // Publish block with first available beacon node.
-        //
-        // Try the proposer nodes first, since we've likely gone to efforts to
-        // protect them from DoS attacks and they're most likely to successfully
-        // publish a block.
-        proposer_fallback
-            .first_success_try_proposers_first(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async {
-                    self.publish_signed_block_contents::<Payload>(
-                        &signed_block_contents,
-                        beacon_node,
-                    )
-                    .await
-                },
-            )
-            .await?;
-
-        info!(
-            log,
-            "Successfully published block";
-            "block_type" => ?Payload::block_type(),
-            "deposits" => signed_block_contents.signed_block().message().body().deposits().len(),
-            "attestations" => signed_block_contents.signed_block().message().body().attestations().len(),
-            "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
-            "slot" => signed_block_contents.signed_block().slot().as_u64(),
-        );
+            proposer_fallback,
+            slot,
+            current_slot,
+            graffiti,
+            validator_pubkey,
+            proposer_index,
+            block_contents
+        ).await?;
 
         Ok(())
     }
