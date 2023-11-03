@@ -340,7 +340,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                warn!(
+                debug!(
                     self.log,
                     "Missing components over rpc";
                     "block_hash" => %block_root,
