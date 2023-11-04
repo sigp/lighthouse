@@ -782,7 +782,7 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {
-                write!(f, "LightClientBootstrap: {}", bootstrap.root)
+                write!(f, "Light client boostrap: {}", bootstrap.root)
             }
             InboundRequest::LightClientOptimisticUpdate => {
                 write!(f, "Light client optimistic update request")

@@ -595,7 +595,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Create a new work event to process `LightClientBootstrap`s from the RPC network.
-    pub fn send_lightclient_bootstrap_request(
+    pub fn send_light_client_bootstrap_request(
         self: &Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -611,8 +611,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
-    /// Create a new work event to process `LightClientOptimisticUpdate` requests from the RPC network.
-    pub fn send_lightclient_optimistic_update_request(
+    /// Create a new work event to process a `LightClientOptimisticUpdate` request from the RPC network.
+    pub fn send_light_client_optimistic_update_request(
         self: &Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -627,8 +627,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
-    /// Create a new work event to process `LightClientFinalityUpdate` requests from the RPC network.
-    pub fn send_lightclient_finality_update_request(
+    /// Create a new work event to process a `LightClientFinalityUpdate` request from the RPC network.
+    pub fn send_light_client_finality_update_request(
         self: &Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,

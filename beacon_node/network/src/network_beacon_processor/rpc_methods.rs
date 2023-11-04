@@ -376,7 +376,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.send_error_response(
                 peer_id,
                 RPCResponseErrorCode::ResourceUnavailable,
-                "Latest optimistic update not avaiable".into(),
+                "Latest optimistic update not available".into(),
                 request_id,
             );
             return;
@@ -401,7 +401,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.send_error_response(
                 peer_id,
                 RPCResponseErrorCode::ResourceUnavailable,
-                "Latest finality update not avaiable".into(),
+                "Latest finality update not available".into(),
                 request_id,
             );
             return;

@@ -17,9 +17,9 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::BlobSidecar;
 use types::{
-    EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockMerge,
+    EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
+    SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -427,7 +427,7 @@ fn context_bytes<T: EthSpec>(
                 }
                 // These will not pass the has_context_bytes() check
                 RPCResponse::Status(_) | RPCResponse::Pong(_) | RPCResponse::MetaData(_) => {
-                    unreachable!()
+                    return None;
                 }
             }
         }
@@ -596,19 +596,17 @@ fn handle_rpc_response<T: EthSpec>(
         SupportedProtocol::MetaDataV1 => Ok(Some(RPCResponse::MetaData(MetaData::V1(
             MetaDataV1::from_ssz_bytes(decoded_buffer)?,
         )))),
-        SupportedProtocol::LightClientBootstrapV1 => Ok(Some(RPCResponse::LightClientBootstrap(
-            LightClientBootstrap::from_ssz_bytes(decoded_buffer)?,
-        ))),
-        SupportedProtocol::LightClientOptimisticUpdateV1 => {
-            Ok(Some(RPCResponse::LightClientOptimisticUpdate(Arc::new(
-                LightClientOptimisticUpdate::from_ssz_bytes(decoded_buffer)?,
-            ))))
-        }
-        SupportedProtocol::LightClientFinalityUpdateV1 => {
-            Ok(Some(RPCResponse::LightClientFinalityUpdate(Arc::new(
-                LightClientFinalityUpdate::from_ssz_bytes(decoded_buffer)?,
-            ))))
-        }
+        // These light client cases should be unreachable as we never make any light client related
+        // rpc requests.
+        SupportedProtocol::LightClientBootstrapV1 => Err(RPCError::InvalidData(
+            "Unexpected light client bootstrap response".to_string(),
+        )),
+        SupportedProtocol::LightClientOptimisticUpdateV1 => Err(RPCError::InvalidData(
+            "Unexpected light client optimistic update response".to_string(),
+        )),
+        SupportedProtocol::LightClientFinalityUpdateV1 => Err(RPCError::InvalidData(
+            "Unexpected light client finality update response".to_string(),
+        )),
         // MetaData V2 responses have no context bytes, so behave similarly to V1 responses
         SupportedProtocol::MetaDataV2 => Ok(Some(RPCResponse::MetaData(MetaData::V2(
             MetaDataV2::from_ssz_bytes(decoded_buffer)?,

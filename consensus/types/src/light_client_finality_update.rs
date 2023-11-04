@@ -8,7 +8,7 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
-/// A LightClientFinalityUpdate is the update lightclient request or received by a gossip that
+/// A LightClientFinalityUpdate is the update light client request or received by a gossip that
 /// signal a new finalized beacon block header for the light client sync protocol.
 #[derive(
     Debug,
@@ -30,9 +30,9 @@ pub struct LightClientFinalityUpdate<T: EthSpec> {
     pub finalized_header: BeaconBlockHeader,
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
-    /// current sync aggreggate
+    /// current sync aggregate
     pub sync_aggregate: SyncAggregate<T>,
-    /// Slot of the sync aggregated singature
+    /// Slot of the sync aggregated signature
     pub signature_slot: Slot,
 }
 

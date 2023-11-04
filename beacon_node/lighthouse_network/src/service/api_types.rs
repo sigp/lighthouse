@@ -132,11 +132,11 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
             Response::LightClientBootstrap(b) => {
                 RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
             }
-            Response::LightClientOptimisticUpdate(b) => {
-                RPCCodedResponse::Success(RPCResponse::LightClientOptimisticUpdate(b))
+            Response::LightClientOptimisticUpdate(o) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientOptimisticUpdate(o))
             }
-            Response::LightClientFinalityUpdate(b) => {
-                RPCCodedResponse::Success(RPCResponse::LightClientFinalityUpdate(b))
+            Response::LightClientFinalityUpdate(f) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientFinalityUpdate(f))
             }
         }
     }

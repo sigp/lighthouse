@@ -437,7 +437,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
     StreamTermination(ResponseTermination),
 }
 
-/// Request a light_client_bootstrap for lightclients peers.
+/// Request a light_client_bootstrap for light client peers.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct LightClientBootstrapRequest {
     pub root: Hash256,

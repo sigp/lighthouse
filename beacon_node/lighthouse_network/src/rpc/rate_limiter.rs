@@ -99,7 +99,7 @@ pub struct RPCRateLimiter {
     /// BlobsByRoot rate limiter.
     blbroot_rl: Limiter<PeerId>,
     /// LightClientBootstrap rate limiter.
-    lcbootstrap_rl: Limiter<PeerId>,
+    lc_bootstrap_rl: Limiter<PeerId>,
     /// LightClientOptimisticUpdate rate limiter.
     lc_optimistic_update_rl: Limiter<PeerId>,
     /// LightClientFinalityUpdate rate limiter.
@@ -174,7 +174,7 @@ impl RPCRateLimiterBuilder {
         let bbrange_quota = self
             .bbrange_quota
             .ok_or("BlocksByRange quota not specified")?;
-        let lcbootstrap_quota = self
+        let lc_bootstrap_quota = self
             .lcbootstrap_quota
             .ok_or("LightClientBootstrap quota not specified")?;
         let lc_optimistic_update_quota = self
@@ -201,7 +201,7 @@ impl RPCRateLimiterBuilder {
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
         let blbrange_rl = Limiter::from_quota(blbrange_quota)?;
         let blbroot_rl = Limiter::from_quota(blbroots_quota)?;
-        let lcbootstrap_rl = Limiter::from_quota(lcbootstrap_quota)?;
+        let lc_bootstrap_rl = Limiter::from_quota(lc_bootstrap_quota)?;
         let lc_optimistic_update_rl = Limiter::from_quota(lc_optimistic_update_quota)?;
         let lc_finality_update_rl = Limiter::from_quota(lc_finality_update_quota)?;
 
@@ -219,7 +219,7 @@ impl RPCRateLimiterBuilder {
             bbrange_rl,
             blbrange_rl,
             blbroot_rl,
-            lcbootstrap_rl,
+            lc_bootstrap_rl,
             lc_optimistic_update_rl,
             lc_finality_update_rl,
             init_time: Instant::now(),
@@ -313,7 +313,7 @@ impl RPCRateLimiter {
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
             Protocol::BlobsByRange => &mut self.blbrange_rl,
             Protocol::BlobsByRoot => &mut self.blbroot_rl,
-            Protocol::LightClientBootstrap => &mut self.lcbootstrap_rl,
+            Protocol::LightClientBootstrap => &mut self.lc_bootstrap_rl,
             Protocol::LightClientOptimisticUpdate => &mut self.lc_optimistic_update_rl,
             Protocol::LightClientFinalityUpdate => &mut self.lc_finality_update_rl,
         };
