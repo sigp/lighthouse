@@ -551,9 +551,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
-                    Protocol::LightClientBootstrap => PeerAction::LowToleranceError,
-                    Protocol::LightClientOptimisticUpdate => PeerAction::LowToleranceError,
-                    Protocol::LightClientFinalityUpdate => PeerAction::LowToleranceError,
+                    // Lighthouse does not currently make light client requests; therefore, this
+                    // is an unexpected scenario. We do not ban the peer for rate limiting.
+                    Protocol::LightClientBootstrap => return,
+                    Protocol::LightClientOptimisticUpdate => return,
+                    Protocol::LightClientFinalityUpdate => return,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
                     Protocol::Goodbye => PeerAction::LowToleranceError,
                     Protocol::MetaData => PeerAction::LowToleranceError,
