@@ -1,6 +1,6 @@
 use super::{BeaconStateError, ChainSpec, Epoch, Validator};
 use safe_arith::SafeArith;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Map from exit epoch to the number of validators with that exit epoch.

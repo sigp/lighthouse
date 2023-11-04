@@ -1,10 +1,12 @@
-pub use proto_array::ReOrgThreshold;
-use serde_derive::{Deserialize, Serialize};
+pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use types::{Checkpoint, Epoch};
+use types::{Checkpoint, Epoch, ProgressiveBalancesMode};
 
 pub const DEFAULT_RE_ORG_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
 pub const DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION: Epoch = Epoch::new(2);
+/// Default to 1/12th of the slot, which is 1 second on mainnet.
+pub const DEFAULT_RE_ORG_CUTOFF_DENOMINATOR: u32 = 12;
 pub const DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT: u64 = 250;
 
 /// Default fraction of a slot lookahead for payload preparation (12/3 = 4 seconds on mainnet).
@@ -15,8 +17,7 @@ pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
-    /// Maximum number of slots to skip when importing a consensus message (e.g., block,
-    /// attestation, etc).
+    /// Maximum number of slots to skip when importing an attestation.
     ///
     /// If `None`, there is no limit.
     pub import_max_skip_slots: Option<u64>,
@@ -34,6 +35,13 @@ pub struct ChainConfig {
     pub re_org_threshold: Option<ReOrgThreshold>,
     /// Maximum number of epochs since finalization for attempting a proposer re-org.
     pub re_org_max_epochs_since_finalization: Epoch,
+    /// Maximum delay after the start of the slot at which to propose a reorging block.
+    pub re_org_cutoff_millis: Option<u64>,
+    /// Additional epoch offsets at which re-orging block proposals are not permitted.
+    ///
+    /// By default this list is empty, but it can be useful for reacting to network conditions, e.g.
+    /// slow gossip of re-org blocks at slot 1 in the epoch.
+    pub re_org_disallowed_offsets: DisallowedReOrgOffsets,
     /// Number of milliseconds to wait for fork choice before proposing a block.
     ///
     /// If set to 0 then block proposal will not wait for fork choice at all.
@@ -64,12 +72,17 @@ pub struct ChainConfig {
     pub optimistic_finalized_sync: bool,
     /// The size of the shuffling cache,
     pub shuffling_cache_size: usize,
+    /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
+    /// genesis.
+    pub genesis_backfill: bool,
     /// Whether to send payload attributes every slot, regardless of connected proposers.
     ///
     /// This is useful for block builders and testing.
     pub always_prepare_payload: bool,
-    /// Whether backfill sync processing should be rate-limited.
-    pub enable_backfill_rate_limiting: bool,
+    /// Whether to use `ProgressiveBalancesCache` in unrealized FFG progression calculation.
+    pub progressive_balances_mode: ProgressiveBalancesMode,
+    /// Number of epochs between each migration of data from the hot database to the freezer.
+    pub epochs_per_migration: u64,
 }
 
 impl Default for ChainConfig {
@@ -82,6 +95,8 @@ impl Default for ChainConfig {
             max_network_size: 10 * 1_048_576, // 10M
             re_org_threshold: Some(DEFAULT_RE_ORG_THRESHOLD),
             re_org_max_epochs_since_finalization: DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+            re_org_cutoff_millis: None,
+            re_org_disallowed_offsets: DisallowedReOrgOffsets::default(),
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
             // Builder fallback configs that are set in `clap` will override these.
             builder_fallback_skips: 3,
@@ -95,8 +110,21 @@ impl Default for ChainConfig {
             // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
+            genesis_backfill: false,
             always_prepare_payload: false,
-            enable_backfill_rate_limiting: true,
+            progressive_balances_mode: ProgressiveBalancesMode::Checked,
+            epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
         }
+    }
+}
+
+impl ChainConfig {
+    /// The latest delay from the start of the slot at which to attempt a 1-slot re-org.
+    pub fn re_org_cutoff(&self, seconds_per_slot: u64) -> Duration {
+        self.re_org_cutoff_millis
+            .map(Duration::from_millis)
+            .unwrap_or_else(|| {
+                Duration::from_secs(seconds_per_slot) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
+            })
     }
 }

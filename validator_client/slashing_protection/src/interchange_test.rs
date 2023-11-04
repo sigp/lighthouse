@@ -3,7 +3,7 @@ use crate::{
     test_utils::{pubkey, DEFAULT_GENESIS_VALIDATORS_ROOT},
     SigningRoot, SlashingDatabase,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tempfile::tempdir;
 use types::{Epoch, Hash256, PublicKeyBytes, Slot};

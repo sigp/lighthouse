@@ -8,7 +8,7 @@ use directory::{
 };
 use eth2::types::Graffiti;
 use sensitive_url::SensitiveUrl;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;
@@ -29,6 +29,8 @@ pub struct Config {
     ///
     /// Should be similar to `["http://localhost:8080"]`
     pub beacon_nodes: Vec<SensitiveUrl>,
+    /// An optional beacon node used for block proposals only.
+    pub proposer_nodes: Vec<SensitiveUrl>,
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
@@ -75,6 +77,8 @@ pub struct Config {
     pub disable_run_on_all: bool,
     /// Enables a service which attempts to measure latency between the VC and BNs.
     pub enable_latency_measurement_service: bool,
+    /// Defines the number of validators per `validator/register_validator` request sent to the BN.
+    pub validator_registration_batch_size: usize,
 }
 
 impl Default for Config {
@@ -95,6 +99,7 @@ impl Default for Config {
             validator_dir,
             secrets_dir,
             beacon_nodes,
+            proposer_nodes: Vec::new(),
             allow_unsynced_beacon_node: false,
             disable_auto_discover: false,
             init_slashing_protection: false,
@@ -114,6 +119,7 @@ impl Default for Config {
             gas_limit: None,
             disable_run_on_all: false,
             enable_latency_measurement_service: true,
+            validator_registration_batch_size: 500,
         }
     }
 }
@@ -186,6 +192,14 @@ impl Config {
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
         }
 
+        if let Some(proposer_nodes) = parse_optional::<String>(cli_args, "proposer_nodes")? {
+            config.proposer_nodes = proposer_nodes
+                .split(',')
+                .map(SensitiveUrl::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("Unable to parse proposer node URL: {:?}", e))?;
+        }
+
         if cli_args.is_present("delete-lockfiles") {
             warn!(
                 log,
@@ -194,7 +208,13 @@ impl Config {
             );
         }
 
-        config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
+        if cli_args.is_present("allow-unsynced") {
+            warn!(
+                log,
+                "The --allow-unsynced flag is deprecated";
+                "msg" => "it no longer has any effect",
+            );
+        }
         config.disable_run_on_all = cli_args.is_present("disable-run-on-all");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
@@ -272,6 +292,14 @@ impl Config {
                 .map_err(|_| "Invalid allow-origin value")?;
 
             config.http_api.allow_origin = Some(allow_origin.to_string());
+        }
+
+        if cli_args.is_present("http-allow-keystore-export") {
+            config.http_api.allow_keystore_export = true;
+        }
+
+        if cli_args.is_present("http-store-passwords-in-secrets-dir") {
+            config.http_api.store_passwords_in_secrets_dir = true;
         }
 
         /*
@@ -362,6 +390,12 @@ impl Config {
 
         config.enable_latency_measurement_service =
             parse_optional(cli_args, "latency-measurement-service")?.unwrap_or(true);
+
+        config.validator_registration_batch_size =
+            parse_required(cli_args, "validator-registration-batch-size")?;
+        if config.validator_registration_batch_size == 0 {
+            return Err("validator-registration-batch-size cannot be 0".to_string());
+        }
 
         /*
          * Experimental

@@ -1,3 +1,4 @@
+use crate::common::update_progressive_balances_cache::update_progressive_balances_on_slashing;
 use crate::{
     common::{decrease_balance, increase_balance, initiate_validator_exit},
     per_block_processing::errors::BlockProcessingError,
@@ -43,6 +44,8 @@ pub fn slash_validator<T: EthSpec>(
             .safe_div(spec.min_slashing_penalty_quotient_for_state(state))?,
     )?;
 
+    update_progressive_balances_on_slashing(state, slashed_index)?;
+
     // Apply proposer and whistleblower rewards
     let proposer_index = ctxt.get_proposer_index(state, spec)? as usize;
     let whistleblower_index = opt_whistleblower_index.unwrap_or(proposer_index);
@@ -50,11 +53,12 @@ pub fn slash_validator<T: EthSpec>(
         validator_effective_balance.safe_div(spec.whistleblower_reward_quotient)?;
     let proposer_reward = match state {
         BeaconState::Base(_) => whistleblower_reward.safe_div(spec.proposer_reward_quotient)?,
-        BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
-            whistleblower_reward
-                .safe_mul(PROPOSER_WEIGHT)?
-                .safe_div(WEIGHT_DENOMINATOR)?
-        }
+        BeaconState::Altair(_)
+        | BeaconState::Merge(_)
+        | BeaconState::Capella(_)
+        | BeaconState::Deneb(_) => whistleblower_reward
+            .safe_mul(PROPOSER_WEIGHT)?
+            .safe_div(WEIGHT_DENOMINATOR)?,
     };
 
     // Ensure the whistleblower index is in the validator registry.

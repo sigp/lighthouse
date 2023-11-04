@@ -1,28 +1,26 @@
 use crate::listen_addr::{ListenAddr, ListenAddress};
-use crate::rpc::config::OutboundRateLimiterConfig;
+use crate::rpc::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
 use discv5::{Discv5Config, Discv5ConfigBuilder};
-use libp2p::gossipsub::{
-    FastMessageId, GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId,
-    RawGossipsubMessage, ValidationMode,
-};
+use libp2p::gossipsub;
 use libp2p::Multiaddr;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::num::NonZeroU16;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{ForkContext, ForkName};
 
-/// The maximum transmit size of gossip messages in bytes pre-merge.
-const GOSSIP_MAX_SIZE: usize = 1_048_576; // 1M
-/// The maximum transmit size of gossip messages in bytes post-merge.
-const GOSSIP_MAX_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
+pub const DEFAULT_IPV4_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
+pub const DEFAULT_TCP_PORT: u16 = 9000u16;
+pub const DEFAULT_DISC_PORT: u16 = 9000u16;
+pub const DEFAULT_QUIC_PORT: u16 = 9001u16;
 
 /// The cache time is set to accommodate the circulation time of an attestation.
 ///
@@ -38,18 +36,18 @@ const GOSSIP_MAX_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 /// another 500ms for "fudge factor".
 pub const DUPLICATE_CACHE_TIME: Duration = Duration::from_secs(33 * 12 + 1);
 
-// We treat uncompressed messages as invalid and never use the INVALID_SNAPPY_DOMAIN as in the
-// specification. We leave it here for posterity.
-// const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
-const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
-
 /// The maximum size of gossip messages.
-pub fn gossip_max_size(is_merge_enabled: bool) -> usize {
+pub fn gossip_max_size(is_merge_enabled: bool, gossip_max_size: usize) -> usize {
     if is_merge_enabled {
-        GOSSIP_MAX_SIZE_POST_MERGE
+        gossip_max_size
     } else {
-        GOSSIP_MAX_SIZE
+        gossip_max_size / 10
     }
+}
+
+pub struct GossipsubConfigParams {
+    pub message_domain_valid_snappy: [u8; 4],
+    pub gossip_max_size: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,24 +64,30 @@ pub struct Config {
     /// that no discovery address has been set in the CLI args.
     pub enr_address: (Option<Ipv4Addr>, Option<Ipv6Addr>),
 
-    /// The udp4 port to broadcast to peers in order to reach back for discovery.
-    pub enr_udp4_port: Option<u16>,
+    /// The udp ipv4 port to broadcast to peers in order to reach back for discovery.
+    pub enr_udp4_port: Option<NonZeroU16>,
 
-    /// The tcp4 port to broadcast to peers in order to reach back for libp2p services.
-    pub enr_tcp4_port: Option<u16>,
+    /// The quic ipv4 port to broadcast to peers in order to reach back for libp2p services.
+    pub enr_quic4_port: Option<NonZeroU16>,
 
-    /// The udp6 port to broadcast to peers in order to reach back for discovery.
-    pub enr_udp6_port: Option<u16>,
+    /// The tcp ipv4 port to broadcast to peers in order to reach back for libp2p services.
+    pub enr_tcp4_port: Option<NonZeroU16>,
 
-    /// The tcp6 port to broadcast to peers in order to reach back for libp2p services.
-    pub enr_tcp6_port: Option<u16>,
+    /// The udp ipv6 port to broadcast to peers in order to reach back for discovery.
+    pub enr_udp6_port: Option<NonZeroU16>,
+
+    /// The tcp ipv6 port to broadcast to peers in order to reach back for libp2p services.
+    pub enr_tcp6_port: Option<NonZeroU16>,
+
+    /// The quic ipv6 port to broadcast to peers in order to reach back for libp2p services.
+    pub enr_quic6_port: Option<NonZeroU16>,
 
     /// Target number of connected peers.
     pub target_peers: usize,
 
     /// Gossipsub configuration parameters.
     #[serde(skip)]
-    pub gs_config: GossipsubConfig,
+    pub gs_config: gossipsub::Config,
 
     /// Discv5 configuration parameters.
     #[serde(skip)]
@@ -101,11 +105,17 @@ pub struct Config {
     /// List of trusted libp2p nodes which are not scored.
     pub trusted_peers: Vec<PeerIdSerialized>,
 
+    /// Disables peer scoring altogether.
+    pub disable_peer_scoring: bool,
+
     /// Client version
     pub client_version: String,
 
     /// Disables the discovery protocol from starting.
     pub disable_discovery: bool,
+
+    /// Disables quic support.
+    pub disable_quic_support: bool,
 
     /// Attempt to construct external port mappings with UPnP.
     pub upnp_enabled: bool,
@@ -113,7 +123,7 @@ pub struct Config {
     /// Subscribe to all subnets for the duration of the runtime.
     pub subscribe_all_subnets: bool,
 
-    /// Import/aggregate all attestations recieved on subscribed subnets for the duration of the
+    /// Import/aggregate all attestations received on subscribed subnets for the duration of the
     /// runtime.
     pub import_all_attestations: bool,
 
@@ -131,6 +141,9 @@ pub struct Config {
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
 
+    /// Whether we are running a block proposer only node.
+    pub proposer_only: bool,
+
     /// Whether metrics are enabled.
     pub metrics_enabled: bool,
 
@@ -139,65 +152,89 @@ pub struct Config {
 
     /// Configuration for the outbound rate limiter (requests made by this node).
     pub outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
+
+    /// Configures if/where invalid blocks should be stored.
+    pub invalid_block_storage: Option<PathBuf>,
+
+    /// Configuration for the inbound rate limiter (requests received by this node).
+    pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
 }
 
 impl Config {
     /// Sets the listening address to use an ipv4 address. The discv5 ip_mode and table filter are
     /// adjusted accordingly to ensure addresses that are present in the enr are globally
     /// reachable.
-    pub fn set_ipv4_listening_address(&mut self, addr: Ipv4Addr, tcp_port: u16, udp_port: u16) {
+    pub fn set_ipv4_listening_address(
+        &mut self,
+        addr: Ipv4Addr,
+        tcp_port: u16,
+        disc_port: u16,
+        quic_port: u16,
+    ) {
         self.listen_addresses = ListenAddress::V4(ListenAddr {
             addr,
-            udp_port,
+            disc_port,
+            quic_port,
             tcp_port,
         });
-        self.discv5_config.ip_mode = discv5::IpMode::Ip4;
+        self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), disc_port);
         self.discv5_config.table_filter = |enr| enr.ip4().as_ref().map_or(false, is_global_ipv4)
     }
 
     /// Sets the listening address to use an ipv6 address. The discv5 ip_mode and table filter is
     /// adjusted accordingly to ensure addresses that are present in the enr are globally
     /// reachable.
-    pub fn set_ipv6_listening_address(&mut self, addr: Ipv6Addr, tcp_port: u16, udp_port: u16) {
+    pub fn set_ipv6_listening_address(
+        &mut self,
+        addr: Ipv6Addr,
+        tcp_port: u16,
+        disc_port: u16,
+        quic_port: u16,
+    ) {
         self.listen_addresses = ListenAddress::V6(ListenAddr {
             addr,
-            udp_port,
+            disc_port,
+            quic_port,
             tcp_port,
         });
-        self.discv5_config.ip_mode = discv5::IpMode::Ip6 {
-            enable_mapped_addresses: false,
-        };
+
+        self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), disc_port);
         self.discv5_config.table_filter = |enr| enr.ip6().as_ref().map_or(false, is_global_ipv6)
     }
 
     /// Sets the listening address to use both an ipv4 and ipv6 address. The discv5 ip_mode and
     /// table filter is adjusted accordingly to ensure addresses that are present in the enr are
     /// globally reachable.
+    #[allow(clippy::too_many_arguments)]
     pub fn set_ipv4_ipv6_listening_addresses(
         &mut self,
         v4_addr: Ipv4Addr,
         tcp4_port: u16,
-        udp4_port: u16,
+        disc4_port: u16,
+        quic4_port: u16,
         v6_addr: Ipv6Addr,
         tcp6_port: u16,
-        udp6_port: u16,
+        disc6_port: u16,
+        quic6_port: u16,
     ) {
         self.listen_addresses = ListenAddress::DualStack(
             ListenAddr {
                 addr: v4_addr,
-                udp_port: udp4_port,
+                disc_port: disc4_port,
+                quic_port: quic4_port,
                 tcp_port: tcp4_port,
             },
             ListenAddr {
                 addr: v6_addr,
-                udp_port: udp6_port,
+                disc_port: disc6_port,
+                quic_port: quic6_port,
                 tcp_port: tcp6_port,
             },
         );
+        self.discv5_config.listen_config = discv5::ListenConfig::default()
+            .with_ipv4(v4_addr, disc4_port)
+            .with_ipv6(v6_addr, disc6_port);
 
-        self.discv5_config.ip_mode = discv5::IpMode::Ip6 {
-            enable_mapped_addresses: true,
-        };
         self.discv5_config.table_filter = |enr| match (&enr.ip4(), &enr.ip6()) {
             (None, None) => false,
             (None, Some(ip6)) => is_global_ipv6(ip6),
@@ -210,27 +247,32 @@ impl Config {
         match listen_addr {
             ListenAddress::V4(ListenAddr {
                 addr,
-                udp_port,
+                disc_port,
+                quic_port,
                 tcp_port,
-            }) => self.set_ipv4_listening_address(addr, tcp_port, udp_port),
+            }) => self.set_ipv4_listening_address(addr, tcp_port, disc_port, quic_port),
             ListenAddress::V6(ListenAddr {
                 addr,
-                udp_port,
+                disc_port,
+                quic_port,
                 tcp_port,
-            }) => self.set_ipv6_listening_address(addr, tcp_port, udp_port),
+            }) => self.set_ipv6_listening_address(addr, tcp_port, disc_port, quic_port),
             ListenAddress::DualStack(
                 ListenAddr {
                     addr: ip4addr,
-                    udp_port: udp4_port,
+                    disc_port: disc4_port,
+                    quic_port: quic4_port,
                     tcp_port: tcp4_port,
                 },
                 ListenAddr {
                     addr: ip6addr,
-                    udp_port: udp6_port,
+                    disc_port: disc6_port,
+                    quic_port: quic6_port,
                     tcp_port: tcp6_port,
                 },
             ) => self.set_ipv4_ipv6_listening_addresses(
-                ip4addr, tcp4_port, udp4_port, ip6addr, tcp6_port, udp6_port,
+                ip4addr, tcp4_port, disc4_port, quic4_port, ip6addr, tcp6_port, disc6_port,
+                quic6_port,
             ),
         }
     }
@@ -254,7 +296,7 @@ impl Default for Config {
 
         // Note: Using the default config here. Use `gossipsub_config` function for getting
         // Lighthouse specific configuration for gossipsub.
-        let gs_config = GossipsubConfigBuilder::default()
+        let gs_config = gossipsub::ConfigBuilder::default()
             .build()
             .expect("valid gossipsub configuration");
 
@@ -267,9 +309,18 @@ impl Default for Config {
                 .build()
                 .expect("The total rate limit has been specified"),
         );
+        let listen_addresses = ListenAddress::V4(ListenAddr {
+            addr: DEFAULT_IPV4_ADDRESS,
+            disc_port: DEFAULT_DISC_PORT,
+            quic_port: DEFAULT_QUIC_PORT,
+            tcp_port: DEFAULT_TCP_PORT,
+        });
+
+        let discv5_listen_config =
+            discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
 
         // discv5 configuration
-        let discv5_config = Discv5ConfigBuilder::new()
+        let discv5_config = Discv5ConfigBuilder::new(discv5_listen_config)
             .enable_packet_filter()
             .session_cache_capacity(5000)
             .request_timeout(Duration::from_secs(1))
@@ -292,15 +343,13 @@ impl Default for Config {
         // NOTE: Some of these get overridden by the corresponding CLI default values.
         Config {
             network_dir,
-            listen_addresses: ListenAddress::V4(ListenAddr {
-                addr: Ipv4Addr::UNSPECIFIED,
-                udp_port: 9000,
-                tcp_port: 9000,
-            }),
+            listen_addresses,
             enr_address: (None, None),
             enr_udp4_port: None,
+            enr_quic4_port: None,
             enr_tcp4_port: None,
             enr_udp6_port: None,
+            enr_quic6_port: None,
             enr_tcp6_port: None,
             target_peers: 50,
             gs_config,
@@ -309,8 +358,10 @@ impl Default for Config {
             boot_nodes_multiaddr: vec![],
             libp2p_nodes: vec![],
             trusted_peers: vec![],
+            disable_peer_scoring: false,
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
+            disable_quic_support: false,
             upnp_enabled: true,
             network_load: 3,
             private: false,
@@ -318,9 +369,12 @@ impl Default for Config {
             import_all_attestations: false,
             shutdown_after_sync: false,
             topics: Vec::new(),
+            proposer_only: false,
             metrics_enabled: false,
             enable_light_client_server: false,
             outbound_rate_limiter_config: None,
+            invalid_block_storage: None,
+            inbound_rate_limiter_config: None,
         }
     }
 }
@@ -396,21 +450,25 @@ impl From<u8> for NetworkLoad {
 }
 
 /// Return a Lighthouse specific `GossipsubConfig` where the `message_id_fn` depends on the current fork.
-pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> GossipsubConfig {
+pub fn gossipsub_config(
+    network_load: u8,
+    fork_context: Arc<ForkContext>,
+    gossipsub_config_params: GossipsubConfigParams,
+) -> gossipsub::Config {
     // The function used to generate a gossipsub message id
     // We use the first 8 bytes of SHA256(topic, data) for content addressing
-    let fast_gossip_message_id = |message: &RawGossipsubMessage| {
+    let fast_gossip_message_id = |message: &gossipsub::RawMessage| {
         let data = [message.topic.as_str().as_bytes(), &message.data].concat();
-        FastMessageId::from(&Sha256::digest(data)[..8])
+        gossipsub::FastMessageId::from(&Sha256::digest(&data)[..8])
     };
     fn prefix(
         prefix: [u8; 4],
-        message: &GossipsubMessage,
+        message: &gossipsub::Message,
         fork_context: Arc<ForkContext>,
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
         match fork_context.current_fork() {
-            ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
@@ -429,20 +487,23 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
             }
         }
     }
-
+    let message_domain_valid_snappy = gossipsub_config_params.message_domain_valid_snappy;
     let is_merge_enabled = fork_context.fork_exists(ForkName::Merge);
-    let gossip_message_id = move |message: &GossipsubMessage| {
-        MessageId::from(
+    let gossip_message_id = move |message: &gossipsub::Message| {
+        gossipsub::MessageId::from(
             &Sha256::digest(
-                prefix(MESSAGE_DOMAIN_VALID_SNAPPY, message, fork_context.clone()).as_slice(),
+                prefix(message_domain_valid_snappy, message, fork_context.clone()).as_slice(),
             )[..20],
         )
     };
 
     let load = NetworkLoad::from(network_load);
 
-    GossipsubConfigBuilder::default()
-        .max_transmit_size(gossip_max_size(is_merge_enabled))
+    gossipsub::ConfigBuilder::default()
+        .max_transmit_size(gossip_max_size(
+            is_merge_enabled,
+            gossipsub_config_params.gossip_max_size,
+        ))
         .heartbeat_interval(load.heartbeat_interval)
         .mesh_n(load.mesh_n)
         .mesh_n_low(load.mesh_n_low)
@@ -454,7 +515,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
         .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
         .history_gossip(load.history_gossip)
         .validate_messages() // require validation before propagation
-        .validation_mode(ValidationMode::Anonymous)
+        .validation_mode(gossipsub::ValidationMode::Anonymous)
         .duplicate_cache_time(DUPLICATE_CACHE_TIME)
         .message_id_fn(gossip_message_id)
         .fast_message_id_fn(fast_gossip_message_id)

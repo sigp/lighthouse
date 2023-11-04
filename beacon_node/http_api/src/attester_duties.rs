@@ -1,9 +1,7 @@
 //! Contains the handler for the `GET validator/duties/attester/{epoch}` endpoint.
 
 use crate::state_id::StateId;
-use beacon_chain::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{self as api_types};
 use slot_clock::SlotClock;
 use state_processing::state_advance::partial_state_advance;
@@ -32,12 +30,11 @@ pub fn attester_duties<T: BeaconChainTypes>(
     // will equal `current_epoch + 1`
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
         .ok_or_else(|| warp_utils::reject::custom_server_error("unable to read slot clock".into()))?
         .epoch(T::EthSpec::slots_per_epoch());
 
     if request_epoch == current_epoch
-        || request_epoch == tolerant_current_epoch
         || request_epoch == current_epoch + 1
         || request_epoch == tolerant_current_epoch + 1
     {
@@ -48,7 +45,7 @@ pub fn attester_duties<T: BeaconChainTypes>(
             request_epoch, current_epoch
         )))
     } else {
-        // request_epoch < current_epoch
+        // request_epoch < current_epoch, in fact we only allow `request_epoch == current_epoch-1` in this case
         compute_historic_attester_duties(request_epoch, request_indices, chain)
     }
 }

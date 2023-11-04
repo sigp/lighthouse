@@ -10,7 +10,7 @@ An open-source Ethereum consensus client, written in Rust and maintained by Sigm
 [Book Link]: https://lighthouse-book.sigmaprime.io
 [stable]: https://github.com/sigp/lighthouse/tree/stable
 [unstable]: https://github.com/sigp/lighthouse/tree/unstable
-[blog]: https://lighthouse.sigmaprime.io
+[blog]: https://lighthouse-blog.sigmaprime.io
 
 [Documentation](https://lighthouse-book.sigmaprime.io)
 

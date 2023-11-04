@@ -13,7 +13,7 @@ pub enum Error {
     /// Some `Eth1Block` was provided with the same block number but different data. The source
     /// of eth1 data is inconsistent.
     Conflicting(u64),
-    /// The given block was not one block number higher than the higest known block number.
+    /// The given block was not one block number higher than the highest known block number.
     NonConsecutive { given: u64, expected: u64 },
     /// Some invariant was violated, there is a likely bug in the code.
     Internal(String),

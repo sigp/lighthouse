@@ -2,15 +2,15 @@ use super::client::Client;
 use super::score::{PeerAction, Score, ScoreState};
 use super::sync_status::SyncStatus;
 use crate::discovery::Eth2Enr;
-use crate::Multiaddr;
 use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
+use libp2p::core::multiaddr::{Multiaddr, Protocol};
 use serde::{
     ser::{SerializeStruct, Serializer},
     Serialize,
 };
 use std::collections::HashSet;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::time::Instant;
 use strum::AsRefStr;
 use types::EthSpec;
@@ -29,9 +29,9 @@ pub struct PeerInfo<T: EthSpec> {
     /// The known listening addresses of this peer. This is given by identify and can be arbitrary
     /// (including local IPs).
     listening_addresses: Vec<Multiaddr>,
-    /// This is addresses we have physically seen and this is what we use for banning/un-banning
+    /// These are the multiaddrs we have physically seen and is what we use for banning/un-banning
     /// peers.
-    seen_addresses: HashSet<SocketAddr>,
+    seen_multiaddrs: HashSet<Multiaddr>,
     /// The current syncing state of the peer. The state may be determined after it's initial
     /// connection.
     sync_status: SyncStatus,
@@ -60,7 +60,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
             client: Client::default(),
             connection_status: Default::default(),
             listening_addresses: Vec::new(),
-            seen_addresses: HashSet::new(),
+            seen_multiaddrs: HashSet::new(),
             subnets: HashSet::new(),
             sync_status: SyncStatus::Unknown,
             meta_data: None,
@@ -227,15 +227,21 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 
     /// Returns the seen addresses of the peer.
-    pub fn seen_addresses(&self) -> impl Iterator<Item = &SocketAddr> + '_ {
-        self.seen_addresses.iter()
+    pub fn seen_multiaddrs(&self) -> impl Iterator<Item = &Multiaddr> + '_ {
+        self.seen_multiaddrs.iter()
     }
 
     /// Returns a list of seen IP addresses for the peer.
     pub fn seen_ip_addresses(&self) -> impl Iterator<Item = IpAddr> + '_ {
-        self.seen_addresses
-            .iter()
-            .map(|socket_addr| socket_addr.ip())
+        self.seen_multiaddrs.iter().filter_map(|multiaddr| {
+            multiaddr.iter().find_map(|protocol| {
+                match protocol {
+                    Protocol::Ip4(ip) => Some(ip.into()),
+                    Protocol::Ip6(ip) => Some(ip.into()),
+                    _ => None, // Only care for IP addresses
+                }
+            })
+        })
     }
 
     /// Returns the connection status of the peer.
@@ -415,7 +421,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Modifies the status to Connected and increases the number of ingoing
     /// connections by one
-    pub(super) fn connect_ingoing(&mut self, seen_address: Option<SocketAddr>) {
+    pub(super) fn connect_ingoing(&mut self, seen_multiaddr: Option<Multiaddr>) {
         match &mut self.connection_status {
             Connected { n_in, .. } => *n_in += 1,
             Disconnected { .. }
@@ -428,14 +434,14 @@ impl<T: EthSpec> PeerInfo<T> {
             }
         }
 
-        if let Some(socket_addr) = seen_address {
-            self.seen_addresses.insert(socket_addr);
+        if let Some(multiaddr) = seen_multiaddr {
+            self.seen_multiaddrs.insert(multiaddr);
         }
     }
 
     /// Modifies the status to Connected and increases the number of outgoing
     /// connections by one
-    pub(super) fn connect_outgoing(&mut self, seen_address: Option<SocketAddr>) {
+    pub(super) fn connect_outgoing(&mut self, seen_multiaddr: Option<Multiaddr>) {
         match &mut self.connection_status {
             Connected { n_out, .. } => *n_out += 1,
             Disconnected { .. }
@@ -447,8 +453,8 @@ impl<T: EthSpec> PeerInfo<T> {
                 self.connection_direction = Some(ConnectionDirection::Outgoing);
             }
         }
-        if let Some(ip_addr) = seen_address {
-            self.seen_addresses.insert(ip_addr);
+        if let Some(multiaddr) = seen_multiaddr {
+            self.seen_multiaddrs.insert(multiaddr);
         }
     }
 

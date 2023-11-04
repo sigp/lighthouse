@@ -497,7 +497,8 @@ impl<T: EthSpec> OperationPool<T> {
             |exit| {
                 filter(exit.as_inner())
                     && exit.signature_is_still_valid(&state.fork())
-                    && verify_exit(state, exit.as_inner(), VerifySignatures::False, spec).is_ok()
+                    && verify_exit(state, None, exit.as_inner(), VerifySignatures::False, spec)
+                        .is_ok()
             },
             |exit| exit.as_inner().clone(),
             T::MaxVoluntaryExits::to_usize(),
@@ -1851,7 +1852,21 @@ mod release_tests {
         // Sign an exit with the Altair domain and a phase0 epoch. This is a weird type of exit
         // that is valid because after the Bellatrix fork we'll use the Altair fork domain to verify
         // all prior epochs.
-        let exit2 = harness.make_voluntary_exit(2, Epoch::new(0));
+        let unsigned_exit = VoluntaryExit {
+            epoch: Epoch::new(0),
+            validator_index: 2,
+        };
+        let exit2 = SignedVoluntaryExit {
+            message: unsigned_exit.clone(),
+            signature: harness.validator_keypairs[2]
+                .sk
+                .sign(unsigned_exit.signing_root(spec.compute_domain(
+                    Domain::VoluntaryExit,
+                    harness.spec.altair_fork_version,
+                    harness.chain.genesis_validators_root,
+                ))),
+        };
+
         let verified_exit2 = exit2
             .clone()
             .validate(&bellatrix_head.beacon_state, &harness.chain.spec)

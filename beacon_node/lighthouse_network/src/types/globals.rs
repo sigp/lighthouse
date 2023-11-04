@@ -16,10 +16,6 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
     pub peer_id: RwLock<PeerId>,
     /// Listening multiaddrs.
     pub listen_multiaddrs: RwLock<Vec<Multiaddr>>,
-    /// The TCP port that the libp2p service is listening on over Ipv4.
-    listen_port_tcp4: Option<u16>,
-    /// The TCP port that the libp2p service is listening on over Ipv6.
-    listen_port_tcp6: Option<u16>,
     /// The collection of known peers.
     pub peers: RwLock<PeerDB<TSpec>>,
     // The local meta data of our node.
@@ -35,20 +31,17 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
 impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     pub fn new(
         enr: Enr,
-        listen_port_tcp4: Option<u16>,
-        listen_port_tcp6: Option<u16>,
         local_metadata: MetaData<TSpec>,
         trusted_peers: Vec<PeerId>,
+        disable_peer_scoring: bool,
         log: &slog::Logger,
     ) -> Self {
         NetworkGlobals {
             local_enr: RwLock::new(enr.clone()),
             peer_id: RwLock::new(enr.peer_id()),
             listen_multiaddrs: RwLock::new(Vec::new()),
-            listen_port_tcp4,
-            listen_port_tcp6,
             local_metadata: RwLock::new(local_metadata),
-            peers: RwLock::new(PeerDB::new(trusted_peers, log)),
+            peers: RwLock::new(PeerDB::new(trusted_peers, disable_peer_scoring, log)),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::NotRequired),
@@ -69,16 +62,6 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     /// Returns the list of `Multiaddr` that the underlying libp2p instance is listening on.
     pub fn listen_multiaddrs(&self) -> Vec<Multiaddr> {
         self.listen_multiaddrs.read().clone()
-    }
-
-    /// Returns the libp2p TCP port that this node has been configured to listen on.
-    pub fn listen_port_tcp4(&self) -> Option<u16> {
-        self.listen_port_tcp4
-    }
-
-    /// Returns the UDP discovery port that this node has been configured to listen on.
-    pub fn listen_port_tcp6(&self) -> Option<u16> {
-        self.listen_port_tcp6
     }
 
     /// Returns the number of libp2p connected peers.
@@ -128,22 +111,23 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
-    pub fn new_test_globals(log: &slog::Logger) -> NetworkGlobals<TSpec> {
+    pub fn new_test_globals(
+        trusted_peers: Vec<PeerId>,
+        log: &slog::Logger,
+    ) -> NetworkGlobals<TSpec> {
         use crate::CombinedKeyExt;
-        let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let enr_key: discv5::enr::CombinedKey =
-            discv5::enr::CombinedKey::from_libp2p(&keypair).unwrap();
+        let keypair = libp2p::identity::secp256k1::Keypair::generate();
+        let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
         let enr = discv5::enr::EnrBuilder::new("v4").build(&enr_key).unwrap();
         NetworkGlobals::new(
             enr,
-            Some(9000),
-            None,
             MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
                 syncnets: Default::default(),
             }),
-            vec![],
+            trusted_peers,
+            false,
             log,
         )
     }

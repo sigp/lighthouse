@@ -6,7 +6,7 @@ use beacon_chain::sync_committee_verification::{
 };
 use beacon_chain::{
     validator_monitor::timestamp_now, BeaconChain, BeaconChainError, BeaconChainTypes,
-    StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    StateSkipConfig,
 };
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
@@ -30,9 +30,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
     request_indices: &[u64],
     chain: &BeaconChain<T>,
 ) -> Result<SyncDuties, warp::reject::Rejection> {
-    let altair_fork_epoch = if let Some(altair_fork_epoch) = chain.spec.altair_fork_epoch {
-        altair_fork_epoch
-    } else {
+    let Some(altair_fork_epoch) = chain.spec.altair_fork_epoch else {
         // Empty response for networks with Altair disabled.
         return Ok(convert_to_response(vec![], false));
     };
@@ -85,7 +83,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     let current_epoch = chain.epoch()?;
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?
         .epoch(T::EthSpec::slots_per_epoch());
 
@@ -199,10 +197,14 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                 Err(SyncVerificationError::PriorSyncCommitteeMessageKnown {
                     validator_index,
                     slot,
+                    prev_root,
+                    new_root,
                 }) => {
                     debug!(
                         log,
                         "Ignoring already-known sync message";
+                        "new_root" => ?new_root,
+                        "prev_root" => ?prev_root,
                         "slot" => slot,
                         "validator_index" => validator_index,
                     );
@@ -300,7 +302,7 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
             }
             // If we already know the contribution, don't broadcast it or attempt to
             // further verify it. Return success.
-            Err(SyncVerificationError::SyncContributionAlreadyKnown(_)) => continue,
+            Err(SyncVerificationError::SyncContributionSupersetKnown(_)) => continue,
             // If we've already seen this aggregator produce an aggregate, just
             // skip this one.
             //

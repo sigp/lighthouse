@@ -1,7 +1,7 @@
 use super::Hash256;
 use crate::test_utils::TestRandom;
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -26,7 +26,7 @@ use tree_hash_derive::TreeHash;
 )]
 pub struct Eth1Data {
     pub deposit_root: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_count: u64,
     pub block_hash: Hash256,
 }

@@ -1,8 +1,11 @@
-use crate::beacon_node_fallback::OfflineOnFailure;
+use crate::beacon_node_fallback::{OfflineOnFailure, RequireSynced};
 use crate::{
     doppelganger_service::DoppelgangerStatus,
     duties_service::{DutiesService, Error},
+    http_metrics::metrics,
+    validator_store::Error as ValidatorStoreError,
 };
+
 use futures::future::join_all;
 use itertools::Itertools;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -160,7 +163,7 @@ impl SyncDutiesMap {
 
         committees_writer
             .entry(committee_period)
-            .or_insert_with(CommitteeDuties::default)
+            .or_default()
             .init(validator_indices);
 
         // Return shared reference
@@ -422,9 +425,13 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
     let duties_response = duties_service
         .beacon_nodes
         .first_success(
-            duties_service.require_synced,
+            RequireSynced::No,
             OfflineOnFailure::Yes,
             |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::DUTIES_SERVICE_TIMES,
+                    &[metrics::VALIDATOR_DUTIES_SYNC_HTTP_POST],
+                );
                 beacon_node
                     .post_validator_duties_sync(period_start_epoch, local_indices)
                     .await
@@ -539,6 +546,18 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                         .await
                     {
                         Ok(proof) => proof,
+                        Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                            // A pubkey can be missing when a validator was recently
+                            // removed via the API.
+                            debug!(
+                                log,
+                                "Missing pubkey for sync selection proof";
+                                "pubkey" => ?pubkey,
+                                "pubkey" => ?duty.pubkey,
+                                "slot" => slot,
+                            );
+                            return None;
+                        }
                         Err(e) => {
                             warn!(
                                 log,
@@ -588,9 +607,7 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
 
         // Add to global storage (we add regularly so the proofs can be used ASAP).
         let sync_map = duties_service.sync_duties.committees.read();
-        let committee_duties = if let Some(duties) = sync_map.get(&sync_committee_period) {
-            duties
-        } else {
+        let Some(committee_duties) = sync_map.get(&sync_committee_period) else {
             debug!(
                 log,
                 "Missing sync duties";

@@ -2,7 +2,7 @@ use crate::test_utils::TestRandom;
 use crate::*;
 
 use bls::{PublicKeyBytes, SignatureBytes};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -26,7 +26,7 @@ use tree_hash_derive::TreeHash;
 pub struct DepositData {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub amount: u64,
     pub signature: SignatureBytes,
 }

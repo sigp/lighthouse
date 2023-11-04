@@ -23,7 +23,7 @@ pub const POOL_SIZE: u32 = 1;
 #[cfg(not(test))]
 pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
-pub const CONNECTION_TIMEOUT: Duration = Duration::from_millis(100);
+pub const CONNECTION_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Supported version of the interchange format.
 pub const SUPPORTED_INTERCHANGE_FORMAT_VERSION: u64 = 5;

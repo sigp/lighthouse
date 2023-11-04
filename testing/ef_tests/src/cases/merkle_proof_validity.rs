@@ -1,6 +1,6 @@
 use super::*;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::path::Path;
 use tree_hash::Hash256;
 use types::{BeaconState, EthSpec, ForkName};
@@ -51,13 +51,10 @@ impl<E: EthSpec> Case for MerkleProofValidity<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let mut state = self.state.clone();
         state.initialize_tree_hash_cache();
-        let proof = match state.compute_merkle_proof(self.merkle_proof.leaf_index) {
-            Ok(proof) => proof,
-            Err(_) => {
-                return Err(Error::FailedToParseTest(
-                    "Could not retrieve merkle proof".to_string(),
-                ))
-            }
+        let Ok(proof) = state.compute_merkle_proof(self.merkle_proof.leaf_index) else {
+            return Err(Error::FailedToParseTest(
+                "Could not retrieve merkle proof".to_string(),
+            ));
         };
         let proof_len = proof.len();
         let branch_len = self.merkle_proof.branch.len();

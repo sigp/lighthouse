@@ -7,7 +7,7 @@ use crate::{
     ssz_container::SszContainer,
     JustifiedBalances,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::{
@@ -250,6 +250,9 @@ pub enum DoNotReOrg {
     ParentDistance,
     HeadDistance,
     ShufflingUnstable,
+    DisallowedOffset {
+        offset: u64,
+    },
     JustificationAndFinalizationNotCompetitive,
     ChainNotFinalizing {
         epochs_since_finalization: u64,
@@ -271,6 +274,9 @@ impl std::fmt::Display for DoNotReOrg {
             Self::ParentDistance => write!(f, "parent too far from head"),
             Self::HeadDistance => write!(f, "head too far from current slot"),
             Self::ShufflingUnstable => write!(f, "shuffling unstable at epoch boundary"),
+            Self::DisallowedOffset { offset } => {
+                write!(f, "re-orgs disabled at offset {offset}")
+            }
             Self::JustificationAndFinalizationNotCompetitive => {
                 write!(f, "justification or finalization not competitive")
             }
@@ -304,6 +310,31 @@ impl std::fmt::Display for DoNotReOrg {
 #[serde(transparent)]
 pub struct ReOrgThreshold(pub u64);
 
+/// New-type for disallowed re-org slots.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct DisallowedReOrgOffsets {
+    // Vecs are faster than hashmaps for small numbers of items.
+    offsets: Vec<u64>,
+}
+
+impl Default for DisallowedReOrgOffsets {
+    fn default() -> Self {
+        DisallowedReOrgOffsets { offsets: vec![0] }
+    }
+}
+
+impl DisallowedReOrgOffsets {
+    pub fn new<E: EthSpec>(offsets: Vec<u64>) -> Result<Self, Error> {
+        for &offset in &offsets {
+            if offset >= E::slots_per_epoch() {
+                return Err(Error::InvalidEpochOffset(offset));
+            }
+        }
+        Ok(Self { offsets })
+    }
+}
+
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
@@ -314,6 +345,7 @@ pub struct ProtoArrayForkChoice {
 impl ProtoArrayForkChoice {
     #[allow(clippy::too_many_arguments)]
     pub fn new<E: EthSpec>(
+        current_slot: Slot,
         finalized_block_slot: Slot,
         finalized_block_state_root: Hash256,
         justified_checkpoint: Checkpoint,
@@ -349,7 +381,7 @@ impl ProtoArrayForkChoice {
         };
 
         proto_array
-            .on_block::<E>(block, finalized_block_slot)
+            .on_block::<E>(block, current_slot)
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
@@ -460,6 +492,7 @@ impl ProtoArrayForkChoice {
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
         re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
@@ -467,6 +500,7 @@ impl ProtoArrayForkChoice {
             canonical_head,
             justified_balances,
             re_org_threshold,
+            disallowed_offsets,
             max_epochs_since_finalization,
         )?;
 
@@ -501,6 +535,7 @@ impl ProtoArrayForkChoice {
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
         re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
@@ -543,6 +578,12 @@ impl ProtoArrayForkChoice {
         let shuffling_stable = re_org_block_slot % E::slots_per_epoch() != 0;
         if !shuffling_stable {
             return Err(DoNotReOrg::ShufflingUnstable.into());
+        }
+
+        // Check allowed slot offsets.
+        let offset = (re_org_block_slot % E::slots_per_epoch()).as_u64();
+        if disallowed_offsets.offsets.contains(&offset) {
+            return Err(DoNotReOrg::DisallowedOffset { offset }.into());
         }
 
         // Check FFG.
@@ -714,29 +755,20 @@ impl ProtoArrayForkChoice {
             .and_then(|i| self.proto_array.nodes.get(i))
             .map(|parent| parent.root);
 
-        // If a node does not have a `finalized_checkpoint` or `justified_checkpoint` populated,
-        // it means it is not a descendant of the finalized checkpoint, so it is valid to return
-        // `None` here.
-        if let (Some(justified_checkpoint), Some(finalized_checkpoint)) =
-            (block.justified_checkpoint, block.finalized_checkpoint)
-        {
-            Some(Block {
-                slot: block.slot,
-                root: block.root,
-                parent_root,
-                state_root: block.state_root,
-                target_root: block.target_root,
-                current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
-                next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
-                justified_checkpoint,
-                finalized_checkpoint,
-                execution_status: block.execution_status,
-                unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
-                unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
-            })
-        } else {
-            None
-        }
+        Some(Block {
+            slot: block.slot,
+            root: block.root,
+            parent_root,
+            state_root: block.state_root,
+            target_root: block.target_root,
+            current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
+            next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
+            justified_checkpoint: block.justified_checkpoint,
+            finalized_checkpoint: block.finalized_checkpoint,
+            execution_status: block.execution_status,
+            unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
+        })
     }
 
     /// Returns the `block.execution_status` field, if the block is present.
@@ -953,6 +985,7 @@ mod test_compute_deltas {
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
+            genesis_slot,
             state_root,
             genesis_checkpoint,
             genesis_checkpoint,
@@ -1077,6 +1110,7 @@ mod test_compute_deltas {
         };
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            genesis_slot,
             genesis_slot,
             junk_state_root,
             genesis_checkpoint,

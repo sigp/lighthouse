@@ -1,6 +1,9 @@
 //! The main bootnode server execution.
 
 use super::BootNodeConfig;
+use crate::config::BootNodeConfigSerialization;
+use clap::ArgMatches;
+use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::{
     discv5::{enr::NodeId, Discv5, Discv5Event},
     EnrExt, Eth2Enr,
@@ -8,9 +11,28 @@ use lighthouse_network::{
 use slog::info;
 use types::EthSpec;
 
-pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
+pub async fn run<T: EthSpec>(
+    lh_matches: &ArgMatches<'_>,
+    bn_matches: &ArgMatches<'_>,
+    eth2_network_config: &Eth2NetworkConfig,
+    log: slog::Logger,
+) -> Result<(), String> {
+    // parse the CLI args into a useable config
+    let config: BootNodeConfig<T> = BootNodeConfig::new(bn_matches, eth2_network_config).await?;
+
+    // Dump configs if `dump-config` or `dump-chain-config` flags are set
+    let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
+    clap_utils::check_dump_configs::<_, T>(
+        lh_matches,
+        &config_sz,
+        &eth2_network_config.chain_spec::<T>()?,
+    )?;
+
+    if lh_matches.is_present("immediate-shutdown") {
+        return Ok(());
+    }
+
     let BootNodeConfig {
-        listen_socket,
         boot_nodes,
         local_enr,
         local_key,
@@ -31,7 +53,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     let pretty_v6_socket = enr_v6_socket.as_ref().map(|addr| addr.to_string());
     info!(
         log, "Configuration parameters";
-        "listening_address" => %listen_socket,
+        "listening_address" => ?discv5_config.listen_config,
         "advertised_v4_address" => ?pretty_v4_socket,
         "advertised_v6_address" => ?pretty_v6_socket,
         "eth2" => eth2_field
@@ -41,6 +63,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
 
     // build the contactable multiaddr list, adding the p2p protocol
     info!(log, "Contact information"; "enr" => local_enr.to_base64());
+    info!(log, "Enr details"; "enr" => ?local_enr);
     info!(log, "Contact information"; "multiaddrs" => ?local_enr.multiaddr_p2p());
 
     // construct the discv5 server
@@ -64,9 +87,8 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     }
 
     // start the server
-    if let Err(e) = discv5.start(listen_socket).await {
-        slog::crit!(log, "Could not start discv5 server"; "error" => %e);
-        return;
+    if let Err(e) = discv5.start().await {
+        return Err(format!("Could not start discv5 server: {e:?}"));
     }
 
     // if there are peers in the local routing table, establish a session by running a query
@@ -82,8 +104,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     let mut event_stream = match discv5.event_stream().await {
         Ok(stream) => stream,
         Err(e) => {
-            slog::crit!(log, "Failed to obtain event stream"; "error" => %e);
-            return;
+            return Err(format!("Failed to obtain event stream: {e:?}"));
         }
     };
 

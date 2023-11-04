@@ -3,13 +3,15 @@ use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
-use serde_derive::Deserialize;
+use serde::Deserialize;
+use ssz::Decode;
+use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
         process_block_header, process_execution_payload,
         process_operations::{
-            altair, base, process_attester_slashings, process_bls_to_execution_changes,
+            altair_deneb, base, process_attester_slashings, process_bls_to_execution_changes,
             process_deposits, process_exits, process_proposer_slashings,
         },
         process_sync_aggregate, process_withdrawals, VerifyBlockRoot, VerifySignatures,
@@ -19,7 +21,8 @@ use state_processing::{
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyCapella,
+    BeaconBlockBodyDeneb, BeaconBlockBodyMerge, BeaconState, BlindedPayload, ChainSpec, Deposit,
     EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
     SignedVoluntaryExit, SyncAggregate,
 };
@@ -95,8 +98,19 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
                 &mut ctxt,
                 spec,
             ),
-            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
-                altair::process_attestation(state, self, 0, &mut ctxt, VerifySignatures::True, spec)
+            BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_) => {
+                initialize_progressive_balances_cache(state, None, spec)?;
+                altair_deneb::process_attestation(
+                    state,
+                    self,
+                    0,
+                    &mut ctxt,
+                    VerifySignatures::True,
+                    spec,
+                )
             }
         }
     }
@@ -118,6 +132,7 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
+        initialize_progressive_balances_cache(state, None, spec)?;
         process_attester_slashings(
             state,
             &[self.clone()],
@@ -168,6 +183,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
+        initialize_progressive_balances_cache(state, None, spec)?;
         process_proposer_slashings(
             state,
             &[self.clone()],
@@ -256,13 +272,13 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
     }
 }
 
-impl<E: EthSpec> Operation<E> for FullPayload<E> {
+impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
     fn handler_name() -> String {
         "execution_payload".into()
     }
 
     fn filename() -> String {
-        "execution_payload.ssz_snappy".into()
+        "body.ssz_snappy".into()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
@@ -271,9 +287,13 @@ impl<E: EthSpec> Operation<E> for FullPayload<E> {
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
-            ExecutionPayload::from_ssz_bytes(bytes, fork_name)
+            Ok(match fork_name {
+                ForkName::Merge => BeaconBlockBody::Merge(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Capella => BeaconBlockBody::Capella(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
+                _ => panic!(),
+            })
         })
-        .map(Into::into)
     }
 
     fn apply_to(
@@ -293,13 +313,13 @@ impl<E: EthSpec> Operation<E> for FullPayload<E> {
         }
     }
 }
-impl<E: EthSpec> Operation<E> for BlindedPayload<E> {
+impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
     fn handler_name() -> String {
         "execution_payload".into()
     }
 
     fn filename() -> String {
-        "execution_payload.ssz_snappy".into()
+        "body.ssz_snappy".into()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
@@ -308,9 +328,22 @@ impl<E: EthSpec> Operation<E> for BlindedPayload<E> {
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
-            ExecutionPayload::from_ssz_bytes(bytes, fork_name)
+            Ok(match fork_name {
+                ForkName::Merge => {
+                    let inner = <BeaconBlockBodyMerge<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Merge(inner.clone_as_blinded())
+                }
+                ForkName::Capella => {
+                    let inner = <BeaconBlockBodyCapella<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Capella(inner.clone_as_blinded())
+                }
+                ForkName::Deneb => {
+                    let inner = <BeaconBlockBodyDeneb<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Deneb(inner.clone_as_blinded())
+                }
+                _ => panic!(),
+            })
         })
-        .map(Into::into)
     }
 
     fn apply_to(

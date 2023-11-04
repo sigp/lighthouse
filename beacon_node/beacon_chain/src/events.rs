@@ -9,6 +9,7 @@ const DEFAULT_CHANNEL_CAPACITY: usize = 16;
 pub struct ServerSentEventHandler<T: EthSpec> {
     attestation_tx: Sender<EventKind<T>>,
     block_tx: Sender<EventKind<T>>,
+    blob_sidecar_tx: Sender<EventKind<T>>,
     finalized_tx: Sender<EventKind<T>>,
     head_tx: Sender<EventKind<T>>,
     exit_tx: Sender<EventKind<T>>,
@@ -21,13 +22,17 @@ pub struct ServerSentEventHandler<T: EthSpec> {
 }
 
 impl<T: EthSpec> ServerSentEventHandler<T> {
-    pub fn new(log: Logger) -> Self {
-        Self::new_with_capacity(log, DEFAULT_CHANNEL_CAPACITY)
+    pub fn new(log: Logger, capacity_multiplier: usize) -> Self {
+        Self::new_with_capacity(
+            log,
+            capacity_multiplier.saturating_mul(DEFAULT_CHANNEL_CAPACITY),
+        )
     }
 
     pub fn new_with_capacity(log: Logger, capacity: usize) -> Self {
         let (attestation_tx, _) = broadcast::channel(capacity);
         let (block_tx, _) = broadcast::channel(capacity);
+        let (blob_sidecar_tx, _) = broadcast::channel(capacity);
         let (finalized_tx, _) = broadcast::channel(capacity);
         let (head_tx, _) = broadcast::channel(capacity);
         let (exit_tx, _) = broadcast::channel(capacity);
@@ -40,6 +45,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         Self {
             attestation_tx,
             block_tx,
+            blob_sidecar_tx,
             finalized_tx,
             head_tx,
             exit_tx,
@@ -70,6 +76,10 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
                 .block_tx
                 .send(kind)
                 .map(|count| log_count("block", count)),
+            EventKind::BlobSidecar(_) => self
+                .blob_sidecar_tx
+                .send(kind)
+                .map(|count| log_count("blob sidecar", count)),
             EventKind::FinalizedCheckpoint(_) => self
                 .finalized_tx
                 .send(kind)
@@ -116,6 +126,10 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         self.block_tx.subscribe()
     }
 
+    pub fn subscribe_blob_sidecar(&self) -> Receiver<EventKind<T>> {
+        self.blob_sidecar_tx.subscribe()
+    }
+
     pub fn subscribe_finalized(&self) -> Receiver<EventKind<T>> {
         self.finalized_tx.subscribe()
     }
@@ -154,6 +168,10 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
 
     pub fn has_block_subscribers(&self) -> bool {
         self.block_tx.receiver_count() > 0
+    }
+
+    pub fn has_blob_sidecar_subscribers(&self) -> bool {
+        self.blob_sidecar_tx.receiver_count() > 0
     }
 
     pub fn has_finalized_subscribers(&self) -> bool {

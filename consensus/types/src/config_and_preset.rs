@@ -1,9 +1,9 @@
 use crate::{
     consts::altair, AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config,
-    EthSpec, ForkName,
+    DenebPreset, EthSpec, ForkName,
 };
 use maplit::hashmap;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use superstruct::superstruct;
@@ -12,7 +12,7 @@ use superstruct::superstruct;
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Bellatrix, Capella),
+    variants(Capella, Deneb),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -27,9 +27,11 @@ pub struct ConfigAndPreset {
     pub altair_preset: AltairPreset,
     #[serde(flatten)]
     pub bellatrix_preset: BellatrixPreset,
-    #[superstruct(only(Capella))]
     #[serde(flatten)]
     pub capella_preset: CapellaPreset,
+    #[superstruct(only(Deneb))]
+    #[serde(flatten)]
+    pub deneb_preset: DenebPreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
     pub extra_fields: HashMap<String, Value>,
@@ -41,28 +43,30 @@ impl ConfigAndPreset {
         let base_preset = BasePreset::from_chain_spec::<T>(spec);
         let altair_preset = AltairPreset::from_chain_spec::<T>(spec);
         let bellatrix_preset = BellatrixPreset::from_chain_spec::<T>(spec);
+        let capella_preset = CapellaPreset::from_chain_spec::<T>(spec);
         let extra_fields = get_extra_fields(spec);
 
-        if spec.capella_fork_epoch.is_some()
+        if spec.deneb_fork_epoch.is_some()
             || fork_name.is_none()
-            || fork_name == Some(ForkName::Capella)
+            || fork_name == Some(ForkName::Deneb)
         {
-            let capella_preset = CapellaPreset::from_chain_spec::<T>(spec);
-
+            let deneb_preset = DenebPreset::from_chain_spec::<T>(spec);
+            ConfigAndPreset::Deneb(ConfigAndPresetDeneb {
+                config,
+                base_preset,
+                altair_preset,
+                bellatrix_preset,
+                capella_preset,
+                deneb_preset,
+                extra_fields,
+            })
+        } else {
             ConfigAndPreset::Capella(ConfigAndPresetCapella {
                 config,
                 base_preset,
                 altair_preset,
                 bellatrix_preset,
                 capella_preset,
-                extra_fields,
-            })
-        } else {
-            ConfigAndPreset::Bellatrix(ConfigAndPresetBellatrix {
-                config,
-                base_preset,
-                altair_preset,
-                bellatrix_preset,
                 extra_fields,
             })
         }
@@ -78,6 +82,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "bls_withdrawal_prefix".to_uppercase() => u8_hex(spec.bls_withdrawal_prefix_byte),
         "domain_beacon_proposer".to_uppercase() => u32_hex(spec.domain_beacon_proposer),
         "domain_beacon_attester".to_uppercase() => u32_hex(spec.domain_beacon_attester),
+        "domain_blob_sidecar".to_uppercase() => u32_hex(spec.domain_blob_sidecar),
         "domain_randao".to_uppercase()=> u32_hex(spec.domain_randao),
         "domain_deposit".to_uppercase()=> u32_hex(spec.domain_deposit),
         "domain_voluntary_exit".to_uppercase() => u32_hex(spec.domain_voluntary_exit),
@@ -86,10 +91,6 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "domain_application_mask".to_uppercase()=> u32_hex(spec.domain_application_mask),
         "target_aggregators_per_committee".to_uppercase() =>
             spec.target_aggregators_per_committee.to_string().into(),
-        "random_subnets_per_validator".to_uppercase() =>
-            spec.random_subnets_per_validator.to_string().into(),
-        "epochs_per_random_subnet_subscription".to_uppercase() =>
-            spec.epochs_per_random_subnet_subscription.to_string().into(),
         "domain_contribution_and_proof".to_uppercase() =>
             u32_hex(spec.domain_contribution_and_proof),
         "domain_sync_committee".to_uppercase() => u32_hex(spec.domain_sync_committee),
@@ -136,8 +137,8 @@ mod test {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: ConfigAndPresetCapella =
+        let from: ConfigAndPresetDeneb =
             serde_yaml::from_reader(reader).expect("error while deserializing");
-        assert_eq!(ConfigAndPreset::Capella(from), yamlconfig);
+        assert_eq!(ConfigAndPreset::Deneb(from), yamlconfig);
     }
 }
