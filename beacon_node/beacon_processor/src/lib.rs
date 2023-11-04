@@ -189,11 +189,11 @@ const MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN: usize = 16_384;
 /// will be stored before we start dropping them.
 const MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN: usize = 1_024;
 
-/// The maximum number of queued `LightClientFinalityUpdateRequest` objects received from the network RPC that
+/// The maximum number of queued `LightClientOptimisticUpdateRequest` objects received from the network RPC that
 /// will be stored before we start dropping them.
 const MAX_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUEUE_LEN: usize = 512;
 
-/// The maximum number of queued `LightClientOptimisticUpdateRequest` objects received from the network RPC that
+/// The maximum number of queued `LightClientFinalityUpdateRequest` objects received from the network RPC that
 /// will be stored before we start dropping them.
 const MAX_LIGHT_CLIENT_FINALITY_UPDATE_QUEUE_LEN: usize = 512;
 
@@ -242,8 +242,6 @@ pub const GOSSIP_SYNC_SIGNATURE: &str = "gossip_sync_signature";
 pub const GOSSIP_SYNC_CONTRIBUTION: &str = "gossip_sync_contribution";
 pub const GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
-pub const LIGHT_CLIENT_FINALITY_UPDATE_REQUEST: &str = "light_client_finality_update_request";
-pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST: &str = "light_client_optimistic_update_request";
 pub const RPC_BLOCK: &str = "rpc_block";
 pub const IGNORED_RPC_BLOCK: &str = "ignored_rpc_block";
 pub const RPC_BLOBS: &str = "rpc_blob";
@@ -255,6 +253,8 @@ pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const BLOBS_BY_ROOTS_REQUEST: &str = "blobs_by_roots_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
+pub const LIGHT_CLIENT_FINALITY_UPDATE_REQUEST: &str = "light_client_finality_update_request";
+pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST: &str = "light_client_optimistic_update_request";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
 pub const UNKNOWN_LIGHT_CLIENT_UPDATE: &str = "unknown_light_client_update";
@@ -673,10 +673,8 @@ impl<E: EthSpec> Work<E> {
             Work::BlobsByRangeRequest(_) => BLOBS_BY_RANGE_REQUEST,
             Work::BlobsByRootsRequest(_) => BLOBS_BY_ROOTS_REQUEST,
             Work::LightClientBootstrapRequest(_) => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
-            Work::LightClientOptimisticUpdateRequest { .. } => {
-                LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST
-            }
-            Work::LightClientFinalityUpdateRequest { .. } => LIGHT_CLIENT_FINALITY_UPDATE_REQUEST,
+            Work::LightClientOptimisticUpdateRequest(_) => LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST,
+            Work::LightClientFinalityUpdateRequest(_) => LIGHT_CLIENT_FINALITY_UPDATE_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
             Work::GossipBlsToExecutionChange(_) => GOSSIP_BLS_TO_EXECUTION_CHANGE,
@@ -838,7 +836,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut gossip_bls_to_execution_change_queue =
             FifoQueue::new(MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN);
 
-        let mut lcbootstrap_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
+        let mut lc_bootstrap_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
         let mut lc_optimistic_update_queue =
             FifoQueue::new(MAX_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUEUE_LEN);
         let mut lc_finality_update_queue =
@@ -1160,7 +1158,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = backfill_chain_segment.pop() {
                             self.spawn_worker(item, idle_tx);
                         // This statement should always be the final else statement.
-                        } else if let Some(item) = lcbootstrap_queue.pop() {
+                        } else if let Some(item) = lc_bootstrap_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else {
                             // Let the journal know that a worker is freed and there's nothing else
@@ -1271,7 +1269,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 blbrange_queue.push(work, work_id, &self.log)
                             }
                             Work::LightClientBootstrapRequest { .. } => {
-                                lcbootstrap_queue.push(work, work_id, &self.log)
+                                lc_bootstrap_queue.push(work, work_id, &self.log)
                             }
                             Work::LightClientOptimisticUpdateRequest { .. } => {
                                 lc_optimistic_update_queue.push(work, work_id, &self.log)
