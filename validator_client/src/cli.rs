@@ -36,15 +36,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        api calls only go out to the first available and synced beacon node")
                 .takes_value(false)
         )
-        // This argument is deprecated, use `--beacon-nodes` instead.
-        .arg(
-            Arg::with_name("server")
-                .long("server")
-                .value_name("NETWORK_ADDRESS")
-                .help("Deprecated. Use --beacon-nodes.")
-                .takes_value(true)
-                .conflicts_with_all(&["beacon-node", "beacon-nodes"]),
-        )
         .arg(
             Arg::with_name("validators-dir")
                 .long("validators-dir")
