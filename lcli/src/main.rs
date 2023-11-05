@@ -277,14 +277,6 @@ fn main() {
             SubCommand::with_name("eth1-genesis")
                 .about("Listens to the eth1 chain and finds the genesis beacon state")
                 .arg(
-                    Arg::with_name("eth1-endpoint")
-                        .short("e")
-                        .long("eth1-endpoint")
-                        .value_name("HTTP_SERVER")
-                        .takes_value(true)
-                        .help("Deprecated. Use --eth1-endpoints."),
-                )
-                .arg(
                     Arg::with_name("eth1-endpoints")
                         .long("eth1-endpoints")
                         .value_name("HTTP_SERVER_LIST")
