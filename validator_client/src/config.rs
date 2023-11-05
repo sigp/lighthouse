@@ -179,14 +179,6 @@ impl Config {
                 .map_err(|e| format!("Unable to parse proposer node URL: {:?}", e))?;
         }
 
-        if cli_args.is_present("delete-lockfiles") {
-            warn!(
-                log,
-                "The --delete-lockfiles flag is deprecated";
-                "msg" => "it is no longer necessary, and no longer has any effect",
-            );
-        }
-
         if cli_args.is_present("allow-unsynced") {
             warn!(
                 log,

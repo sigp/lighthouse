@@ -63,13 +63,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("datadir")
         )
         .arg(
-            Arg::with_name("delete-lockfiles")
-            .long("delete-lockfiles")
-            .help(
-                "DEPRECATED. This flag does nothing and will be removed in a future release."
-            )
-        )
-        .arg(
             Arg::with_name("init-slashing-protection")
                 .long("init-slashing-protection")
                 .help(
