@@ -82,11 +82,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             )
         )
         .arg(
-            Arg::with_name("allow-unsynced")
-                .long("allow-unsynced")
-                .help("DEPRECATED: this flag does nothing"),
-        )
-        .arg(
             Arg::with_name("use-long-timeouts")
                 .long("use-long-timeouts")
                 .help("If present, the validator client will use longer timeouts for requests \
