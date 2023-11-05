@@ -1,5 +1,4 @@
 use beacon_chain::validator_monitor::ValidatorMonitorConfig;
-use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::TrustedSetup;
 use beacon_processor::BeaconProcessorConfig;
 use directory::DEFAULT_ROOT_DIR;
