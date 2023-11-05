@@ -389,12 +389,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("http-disable-legacy-spec")
-                .long("http-disable-legacy-spec")
-                .requires("enable_http")
-                .hidden(true)
-        )
-        .arg(
             Arg::with_name("http-spec-fork")
                 .long("http-spec-fork")
                 .requires("enable_http")

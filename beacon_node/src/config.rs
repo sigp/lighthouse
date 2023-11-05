@@ -120,13 +120,6 @@ pub fn get_config<E: EthSpec>(
             client_config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
-        if cli_args.is_present("http-disable-legacy-spec") {
-            warn!(
-                log,
-                "The flag --http-disable-legacy-spec is deprecated and will be removed"
-            );
-        }
-
         if let Some(fork_name) = clap_utils::parse_optional(cli_args, "http-spec-fork")? {
             client_config.http_api.spec_fork_name = Some(fork_name);
         }
