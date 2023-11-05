@@ -1186,22 +1186,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("count-unrealized")
-                .long("count-unrealized")
-                .hidden(true)
-                .help("This flag is deprecated and has no effect.")
-                .takes_value(true)
-                .default_value("true")
-        )
-        .arg(
-            Arg::with_name("count-unrealized-full")
-                .long("count-unrealized-full")
-                .hidden(true)
-                .help("This flag is deprecated and has no effect.")
-                .takes_value(true)
-                .default_value("false")
-        )
-        .arg(
             Arg::with_name("reset-payload-statuses")
                 .long("reset-payload-statuses")
                 .help("When present, Lighthouse will forget the payload statuses of any \
