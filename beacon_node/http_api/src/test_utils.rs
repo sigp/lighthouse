@@ -1,8 +1,6 @@
 use crate::{Config, Context};
 use beacon_chain::{
-    test_utils::{
-        BeaconChainHarness, BoxedMutator, Builder as HarnessBuilder, EphemeralHarnessType,
-    },
+    test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig};
@@ -53,9 +51,8 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub external_peer_id: PeerId,
 }
 
-type Initializer<E> = Box<
-    dyn FnOnce(HarnessBuilder<EphemeralHarnessType<E>>) -> HarnessBuilder<EphemeralHarnessType<E>>,
->;
+type HarnessBuilder<E> = Builder<EphemeralHarnessType<E>>;
+type Initializer<E> = Box<dyn FnOnce(HarnessBuilder<E>) -> HarnessBuilder<E>>;
 type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
 
 impl<E: EthSpec> InteractiveTester<E> {
@@ -129,17 +126,9 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     test_runtime: &TestRuntime,
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
-    // Get a random unused port.
-    let port = unused_port::unused_tcp4_port().unwrap();
-    create_api_server_on_port(chain, test_runtime, log, port).await
-}
+    // Use port 0 to allocate a new unused port.
+    let port = 0;
 
-pub async fn create_api_server_on_port<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
-    test_runtime: &TestRuntime,
-    log: Logger,
-    port: u16,
-) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
     let (network_senders, network_receivers) = NetworkSenders::new();
 
     // Default metadata
@@ -152,8 +141,6 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
     let network_globals = Arc::new(NetworkGlobals::new(
         enr.clone(),
-        Some(TCP_PORT),
-        None,
         meta_data,
         vec![],
         false,

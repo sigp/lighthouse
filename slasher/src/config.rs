@@ -1,5 +1,5 @@
 use crate::Error;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use strum::{Display, EnumString, EnumVariantNames};
 use types::{Epoch, EthSpec, IndexedAttestation};

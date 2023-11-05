@@ -1,7 +1,7 @@
 use account_utils::eth2_keystore::keypair_from_secret;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
-use eth2_network_config::{Eth2NetworkConfig, GenesisStateSource};
+use eth2_network_config::{Eth2NetworkConfig, GenesisStateSource, TRUSTED_SETUP_BYTES};
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::bip39::{Language, Mnemonic};
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType};
@@ -19,8 +19,8 @@ use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
     Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRefMut, ForkName, Hash256, Keypair,
-    PublicKey, Validator,
+    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRefMut,
+    ForkName, Hash256, Keypair, PublicKey, Validator,
 };
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -85,6 +85,10 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.capella_fork_epoch = Some(fork_epoch);
     }
 
+    if let Some(fork_epoch) = parse_optional(matches, "deneb-fork-epoch")? {
+        spec.deneb_fork_epoch = Some(fork_epoch);
+    }
+
     if let Some(ttd) = parse_optional(matches, "ttd")? {
         spec.terminal_total_difficulty = ttd;
     }
@@ -110,6 +114,10 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                     ForkName::Capella => {
                         ExecutionPayloadHeaderCapella::<T>::from_ssz_bytes(bytes.as_slice())
                             .map(ExecutionPayloadHeader::Capella)
+                    }
+                    ForkName::Deneb => {
+                        ExecutionPayloadHeaderDeneb::<T>::from_ssz_bytes(bytes.as_slice())
+                            .map(ExecutionPayloadHeader::Deneb)
                     }
                 }
                 .map_err(|e| format!("SSZ decode failed: {:?}", e))
@@ -187,12 +195,23 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         None
     };
 
+    let kzg_trusted_setup = if let Some(epoch) = spec.deneb_fork_epoch {
+        // Only load the trusted setup if the deneb fork epoch is set
+        if epoch != Epoch::max_value() {
+            Some(TRUSTED_SETUP_BYTES.to_vec())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let testnet = Eth2NetworkConfig {
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
         genesis_state_bytes: genesis_state_bytes.map(Into::into),
         genesis_state_source: GenesisStateSource::IncludedBytes,
         config: Config::from_chain_spec::<T>(&spec),
+        kzg_trusted_setup,
     };
 
     testnet.write_to_file(testnet_dir_path, overwrite_files)
@@ -299,6 +318,9 @@ fn initialize_state_with_validators<T: EthSpec>(
             }
             ExecutionPayloadHeaderRefMut::Capella(_) => {
                 return Err("Cannot start genesis from a capella state".to_string())
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(_) => {
+                return Err("Cannot start genesis from a deneb state".to_string())
             }
         }
     }

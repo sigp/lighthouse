@@ -7,7 +7,7 @@ use lighthouse_network::{
     discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};
 use std::time::Duration;
@@ -25,7 +25,7 @@ pub struct BootNodeConfig<T: EthSpec> {
 }
 
 impl<T: EthSpec> BootNodeConfig<T> {
-    pub fn new(
+    pub async fn new(
         matches: &ArgMatches<'_>,
         eth2_network_config: &Eth2NetworkConfig,
     ) -> Result<Self, String> {
@@ -58,21 +58,27 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         set_network_config(&mut network_config, matches, &data_dir, &logger)?;
 
-        // Set the Enr UDP ports to the listening ports if not present.
+        // Set the Enr Discovery ports to the listening ports if not present.
         if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
-            network_config.enr_udp4_port = Some(
-                network_config
-                    .enr_udp4_port
-                    .unwrap_or(listening_addr_v4.udp_port),
-            )
+            if network_config.enr_udp4_port.is_none() {
+                network_config.enr_udp4_port =
+                    Some(network_config.enr_udp4_port.unwrap_or(
+                        listening_addr_v4.disc_port.try_into().map_err(|_| {
+                            "boot node enr-udp-port not set and listening port is zero"
+                        })?,
+                    ))
+            }
         };
 
         if let Some(listening_addr_v6) = network_config.listen_addrs().v6() {
-            network_config.enr_udp6_port = Some(
-                network_config
-                    .enr_udp6_port
-                    .unwrap_or(listening_addr_v6.udp_port),
-            )
+            if network_config.enr_udp6_port.is_none() {
+                network_config.enr_udp6_port =
+                    Some(network_config.enr_udp6_port.unwrap_or(
+                        listening_addr_v6.disc_port.try_into().map_err(|_| {
+                            "boot node enr-udp-port not set and listening port is zero"
+                        })?,
+                    ))
+            }
         };
 
         // By default this is enabled. If it is not set, revert to false.
@@ -99,7 +105,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
                 if eth2_network_config.genesis_state_is_known() {
                     let genesis_state = eth2_network_config
-                        .genesis_state::<T>(genesis_state_url.as_deref(), genesis_state_url_timeout, &logger)?
+                        .genesis_state::<T>(genesis_state_url.as_deref(), genesis_state_url_timeout, &logger).await?
                         .ok_or_else(|| {
                             "The genesis state for this network is not known, this is an unsupported mode"
                                 .to_string()

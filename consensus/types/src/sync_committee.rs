@@ -3,7 +3,7 @@ use crate::typenum::Unsigned;
 use crate::{EthSpec, FixedVector, SyncSubnetId};
 use bls::PublicKeyBytes;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use test_random_derive::TestRandom;

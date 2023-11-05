@@ -9,7 +9,7 @@ use crate::{
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use slog::{error, Logger};
 use std::collections::HashSet;
 use std::fs::{self, File};

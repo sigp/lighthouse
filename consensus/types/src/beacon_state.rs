@@ -9,7 +9,7 @@ use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
@@ -183,7 +183,7 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella),
+    variants(Base, Altair, Merge, Capella, Deneb),
     variant_attributes(
         derive(
             Derivative,
@@ -263,9 +263,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -280,13 +280,13 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
@@ -300,16 +300,21 @@ where
         partial_getter(rename = "latest_execution_payload_header_capella")
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<T>,
+    #[superstruct(
+        only(Deneb),
+        partial_getter(rename = "latest_execution_payload_header_deneb")
+    )]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<T>,
 
     // Capella
-    #[superstruct(only(Capella), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
-    #[superstruct(only(Capella))]
+    #[superstruct(only(Capella, Deneb))]
     pub historical_summaries: VariableList<HistoricalSummary, T::HistoricalRootsLimit>,
 
     // Caching (not in the spec)
@@ -424,12 +429,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
         let fork_at_slot = spec.fork_name_at_epoch(self.current_epoch());
-        let object_fork = match self {
-            BeaconState::Base { .. } => ForkName::Base,
-            BeaconState::Altair { .. } => ForkName::Altair,
-            BeaconState::Merge { .. } => ForkName::Merge,
-            BeaconState::Capella { .. } => ForkName::Capella,
-        };
+        let object_fork = self.fork_name_unchecked();
 
         if fork_at_slot == object_fork {
             Ok(object_fork)
@@ -438,6 +438,19 @@ impl<T: EthSpec> BeaconState<T> {
                 fork_at_slot,
                 object_fork,
             })
+        }
+    }
+
+    /// Returns the name of the fork pertaining to `self`.
+    ///
+    /// Does not check if `self` is consistent with the fork dictated by `self.slot()`.
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        match self {
+            BeaconState::Base { .. } => ForkName::Base,
+            BeaconState::Altair { .. } => ForkName::Altair,
+            BeaconState::Merge { .. } => ForkName::Merge,
+            BeaconState::Capella { .. } => ForkName::Capella,
+            BeaconState::Deneb { .. } => ForkName::Deneb,
         }
     }
 
@@ -745,6 +758,9 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRef::Capella(
                 &state.latest_execution_payload_header,
             )),
+            BeaconState::Deneb(state) => Ok(ExecutionPayloadHeaderRef::Deneb(
+                &state.latest_execution_payload_header,
+            )),
         }
     }
 
@@ -757,6 +773,9 @@ impl<T: EthSpec> BeaconState<T> {
                 &mut state.latest_execution_payload_header,
             )),
             BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRefMut::Capella(
+                &mut state.latest_execution_payload_header,
+            )),
+            BeaconState::Deneb(state) => Ok(ExecutionPayloadHeaderRefMut::Deneb(
                 &mut state.latest_execution_payload_header,
             )),
         }
@@ -1205,6 +1224,11 @@ impl<T: EthSpec> BeaconState<T> {
                 &mut state.balances,
                 &mut state.progressive_balances_cache,
             ),
+            BeaconState::Deneb(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
         }
     }
 
@@ -1315,6 +1339,24 @@ impl<T: EthSpec> BeaconState<T> {
         ))
     }
 
+    /// Return the activation churn limit for the current epoch (number of validators who can enter per epoch).
+    ///
+    /// Uses the epoch cache, and will error if it isn't initialized.
+    ///
+    /// Spec v1.4.0
+    pub fn get_activation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        Ok(match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_) => self.get_churn_limit(spec)?,
+            BeaconState::Deneb(_) => std::cmp::min(
+                spec.max_per_epoch_activation_churn_limit,
+                self.get_churn_limit(spec)?,
+            ),
+        })
+    }
+
     /// Returns the `slot`, `index`, `committee_position` and `committee_len` for which a validator must produce an
     /// attestation.
     ///
@@ -1402,6 +1444,7 @@ impl<T: EthSpec> BeaconState<T> {
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Deneb(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == self.previous_epoch() {
             match self {
@@ -1409,6 +1452,7 @@ impl<T: EthSpec> BeaconState<T> {
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Deneb(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
@@ -1720,6 +1764,7 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Altair(inner) => BeaconState::Altair(inner.clone()),
             BeaconState::Merge(inner) => BeaconState::Merge(inner.clone()),
             BeaconState::Capella(inner) => BeaconState::Capella(inner.clone()),
+            BeaconState::Deneb(inner) => BeaconState::Deneb(inner.clone()),
         };
         if config.committee_caches {
             *res.committee_caches_mut() = self.committee_caches().clone();
@@ -1897,6 +1942,7 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
             (BeaconState::Altair(x), BeaconState::Altair(y)) => x.compare_fields(y),
             (BeaconState::Merge(x), BeaconState::Merge(y)) => x.compare_fields(y),
             (BeaconState::Capella(x), BeaconState::Capella(y)) => x.compare_fields(y),
+            (BeaconState::Deneb(x), BeaconState::Deneb(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
     }

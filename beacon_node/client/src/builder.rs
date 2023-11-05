@@ -2,6 +2,7 @@ use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
+use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
@@ -248,7 +249,7 @@ where
                     "Starting from known genesis state";
                 );
 
-                let genesis_state = genesis_state(&runtime_context, &config, log)?;
+                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
@@ -268,7 +269,7 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
-                let genesis_state = genesis_state(&runtime_context, &config, log)?;
+                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 builder
                     .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
@@ -369,7 +370,7 @@ where
 
                 debug!(context.log(), "Downloaded finalized block");
 
-                let genesis_state = genesis_state(&runtime_context, &config, log)?;
+                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 info!(
                     context.log(),
@@ -498,6 +499,12 @@ where
                     .map(|v| (v, Some(genesis_service.into_core_service())))?
             }
             ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
+        };
+
+        let beacon_chain_builder = if let Some(trusted_setup) = config.trusted_setup {
+            beacon_chain_builder.trusted_setup(trusted_setup)
+        } else {
+            beacon_chain_builder
         };
 
         if config.sync_eth1_chain {
@@ -830,6 +837,10 @@ where
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
             start_otb_verification_service(runtime_context.executor.clone(), beacon_chain.clone());
+            start_availability_cache_maintenance_service(
+                runtime_context.executor.clone(),
+                beacon_chain.clone(),
+            );
         }
 
         Ok(Client {
@@ -890,6 +901,7 @@ where
         mut self,
         hot_path: &Path,
         cold_path: &Path,
+        blobs_path: Option<PathBuf>,
         config: StoreConfig,
         log: Logger,
     ) -> Result<Self, String> {
@@ -927,6 +939,7 @@ where
         let store = HotColdDB::open(
             hot_path,
             cold_path,
+            blobs_path,
             schema_upgrade,
             config,
             spec,
@@ -1075,7 +1088,7 @@ where
 }
 
 /// Obtain the genesis state from the `eth2_network_config` in `context`.
-fn genesis_state<T: EthSpec>(
+async fn genesis_state<T: EthSpec>(
     context: &RuntimeContext<T>,
     config: &ClientConfig,
     log: &Logger,
@@ -1089,6 +1102,7 @@ fn genesis_state<T: EthSpec>(
             config.genesis_state_url.as_deref(),
             config.genesis_state_url_timeout,
             log,
-        )?
+        )
+        .await?
         .ok_or_else(|| "Genesis state is unknown".to_string())
 }

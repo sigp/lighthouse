@@ -10,9 +10,11 @@ mod attester_duties;
 mod block_id;
 mod block_packing_efficiency;
 mod block_rewards;
+mod build_block_contents;
 mod builder_states;
 mod database;
 mod metrics;
+mod produce_block;
 mod proposer_duties;
 mod publish_blocks;
 mod standard_block_rewards;
@@ -26,10 +28,11 @@ mod validator;
 mod validator_inclusion;
 mod version;
 
+use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
-    BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
+    BeaconChainTypes, WhenSlotSkipped,
 };
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
@@ -38,7 +41,7 @@ use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
-    SkipRandaoVerification, ValidatorId, ValidatorStatus,
+    SignedBlindedBlockContents, SignedBlockContents, ValidatorId, ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -73,16 +76,15 @@ use tokio_stream::{
 };
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
+    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
     add_consensus_version_header, execution_optimistic_finalized_fork_versioned_response,
-    fork_versioned_response, inconsistent_fork_rejection, unsupported_version_rejection, V1, V2,
+    inconsistent_fork_rejection, unsupported_version_rejection, V1, V2, V3,
 };
 use warp::http::StatusCode;
 use warp::sse::Event;
@@ -1289,7 +1291,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
+            move |block_contents: SignedBlockContents<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1297,7 +1299,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block),
+                        ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1325,16 +1327,16 @@ pub fn serve<T: BeaconChainTypes>(
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let block =
-                        SignedBeaconBlock::<T::EthSpec>::from_ssz_bytes(&block_bytes, &chain.spec)
-                            .map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "invalid SSZ: {e:?}"
-                                ))
-                            })?;
+                    let block_contents = SignedBlockContents::<T::EthSpec>::from_ssz_bytes(
+                        &block_bytes,
+                        &chain.spec,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                    })?;
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(Arc::new(block)),
+                        ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1358,7 +1360,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  block: Arc<SignedBeaconBlock<T::EthSpec>>,
+                  block_contents: SignedBlockContents<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1366,7 +1368,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block),
+                        ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1396,16 +1398,16 @@ pub fn serve<T: BeaconChainTypes>(
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let block =
-                        SignedBeaconBlock::<T::EthSpec>::from_ssz_bytes(&block_bytes, &chain.spec)
-                            .map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "invalid SSZ: {e:?}"
-                                ))
-                            })?;
+                    let block_contents = SignedBlockContents::<T::EthSpec>::from_ssz_bytes(
+                        &block_bytes,
+                        &chain.spec,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                    })?;
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(Arc::new(block)),
+                        ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1432,14 +1434,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            move |block: SignedBlindedBeaconBlock<T::EthSpec>,
+            move |block_contents: SignedBlindedBlockContents<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
-                        block,
+                        block_contents,
                         chain,
                         &network_tx,
                         log,
@@ -1468,13 +1470,14 @@ pub fn serve<T: BeaconChainTypes>(
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
-                        &block_bytes,
-                        &chain.spec,
-                    )
-                    .map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
-                    })?;
+                    let block =
+                        SignedBlockContents::<T::EthSpec, BlindedPayload<_>>::from_ssz_bytes(
+                            &block_bytes,
+                            &chain.spec,
+                        )
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                        })?;
                     publish_blocks::publish_blinded_block(
                         block,
                         chain,
@@ -1500,14 +1503,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  block: SignedBlindedBeaconBlock<T::EthSpec>,
+                  block_contents: SignedBlindedBlockContents<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
-                        block,
+                        block_contents,
                         chain,
                         &network_tx,
                         log,
@@ -1537,13 +1540,14 @@ pub fn serve<T: BeaconChainTypes>(
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
-                        &block_bytes,
-                        &chain.spec,
-                    )
-                    .map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
-                    })?;
+                    let block =
+                        SignedBlockContents::<T::EthSpec, BlindedPayload<_>>::from_ssz_bytes(
+                            &block_bytes,
+                            &chain.spec,
+                        )
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                        })?;
                     publish_blocks::publish_blinded_block(
                         block,
                         chain,
@@ -1629,13 +1633,19 @@ pub fn serve<T: BeaconChainTypes>(
             |block_id: BlockId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    let (block, execution_optimistic, finalized) =
-                        block_id.blinded_block(&chain)?;
-                    Ok(api_types::GenericResponse::from(api_types::RootData::from(
-                        block.canonical_root(),
-                    ))
-                    .add_execution_optimistic_finalized(execution_optimistic, finalized))
+                // Prioritise requests for the head block root, as it is used by some VCs (including
+                // the Lighthouse VC) to create sync committee messages.
+                let priority = if let BlockId(eth2::types::BlockId::Head) = block_id {
+                    Priority::P0
+                } else {
+                    Priority::P1
+                };
+                task_spawner.blocking_json_task(priority, move || {
+                    let (block_root, execution_optimistic, finalized) = block_id.root(&chain)?;
+                    Ok(
+                        api_types::GenericResponse::from(api_types::RootData::from(block_root))
+                            .add_execution_optimistic_finalized(execution_optimistic, finalized),
+                    )
                 })
             },
         );
@@ -1705,6 +1715,49 @@ pub fn serve<T: BeaconChainTypes>(
                         }
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
+    /*
+     * beacon/blob_sidecars
+     */
+
+    // GET beacon/blob_sidecars/{block_id}
+    let get_blobs = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("blob_sidecars"))
+        .and(block_id_or_err)
+        .and(warp::query::<api_types::BlobIndicesQuery>())
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |block_id: BlockId,
+             indices: api_types::BlobIndicesQuery,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let blob_sidecar_list_filtered =
+                        block_id.blob_sidecar_list_filtered(indices, &chain)?;
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(blob_sidecar_list_filtered.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&api_types::GenericResponse::from(
+                            blob_sidecar_list_filtered,
+                        ))
+                        .into_response()),
+                    }
                 })
             },
         );
@@ -2825,12 +2878,8 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
 
                     if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
-                        let address = if let Some(socket_addr) = peer_info.seen_addresses().next() {
-                            let mut addr = lighthouse_network::Multiaddr::from(socket_addr.ip());
-                            addr.push(lighthouse_network::multiaddr::Protocol::Tcp(
-                                socket_addr.port(),
-                            ));
-                            addr.to_string()
+                        let address = if let Some(multiaddr) = peer_info.seen_multiaddrs().next() {
+                            multiaddr.to_string()
                         } else if let Some(addr) = peer_info.listening_addresses().first() {
                             addr.to_string()
                         } else {
@@ -2878,13 +2927,8 @@ pub fn serve<T: BeaconChainTypes>(
                         .peers()
                         .for_each(|(peer_id, peer_info)| {
                             let address =
-                                if let Some(socket_addr) = peer_info.seen_addresses().next() {
-                                    let mut addr =
-                                        lighthouse_network::Multiaddr::from(socket_addr.ip());
-                                    addr.push(lighthouse_network::multiaddr::Protocol::Tcp(
-                                        socket_addr.port(),
-                                    ));
-                                    addr.to_string()
+                                if let Some(multiaddr) = peer_info.seen_multiaddrs().next() {
+                                    multiaddr.to_string()
                                 } else if let Some(addr) = peer_info.listening_addresses().first() {
                                     addr.to_string()
                                 } else {
@@ -3009,6 +3053,7 @@ pub fn serve<T: BeaconChainTypes>(
             ))
         }))
         .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(not_while_syncing_filter.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(task_spawner_filter.clone())
@@ -3017,6 +3062,7 @@ pub fn serve<T: BeaconChainTypes>(
         .then(
             |endpoint_version: EndpointVersion,
              slot: Slot,
+             accept_header: Option<api_types::Accept>,
              query: api_types::ValidatorBlocksQuery,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -3028,43 +3074,11 @@ pub fn serve<T: BeaconChainTypes>(
                         "slot" => slot
                     );
 
-                    let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "randao reveal is not a valid BLS signature: {:?}",
-                            e
-                        ))
-                    })?;
-
-                    let randao_verification =
-                        if query.skip_randao_verification == SkipRandaoVerification::Yes {
-                            if !randao_reveal.is_infinity() {
-                                return Err(warp_utils::reject::custom_bad_request(
-                                "randao_reveal must be point-at-infinity if verification is skipped"
-                                    .into(),
-                            ));
-                            }
-                            ProduceBlockVerification::NoVerification
-                        } else {
-                            ProduceBlockVerification::VerifyRandao
-                        };
-
-                    let (block, _) = chain
-                        .produce_block_with_verification::<FullPayload<T::EthSpec>>(
-                            randao_reveal,
-                            slot,
-                            query.graffiti.map(Into::into),
-                            randao_verification,
-                        )
-                        .await
-                        .map_err(warp_utils::reject::block_production_error)?;
-                    let fork_name = block
-                        .to_ref()
-                        .fork_name(&chain.spec)
-                        .map_err(inconsistent_fork_rejection)?;
-
-                    fork_versioned_response(endpoint_version, fork_name, block)
-                        .map(|response| warp::reply::json(&response).into_response())
-                        .map(|res| add_consensus_version_header(res, fork_name))
+                    if endpoint_version == V3 {
+                        produce_block_v3(endpoint_version, accept_header, chain, slot, query).await
+                    } else {
+                        produce_block_v2(endpoint_version, accept_header, chain, slot, query).await
+                    }
                 })
             },
         );
@@ -3081,52 +3095,18 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
             |slot: Slot,
              query: api_types::ValidatorBlocksQuery,
+             accept_header: Option<api_types::Accept>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "randao reveal is not a valid BLS signature: {:?}",
-                            e
-                        ))
-                    })?;
-
-                    let randao_verification =
-                        if query.skip_randao_verification == SkipRandaoVerification::Yes {
-                            if !randao_reveal.is_infinity() {
-                                return Err(warp_utils::reject::custom_bad_request(
-                                "randao_reveal must be point-at-infinity if verification is skipped"
-                                    .into()
-                            ));
-                            }
-                            ProduceBlockVerification::NoVerification
-                        } else {
-                            ProduceBlockVerification::VerifyRandao
-                        };
-
-                    let (block, _) = chain
-                        .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
-                            randao_reveal,
-                            slot,
-                            query.graffiti.map(Into::into),
-                            randao_verification,
-                        )
+                    produce_blinded_block_v2(EndpointVersion(2), accept_header, chain, slot, query)
                         .await
-                        .map_err(warp_utils::reject::block_production_error)?;
-                    let fork_name = block
-                        .to_ref()
-                        .fork_name(&chain.spec)
-                        .map_err(inconsistent_fork_rejection)?;
-
-                    // Pose as a V2 endpoint so we return the fork `version`.
-                    fork_versioned_response(V2, fork_name, block)
-                        .map(|response| warp::reply::json(&response).into_response())
-                        .map(|res| add_consensus_version_header(res, fork_name))
                 })
             },
         );
@@ -3644,16 +3624,16 @@ pub fn serve<T: BeaconChainTypes>(
                         // send the response back to our original HTTP request
                         // task via a channel.
                         let builder_future = async move {
-                            let builder = chain
+                            let arc_builder = chain
                                 .execution_layer
                                 .as_ref()
                                 .ok_or(BeaconChainError::ExecutionLayerMissing)
                                 .map_err(warp_utils::reject::beacon_chain_error)?
-                                .builder()
+                                .builder();
+                            let builder = arc_builder
                                 .as_ref()
                                 .ok_or(BeaconChainError::BuilderMissing)
                                 .map_err(warp_utils::reject::beacon_chain_error)?;
-
                             builder
                                 .post_builder_validators(&filtered_registration_data)
                                 .await
@@ -4236,31 +4216,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // POST lighthouse/database/historical_blocks
-    let post_lighthouse_database_historical_blocks = database_path
-        .and(warp::path("historical_blocks"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
-        .then(
-            |blocks: Vec<Arc<SignedBlindedBeaconBlock<T::EthSpec>>>,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             log: Logger| {
-                info!(
-                    log,
-                    "Importing historical blocks";
-                    "count" => blocks.len(),
-                    "source" => "http_api"
-                );
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    database::historical_blocks(chain, blocks)
-                })
-            },
-        );
-
     // GET lighthouse/analysis/block_rewards
     let get_lighthouse_block_rewards = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -4335,7 +4290,8 @@ pub fn serve<T: BeaconChainTypes>(
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P1, async move {
-                    let merge_readiness = chain.check_merge_readiness().await;
+                    let current_slot = chain.slot_clock.now_or_genesis().unwrap_or(Slot::new(0));
+                    let merge_readiness = chain.check_merge_readiness(current_slot).await;
                     Ok::<_, warp::reject::Rejection>(
                         warp::reply::json(&api_types::GenericResponse::from(merge_readiness))
                             .into_response(),
@@ -4364,6 +4320,9 @@ pub fn serve<T: BeaconChainTypes>(
                             let receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
+                                api_types::EventTopic::BlobSidecar => {
+                                    event_handler.subscribe_blob_sidecar()
+                                }
                                 api_types::EventTopic::Attestation => {
                                     event_handler.subscribe_attestation()
                                 }
@@ -4493,6 +4452,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_block_attestations)
                 .uor(get_beacon_blinded_block)
                 .uor(get_beacon_block_root)
+                .uor(get_blobs)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)
                 .uor(get_beacon_pool_proposer_slashings)
@@ -4578,7 +4538,6 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)
-                    .uor(post_lighthouse_database_historical_blocks)
                     .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)
@@ -4637,6 +4596,14 @@ fn publish_pubsub_message<T: EthSpec>(
             messages: vec![message],
         },
     )
+}
+
+/// Publish a message to the libp2p pubsub network.
+fn publish_pubsub_messages<T: EthSpec>(
+    network_tx: &UnboundedSender<NetworkMessage<T>>,
+    messages: Vec<PubsubMessage<T>>,
+) -> Result<(), warp::Rejection> {
+    publish_network_message(network_tx, NetworkMessage::Publish { messages })
 }
 
 /// Publish a message to the libp2p network.

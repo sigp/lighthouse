@@ -2,16 +2,16 @@
 name = "node_test_rig"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-environment = { path = "../../lighthouse/environment" }
-beacon_node = { path = "../../beacon_node" }
-types = { path = "../../consensus/types" }
-tempfile = "3.1.0"
-eth2 = { path = "../../common/eth2" }
-validator_client = { path = "../../validator_client" }
-validator_dir = { path = "../../common/validator_dir", features = ["insecure_keys"] }
-sensitive_url = { path = "../../common/sensitive_url" }
-execution_layer = { path = "../../beacon_node/execution_layer" }
-tokio = { version = "1.14.0", features = ["time"] }
+environment = { workspace = true }
+beacon_node = { workspace = true }
+types = { workspace = true }
+tempfile = { workspace = true }
+eth2 = { workspace = true }
+validator_client = { workspace = true }
+validator_dir = { workspace = true }
+sensitive_url = { workspace = true }
+execution_layer = { workspace = true }
+tokio = { workspace = true }

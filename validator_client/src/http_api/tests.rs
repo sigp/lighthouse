@@ -205,9 +205,9 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self
             .client
-            .get_lighthouse_spec::<ConfigAndPresetCapella>()
+            .get_lighthouse_spec::<ConfigAndPresetDeneb>()
             .await
-            .map(|res| ConfigAndPreset::Capella(res.data))
+            .map(|res| ConfigAndPreset::Deneb(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
 
@@ -502,7 +502,7 @@ impl ApiTester {
             .await;
 
         assert!(resp.is_ok());
-        assert_eq!(resp.unwrap().message.epoch, expected_exit_epoch);
+        assert_eq!(resp.unwrap().data.message.epoch, expected_exit_epoch);
 
         self
     }

@@ -1,5 +1,6 @@
 use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
@@ -21,6 +22,7 @@ use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
+use kzg::{Kzg, TrustedSetup};
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
@@ -95,6 +97,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
+    trusted_setup: Option<TrustedSetup>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
 }
@@ -134,6 +137,7 @@ where
             graffiti: Graffiti::default(),
             slasher: None,
             pending_io_batch: vec![],
+            trusted_setup: None,
             task_executor: None,
             validator_monitor_config: None,
         }
@@ -393,6 +397,11 @@ where
                 .init_anchor_info(genesis.beacon_block.message(), retain_historic_states)
                 .map_err(|e| format!("Failed to initialize genesis anchor: {:?}", e))?,
         );
+        self.pending_io_batch.push(
+            store
+                .init_blob_info(genesis.beacon_block.slot())
+                .map_err(|e| format!("Failed to initialize genesis blob info: {:?}", e))?,
+        );
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
@@ -516,6 +525,11 @@ where
                 .init_anchor_info(weak_subj_block.message(), retain_historic_states)
                 .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
         );
+        self.pending_io_batch.push(
+            store
+                .init_blob_info(weak_subj_block.slot())
+                .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
+        );
 
         // Store pruning checkpoint to prevent attempting to prune before the anchor state.
         self.pending_io_batch
@@ -615,6 +629,11 @@ where
         self
     }
 
+    pub fn trusted_setup(mut self, trusted_setup: TrustedSetup) -> Self {
+        self.trusted_setup = Some(trusted_setup);
+        self
+    }
+
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
@@ -659,6 +678,15 @@ where
             self.spec.genesis_slot
         } else {
             slot_clock.now().ok_or("Unable to read slot")?
+        };
+
+        let kzg = if let Some(trusted_setup) = self.trusted_setup {
+            let kzg = Kzg::new_from_trusted_setup(trusted_setup)
+                .map_err(|e| format!("Failed to load trusted setup: {:?}", e))?;
+            let kzg_arc = Arc::new(kzg);
+            Some(kzg_arc)
+        } else {
+            None
         };
 
         let initial_head_block_root = fork_choice
@@ -821,14 +849,14 @@ where
         };
 
         let beacon_chain = BeaconChain {
-            spec: self.spec,
+            spec: self.spec.clone(),
             config: self.chain_config,
-            store,
+            store: store.clone(),
             task_executor: self
                 .task_executor
                 .ok_or("Cannot build without task executor")?,
             store_migrator,
-            slot_clock,
+            slot_clock: slot_clock.clone(),
             op_pool: self.op_pool.ok_or("Cannot build without op pool")?,
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
@@ -850,6 +878,7 @@ where
             observed_sync_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
+            observed_blob_sidecars: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
@@ -891,6 +920,11 @@ where
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
+            data_availability_checker: Arc::new(
+                DataAvailabilityChecker::new(slot_clock, kzg.clone(), store, &log, self.spec)
+                    .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
+            ),
+            kzg,
         };
 
         let head = beacon_chain.head_snapshot();
@@ -951,6 +985,13 @@ where
                 },
                 "prune_payloads_background",
             );
+        }
+
+        // Prune blobs older than the blob data availability boundary in the background.
+        if let Some(data_availability_boundary) = beacon_chain.data_availability_boundary() {
+            beacon_chain
+                .store_migrator
+                .process_prune_blobs(data_availability_boundary);
         }
 
         Ok(beacon_chain)
@@ -1050,6 +1091,8 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::test_utils::EphemeralHarnessType;
+    use crate::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
     use ethereum_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
@@ -1063,6 +1106,7 @@ mod test {
     use types::{EthSpec, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
+    type Builder = BeaconChainBuilder<EphemeralHarnessType<TestEthSpec>>;
 
     fn get_logger() -> Logger {
         let builder = NullLoggerBuilder;
@@ -1095,7 +1139,7 @@ mod test {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let runtime = TestRuntime::default();
 
-        let chain = BeaconChainBuilder::new(MinimalEthSpec)
+        let chain = Builder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(Arc::new(store))
             .task_executor(runtime.task_executor.clone())

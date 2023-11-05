@@ -1,7 +1,7 @@
 use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::{beacon_state, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec};
 use safe_arith::ArithError;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::typenum::{U5, U6};
 use std::sync::Arc;

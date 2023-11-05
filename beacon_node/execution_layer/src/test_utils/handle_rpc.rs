@@ -93,7 +93,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 .unwrap())
             }
         }
-        ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 => {
+        ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 | ENGINE_NEW_PAYLOAD_V3 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::V1(
                     get_param::<JsonExecutionPayloadV1<T>>(params, 0)
@@ -106,7 +106,17 @@ pub async fn handle_rpc<T: EthSpec>(
                             .map(|jep| JsonExecutionPayload::V1(jep))
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                // TODO(4844) add that here..
+                ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadV3<T>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::V3(jep))
+                    .or_else(|_| {
+                        get_param::<JsonExecutionPayloadV2<T>>(params, 0)
+                            .map(|jep| JsonExecutionPayload::V2(jep))
+                            .or_else(|_| {
+                                get_param::<JsonExecutionPayloadV1<T>>(params, 0)
+                                    .map(|jep| JsonExecutionPayload::V1(jep))
+                            })
+                    })
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 _ => unreachable!(),
             };
 
@@ -144,7 +154,32 @@ pub async fn handle_rpc<T: EthSpec>(
                         ));
                     }
                 }
-                // TODO(4844) add 4844 error checking here
+                ForkName::Deneb => {
+                    if method == ENGINE_NEW_PAYLOAD_V1 || method == ENGINE_NEW_PAYLOAD_V2 {
+                        return Err((
+                            format!("{} called after deneb fork!", method),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V1(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV1` after deneb fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V2(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV2` after deneb fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                }
                 _ => unreachable!(),
             };
 
@@ -180,7 +215,7 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
         }
-        ENGINE_GET_PAYLOAD_V1 | ENGINE_GET_PAYLOAD_V2 => {
+        ENGINE_GET_PAYLOAD_V1 | ENGINE_GET_PAYLOAD_V2 | ENGINE_GET_PAYLOAD_V3 => {
             let request: JsonPayloadIdRequest =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let id = request.into();
@@ -196,6 +231,8 @@ pub async fn handle_rpc<T: EthSpec>(
                     )
                 })?;
 
+            let maybe_blobs = ctx.execution_block_generator.write().get_blobs_bundle(&id);
+
             // validate method called correctly according to shanghai fork time
             if ctx
                 .execution_block_generator
@@ -209,7 +246,19 @@ pub async fn handle_rpc<T: EthSpec>(
                     FORK_REQUEST_MISMATCH_ERROR_CODE,
                 ));
             }
-            // TODO(4844) add 4844 error checking here
+            // validate method called correctly according to deneb fork time
+            if ctx
+                .execution_block_generator
+                .read()
+                .get_fork_at_timestamp(response.timestamp())
+                == ForkName::Deneb
+                && (method == ENGINE_GET_PAYLOAD_V1 || method == ENGINE_GET_PAYLOAD_V2)
+            {
+                return Err((
+                    format!("{} called after deneb fork!", method),
+                    FORK_REQUEST_MISMATCH_ERROR_CODE,
+                ));
+            }
 
             match method {
                 ENGINE_GET_PAYLOAD_V1 => {
@@ -230,11 +279,31 @@ pub async fn handle_rpc<T: EthSpec>(
                         })
                         .unwrap()
                     }
+                    _ => unreachable!(),
+                }),
+                ENGINE_GET_PAYLOAD_V3 => Ok(match JsonExecutionPayload::from(response) {
+                    JsonExecutionPayload::V3(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV3 {
+                            execution_payload,
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            blobs_bundle: maybe_blobs
+                                .ok_or((
+                                    "No blobs returned despite V3 Payload".to_string(),
+                                    GENERIC_ERROR_CODE,
+                                ))?
+                                .into(),
+                            should_override_builder: false,
+                        })
+                        .unwrap()
+                    }
+                    _ => unreachable!(),
                 }),
                 _ => unreachable!(),
             }
         }
-        ENGINE_FORKCHOICE_UPDATED_V1 | ENGINE_FORKCHOICE_UPDATED_V2 => {
+        ENGINE_FORKCHOICE_UPDATED_V1
+        | ENGINE_FORKCHOICE_UPDATED_V2
+        | ENGINE_FORKCHOICE_UPDATED_V3 => {
             let forkchoice_state: JsonForkchoiceStateV1 =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let payload_attributes = match method {
@@ -260,7 +329,7 @@ pub async fn handle_rpc<T: EthSpec>(
                                             .map(|opt| opt.map(JsonPayloadAttributes::V1))
                                             .transpose()
                                     }
-                                    ForkName::Capella => {
+                                    ForkName::Capella | ForkName::Deneb => {
                                         get_param::<Option<JsonPayloadAttributesV2>>(params, 1)
                                             .map(|opt| opt.map(JsonPayloadAttributes::V2))
                                             .transpose()
@@ -272,10 +341,15 @@ pub async fn handle_rpc<T: EthSpec>(
                         })
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
                 }
+                ENGINE_FORKCHOICE_UPDATED_V3 => {
+                    get_param::<Option<JsonPayloadAttributesV3>>(params, 1)
+                        .map(|opt| opt.map(JsonPayloadAttributes::V3))
+                        .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
+                }
                 _ => unreachable!(),
             };
 
-            // validate method called correctly according to shanghai fork time
+            // validate method called correctly according to fork time
             if let Some(pa) = payload_attributes.as_ref() {
                 match ctx
                     .execution_block_generator
@@ -300,6 +374,15 @@ pub async fn handle_rpc<T: EthSpec>(
                                 FORK_REQUEST_MISMATCH_ERROR_CODE,
                             ));
                         }
+                        if method == ENGINE_FORKCHOICE_UPDATED_V3 {
+                            return Err((
+                                format!(
+                                    "{} called with `JsonPayloadAttributesV3` before Deneb fork!",
+                                    method
+                                ),
+                                GENERIC_ERROR_CODE,
+                            ));
+                        }
                         if matches!(pa, JsonPayloadAttributes::V1(_)) {
                             return Err((
                                 format!(
@@ -310,7 +393,20 @@ pub async fn handle_rpc<T: EthSpec>(
                             ));
                         }
                     }
-                    // TODO(4844) add 4844 error checking here
+                    ForkName::Deneb => {
+                        if method == ENGINE_FORKCHOICE_UPDATED_V1 {
+                            return Err((
+                                format!("{} called after Deneb fork!", method),
+                                FORK_REQUEST_MISMATCH_ERROR_CODE,
+                            ));
+                        }
+                        if method == ENGINE_FORKCHOICE_UPDATED_V2 {
+                            return Err((
+                                format!("{} called after Deneb fork!", method),
+                                FORK_REQUEST_MISMATCH_ERROR_CODE,
+                            ));
+                        }
+                    }
                     _ => unreachable!(),
                 };
             }

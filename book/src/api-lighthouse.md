@@ -125,7 +125,7 @@ curl -X GET "http://localhost:5052/lighthouse/ui/validator_count" -H "accept: ap
 
 
 ### `/lighthouse/ui/validator_metrics`
-Re-exposes certain metrics from the validator monitor to the HTTP API. This API requires that the beacon node to have the flag `--validator-monitor-auto`. This API will only return metrics for the validators currently being monitored and present in the POST data, or the validators running in the validator client. 
+Re-exposes certain metrics from the validator monitor to the HTTP API. This API requires that the beacon node to have the flag `--validator-monitor-auto`. This API will only return metrics for the validators currently being monitored and present in the POST data, or the validators running in the validator client.
 ```bash
 curl -X POST "http://localhost:5052/lighthouse/ui/validator_metrics" -d '{"indices": [12345]}' -H "Content-Type: application/json" | jq
 ```
@@ -356,7 +356,7 @@ health of the execution node that the beacon node is connected to.
 - `latest_cached_block_number` & `latest_cached_block_timestamp`: the block
 number and timestamp of the latest block we have in our block cache.
 	- For correct execution client voting this timestamp should be later than the
-`voting_target_timestamp`. 
+`voting_target_timestamp`.
 
 - `voting_target_timestamp`: The latest timestamp allowed for an execution layer block in this voting period.
 - `eth1_node_sync_status_percentage` (float): An estimate of how far the head of the
@@ -480,9 +480,9 @@ curl -X GET "http://localhost:5052/lighthouse/beacon/states/0/ssz" | jq
 ### `/lighthouse/liveness`
 
 POST request that checks if any of the given validators have attested in the given epoch. Returns a list
-of objects, each including the validator index, epoch, and `is_live` status of a requested validator. 
+of objects, each including the validator index, epoch, and `is_live` status of a requested validator.
 
-This endpoint is used in doppelganger detection, and can only provide accurate information for the current, previous, or next epoch. 
+This endpoint is used in doppelganger detection, and can only provide accurate information for the current, previous, or next epoch.
 
 > Note that for this API, if you insert an arbitrary epoch other than the previous, current or next epoch of the network, it will return `"code:400"` and `BAD_REQUEST`.
 
@@ -547,26 +547,6 @@ reconstruction has yet to be completed. For more information
 on the specific meanings of these fields see the docs on [Checkpoint
 Sync](./checkpoint-sync.md#reconstructing-states).
 
-### `/lighthouse/database/reconstruct`
-
-Instruct Lighthouse to begin reconstructing historic states, see
-[Reconstructing States](./checkpoint-sync.md#reconstructing-states). This is an alternative
-to the `--reconstruct-historic-states` flag.
-
-```
-curl -X POST "http://localhost:5052/lighthouse/database/reconstruct" | jq
-```
-
-```json
-"success"
-```
-
-The endpoint will return immediately. See the beacon node logs for an indication of progress.
-
-### `/lighthouse/database/historical_blocks`
-
-Manually provide `SignedBeaconBlock`s to backfill the database. This is intended
-for use by Lighthouse developers during testing only.
 
 ### `/lighthouse/merge_readiness`
 Returns the current difficulty and terminal total difficulty of the network. Before [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> September 2022, you will see that the current difficulty is less than the terminal total difficulty, An example is shown below:
@@ -719,7 +699,7 @@ The first few lines of the response would look like:
       ]
     }
   }
-]      
+]
 ```
 
 Caveats:
