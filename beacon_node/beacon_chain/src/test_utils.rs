@@ -504,7 +504,6 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
-        let chain_config = self.chain_config.unwrap_or_default();
         let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
             .map_err(|e| format!("Unable to read trusted setup file: {}", e))
             .unwrap();
