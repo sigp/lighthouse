@@ -643,14 +643,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
          * Execution Layer Integration
          */
         .arg(
-            Arg::with_name("merge")
-                .long("merge")
-                .help("Deprecated. The feature activates automatically when --execution-endpoint \
-                    is supplied.")
-                .takes_value(false)
-                .hidden(true)
-        )
-        .arg(
             Arg::with_name("execution-endpoint")
                 .long("execution-endpoint")
                 .value_name("EXECUTION-ENDPOINT")

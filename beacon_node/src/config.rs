@@ -264,20 +264,6 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.cache_follow_distance = Some(follow_distance);
     }
 
-    if cli_args.is_present("merge") {
-        if cli_args.is_present("execution-endpoint") {
-            warn!(
-                log,
-                "The --merge flag is deprecated";
-                "info" => "the --execution-endpoint flag automatically enables this feature"
-            )
-        } else {
-            return Err("The --merge flag is deprecated. \
-                Supply a value to --execution-endpoint instead."
-                .into());
-        }
-    }
-
     if let Some(endpoints) = cli_args.value_of("execution-endpoint") {
         let mut el_config = execution_layer::Config::default();
 
