@@ -27,7 +27,7 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
-use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
+use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
 use store::{
     chunked_vector::{chunk_key, Field},
     get_key_for_col,
@@ -3304,6 +3304,77 @@ fn check_blob_existence(
     if should_exist {
         assert_ne!(blobs_seen, 0, "expected non-zero number of blobs");
     }
+}
+
+#[tokio::test]
+async fn prune_historic_states() {
+    let num_blocks_produced = E::slots_per_epoch() * 5;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let genesis_state_root = harness.chain.genesis_state_root;
+    let genesis_state = harness
+        .chain
+        .get_state(&genesis_state_root, None)
+        .unwrap()
+        .unwrap();
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Check historical state is present.
+    let state_roots_iter = harness
+        .chain
+        .forwards_iter_state_roots(Slot::new(0))
+        .unwrap();
+    for (state_root, slot) in state_roots_iter
+        .take(E::slots_per_epoch() as usize)
+        .map(Result::unwrap)
+    {
+        assert!(store.get_state(&state_root, Some(slot)).unwrap().is_some());
+    }
+
+    store
+        .prune_historic_states(genesis_state_root, &genesis_state)
+        .unwrap();
+
+    // Check that anchor info is updated.
+    let anchor_info = store.get_anchor_info().unwrap();
+    assert_eq!(anchor_info.state_lower_limit, 0);
+    assert_eq!(anchor_info.state_upper_limit, STATE_UPPER_LIMIT_NO_RETAIN);
+
+    // Historical states should be pruned.
+    let state_roots_iter = harness
+        .chain
+        .forwards_iter_state_roots(Slot::new(1))
+        .unwrap();
+    for (state_root, slot) in state_roots_iter
+        .take(E::slots_per_epoch() as usize)
+        .map(Result::unwrap)
+    {
+        assert!(store.get_state(&state_root, Some(slot)).unwrap().is_none());
+    }
+
+    // Ensure that genesis state is still accessible
+    let genesis_state_root = harness.chain.genesis_state_root;
+    assert!(store
+        .get_state(&genesis_state_root, Some(Slot::new(0)))
+        .unwrap()
+        .is_some());
+
+    // Run for another two epochs.
+    let additional_blocks_produced = 2 * E::slots_per_epoch();
+    harness
+        .extend_slots(additional_blocks_produced as usize)
+        .await;
+
+    check_finalization(&harness, num_blocks_produced + additional_blocks_produced);
+    check_split_slot(&harness, store);
 }
 
 /// Checks that two chains are the same, for the purpose of these tests.

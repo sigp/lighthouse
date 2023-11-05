@@ -208,6 +208,7 @@ test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 lint:
 	cargo clippy --workspace --tests $(EXTRA_CLIPPY_OPTS) --features "$(TEST_FEATURES)" -- \
 		-D clippy::fn_to_numeric_cast_any \
+		-D clippy::manual_let_else \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::from-over-into \

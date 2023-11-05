@@ -547,9 +547,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 .peek_lru()
                 .map(|(key, value)| (*key, value.clone()));
 
-            let (lru_root, lru_pending_components) = match lru_entry {
-                Some((r, p)) => (r, p),
-                None => break,
+            let Some((lru_root, lru_pending_components)) = lru_entry else {
+                break;
             };
 
             if lru_pending_components
@@ -605,9 +604,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let delete_if_outdated = |cache: &OverflowLRUCache<T>,
                                   block_data: Option<BlockData>|
          -> Result<(), AvailabilityCheckError> {
-            let block_data = match block_data {
-                Some(block_data) => block_data,
-                None => return Ok(()),
+            let Some(block_data) = block_data else {
+                return Ok(());
             };
             let not_in_store_keys = !cache.critical.read().store_keys.contains(&block_data.root);
             if not_in_store_keys {

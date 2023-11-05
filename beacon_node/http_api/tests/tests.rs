@@ -3544,7 +3544,6 @@ impl ApiTester {
             .cached_head()
             .head_random()
             .unwrap();
-
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
         let payload: BlindedPayload<E> = self
@@ -4586,8 +4585,7 @@ impl ApiTester {
                 assert_eq!(withdrawal_response.finalized, Some(false));
                 assert_eq!(withdrawal_response.data, expected_withdrawals.to_vec());
             }
-            Err(e) => {
-                println!("{:?}", e);
+            Err(_) => {
                 panic!("query failed incorrectly");
             }
         }

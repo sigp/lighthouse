@@ -426,9 +426,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn new_payload(&mut self, payload: ExecutionPayload<T>) -> PayloadStatusV1 {
-        let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash()) {
-            parent
-        } else {
+        let Some(parent) = self.blocks.get(&payload.parent_hash()) else {
             return PayloadStatusV1 {
                 status: PayloadStatusV1Status::Syncing,
                 latest_valid_hash: None,

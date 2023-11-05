@@ -158,13 +158,11 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 .checked_sub(slot_duration / 3)
                 .unwrap_or_else(|| Duration::from_secs(0));
 
-        let slot_duties = if let Some(duties) = self
+        let Some(slot_duties) = self
             .duties_service
             .sync_duties
             .get_duties_for_slot::<E>(slot, &self.duties_service.spec)
-        {
-            duties
-        } else {
+        else {
             debug!(log, "No duties known for slot {}", slot);
             return Ok(());
         };
