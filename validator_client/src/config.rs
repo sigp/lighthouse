@@ -9,7 +9,7 @@ use directory::{
 use eth2::types::Graffiti;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{info, warn, Logger};
+use slog::{info, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -341,14 +341,6 @@ impl Config {
                 registration_timestamp_override
                     .parse::<u64>()
                     .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
-            );
-        }
-
-        if cli_args.is_present("strict-fee-recipient") {
-            warn!(
-                log,
-                "The flag `--strict-fee-recipient` has been deprecated due to a bug causing \
-                missed proposals. The flag will be ignored."
             );
         }
 
