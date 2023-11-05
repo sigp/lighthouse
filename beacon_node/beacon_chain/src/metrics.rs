@@ -1037,6 +1037,7 @@ lazy_static! {
         "validator_monitor_missed_blocks_total",
         "Number of non-finalized blocks missed",
         &["validator"]
+    );
 
     /*
     * Kzg related metrics
