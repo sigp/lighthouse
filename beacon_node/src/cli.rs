@@ -564,17 +564,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       Identical to the method used at the 2019 Canada interop.")
         )
         .arg(
-            Arg::with_name("eth1-endpoints")
-                .long("eth1-endpoints")
-                .value_name("HTTP-ENDPOINTS")
-                .conflicts_with("eth1-endpoint")
-                .help("One http endpoint for a web3 connection to an execution node. \
-                       Note: This flag is now only useful for testing, use `--execution-endpoint` \
-                       flag to connect to an execution node on mainnet and testnets.
-                       Defaults to http://127.0.0.1:8545.")
-                .takes_value(true)
-        )
-        .arg(
             Arg::with_name("eth1-purge-cache")
                 .long("eth1-purge-cache")
                 .value_name("PURGE-CACHE")
