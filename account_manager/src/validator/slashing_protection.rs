@@ -79,7 +79,7 @@ pub fn cli_run<T: EthSpec>(
             })?;
 
             eprint!("Loading JSON file into memory & deserializing");
-            let mut interchange = Interchange::from_json_reader(&import_file)
+            let interchange = Interchange::from_json_reader(&import_file)
                 .map_err(|e| format!("Error parsing file for import: {:?}", e))?;
             eprintln!(" [done].");
 
@@ -200,7 +200,7 @@ pub fn cli_run<T: EthSpec>(
                     )
                 })?;
 
-            let mut interchange = slashing_protection_database
+            let interchange = slashing_protection_database
                 .export_interchange_info(genesis_validators_root, selected_pubkeys.as_deref())
                 .map_err(|e| format!("Error during export: {:?}", e))?;
 
