@@ -33,10 +33,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256, IndexedAttestation,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
+    SyncSubnetId,
 };
 
 use beacon_processor::{
@@ -607,20 +608,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         _peer_client: Client,
         blob_index: u64,
-        signed_blob: SignedBlobSidecar<T::EthSpec>,
+        blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
         seen_duration: Duration,
     ) {
-        let slot = signed_blob.message.slot;
-        let root = signed_blob.message.block_root;
-        let index = signed_blob.message.index;
-        let commitment = signed_blob.message.kzg_commitment;
+        let slot = blob_sidecar.slot();
+        let root = blob_sidecar.block_root();
+        let index = blob_sidecar.index;
+        let commitment = blob_sidecar.kzg_commitment;
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(&metrics::BEACON_BLOB_GOSSIP_SLOT_START_DELAY_TIME, delay);
         metrics::set_gauge(&metrics::BEACON_BLOB_LAST_DELAY, delay.as_millis() as i64);
         match self
             .chain
-            .verify_blob_sidecar_for_gossip(signed_blob, blob_index)
+            .verify_blob_sidecar_for_gossip(blob_sidecar, blob_index)
         {
             Ok(gossip_verified_blob) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOB_VERIFIED_TOTAL);
@@ -670,8 +671,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             self.log,
                             "Unknown parent hash for blob";
                             "action" => "requesting parent",
-                            "block_root" => %blob.block_root,
-                            "parent_root" => %blob.block_parent_root,
+                            "block_root" => %blob.block_root(),
+                            "parent_root" => %blob.block_parent_root(),
                             "commitment" => %commitment,
                         );
                         self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));

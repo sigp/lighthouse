@@ -295,6 +295,8 @@ pub type GossipVerifiedBlockContents<T> =
 pub enum BlockContentsError<T: EthSpec> {
     BlockError(BlockError<T>),
     BlobError(GossipBlobError<T>),
+    // TODO(pawan): absorb into one of the above types
+    SidecarError(String),
 }
 
 impl<T: EthSpec> From<BlockError<T>> for BlockContentsError<T> {
@@ -317,6 +319,9 @@ impl<T: EthSpec> std::fmt::Display for BlockContentsError<T> {
             }
             BlockContentsError::BlobError(err) => {
                 write!(f, "BlobError({})", err)
+            }
+            BlockContentsError::SidecarError(err) => {
+                write!(f, "SidecarError({})", err)
             }
         }
     }

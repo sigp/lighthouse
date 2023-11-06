@@ -95,15 +95,15 @@ use std::fs;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{Error as DBError, HotStateSummary, KeyValueStore, SignedBlobSidecarList, StoreOp};
+use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
-use types::ExecPayload;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
-    ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecarList, ChainSpec, CloneConfig, Epoch,
+    EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
+use types::{BlobSidecar, ExecPayload, Sidecar};
 
 pub const POS_PANDA_BANNER: &str = r#"
     ,,,         ,,,                                               ,,,         ,,,
@@ -669,7 +669,7 @@ pub trait IntoGossipVerifiedBlockContents<T: BeaconChainTypes>: Sized {
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>>;
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec>;
-    fn inner_blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>>;
+    fn inner_blobs(&self) -> Option<BlobSidecarList<T::EthSpec>>;
 }
 
 impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedBlockContents<T> {
@@ -699,18 +699,32 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
         self,
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
-        let (block, blobs) = self.deconstruct();
-        let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;
-        let gossip_verified_blobs = blobs
-            .map(|blobs| {
-                Ok::<_, GossipBlobError<T::EthSpec>>(VariableList::from(
-                    blobs
+        let (block, blob_items) = self.deconstruct();
+        let expected_kzg_commitments =
+            block.message().body().blob_kzg_commitments().map_err(|e| {
+                BlockContentsError::BlockError(BlockError::BeaconChainError(
+                    BeaconChainError::BeaconStateError(e),
+                ))
+            })?;
+        let gossip_verified_blobs = blob_items
+            .map(|(kzg_proofs, blobs)| {
+                let sidecars = BlobSidecar::build_sidecar(
+                    blobs,
+                    &block,
+                    expected_kzg_commitments,
+                    kzg_proofs.into(),
+                )
+                .map_err(BlockContentsError::SidecarError)?;
+                Ok::<_, BlockContentsError<T::EthSpec>>(VariableList::from(
+                    sidecars
                         .into_iter()
                         .map(|blob| GossipVerifiedBlob::new(blob, chain))
-                        .collect::<Result<Vec<_>, GossipBlobError<T::EthSpec>>>()?,
+                        .collect::<Result<Vec<_>, _>>()?,
                 ))
             })
             .transpose()?;
+        let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;
+
         Ok((gossip_verified_block, gossip_verified_blobs))
     }
 
@@ -718,8 +732,8 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
         self.signed_block()
     }
 
-    fn inner_blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>> {
-        self.blobs_cloned()
+    fn inner_blobs(&self) -> Option<BlobSidecarList<T::EthSpec>> {
+        self.blobs_sidecar_list()
     }
 }
 

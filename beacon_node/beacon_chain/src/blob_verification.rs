@@ -1,5 +1,6 @@
 use derivative::Derivative;
 use slot_clock::SlotClock;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::beacon_chain::{
@@ -145,6 +146,13 @@ pub type GossipVerifiedBlobList<T> = VariableList<
 #[derive(Debug)]
 pub struct GossipVerifiedBlob<T: BeaconChainTypes> {
     blob: Arc<BlobSidecar<T::EthSpec>>,
+}
+
+impl<T: BeaconChainTypes> Deref for GossipVerifiedBlob<T> {
+    type Target = BlobSidecar<T::EthSpec>;
+    fn deref(&self) -> &Self::Target {
+        &self.blob
+    }
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {

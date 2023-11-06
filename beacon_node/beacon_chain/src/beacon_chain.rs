@@ -109,6 +109,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::prelude::*;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
@@ -492,7 +493,7 @@ pub enum BeaconBlockResponseType<T: EthSpec> {
 pub struct BeaconBlockResponse<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub block: BeaconBlock<T, Payload>,
     pub state: BeaconState<T>,
-    pub maybe_side_car: Option<SidecarList<T, <Payload as AbstractExecPayload<T>>::Sidecar>>,
+    pub blob_item: Option<(KzgProofs<T>, <Payload::Sidecar as Sidecar<T>>::BlobItems)>,
     pub execution_payload_value: Option<Uint256>,
     pub consensus_block_value: Option<u64>,
 }
@@ -2017,7 +2018,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn verify_blob_sidecar_for_gossip(
         self: &Arc<Self>,
-        blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+        blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
         subnet_id: u64,
     ) -> Result<GossipVerifiedBlob<T>, GossipBlobError<T::EthSpec>> {
         metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_REQUESTS);
@@ -2821,13 +2822,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_blob_sidecar_subscribers() {
                 event_handler.register(EventKind::BlobSidecar(SseBlobSidecar::from_blob_sidecar(
-                    blob.as_blob(),
+                    blob.deref(),
                 )));
             }
         }
 
         self.data_availability_checker
-            .notify_gossip_blob(blob.as_blob().slot, block_root, &blob);
+            .notify_gossip_blob(blob.slot(), block_root, &blob);
         let r = self.check_gossip_blob_availability_and_import(blob).await;
         self.remove_notified(&block_root, r)
     }
@@ -5146,7 +5147,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let blobs_verification_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
-        let maybe_sidecar_list = match (blobs_opt, proofs_opt) {
+        let blob_item = match (blobs_opt, proofs_opt) {
             (Some(blobs_or_blobs_roots), Some(proofs)) => {
                 let expected_kzg_commitments =
                     block.body().blob_kzg_commitments().map_err(|_| {
@@ -5180,15 +5181,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map_err(BlockProductionError::KzgError)?;
                 }
 
-                Some(
-                    Sidecar::build_sidecar(
-                        blobs_or_blobs_roots,
-                        &block,
-                        expected_kzg_commitments,
-                        kzg_proofs,
-                    )
-                    .map_err(BlockProductionError::FailedToBuildBlobSidecars)?,
-                )
+                Some((kzg_proofs.into(), blobs_or_blobs_roots))
             }
             _ => None,
         };
@@ -5208,7 +5201,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(BeaconBlockResponse {
             block,
             state,
-            maybe_side_car: maybe_sidecar_list,
+            blob_item,
             execution_payload_value: Some(execution_payload_value),
             consensus_block_value: Some(consensus_block_value),
         })

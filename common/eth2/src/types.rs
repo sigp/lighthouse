@@ -15,6 +15,7 @@ use std::time::Duration;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::builder_bid::BlindedBlobsBundle;
+use types::sidecar::BlobItems;
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -1514,13 +1515,16 @@ pub enum BlockContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
 
 pub type BlockContentsTuple<T, Payload> = (
     BeaconBlock<T, Payload>,
-    Option<(KzgProofs<T>, BlobsList<T>)>,
+    Option<(
+        KzgProofs<T>,
+        <<Payload as AbstractExecPayload<T>>::Sidecar as Sidecar<T>>::BlobItems,
+    )>,
 );
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
     pub fn new(
         block: BeaconBlock<T, Payload>,
-        blob_data: Option<(KzgProofs<T>, BlobsList<T>)>,
+        blob_data: Option<(KzgProofs<T>, <Payload::Sidecar as Sidecar<T>>::BlobItems)>,
     ) -> Self {
         match (Payload::block_type(), blob_data) {
             (BlockType::Full, Some((kzg_proofs, blobs))) => {
@@ -1658,7 +1662,10 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> Into<BeaconBlock<T, Payload>>
 
 pub type SignedBlockContentsTuple<T, Payload> = (
     SignedBeaconBlock<T, Payload>,
-    Option<(KzgProofs<T>, BlobsList<T>)>,
+    Option<(
+        KzgProofs<T>,
+        <<Payload as AbstractExecPayload<T>>::Sidecar as Sidecar<T>>::BlobItems,
+    )>,
 );
 
 pub type SignedBlindedBlockContents<E> = SignedBlockContents<E, BlindedPayload<E>>;
@@ -1678,7 +1685,7 @@ pub enum SignedBlockContents<T: EthSpec, Payload: AbstractExecPayload<T> = FullP
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload> {
     pub fn new(
         block: SignedBeaconBlock<T, Payload>,
-        blob_items: Option<(KzgProofs<T>, BlobsList<T>)>,
+        blob_items: Option<(KzgProofs<T>, <Payload::Sidecar as Sidecar<T>>::BlobItems)>,
     ) -> Self {
         match (Payload::block_type(), blob_items) {
             (BlockType::Full, Some((kzg_proofs, blobs))) => {
@@ -1751,7 +1758,25 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
     pub fn blobs_cloned(&self) -> Option<BlobsList<T>> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
-                Some(block_and_sidecars.blobs.clone())
+                block_and_sidecars.blobs.blobs().cloned()
+            }
+            SignedBlockContents::Block(_block) => None,
+        }
+    }
+
+    pub fn blobs_sidecar_list(&self) -> Option<BlobSidecarList<T>> {
+        match self {
+            SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
+                let blobs = block_and_sidecars.blobs.blobs().cloned()?;
+                let block = &block_and_sidecars.signed_block;
+                let kzg_commitments = block.message().body().blob_kzg_commitments().ok()?;
+                Sidecar::build_sidecar(
+                    blobs,
+                    self.signed_block(),
+                    kzg_commitments,
+                    block_and_sidecars.kzg_proofs.clone().into(),
+                )
+                .ok()
             }
             SignedBlockContents::Block(_block) => None,
         }
@@ -1855,7 +1880,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBlockContentsTuple<
 pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub signed_block: SignedBeaconBlock<T, Payload>,
     pub kzg_proofs: KzgProofs<T>,
-    pub blobs: BlobsList<T>,
+    pub blobs: <Payload::Sidecar as Sidecar<T>>::BlobItems,
 }
 
 /// Note: This does not have a blinded variant, so we fix the payload to `Full`.
@@ -1864,7 +1889,7 @@ pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPay
 pub struct BeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub block: BeaconBlock<T, Payload>,
     pub kzg_proofs: KzgProofs<T>,
-    pub blobs: BlobsList<T>,
+    pub blobs: <Payload::Sidecar as Sidecar<T>>::BlobItems,
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
@@ -1876,12 +1901,13 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
     ) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         #[serde(bound = "T: EthSpec")]
-        struct Helper<T: EthSpec> {
+        struct Helper<T: EthSpec, S: Sidecar<T>> {
             block: serde_json::Value,
             kzg_proofs: KzgProofs<T>,
-            blobs: BlobsList<T>,
+            blobs: S::BlobItems,
         }
-        let helper: Helper<T> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        let helper: Helper<T, Payload::Sidecar> =
+            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
 
         Ok(Self {
             block: BeaconBlock::deserialize_by_fork::<'de, D>(helper.block, fork_name)?,

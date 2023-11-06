@@ -6,6 +6,7 @@ use crate::{
 };
 use kzg::KzgProof;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_types::VariableList;
 use std::fmt::Debug;
@@ -39,7 +40,9 @@ pub trait Sidecar<E: EthSpec>:
     ) -> Result<SidecarList<E, Self>, String>;
 }
 
-pub trait BlobItems<T: EthSpec>: Sync + Send + Sized {
+pub trait BlobItems<T: EthSpec>:
+    Sync + Send + Sized + Debug + Clone + Encode + Decode + Serialize + for<'a> Deserialize<'a>
+{
     fn try_from_blob_roots(roots: BlobRootsList<T>) -> Result<Self, String>;
     fn try_from_blobs(blobs: BlobsList<T>) -> Result<Self, String>;
     fn len(&self) -> usize;
