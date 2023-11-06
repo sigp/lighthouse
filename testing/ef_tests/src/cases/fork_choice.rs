@@ -20,7 +20,7 @@ use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
     EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
-    ProgressiveBalancesMode, Signature, SignedBeaconBlock, SignedBlobSidecar, Slot, Uint256,
+    ProgressiveBalancesMode, Signature, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -432,20 +432,16 @@ impl<E: EthSpec> Tester<E> {
                 .zip(commitments.into_iter())
                 .enumerate()
             {
-                let signed_sidecar = SignedBlobSidecar {
-                    message: Arc::new(BlobSidecar {
-                        block_root,
-                        index: i as u64,
-                        slot: block.slot(),
-                        block_parent_root: block.parent_root(),
-                        proposer_index: block.message().proposer_index(),
-                        blob,
-                        kzg_commitment,
-                        kzg_proof,
-                    }),
-                    signature: Signature::empty(),
-                    _phantom: Default::default(),
-                };
+                let blob_sidecar = Arc::new(BlobSidecar {
+                    block_root,
+                    index: i as u64,
+                    slot: block.slot(),
+                    block_parent_root: block.parent_root(),
+                    proposer_index: block.message().proposer_index(),
+                    blob,
+                    kzg_commitment,
+                    kzg_proof,
+                });
                 let result = self.block_on_dangerous(
                     self.harness
                         .chain

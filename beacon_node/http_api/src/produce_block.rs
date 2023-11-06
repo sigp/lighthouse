@@ -94,7 +94,7 @@ pub fn build_response_v3<T: BeaconChainTypes, E: EthSpec, Payload: AbstractExecP
     let block_contents = build_block_contents::build_block_contents(
         fork_name,
         block_response.block,
-        block_response.maybe_side_car,
+        block_response.blob_items
     )?;
 
     let execution_payload_blinded = Payload::block_type() == BlockType::Blinded;
@@ -212,7 +212,7 @@ pub fn build_response_v2<T: BeaconChainTypes, E: EthSpec, Payload: AbstractExecP
     let block_contents = build_block_contents::build_block_contents(
         fork_name,
         block_response.block,
-        block_response.maybe_side_car,
+        block_response.blob_items,
     )?;
 
     match accept_header {

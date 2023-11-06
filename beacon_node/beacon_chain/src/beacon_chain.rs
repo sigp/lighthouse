@@ -493,7 +493,7 @@ pub enum BeaconBlockResponseType<T: EthSpec> {
 pub struct BeaconBlockResponse<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub block: BeaconBlock<T, Payload>,
     pub state: BeaconState<T>,
-    pub blob_item: Option<(KzgProofs<T>, <Payload::Sidecar as Sidecar<T>>::BlobItems)>,
+    pub blob_items: Option<(KzgProofs<T>, <Payload::Sidecar as Sidecar<T>>::BlobItems)>,
     pub execution_payload_value: Option<Uint256>,
     pub consensus_block_value: Option<u64>,
 }
@@ -5201,7 +5201,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(BeaconBlockResponse {
             block,
             state,
-            blob_item,
+            blob_items: blob_item,
             execution_payload_value: Some(execution_payload_value),
             consensus_block_value: Some(consensus_block_value),
         })

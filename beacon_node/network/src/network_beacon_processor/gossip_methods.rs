@@ -632,7 +632,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         self.log,
                         "Gossip blob arrived late";
                         "block_root" => ?gossip_verified_blob.block_root(),
-                        "proposer_index" => gossip_verified_blob.proposer_index(),
+                        "proposer_index" => gossip_verified_blob.block_proposer_index(),
                         "slot" => gossip_verified_blob.slot(),
                         "delay" => ?delay,
                         "commitment" => %gossip_verified_blob.kzg_commitment(),

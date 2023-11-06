@@ -3,10 +3,7 @@ use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use crate::beacon_chain::{
-    BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT,
-    VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
-};
+use crate::beacon_chain::{BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT};
 use crate::block_verification::cheap_state_advance_to_obtain_committees;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::kzg_utils::{validate_blob, validate_blobs};
@@ -295,8 +292,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .lock()
         .get_slot::<T::EthSpec>(proposer_shuffling_root, blob_slot);
 
-    let (proposer_index, fork) = if let Some(proposer) = proposer_opt {
-        (proposer.index, proposer.fork)
+    let proposer_index = if let Some(proposer) = proposer_opt {
+        proposer.index
     } else {
         debug!(
             chain.log,
@@ -318,12 +315,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
                     "block_root" => %block_root,
                     "index" => %blob_index,
                 );
-                (
-                    snapshot
-                        .beacon_state
-                        .get_beacon_proposer_index(blob_slot, &chain.spec)?,
-                    snapshot.beacon_state.fork(),
-                )
+                snapshot
+                    .beacon_state
+                    .get_beacon_proposer_index(blob_slot, &chain.spec)?
             } else {
                 debug!(
                     chain.log,
@@ -338,10 +332,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
                         blob_slot,
                         &chain.spec,
                     )?;
-                (
-                    state.get_beacon_proposer_index(blob_slot, &chain.spec)?,
-                    state.fork(),
-                )
+                state.get_beacon_proposer_index(blob_slot, &chain.spec)?
             }
         }
         // Need to advance the state to get the proposer index
@@ -387,7 +378,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
                 proposers,
                 state.fork(),
             )?;
-            (proposer_index, state.fork())
+            proposer_index
         }
     };
 

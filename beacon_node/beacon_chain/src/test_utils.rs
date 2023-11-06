@@ -33,8 +33,8 @@ use int_to_bytes::int_to_bytes32;
 use kzg::{Kzg, TrustedSetup};
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
+use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
-use parking_lot::{Mutex, RwLock};
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -52,7 +52,6 @@ use state_processing::{
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -884,7 +883,7 @@ where
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) => (signed_block, block_response.blob_item),
+            SignedBeaconBlock::Deneb(_) => (signed_block, block_response.blob_items),
         };
 
         (block_contents, block_response.state)
@@ -945,7 +944,7 @@ where
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) => (signed_block, block_response.blob_item),
+            SignedBeaconBlock::Deneb(_) => (signed_block, block_response.blob_items),
         };
         (block_contents, pre_state)
     }
@@ -2514,8 +2513,6 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             proofs,
             blobs,
         } = bundle;
-
-        let block_root = block.canonical_root();
 
         for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
             .into_iter()

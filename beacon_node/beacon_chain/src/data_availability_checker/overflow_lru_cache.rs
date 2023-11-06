@@ -421,9 +421,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut fixed_blobs = FixedVector::default();
 
-        // Initial check to ensure all provided blobs have a consistent block root.
         for blob in kzg_verified_blobs {
-            let blob_block_root = blob.block_root();
             if let Some(blob_opt) = fixed_blobs.get_mut(blob.blob_index() as usize) {
                 *blob_opt = Some(blob);
             }

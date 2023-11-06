@@ -5,7 +5,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use std::sync::Arc;
 use types::{BlobSidecar, EthSpec, Hash256, Slot};
 
 #[derive(Debug, PartialEq)]

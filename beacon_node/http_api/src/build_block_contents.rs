@@ -1,12 +1,12 @@
 use beacon_chain::BlockProductionError;
-use eth2::types::{BeaconBlockAndBlobSidecars, BlindedBeaconBlockAndBlobSidecars, BlockContents};
-use types::{AbstractExecPayload, BeaconBlock, EthSpec, ForkName, SidecarList};
+use eth2::types::{BeaconBlockAndBlobSidecars, BlockContents};
+use types::{AbstractExecPayload, BeaconBlock, EthSpec, ForkName, KzgProofs, Sidecar};
 type Error = warp::reject::Rejection;
 
 pub fn build_block_contents<E: EthSpec, Payload: AbstractExecPayload<E>>(
     fork_name: ForkName,
     block: BeaconBlock<E, Payload>,
-    maybe_blobs: Option<SidecarList<E, <Payload as AbstractExecPayload<E>>::Sidecar>>,
+    blob_item: Option<(KzgProofs<E>, <Payload::Sidecar as Sidecar<E>>::BlobItems)>,
 ) -> Result<BlockContents<E, Payload>, Error> {
     match Payload::block_type() {
         types::BlockType::Blinded => match fork_name {
@@ -14,13 +14,10 @@ pub fn build_block_contents<E: EthSpec, Payload: AbstractExecPayload<E>>(
                 Ok(BlockContents::Block(block))
             }
             ForkName::Deneb => {
-                if let Some(blinded_blob_sidecars) = maybe_blobs {
-                    let block_and_blobs = BlindedBeaconBlockAndBlobSidecars {
-                        blinded_block: block,
-                        blinded_blob_sidecars,
-                    };
-
-                    Ok(BlockContents::BlindedBlockAndBlobSidecars(block_and_blobs))
+                if blob_item.is_some() {
+                    // We return same blinded block as pre-deneb here, but
+                    // make sure to return an error if the blob items are `None`.
+                    Ok(BlockContents::Block(block))
                 } else {
                     Err(warp_utils::reject::block_production_error(
                         BlockProductionError::MissingBlobs,
@@ -33,10 +30,11 @@ pub fn build_block_contents<E: EthSpec, Payload: AbstractExecPayload<E>>(
                 Ok(BlockContents::Block(block))
             }
             ForkName::Deneb => {
-                if let Some(blob_sidecars) = maybe_blobs {
+                if let Some((kzg_proofs, blobs)) = blob_item {
                     let block_and_blobs = BeaconBlockAndBlobSidecars {
                         block,
-                        blob_sidecars,
+                        kzg_proofs,
+                        blobs,
                     };
 
                     Ok(BlockContents::BlockAndBlobSidecars(block_and_blobs))

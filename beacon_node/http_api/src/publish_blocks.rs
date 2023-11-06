@@ -20,7 +20,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
-    ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock, SignedBlobSidecarList,
+    ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock, BlobSidecarList
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
@@ -65,7 +65,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
 
     /* actually publish a block */
     let publish_block = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
-                              blobs_opt: Option<SignedBlobSidecarList<T::EthSpec>>,
+                              blobs_opt: Option<BlobSidecarList<T::EthSpec>>,
                               sender,
                               log,
                               seen_timestamp| {
