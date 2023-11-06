@@ -31,16 +31,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .value_name("FILE")
                         .help("The slashing protection interchange file to import (.json)"),
                 )
-                .arg(
-                    Arg::with_name(MINIFY_FLAG)
-                        .long(MINIFY_FLAG)
-                        .takes_value(true)
-                        .possible_values(&["false", "true"])
-                        .help(
-                            "Deprecated: Lighthouse no longer requires minification on import \
-                             because it always minifies",
-                        ),
-                ),
         )
         .subcommand(
             App::new(EXPORT_CMD)
@@ -61,17 +51,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                              comma-separated. All known keys will be exported if omitted",
                         ),
                 )
-                .arg(
-                    Arg::with_name(MINIFY_FLAG)
-                        .long(MINIFY_FLAG)
-                        .takes_value(true)
-                        .default_value("false")
-                        .possible_values(&["false", "true"])
-                        .help(
-                            "Minify the output file. This will make it smaller and faster to \
-                             import, but not faster to generate.",
-                        ),
-                ),
         )
 }
 
