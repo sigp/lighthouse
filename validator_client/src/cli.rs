@@ -156,7 +156,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("distributed")
                 .long("distributed")
-                .help("Enables functionality required for running the validator in a distributed network.")
+                .help("Enables functionality required for running the validator in a distributed validator cluster.")
                 .takes_value(false)
         )
         /* REST API related arguments */
