@@ -17,6 +17,14 @@ pub fn run<T: EthSpec>(
     testnet_dir: PathBuf,
     matches: &ArgMatches<'_>,
 ) -> Result<(), String> {
+    let endpoints = matches
+    .value_of("eth1-endpoint")
+    .map(|e| {
+        warn!("The --eth1-endpoint flag is deprecated. Please use --eth1-endpoints instead");
+        String::from(e)
+    })
+    .or_else(|| matches.value_of("eth1-endpoints").map(String::from));
+
     let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 
     let spec = eth2_network_config.chain_spec::<T>()?;
