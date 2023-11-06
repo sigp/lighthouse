@@ -18,7 +18,7 @@ type E = MainnetEthSpec;
 
 fn get_harness(
     validator_count: usize,
-    validator_indexex_to_monitor: Vec<usize>,
+    validator_indexes_to_monitor: Vec<usize>,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
@@ -26,7 +26,7 @@ fn get_harness(
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .validator_monitor_config(ValidatorMonitorConfig {
-            validators: validator_indexex_to_monitor
+            validators: validator_indexes_to_monitor
                 .iter()
                 .map(|i| PublicKeyBytes::from(KEYPAIRS[*i].pk.clone()))
                 .collect(),
@@ -55,7 +55,7 @@ async fn produces_missed_blocks() {
 
     // 1st scenario //
     //
-    // missed block happens when slot and prev_slot are in the same epoch
+    // Missed block happens when slot and prev_slot are in the same epoch
     let harness1 = get_harness(validator_count, vec![validator_index_to_monitor]);
     harness1
         .extend_chain(
@@ -121,7 +121,7 @@ async fn produces_missed_blocks() {
 
     // 2nd scenario //
     //
-    // missed block happens when slot and prev_slot are not in the same epoch
+    // Missed block happens when slot and prev_slot are not in the same epoch
     // making sure that the cache reloads when the epoch changes
     // in that scenario the slot that missed a block is the first slot of the epoch
     validator_index_to_monitor = 7;
@@ -202,7 +202,7 @@ async fn produces_missed_blocks() {
 
         // 3rd scenario //
         //
-        // a missed block happens but the validator is not monitored
+        // A missed block happens but the validator is not monitored
         // it should not be flagged as a missed block
         idx = initial_blocks + (advance_slot_by) - 7;
         slot = Slot::new(idx);
@@ -232,7 +232,7 @@ async fn produces_missed_blocks() {
 
     // 4th scenario //
     //
-    // a missed block happens but it happens but it's happening at state.slot - LOG_SLOTS_PER_EPOCH
+    // A missed block happens at state.slot - LOG_SLOTS_PER_EPOCH
     // it shouldn't be flagged as a missed block
     let harness3 = get_harness(validator_count, vec![validator_index_to_monitor]);
     harness3
