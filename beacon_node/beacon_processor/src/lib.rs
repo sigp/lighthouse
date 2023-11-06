@@ -1457,10 +1457,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 task_spawner.spawn_async(process_fn)
             }
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
-            Work::GossipBlock(work) | Work::GossipBlobSidecar(work) => task_spawner
-                .spawn_async(async move {
+            Work::GossipBlock(work) | Work::GossipBlobSidecar(work) => {
+                task_spawner.spawn_async(async move {
                     work.await;
-                }),
+                })
+            }
             Work::BlobsByRangeRequest(process_fn) | Work::BlobsByRootsRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }

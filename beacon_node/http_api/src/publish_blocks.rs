@@ -19,8 +19,8 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
-    ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock, BlobSidecarList
+    AbstractExecPayload, BeaconBlockRef, BlindedPayload, BlobSidecarList, EthSpec, ExecPayload,
+    ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
