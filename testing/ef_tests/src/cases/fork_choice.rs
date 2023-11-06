@@ -20,7 +20,7 @@ use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
     EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
-    ProgressiveBalancesMode, Signature, SignedBeaconBlock, Slot, Uint256,
+    ProgressiveBalancesMode, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -433,19 +433,17 @@ impl<E: EthSpec> Tester<E> {
                 .enumerate()
             {
                 let blob_sidecar = Arc::new(BlobSidecar {
-                    block_root,
                     index: i as u64,
-                    slot: block.slot(),
-                    block_parent_root: block.parent_root(),
-                    proposer_index: block.message().proposer_index(),
                     blob,
                     kzg_commitment,
                     kzg_proof,
+                    signed_block_header: block.signed_block_header(),
+                    kzg_commitment_inclusion_proof: block.kzg_commitment_merkle_proof(i).unwrap(),
                 });
                 let result = self.block_on_dangerous(
                     self.harness
                         .chain
-                        .process_gossip_blob(GossipVerifiedBlob::__assumed_valid(signed_sidecar)),
+                        .process_gossip_blob(GossipVerifiedBlob::__assumed_valid(blob_sidecar)),
                 )?;
                 if valid {
                     assert!(result.is_ok());
