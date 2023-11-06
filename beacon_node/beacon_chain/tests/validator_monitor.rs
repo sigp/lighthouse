@@ -18,7 +18,7 @@ type E = MainnetEthSpec;
 
 fn get_harness(
     validator_count: usize,
-    validator_index_to_monitor: usize,
+    validator_indexex_to_monitor: Vec<usize>,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
@@ -26,9 +26,10 @@ fn get_harness(
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .validator_monitor_config(ValidatorMonitorConfig {
-            validators: vec![PublicKeyBytes::from(
-                KEYPAIRS[validator_index_to_monitor].pk.clone(),
-            )],
+            validators: validator_indexex_to_monitor
+                .iter()
+                .map(|i| PublicKeyBytes::from(KEYPAIRS[*i].pk.clone()))
+                .collect(),
             ..<_>::default()
         })
         .build();
@@ -42,7 +43,7 @@ fn get_harness(
 async fn produces_missed_blocks() {
     let validator_count = 16;
 
-    let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+    let slots_per_epoch = E::slots_per_epoch();
 
     let nb_epoch_to_simulate = Epoch::new(2);
 
@@ -55,7 +56,7 @@ async fn produces_missed_blocks() {
     // 1st scenario //
     //
     // missed block happens when slot and prev_slot are in the same epoch
-    let harness1 = get_harness(validator_count, validator_index_to_monitor);
+    let harness1 = get_harness(validator_count, vec![validator_index_to_monitor]);
     harness1
         .extend_chain(
             initial_blocks as usize,
@@ -124,7 +125,25 @@ async fn produces_missed_blocks() {
     // making sure that the cache reloads when the epoch changes
     // in that scenario the slot that missed a block is the first slot of the epoch
     validator_index_to_monitor = 7;
-    let harness2 = get_harness(validator_count, validator_index_to_monitor);
+    // We are adding other validators to monitor as thoses one will miss a block depending on
+    // the fork name specified when running the test as the proposer cache differs depending on the fork name (cf. seed)
+    let validator_index_to_monitor_altair = 2;
+    // Same as above but for the merge upgrade
+    let validator_index_to_monitor_merge = 4;
+    // Same as above but for the capella upgrade
+    let validator_index_to_monitor_capella = 11;
+    // Same as above but for the deneb upgrade
+    let validator_index_to_monitor_deneb = 3;
+    let harness2 = get_harness(
+        validator_count,
+        vec![
+            validator_index_to_monitor,
+            validator_index_to_monitor_altair,
+            validator_index_to_monitor_merge,
+            validator_index_to_monitor_capella,
+            validator_index_to_monitor_deneb,
+        ],
+    );
     let advance_slot_by = 9;
     harness2
         .extend_chain(
@@ -175,7 +194,6 @@ async fn produces_missed_blocks() {
         // adding the missed blocks to the validator monitor
         let mut validator_monitor2 = harness2.chain.validator_monitor.write();
         validator_monitor2.process_valid_state(epoch, _state2);
-
         // We should have one entry in the missed blocks map
         assert_eq!(
             validator_monitor2.get_monitored_validator_missed_block_count(validator_index as u64),
@@ -216,7 +234,7 @@ async fn produces_missed_blocks() {
     //
     // a missed block happens but it happens but it's happening at state.slot - LOG_SLOTS_PER_EPOCH
     // it shouldn't be flagged as a missed block
-    let harness3 = get_harness(validator_count, validator_index_to_monitor);
+    let harness3 = get_harness(validator_count, vec![validator_index_to_monitor]);
     harness3
         .extend_chain(
             slots_per_epoch as usize,
