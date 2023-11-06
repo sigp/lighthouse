@@ -492,7 +492,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
             .await?;
 
-        let (block, maybe_blob_sidecars) = block_contents.deconstruct();
+        let (block, blob_items) = block_contents.deconstruct();
         let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
 
         let signed_block = match self_ref
@@ -521,36 +521,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             }
         };
 
-        let maybe_signed_blobs = match maybe_blob_sidecars {
-            Some(blob_sidecars) => {
-                match self_ref
-                    .validator_store
-                    .sign_blobs::<Payload>(*validator_pubkey_ref, blob_sidecars)
-                    .await
-                {
-                    Ok(signed_blobs) => Some(signed_blobs),
-                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
-                        // A pubkey can be missing when a validator was recently removed
-                        // via the API.
-                        warn!(
-                            log,
-                            "Missing pubkey for blobs";
-                            "info" => "a validator may have recently been removed from this VC",
-                            "pubkey" => ?pubkey,
-                            "slot" => ?slot
-                        );
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        return Err(BlockError::Recoverable(format!(
-                            "Unable to sign blobs: {:?}",
-                            e
-                        )))
-                    }
-                }
-            }
-            None => None,
-        };
         let signing_time_ms =
             Duration::from_secs_f64(signing_timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
 
@@ -561,7 +531,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "signing_time_ms" => signing_time_ms,
         );
 
-        let signed_block_contents = SignedBlockContents::from((signed_block, maybe_signed_blobs));
+        let signed_block_contents = SignedBlockContents::from((signed_block, blob_items));
 
         // Publish block with first available beacon node.
         //
