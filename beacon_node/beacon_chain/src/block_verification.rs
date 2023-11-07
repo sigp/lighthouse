@@ -700,14 +700,15 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
         let (block, blob_items) = self.deconstruct();
-        let expected_kzg_commitments =
-            block.message().body().blob_kzg_commitments().map_err(|e| {
-                BlockContentsError::BlockError(BlockError::BeaconChainError(
-                    BeaconChainError::BeaconStateError(e),
-                ))
-            })?;
+
         let gossip_verified_blobs = blob_items
             .map(|(kzg_proofs, blobs)| {
+                let expected_kzg_commitments =
+                    block.message().body().blob_kzg_commitments().map_err(|e| {
+                        BlockContentsError::BlockError(BlockError::BeaconChainError(
+                            BeaconChainError::BeaconStateError(e),
+                        ))
+                    })?;
                 let sidecars = BlobSidecar::build_sidecar(
                     blobs,
                     &block,

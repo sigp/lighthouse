@@ -111,14 +111,15 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     // We can clone this because the blobs are `Arc`'d in `BlockContents`, but the block is not,
     // so we avoid cloning the block at this point.
     let blobs_opt = block_contents.inner_blobs();
-
+    dbg!("reached here");
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
     let (gossip_verified_block, gossip_verified_blobs) =
         match block_contents.into_gossip_verified_block(&chain) {
             Ok(b) => b,
             Err(BlockContentsError::BlockError(BlockError::BlockIsAlreadyKnown)) => {
                 // Allow the status code for duplicate blocks to be overridden based on config.
-                return Ok(warp::reply::with_status(
+    dbg!("reached here");
+    return Ok(warp::reply::with_status(
                     warp::reply::json(&ErrorMessage {
                         code: duplicate_status_code.as_u16(),
                         message: "duplicate block".to_string(),
@@ -135,13 +136,15 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                     "slot" => slot,
                     "error" => ?e
                 );
-                return Err(warp_utils::reject::custom_bad_request(e.to_string()));
+    dbg!("reached here");
+    return Err(warp_utils::reject::custom_bad_request(e.to_string()));
             }
         };
 
     // Clone here, so we can take advantage of the `Arc`. The block in `BlockContents` is not,
     // `Arc`'d but blobs are.
     let block = gossip_verified_block.block.block_cloned();
+    dbg!("reached here");
 
     let block_root = block_root.unwrap_or(gossip_verified_block.block_root);
 
@@ -192,6 +195,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             }
         }
     };
+    dbg!("reached here");
 
     if let Some(gossip_verified_blobs) = gossip_verified_blobs {
         for blob in gossip_verified_blobs {
@@ -210,6 +214,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             }
         }
     }
+    dbg!("reached here");
 
     match chain
         .process_block(
@@ -229,6 +234,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                 "proposer_index" => proposer_index,
                 "slot" =>slot,
             );
+            dbg!("reached here");
 
             // Notify the validator monitor.
             chain.validator_monitor.read().register_api_block(
@@ -237,6 +243,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                 root,
                 &chain.slot_clock,
             );
+            dbg!("reached here");
 
             // Update the head since it's likely this block will become the new
             // head.

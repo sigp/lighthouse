@@ -1789,21 +1789,25 @@ impl<T: EthSpec> SignedBlockContents<T, BlindedPayload<T>> {
                 "BlockAndBlobSidecars variant not expected when constructing full block"
                     .to_string(),
             ),
-            SignedBlockContents::Block(blinded_block) => {
+            SignedBlockContents::Block(block) => {
                 match maybe_full_payload_contents {
+                    // This implies a pre-merge blinded block
                     None => {
-                        Err("Can't build full block contents without payload and blobs".to_string())
+                        let full_block = block
+                            .try_into_full_block(None)
+                            .ok_or("Failed to build pre-merge block")?;
+                        Ok(SignedBlockContents::new(full_block, None))
                     }
-                    // This variant implies a pre-deneb block
+                    // This variant implies a pre-deneb and post-merge block
                     Some(FullPayloadContents::Payload(execution_payload)) => {
-                        let signed_block = blinded_block
+                        let signed_block = block
                             .try_into_full_block(Some(execution_payload))
                             .ok_or("Failed to build full block with payload".to_string())?;
                         Ok(SignedBlockContents::new(signed_block, None))
                     }
                     // This variant implies a post-deneb block
                     Some(FullPayloadContents::PayloadAndBlobs(payload_and_blobs)) => {
-                        let signed_block = blinded_block
+                        let signed_block = block
                             .try_into_full_block(Some(payload_and_blobs.execution_payload))
                             .ok_or("Failed to build full block with payload".to_string())?;
 
