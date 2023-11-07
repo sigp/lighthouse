@@ -492,14 +492,6 @@ fn run_execution_endpoints_overrides_eth1_endpoints_test(eth1_flag: &str, execut
         });
 }
 #[test]
-fn execution_endpoints_overrides_eth1_endpoints() {
-    run_execution_endpoints_overrides_eth1_endpoints_test("eth1-endpoints", "execution-endpoints");
-}
-#[test]
-fn execution_endpoint_overrides_eth1_endpoint() {
-    run_execution_endpoints_overrides_eth1_endpoints_test("eth1-endpoint", "execution-endpoint");
-}
-#[test]
 fn merge_jwt_secrets_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
