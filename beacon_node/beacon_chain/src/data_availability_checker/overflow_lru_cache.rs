@@ -755,7 +755,7 @@ mod test {
     use std::ops::AddAssign;
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
     use tempfile::{tempdir, TempDir};
-    use types::{ChainSpec, ExecPayload, MinimalEthSpec};
+    use types::{ChainSpec, ExecPayload, MinimalEthSpec, Sidecar};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 
@@ -920,12 +920,23 @@ mod test {
         }
         info!(log, "done printing kzg commitments");
 
-        let gossip_verified_blobs = if let Some(blobs) = maybe_blobs {
-            Vec::from(blobs)
+        let gossip_verified_blobs = if let Some((kzg_proofs, blobs)) = maybe_blobs {
+            let sidecars = BlobSidecar::build_sidecar(
+                blobs,
+                &block,
+                block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .expect("should be deneb fork"),
+                kzg_proofs.into(),
+            )
+            .unwrap();
+            Vec::from(sidecars)
                 .into_iter()
-                .map(|signed_blob| {
-                    let subnet = signed_blob.message.index;
-                    validate_blob_sidecar_for_gossip(signed_blob, subnet, &harness.chain)
+                .map(|sidecar| {
+                    let subnet = sidecar.index;
+                    validate_blob_sidecar_for_gossip(sidecar, subnet, &harness.chain)
                         .expect("should validate blob")
                 })
                 .collect()
@@ -1038,7 +1049,7 @@ mod test {
             .expect("kzg should exist");
         let mut kzg_verified_blobs = Vec::new();
         for (blob_index, gossip_blob) in blobs.into_iter().enumerate() {
-            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
+            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.into_inner(), kzg.as_ref())
                 .expect("kzg should verify");
             kzg_verified_blobs.push(kzg_verified_blob);
             let availability = cache
@@ -1066,7 +1077,7 @@ mod test {
         let root = pending_block.import_data.block_root;
         let mut kzg_verified_blobs = vec![];
         for gossip_blob in blobs {
-            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
+            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.into_inner(), kzg.as_ref())
                 .expect("kzg should verify");
             kzg_verified_blobs.push(kzg_verified_blob);
             let availability = cache
@@ -1203,7 +1214,7 @@ mod test {
         let expected_blobs = blobs_0.len();
         let mut kzg_verified_blobs = vec![];
         for (blob_index, gossip_blob) in blobs_0.into_iter().enumerate() {
-            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
+            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.into_inner(), kzg.as_ref())
                 .expect("kzg should verify");
             kzg_verified_blobs.push(kzg_verified_blob);
             let availability = cache
@@ -1289,7 +1300,7 @@ mod test {
                 let one_blob = pending_block_blobs
                     .pop()
                     .expect("should have at least one blob");
-                let kzg_verified_blob = verify_kzg_for_blob(one_blob.to_blob(), kzg.as_ref())
+                let kzg_verified_blob = verify_kzg_for_blob(one_blob.into_inner(), kzg.as_ref())
                     .expect("kzg should verify");
                 let kzg_verified_blobs = vec![kzg_verified_blob];
                 // generate random boolean
@@ -1430,7 +1441,7 @@ mod test {
                 let one_blob = pending_block_blobs
                     .pop()
                     .expect("should have at least one blob");
-                let kzg_verified_blob = verify_kzg_for_blob(one_blob.to_blob(), kzg.as_ref())
+                let kzg_verified_blob = verify_kzg_for_blob(one_blob.into_inner(), kzg.as_ref())
                     .expect("kzg should verify");
                 let kzg_verified_blobs = vec![kzg_verified_blob];
                 // generate random boolean
@@ -1545,7 +1556,7 @@ mod test {
             let additional_blobs = blobs.len();
             let mut kzg_verified_blobs = vec![];
             for (i, gossip_blob) in blobs.into_iter().enumerate() {
-                let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
+                let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.into_inner(), kzg.as_ref())
                     .expect("kzg should verify");
                 kzg_verified_blobs.push(kzg_verified_blob);
                 let availability = recovered_cache

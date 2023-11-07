@@ -1395,7 +1395,6 @@ pub enum ForkVersionedBeaconBlockType<T: EthSpec> {
 mod tests {
     use super::*;
     use ssz::Encode;
-    use std::sync::Arc;
 
     #[test]
     fn query_vec() {
@@ -1458,12 +1457,9 @@ mod tests {
             BeaconBlock::<E>::Deneb(BeaconBlockDeneb::empty(&spec)),
             Signature::empty(),
         );
-        let blobs = SignedSidecarList::from(vec![SignedSidecar {
-            message: Arc::new(BlobSidecar::empty()),
-            signature: Signature::empty(),
-            _phantom: Default::default(),
-        }]);
-        let signed_block_contents = SignedBlockContents::new(block, Some(blobs));
+        let blobs = BlobsList::<E>::from(vec![Blob::<E>::default()]);
+        let kzg_proofs = KzgProofs::<E>::from(vec![KzgProof::empty()]);
+        let signed_block_contents = SignedBlockContents::new(block, Some((kzg_proofs, blobs)));
 
         let decoded: SignedBlockContents<E, FullPayload<E>> =
             SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
@@ -1487,17 +1483,12 @@ mod tests {
             BeaconBlock::<E, BlindedPayload<E>>::Deneb(BeaconBlockDeneb::empty(&spec)),
             Signature::empty(),
         );
-        let blinded_blobs = SignedSidecarList::from(vec![SignedSidecar {
-            message: Arc::new(BlindedBlobSidecar::empty()),
-            signature: Signature::empty(),
-            _phantom: Default::default(),
-        }]);
-        let signed_block_contents = SignedBlockContents::new(blinded_block, Some(blinded_blobs));
+        let signed_block_contents = SignedBlockContents::new(blinded_block, None);
 
         let decoded: SignedBlockContents<E, BlindedPayload<E>> =
             SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
                 .expect("should decode BlindedBlock");
-        assert!(matches!(decoded, SignedBlockContents::BlindedBlock(_)));
+        assert!(matches!(decoded, SignedBlockContents::Block(_)));
     }
 }
 
@@ -1836,18 +1827,11 @@ impl<T: EthSpec> SignedBlockContents<T, BlindedPayload<T>> {
     }
 }
 
-// impl<T: EthSpec> SignedBlockContents<T> {
-//     pub fn clone_as_blinded(&self) -> SignedBlindedBlockContents<T> {
-//         let blinded_blobs = self.blobs_cloned().map(|blob_sidecars| {
-//             blob_sidecars
-//                 .into_iter()
-//                 .map(|blob| Arc::new(blob.into()))
-//                 .collect::<Vec<_>>()
-//                 .into()
-//         });
-//         SignedBlockContents::new(self.signed_block().clone_as_blinded(), blinded_blobs)
-//     }
-// }
+impl<T: EthSpec> SignedBlockContents<T> {
+    pub fn clone_as_blinded(&self) -> SignedBlindedBlockContents<T> {
+        SignedBlockContents::new(self.signed_block().clone_as_blinded(), None)
+    }
+}
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> TryFrom<SignedBeaconBlock<T, Payload>>
     for SignedBlockContents<T, Payload>

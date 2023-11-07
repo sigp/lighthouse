@@ -86,8 +86,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             }
             SignedBeaconBlock::Deneb(_) => {
                 let mut pubsub_messages = vec![PubsubMessage::BeaconBlock(block.clone())];
-                if let Some(signed_blobs) = blobs_opt {
-                    for (blob_index, blob) in signed_blobs.into_iter().enumerate() {
+                if let Some(blob_sidecars) = blobs_opt {
+                    for (blob_index, blob) in blob_sidecars.into_iter().enumerate() {
                         pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((
                             blob_index as u64,
                             blob,

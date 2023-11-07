@@ -641,13 +641,9 @@ pub async fn proposer_boost_re_org_test(
         assert_eq!(block_c.parent_root(), block_b_root);
     }
 
-    // Sign blobs.
-    let block_c_signed_blobs =
-        block_c_blobs.map(|blobs| harness.sign_blobs(blobs, &state_b, proposer_index));
-
     // Applying block C should cause it to become head regardless (re-org or continuation).
     let block_root_c = harness
-        .process_block_result((block_c.clone(), block_c_signed_blobs))
+        .process_block_result((block_c.clone(), block_c_blobs))
         .await
         .unwrap()
         .into();

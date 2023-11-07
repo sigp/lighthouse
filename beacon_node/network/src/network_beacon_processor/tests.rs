@@ -1,4 +1,4 @@
-#![cfg(not(debug_assertions))] // Tests are too slow in debug.
+// #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
 use crate::network_beacon_processor::DELAYED_PEER_CACHE_SIZE;
@@ -33,9 +33,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, Epoch, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot,
-    SubnetId,
+    Attestation, AttesterSlashing, BlobSidecar, BlobSidecarList, Epoch, Hash256, MainnetEthSpec,
+    ProposerSlashing, Sidecar, SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit,
+    Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -55,7 +55,7 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
-    next_blobs: Option<SignedBlobSidecarList<E>>,
+    next_blobs: Option<BlobSidecarList<E>>,
     attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
@@ -244,11 +244,24 @@ impl TestRig {
         );
 
         assert!(!beacon_processor.is_err());
-
+        let block = next_block_tuple.0;
+        let blob_sidecars = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
+            Some(
+                BlobSidecar::build_sidecar(
+                    blobs,
+                    &block,
+                    block.message().body().blob_kzg_commitments().unwrap(),
+                    kzg_proofs.into(),
+                )
+                .unwrap(),
+            )
+        } else {
+            None
+        };
         Self {
             chain,
-            next_block: Arc::new(next_block_tuple.0),
-            next_blobs: next_block_tuple.1,
+            next_block: Arc::new(block),
+            next_blobs: blob_sidecars,
             attestations,
             next_block_attestations,
             next_block_aggregate_attestations,
@@ -293,7 +306,7 @@ impl TestRig {
                     junk_message_id(),
                     junk_peer_id(),
                     Client::default(),
-                    blob.message.index,
+                    blob.index,
                     blob.clone(),
                     Duration::from_secs(0),
                 )
@@ -328,12 +341,8 @@ impl TestRig {
     }
     pub fn enqueue_single_lookup_rpc_blobs(&self) {
         if let Some(blobs) = self.next_blobs.clone() {
-            let blobs = FixedBlobSidecarList::from(
-                blobs
-                    .into_iter()
-                    .map(|b| Some(b.message))
-                    .collect::<Vec<_>>(),
-            );
+            let blobs =
+                FixedBlobSidecarList::from(blobs.into_iter().map(|b| Some(b)).collect::<Vec<_>>());
             self.network_beacon_processor
                 .send_rpc_blobs(
                     self.next_block.canonical_root(),

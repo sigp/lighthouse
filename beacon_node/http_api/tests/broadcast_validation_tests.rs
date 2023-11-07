@@ -10,10 +10,7 @@ use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use std::sync::Arc;
 use tree_hash::TreeHash;
-use types::{
-    BlindedBlobSidecar, BlindedPayload, BlobSidecar, FullPayload, Hash256, MainnetEthSpec,
-    SignedSidecarList, Slot,
-};
+use types::{BlindedPayload, FullPayload, Hash256, MainnetEthSpec, Slot};
 use warp::Rejection;
 use warp_utils::reject::CustomBadRequest;
 
@@ -1404,16 +1401,7 @@ pub async fn blinded_equivocation_full_pass() {
 fn into_signed_blinded_block_contents(
     block_contents_tuple: SignedBlockContentsTuple<E, FullPayload<E>>,
 ) -> SignedBlockContents<E, BlindedPayload<E>> {
-    let (block, maybe_blobs) = block_contents_tuple;
-    SignedBlockContents::new(block.into(), maybe_blobs.map(into_blinded_blob_sidecars))
-}
-
-fn into_blinded_blob_sidecars(
-    blobs: SignedSidecarList<E, BlobSidecar<E>>,
-) -> SignedSidecarList<E, BlindedBlobSidecar> {
-    blobs
-        .into_iter()
-        .map(|blob| blob.into())
-        .collect::<Vec<_>>()
-        .into()
+    let (block, blob_items) = block_contents_tuple;
+    // TODO(pawan): recheck if we want to keep the BlobsRootList for the blinded variant
+    SignedBlockContents::new(block.into(), None)
 }
