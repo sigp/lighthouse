@@ -870,11 +870,10 @@ pub async fn blinded_gossip_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_contents_tuple, _) = tester.harness.make_blinded_block(state_a, slot_b).await;
-    let block_contents = block_contents_tuple.into();
+    let (blinded_block, _) = tester.harness.make_blinded_block(state_a, slot_b).await;
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blinded_blocks_v2(&block_contents, validation_level)
+        .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
 
     assert!(response.is_ok());
@@ -912,12 +911,11 @@ pub async fn blinded_gossip_full_pass_ssz() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_contents_tuple, _) = tester.harness.make_blinded_block(state_a, slot_b).await;
-    let block_contents = block_contents_tuple.into();
+    let (blinded_block, _) = tester.harness.make_blinded_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blinded_blocks_v2_ssz(&block_contents, validation_level)
+        .post_beacon_blinded_blocks_v2_ssz(&blinded_block, validation_level)
         .await;
 
     assert!(response.is_ok());
@@ -1060,19 +1058,18 @@ pub async fn blinded_consensus_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_contents_tuple, _) = tester.harness.make_blinded_block(state_a, slot_b).await;
+    let (blinded_block, _) = tester.harness.make_blinded_block(state_a, slot_b).await;
 
-    let block_contents = block_contents_tuple.into();
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blinded_blocks_v2(&block_contents, validation_level)
+        .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
 
     assert!(response.is_ok());
     assert!(tester
         .harness
         .chain
-        .block_is_known_to_fork_choice(&block_contents.signed_block().canonical_root()));
+        .block_is_known_to_fork_choice(&blinded_block.signed_block().canonical_root()));
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus_and_equivocation`.
@@ -1159,18 +1156,13 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_contents_tuple_a, state_after_a) = tester
+    let (block_a, state_after_a) = tester
         .harness
         .make_blinded_block(state_a.clone(), slot_b)
         .await;
-    let (block_contents_tuple_b, state_after_b) =
-        tester.harness.make_blinded_block(state_a, slot_b).await;
+    let (block_b, state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
 
     /* check for `make_blinded_block` curios */
-    let block_contents_a: SignedBlockContents<E, BlindedPayload<E>> = block_contents_tuple_a.into();
-    let block_contents_b: SignedBlockContents<E, BlindedPayload<E>> = block_contents_tuple_b.into();
-    let block_a = block_contents_a.signed_block();
-    let block_b = block_contents_b.signed_block();
     assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
     assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
     assert_ne!(block_a.state_root(), block_b.state_root());

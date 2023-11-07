@@ -14,8 +14,6 @@ use std::str::{from_utf8, FromStr};
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
-use types::builder_bid::BlindedBlobsBundle;
-use types::sidecar::BlobItems;
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -1386,118 +1384,134 @@ pub mod serde_status_code {
     }
 }
 
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use ssz::Encode;
+//     use std::sync::Arc;
+
+//     #[test]
+//     fn query_vec() {
+//         assert_eq!(
+//             QueryVec::try_from("0,1,2".to_string()).unwrap(),
+//             QueryVec {
+//                 values: vec![0_u64, 1, 2]
+//             }
+//         );
+//     }
+
+//     #[test]
+//     fn parse_accept_header_content() {
+//         assert_eq!(
+//             Accept::from_str("application/json; charset=utf-8").unwrap(),
+//             Accept::Json
+//         );
+
+//         assert_eq!(
+//             Accept::from_str("text/plain,application/octet-stream;q=0.3,application/json;q=0.9")
+//                 .unwrap(),
+//             Accept::Json
+//         );
+
+//         assert_eq!(
+//             Accept::from_str("text/plain"),
+//             Err("accept header is not supported".to_string())
+//         );
+
+//         assert_eq!(
+//             Accept::from_str("application/json;message=\"Hello, world!\";q=0.3,*/*;q=0.6").unwrap(),
+//             Accept::Any
+//         );
+//     }
+
+//     #[test]
+//     fn ssz_signed_block_contents_pre_deneb() {
+//         type E = MainnetEthSpec;
+//         let spec = ForkName::Capella.make_genesis_spec(E::default_spec());
+
+//         let block: SignedBlockContents<E, FullPayload<E>> = SignedBeaconBlock::from_block(
+//             BeaconBlock::<E>::Capella(BeaconBlockCapella::empty(&spec)),
+//             Signature::empty(),
+//         )
+//         .try_into()
+//         .expect("should convert into signed block contents");
+
+//         let decoded: SignedBlockContents<E> =
+//             SignedBlockContents::from_ssz_bytes(&block.as_ssz_bytes(), &spec)
+//                 .expect("should decode Block");
+//         assert!(matches!(decoded, SignedBlockContents::Block(_)));
+//     }
+
+//     #[test]
+//     fn ssz_signed_block_contents_with_blobs() {
+//         type E = MainnetEthSpec;
+//         let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
+
+//         let block = SignedBeaconBlock::from_block(
+//             BeaconBlock::<E>::Deneb(BeaconBlockDeneb::empty(&spec)),
+//             Signature::empty(),
+//         );
+//         let blobs = SignedSidecarList::from(vec![SignedSidecar {
+//             message: Arc::new(BlobSidecar::empty()),
+//             signature: Signature::empty(),
+//             _phantom: Default::default(),
+//         }]);
+//         let signed_block_contents = SignedBlockContents::new(block, Some(blobs));
+
+//         let decoded: SignedBlockContents<E, FullPayload<E>> =
+//             SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
+//                 .expect("should decode BlockAndBlobSidecars");
+//         assert!(matches!(
+//             decoded,
+//             SignedBlockContents::BlockAndBlobSidecars(_)
+//         ));
+//     }
+
+//     #[test]
+//     fn ssz_signed_blinded_block_contents_with_blobs() {
+//         type E = MainnetEthSpec;
+//         let mut spec = E::default_spec();
+//         spec.altair_fork_epoch = Some(Epoch::new(0));
+//         spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+//         spec.capella_fork_epoch = Some(Epoch::new(0));
+//         spec.deneb_fork_epoch = Some(Epoch::new(0));
+
+//         let blinded_block = SignedBeaconBlock::from_block(
+//             BeaconBlock::<E, BlindedPayload<E>>::Deneb(BeaconBlockDeneb::empty(&spec)),
+//             Signature::empty(),
+//         );
+//         let blinded_blobs = SignedSidecarList::from(vec![SignedSidecar {
+//             message: Arc::new(BlindedBlobSidecar::empty()),
+//             signature: Signature::empty(),
+//             _phantom: Default::default(),
+//         }]);
+//         let signed_block_contents = SignedBlockContents::new(blinded_block, Some(blinded_blobs));
+
+//         let decoded: SignedBlockContents<E, BlindedPayload<E>> =
+//             SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
+//                 .expect("should decode BlindedBlock");
+//         assert!(matches!(decoded, SignedBlockContents::BlindedBlock(_)));
+//     }
+// }
+
 pub enum ForkVersionedBeaconBlockType<T: EthSpec> {
-    Full(ForkVersionedResponse<BlockContents<T, FullPayload<T>>>),
-    Blinded(ForkVersionedResponse<BlockContents<T, BlindedPayload<T>>>),
+    Full(ForkVersionedResponse<BlockContents<T>>),
+    Blinded(ForkVersionedResponse<BlindedBeaconBlock<T>>),
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ssz::Encode;
-    use std::sync::Arc;
+#[derive(Debug, Encode, Serialize, Deserialize)]
+#[serde(untagged)]
+#[serde(bound = "E: EthSpec")]
+#[ssz(enum_behaviour = "transparent")]
+pub enum BlockContentsWrapper<E: EthSpec> {
+    Full(BlockContents<E>),
+    Blinded(BlindedBeaconBlock<E>),
+}
 
-    #[test]
-    fn query_vec() {
-        assert_eq!(
-            QueryVec::try_from("0,1,2".to_string()).unwrap(),
-            QueryVec {
-                values: vec![0_u64, 1, 2]
-            }
-        );
-    }
-
-    #[test]
-    fn parse_accept_header_content() {
-        assert_eq!(
-            Accept::from_str("application/json; charset=utf-8").unwrap(),
-            Accept::Json
-        );
-
-        assert_eq!(
-            Accept::from_str("text/plain,application/octet-stream;q=0.3,application/json;q=0.9")
-                .unwrap(),
-            Accept::Json
-        );
-
-        assert_eq!(
-            Accept::from_str("text/plain"),
-            Err("accept header is not supported".to_string())
-        );
-
-        assert_eq!(
-            Accept::from_str("application/json;message=\"Hello, world!\";q=0.3,*/*;q=0.6").unwrap(),
-            Accept::Any
-        );
-    }
-
-    #[test]
-    fn ssz_signed_block_contents_pre_deneb() {
-        type E = MainnetEthSpec;
-        let spec = ForkName::Capella.make_genesis_spec(E::default_spec());
-
-        let block: SignedBlockContents<E, FullPayload<E>> = SignedBeaconBlock::from_block(
-            BeaconBlock::<E>::Capella(BeaconBlockCapella::empty(&spec)),
-            Signature::empty(),
-        )
-        .try_into()
-        .expect("should convert into signed block contents");
-
-        let decoded: SignedBlockContents<E> =
-            SignedBlockContents::from_ssz_bytes(&block.as_ssz_bytes(), &spec)
-                .expect("should decode Block");
-        assert!(matches!(decoded, SignedBlockContents::Block(_)));
-    }
-
-    #[test]
-    fn ssz_signed_block_contents_with_blobs() {
-        type E = MainnetEthSpec;
-        let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
-
-        let block = SignedBeaconBlock::from_block(
-            BeaconBlock::<E>::Deneb(BeaconBlockDeneb::empty(&spec)),
-            Signature::empty(),
-        );
-        let blobs = SignedSidecarList::from(vec![SignedSidecar {
-            message: Arc::new(BlobSidecar::empty()),
-            signature: Signature::empty(),
-            _phantom: Default::default(),
-        }]);
-        let signed_block_contents = SignedBlockContents::new(block, Some(blobs));
-
-        let decoded: SignedBlockContents<E, FullPayload<E>> =
-            SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
-                .expect("should decode BlockAndBlobSidecars");
-        assert!(matches!(
-            decoded,
-            SignedBlockContents::BlockAndBlobSidecars(_)
-        ));
-    }
-
-    #[test]
-    fn ssz_signed_blinded_block_contents_with_blobs() {
-        type E = MainnetEthSpec;
-        let mut spec = E::default_spec();
-        spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-        spec.capella_fork_epoch = Some(Epoch::new(0));
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-
-        let blinded_block = SignedBeaconBlock::from_block(
-            BeaconBlock::<E, BlindedPayload<E>>::Deneb(BeaconBlockDeneb::empty(&spec)),
-            Signature::empty(),
-        );
-        let blinded_blobs = SignedSidecarList::from(vec![SignedSidecar {
-            message: Arc::new(BlindedBlobSidecar::empty()),
-            signature: Signature::empty(),
-            _phantom: Default::default(),
-        }]);
-        let signed_block_contents = SignedBlockContents::new(blinded_block, Some(blinded_blobs));
-
-        let decoded: SignedBlockContents<E, BlindedPayload<E>> =
-            SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
-                .expect("should decode BlindedBlock");
-        assert!(matches!(decoded, SignedBlockContents::BlindedBlock(_)));
+impl<T: EthSpec> BlockContentsWrapper<T> {
+    /// SSZ decode with fork variant determined by slot.
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+        todo!()
     }
 }
 
@@ -1506,39 +1520,24 @@ mod tests {
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
-pub enum BlockContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
-    /// This is a full deneb variant with blobs.
-    BlockAndBlobSidecars(BeaconBlockAndBlobSidecars<T, Payload>),
-    /// This variant is for all pre-deneb blinded and unblinded and deneb blinded.
-    Block(BeaconBlock<T, Payload>),
+pub enum BlockContents<T: EthSpec> {
+    /// This is a full deneb variant with block and blobs.
+    BlockAndBlobSidecars(BeaconBlockAndBlobSidecars<T>),
+    /// This variant is for all pre-deneb full blocks.
+    Block(BeaconBlock<T>),
 }
 
-pub type BlockContentsTuple<T, Payload> = (
-    BeaconBlock<T, Payload>,
-    Option<(
-        KzgProofs<T>,
-        <<Payload as AbstractExecPayload<T>>::Sidecar as Sidecar<T>>::BlobItems,
-    )>,
-);
+pub type BlockContentsTuple<T> = (BeaconBlock<T>, Option<(KzgProofs<T>, BlobsList<T>)>);
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
-    pub fn new(
-        block: BeaconBlock<T, Payload>,
-        blob_data: Option<(KzgProofs<T>, <Payload::Sidecar as Sidecar<T>>::BlobItems)>,
-    ) -> Self {
-        match (Payload::block_type(), blob_data) {
-            (BlockType::Full, Some((kzg_proofs, blobs))) => {
-                Self::BlockAndBlobSidecars(BeaconBlockAndBlobSidecars {
-                    block,
-                    kzg_proofs,
-                    blobs,
-                })
-            }
-            // Blinded blocks with blobs do not make sense as a variant
-            // TODO(pawan): return an error or rethink this
-            // just dropping the blobs for now
-            (BlockType::Blinded, Some(_blobs)) => Self::Block(block),
-            (_, None) => Self::Block(block),
+impl<T: EthSpec> BlockContents<T> {
+    pub fn new(block: BeaconBlock<T>, blob_data: Option<(KzgProofs<T>, BlobsList<T>)>) -> Self {
+        match blob_data {
+            Some((kzg_proofs, blobs)) => Self::BlockAndBlobSidecars(BeaconBlockAndBlobSidecars {
+                block,
+                kzg_proofs,
+                blobs,
+            }),
+            None => Self::Block(block),
         }
     }
 
@@ -1559,41 +1558,36 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                 BeaconBlock::from_ssz_bytes(bytes, spec).map(|block| BlockContents::Block(block))
             }
-            ForkName::Deneb => match Payload::block_type() {
-                BlockType::Blinded => BeaconBlock::from_ssz_bytes(bytes, spec)
-                    .map(|block| BlockContents::Block(block)),
-                BlockType::Full => {
-                    // The `Full`` variant **must** contains blobs and proofs
-                    let mut builder = ssz::SszDecoderBuilder::new(bytes);
+            ForkName::Deneb => {
+                let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
-                    // TODO(pawan): potential bug
-                    builder.register_anonymous_variable_length_item()?;
-                    builder.register_type::<KzgProofs<T>>()?;
+                // TODO(pawan): potential bug
+                builder.register_anonymous_variable_length_item()?;
+                builder.register_type::<KzgProofs<T>>()?;
 
-                    builder.register_anonymous_variable_length_item()?;
-                    builder.register_type::<BlobsList<T>>()?;
+                builder.register_anonymous_variable_length_item()?;
+                builder.register_type::<BlobsList<T>>()?;
 
-                    let mut decoder = builder.build()?;
-                    let block = decoder
-                        .decode_next_with(|bytes| BeaconBlock::from_ssz_bytes(bytes, spec))?;
-                    let kzg_proofs =
-                        decoder.decode_next_with(|bytes| KzgProofs::<T>::from_ssz_bytes(bytes))?;
-                    let blobs = decoder.decode_next()?;
+                let mut decoder = builder.build()?;
+                let block =
+                    decoder.decode_next_with(|bytes| BeaconBlock::from_ssz_bytes(bytes, spec))?;
+                let kzg_proofs =
+                    decoder.decode_next_with(|bytes| KzgProofs::<T>::from_ssz_bytes(bytes))?;
+                let blobs = decoder.decode_next()?;
 
-                    Ok(BlockContents::new(block, Some((kzg_proofs, blobs))))
-                }
-            },
+                Ok(BlockContents::new(block, Some((kzg_proofs, blobs))))
+            }
         }
     }
 
-    pub fn block(&self) -> &BeaconBlock<T, Payload> {
+    pub fn block(&self) -> &BeaconBlock<T> {
         match self {
             BlockContents::BlockAndBlobSidecars(block_and_sidecars) => &block_and_sidecars.block,
             BlockContents::Block(block) => block,
         }
     }
 
-    pub fn deconstruct(self) -> BlockContentsTuple<T, Payload> {
+    pub fn deconstruct(self) -> BlockContentsTuple<T> {
         match self {
             BlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
                 block_and_sidecars.block,
@@ -1610,16 +1604,14 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
-    ) -> SignedBlockContents<T, Payload> {
+    ) -> SignedBlockContents<T> {
         let (block, maybe_blobs) = self.deconstruct();
         let signed_block = block.sign(secret_key, fork, genesis_validators_root, spec);
         SignedBlockContents::new(signed_block, maybe_blobs)
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
-    for BlockContents<T, Payload>
-{
+impl<T: EthSpec> ForkVersionDeserialize for BlockContents<T> {
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,
@@ -1631,28 +1623,15 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
                     D,
                 >(value, fork_name)?))
             }
-            ForkName::Deneb => {
-                let block_contents =
-                    match Payload::block_type() {
-                        BlockType::Blinded => BlockContents::Block(
-                            BeaconBlock::deserialize_by_fork::<'de, D>(value, fork_name)?,
-                        ),
-                        BlockType::Full => BlockContents::BlockAndBlobSidecars(
-                            BeaconBlockAndBlobSidecars::deserialize_by_fork::<'de, D>(
-                                value, fork_name,
-                            )?,
-                        ),
-                    };
-                Ok(block_contents)
-            }
+            ForkName::Deneb => Ok(BlockContents::BlockAndBlobSidecars(
+                BeaconBlockAndBlobSidecars::deserialize_by_fork::<'de, D>(value, fork_name)?,
+            )),
         }
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> Into<BeaconBlock<T, Payload>>
-    for BlockContents<T, Payload>
-{
-    fn into(self) -> BeaconBlock<T, Payload> {
+impl<T: EthSpec> Into<BeaconBlock<T>> for BlockContents<T> {
+    fn into(self) -> BeaconBlock<T> {
         match self {
             Self::BlockAndBlobSidecars(block_and_sidecars) => block_and_sidecars.block,
             Self::Block(block) => block,
@@ -1660,49 +1639,32 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> Into<BeaconBlock<T, Payload>>
     }
 }
 
-pub type SignedBlockContentsTuple<T, Payload> = (
-    SignedBeaconBlock<T, Payload>,
-    Option<(
-        KzgProofs<T>,
-        <<Payload as AbstractExecPayload<T>>::Sidecar as Sidecar<T>>::BlobItems,
-    )>,
-);
-
-pub type SignedBlindedBlockContents<E> = SignedBlockContents<E, BlindedPayload<E>>;
+pub type SignedBlockContentsTuple<T> = (SignedBeaconBlock<T>, Option<(KzgProofs<T>, BlobsList<T>)>);
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobSidecars`].
 #[derive(Clone, Debug, Encode, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
-pub enum SignedBlockContents<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
-    BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars<T, Payload>),
-    // TODO(pawan): double check that having just one variant for
-    // deneb blinded flow + pre-deneb blinded and unblinded flow makes sense
-    Block(SignedBeaconBlock<T, Payload>),
+pub enum SignedBlockContents<T: EthSpec> {
+    BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars<T>),
+    Block(SignedBeaconBlock<T>),
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload> {
+impl<T: EthSpec> SignedBlockContents<T> {
     pub fn new(
-        block: SignedBeaconBlock<T, Payload>,
-        blob_items: Option<(KzgProofs<T>, <Payload::Sidecar as Sidecar<T>>::BlobItems)>,
+        block: SignedBeaconBlock<T>,
+        blob_items: Option<(KzgProofs<T>, BlobsList<T>)>,
     ) -> Self {
-        match (Payload::block_type(), blob_items) {
-            (BlockType::Full, Some((kzg_proofs, blobs))) => {
+        match blob_items {
+            Some((kzg_proofs, blobs)) => {
                 Self::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
                     signed_block: block,
                     kzg_proofs,
                     blobs,
                 })
             }
-            (BlockType::Blinded, Some(_blobs)) => {
-                // Blinded blocks with blobs do not make sense as a variant
-                // TODO(pawan): return an error or rethink this
-                // just dropping the blobs for now
-                Self::Block(block)
-            }
-
-            (_, None) => Self::Block(block),
+            None => Self::Block(block),
         }
     }
 
@@ -1724,29 +1686,25 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
                 SignedBeaconBlock::from_ssz_bytes(bytes, spec)
                     .map(|block| SignedBlockContents::Block(block))
             }
-            ForkName::Deneb => match Payload::block_type() {
-                BlockType::Blinded => SignedBeaconBlock::from_ssz_bytes(bytes, spec)
-                    .map(|block| SignedBlockContents::Block(block)),
-                BlockType::Full => {
-                    let mut builder = ssz::SszDecoderBuilder::new(bytes);
-                    builder.register_anonymous_variable_length_item()?;
-                    builder.register_type::<KzgProofs<T>>()?;
+            ForkName::Deneb => {
+                let mut builder = ssz::SszDecoderBuilder::new(bytes);
+                builder.register_anonymous_variable_length_item()?;
+                builder.register_type::<KzgProofs<T>>()?;
 
-                    builder.register_anonymous_variable_length_item()?;
-                    builder.register_type::<BlobsList<T>>()?;
+                builder.register_anonymous_variable_length_item()?;
+                builder.register_type::<BlobsList<T>>()?;
 
-                    let mut decoder = builder.build()?;
-                    let block = decoder
-                        .decode_next_with(|bytes| SignedBeaconBlock::from_ssz_bytes(bytes, spec))?;
-                    let kzg_proofs = decoder.decode_next()?;
-                    let blobs = decoder.decode_next()?;
-                    Ok(SignedBlockContents::new(block, Some((kzg_proofs, blobs))))
-                }
-            },
+                let mut decoder = builder.build()?;
+                let block = decoder
+                    .decode_next_with(|bytes| SignedBeaconBlock::from_ssz_bytes(bytes, spec))?;
+                let kzg_proofs = decoder.decode_next()?;
+                let blobs = decoder.decode_next()?;
+                Ok(SignedBlockContents::new(block, Some((kzg_proofs, blobs))))
+            }
         }
     }
 
-    pub fn signed_block(&self) -> &SignedBeaconBlock<T, Payload> {
+    pub fn signed_block(&self) -> &SignedBeaconBlock<T> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
                 &block_and_sidecars.signed_block
@@ -1755,34 +1713,19 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
         }
     }
 
-    pub fn blobs_cloned(&self) -> Option<BlobsList<T>> {
-        match self {
-            SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
-                block_and_sidecars.blobs.blobs().cloned()
-            }
-            SignedBlockContents::Block(_block) => None,
-        }
-    }
-
     pub fn blobs_sidecar_list(&self) -> Option<BlobSidecarList<T>> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
-                let blobs = block_and_sidecars.blobs.blobs().cloned()?;
+                let blobs = block_and_sidecars.blobs.clone();
                 let block = &block_and_sidecars.signed_block;
                 let kzg_commitments = block.message().body().blob_kzg_commitments().ok()?;
-                Sidecar::build_sidecar(
-                    blobs,
-                    self.signed_block(),
-                    kzg_commitments,
-                    block_and_sidecars.kzg_proofs.clone().into(),
-                )
-                .ok()
+                todo!()
             }
             SignedBlockContents::Block(_block) => None,
         }
     }
 
-    pub fn deconstruct(self) -> SignedBlockContentsTuple<T, Payload> {
+    pub fn deconstruct(self) -> SignedBlockContentsTuple<T> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
                 block_and_sidecars.signed_block,
@@ -1793,67 +1736,45 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
     }
 }
 
-impl<T: EthSpec> SignedBlockContents<T, BlindedPayload<T>> {
-    /// Converting from a Blinded
-    pub fn try_into_full_block_and_blobs(
-        self,
-        maybe_full_payload_contents: Option<FullPayloadContents<T>>,
-    ) -> Result<SignedBlockContents<T, FullPayload<T>>, String> {
-        match self {
-            SignedBlockContents::BlockAndBlobSidecars(_) => Err(
-                "BlockAndBlobSidecars variant not expected when constructing full block"
-                    .to_string(),
-            ),
-            SignedBlockContents::Block(blinded_block) => {
-                match maybe_full_payload_contents {
-                    None => {
-                        Err("Can't build full block contents without payload and blobs".to_string())
-                    }
-                    // This variant implies a pre-deneb block
-                    Some(FullPayloadContents::Payload(execution_payload)) => {
-                        let signed_block = blinded_block
-                            .try_into_full_block(Some(execution_payload))
-                            .ok_or("Failed to build full block with payload".to_string())?;
-                        Ok(SignedBlockContents::new(signed_block, None))
-                    }
-                    // This variant implies a post-deneb block
-                    Some(FullPayloadContents::PayloadAndBlobs(payload_and_blobs)) => {
-                        let signed_block = blinded_block
-                            .try_into_full_block(Some(payload_and_blobs.execution_payload))
-                            .ok_or("Failed to build full block with payload".to_string())?;
+/// Converting from a Blinded
+pub fn into_full_block_and_blobs<T: EthSpec>(
+    blinded_block: SignedBlindedBeaconBlock<T>,
+    maybe_full_payload_contents: Option<FullPayloadContents<T>>,
+) -> Result<SignedBlockContents<T>, String> {
+    match maybe_full_payload_contents {
+        None => {
+            let signed_block = blinded_block
+                .try_into_full_block(None)
+                .ok_or("Failed to build full block with payload".to_string())?;
+            Ok(SignedBlockContents::new(signed_block, None))
+        }
+        // This variant implies a pre-deneb block
+        Some(FullPayloadContents::Payload(execution_payload)) => {
+            let signed_block = blinded_block
+                .try_into_full_block(Some(execution_payload))
+                .ok_or("Failed to build full block with payload".to_string())?;
+            Ok(SignedBlockContents::new(signed_block, None))
+        }
+        // This variant implies a post-deneb block
+        Some(FullPayloadContents::PayloadAndBlobs(payload_and_blobs)) => {
+            let signed_block = blinded_block
+                .try_into_full_block(Some(payload_and_blobs.execution_payload))
+                .ok_or("Failed to build full block with payload".to_string())?;
 
-                        Ok(SignedBlockContents::new(
-                            signed_block,
-                            Some((
-                                payload_and_blobs.blobs_bundle.proofs,
-                                payload_and_blobs.blobs_bundle.blobs,
-                            )),
-                        ))
-                    }
-                }
-            }
+            Ok(SignedBlockContents::new(
+                signed_block,
+                Some((
+                    payload_and_blobs.blobs_bundle.proofs,
+                    payload_and_blobs.blobs_bundle.blobs,
+                )),
+            ))
         }
     }
 }
 
-// impl<T: EthSpec> SignedBlockContents<T> {
-//     pub fn clone_as_blinded(&self) -> SignedBlindedBlockContents<T> {
-//         let blinded_blobs = self.blobs_cloned().map(|blob_sidecars| {
-//             blob_sidecars
-//                 .into_iter()
-//                 .map(|blob| Arc::new(blob.into()))
-//                 .collect::<Vec<_>>()
-//                 .into()
-//         });
-//         SignedBlockContents::new(self.signed_block().clone_as_blinded(), blinded_blobs)
-//     }
-// }
-
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> TryFrom<SignedBeaconBlock<T, Payload>>
-    for SignedBlockContents<T, Payload>
-{
+impl<T: EthSpec> TryFrom<SignedBeaconBlock<T>> for SignedBlockContents<T> {
     type Error = &'static str;
-    fn try_from(block: SignedBeaconBlock<T, Payload>) -> Result<Self, Self::Error> {
+    fn try_from(block: SignedBeaconBlock<T>) -> Result<Self, Self::Error> {
         match block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
@@ -1866,48 +1787,41 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> TryFrom<SignedBeaconBlock<T, P
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBlockContentsTuple<T, Payload>>
-    for SignedBlockContents<T, Payload>
-{
-    fn from(block_contents_tuple: SignedBlockContentsTuple<T, Payload>) -> Self {
+impl<T: EthSpec> From<SignedBlockContentsTuple<T>> for SignedBlockContents<T> {
+    fn from(block_contents_tuple: SignedBlockContentsTuple<T>) -> Self {
         SignedBlockContents::new(block_contents_tuple.0, block_contents_tuple.1)
     }
 }
 
-/// Note: This does not have a blinded variant, so we fix the payload to `Full`.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
 #[serde(bound = "T: EthSpec")]
-pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
-    pub signed_block: SignedBeaconBlock<T, Payload>,
+pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec> {
+    pub signed_block: SignedBeaconBlock<T>,
     pub kzg_proofs: KzgProofs<T>,
-    pub blobs: <Payload::Sidecar as Sidecar<T>>::BlobItems,
+    pub blobs: BlobsList<T>,
 }
 
-/// Note: This does not have a blinded variant, so we fix the payload to `Full`.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
 #[serde(bound = "T: EthSpec")]
-pub struct BeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
-    pub block: BeaconBlock<T, Payload>,
+pub struct BeaconBlockAndBlobSidecars<T: EthSpec> {
+    pub block: BeaconBlock<T>,
     pub kzg_proofs: KzgProofs<T>,
-    pub blobs: <Payload::Sidecar as Sidecar<T>>::BlobItems,
+    pub blobs: BlobsList<T>,
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
-    for BeaconBlockAndBlobSidecars<T, Payload>
-{
+impl<T: EthSpec> ForkVersionDeserialize for BeaconBlockAndBlobSidecars<T> {
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         #[serde(bound = "T: EthSpec")]
-        struct Helper<T: EthSpec, S: Sidecar<T>> {
+        struct Helper<T: EthSpec> {
             block: serde_json::Value,
             kzg_proofs: KzgProofs<T>,
-            blobs: S::BlobItems,
+            blobs: BlobsList<T>,
         }
-        let helper: Helper<T, Payload::Sidecar> =
-            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        let helper: Helper<T> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
 
         Ok(Self {
             block: BeaconBlock::deserialize_by_fork::<'de, D>(helper.block, fork_name)?,
@@ -1997,19 +1911,4 @@ pub struct BlobsBundle<E: EthSpec> {
     pub proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,
-}
-
-impl<E: EthSpec> Into<BlindedBlobsBundle<E>> for BlobsBundle<E> {
-    fn into(self) -> BlindedBlobsBundle<E> {
-        BlindedBlobsBundle {
-            commitments: self.commitments,
-            proofs: self.proofs,
-            blob_roots: self
-                .blobs
-                .into_iter()
-                .map(|blob| blob.tree_hash_root())
-                .collect::<Vec<_>>()
-                .into(),
-        }
-    }
 }

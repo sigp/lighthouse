@@ -811,24 +811,9 @@ where
         &self,
         state: BeaconState<E>,
         slot: Slot,
-    ) -> (
-        SignedBlockContentsTuple<E, BlindedPayload<E>>,
-        BeaconState<E>,
-    ) {
+    ) -> (SignedBlindedBeaconBlock<E>, BeaconState<E>) {
         let (unblinded, new_state) = self.make_block(state, slot).await;
-        let blob_items = unblinded.1.map(|(kzg_proofs, unblinded_blobs)| {
-            (
-                kzg_proofs,
-                VariableList::new(
-                    unblinded_blobs
-                        .into_iter()
-                        .map(|blob| blob.tree_hash_root())
-                        .collect(),
-                )
-                .unwrap(),
-            )
-        });
-        ((unblinded.0.into(), blob_items), new_state)
+        (unblinded.0.into(), new_state)
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
@@ -836,7 +821,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
+    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -878,7 +863,7 @@ where
             &self.spec,
         );
 
-        let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E> = match &signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
@@ -895,7 +880,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
+    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -939,7 +924,7 @@ where
             &self.spec,
         );
 
-        let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E> = match &signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
@@ -1740,7 +1725,7 @@ where
         state: BeaconState<E>,
         slot: Slot,
         block_modifier: impl FnOnce(&mut BeaconBlock<E>),
-    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
+    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -1838,20 +1823,14 @@ where
         &self,
         slot: Slot,
         block_root: Hash256,
-        block_contents: SignedBlockContentsTuple<E, FullPayload<E>>,
+        block_contents: SignedBlockContentsTuple<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
         let (block, blobs) = block_contents;
 
         let sidecars = if let Some(blob_items) = blobs {
             let expected_kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
-            Sidecar::build_sidecar(
-                blob_items.1,
-                &block,
-                expected_kzg_commitments,
-                blob_items.0.into(),
-            )
-            .ok()
+            todo!()
         } else {
             None
         };
@@ -1872,19 +1851,13 @@ where
 
     pub async fn process_block_result(
         &self,
-        block_contents: SignedBlockContentsTuple<E, FullPayload<E>>,
+        block_contents: SignedBlockContentsTuple<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         let (block, blobs) = block_contents;
 
         let sidecars = if let Some(blob_items) = blobs {
             let expected_kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
-            Sidecar::build_sidecar(
-                blob_items.1,
-                &block,
-                expected_kzg_commitments,
-                blob_items.0.into(),
-            )
-            .ok()
+            todo!()
         } else {
             None
         };
@@ -1962,7 +1935,7 @@ where
     ) -> Result<
         (
             SignedBeaconBlockHash,
-            SignedBlockContentsTuple<E, FullPayload<E>>,
+            SignedBlockContentsTuple<E>,
             BeaconState<E>,
         ),
         BlockError<E>,

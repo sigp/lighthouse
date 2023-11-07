@@ -83,8 +83,6 @@ pub trait AbstractExecPayload<T: EthSpec>:
     + TryInto<Self::Capella>
     + TryInto<Self::Deneb>
 {
-    type Sidecar: Sidecar<T>;
-
     type Ref<'a>: ExecPayload<T>
         + Copy
         + From<&'a Self::Merge>
@@ -105,9 +103,6 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + TryFrom<ExecutionPayloadHeaderDeneb<T>>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
-    fn default_blobs_at_fork(
-        fork_name: ForkName,
-    ) -> Result<<Self::Sidecar as Sidecar<T>>::BlobItems, Error>;
 }
 
 #[superstruct(
@@ -384,7 +379,6 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
 }
 
 impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
-    type Sidecar = BlobSidecar<T>;
     type Ref<'a> = FullPayloadRef<'a, T>;
     type Merge = FullPayloadMerge<T>;
     type Capella = FullPayloadCapella<T>;
@@ -396,14 +390,6 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
             ForkName::Merge => Ok(FullPayloadMerge::default().into()),
             ForkName::Capella => Ok(FullPayloadCapella::default().into()),
             ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
-        }
-    }
-    fn default_blobs_at_fork(fork_name: ForkName) -> Result<BlobsList<T>, Error> {
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                Err(Error::IncorrectStateVariant)
-            }
-            ForkName::Deneb => Ok(VariableList::default()),
         }
     }
 }
@@ -911,22 +897,12 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Capella = BlindedPayloadCapella<T>;
     type Deneb = BlindedPayloadDeneb<T>;
 
-    type Sidecar = BlindedBlobSidecar<T>;
-
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
             ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
             ForkName::Merge => Ok(BlindedPayloadMerge::default().into()),
             ForkName::Capella => Ok(BlindedPayloadCapella::default().into()),
             ForkName::Deneb => Ok(BlindedPayloadDeneb::default().into()),
-        }
-    }
-    fn default_blobs_at_fork(fork_name: ForkName) -> Result<BlobRootsList<T>, Error> {
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                Err(Error::IncorrectStateVariant)
-            }
-            ForkName::Deneb => Ok(VariableList::default()),
         }
     }
 }

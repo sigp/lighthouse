@@ -103,7 +103,7 @@ use types::{
     EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
     RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
-use types::{BlobSidecar, ExecPayload, Sidecar};
+use types::{BlobSidecar, ExecPayload};
 
 pub const POS_PANDA_BANNER: &str = r#"
     ,,,         ,,,                                               ,,,         ,,,
@@ -708,19 +708,15 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
             })?;
         let gossip_verified_blobs = blob_items
             .map(|(kzg_proofs, blobs)| {
-                let sidecars = BlobSidecar::build_sidecar(
-                    blobs,
-                    &block,
-                    expected_kzg_commitments,
-                    kzg_proofs.into(),
-                )
-                .map_err(BlockContentsError::SidecarError)?;
-                Ok::<_, BlockContentsError<T::EthSpec>>(VariableList::from(
-                    sidecars
-                        .into_iter()
-                        .map(|blob| GossipVerifiedBlob::new(blob, chain))
-                        .collect::<Result<Vec<_>, _>>()?,
-                ))
+                let gossip_verified_blobs = kzg_proofs
+                    .into_iter()
+                    .zip(blobs.into_iter())
+                    .map(|(proof, blob)| {
+                        //TODO(sean) construct blob sidecar
+                        GossipVerifiedBlob::new(Arc::new(BlobSidecar::empty()), chain)
+                    })
+                    .collect::<Result<Vec<_>, GossipBlobError<T::EthSpec>>>()?;
+                Ok::<_, GossipBlobError<T::EthSpec>>(VariableList::from(gossip_verified_blobs))
             })
             .transpose()?;
         let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;
