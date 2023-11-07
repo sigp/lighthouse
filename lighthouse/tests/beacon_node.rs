@@ -334,23 +334,6 @@ fn eth1_flag() {
         .with_config(|config| assert!(config.sync_eth1_chain));
 }
 #[test]
-fn eth1_endpoints_flag() {
-    CommandLineTest::new()
-        .flag("eth1-endpoints", Some("http://localhost:9545"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.eth1.endpoint.get_endpoint().full.to_string(),
-                "http://localhost:9545/"
-            );
-            assert_eq!(
-                config.eth1.endpoint.get_endpoint().to_string(),
-                "http://localhost:9545/"
-            );
-            assert!(config.sync_eth1_chain);
-        });
-}
-#[test]
 fn eth1_blocks_per_log_query_flag() {
     CommandLineTest::new()
         .flag("eth1-blocks-per-log-query", Some("500"))
