@@ -456,41 +456,6 @@ fn merge_execution_endpoints_flag() {
 fn merge_execution_endpoint_flag() {
     run_merge_execution_endpoints_flag_test("execution-endpoint")
 }
-fn run_execution_endpoints_overrides_eth1_endpoints_test(eth1_flag: &str, execution_flag: &str) {
-    use sensitive_url::SensitiveUrl;
-
-    let eth1_endpoint = "http://bad.bad";
-    let execution_endpoint = "http://good.good";
-
-    assert!(eth1_endpoint != execution_endpoint);
-
-    let dir = TempDir::new().expect("Unable to create temporary directory");
-    let jwt_path = dir.path().join("jwt-file");
-
-    CommandLineTest::new()
-        .flag(eth1_flag, Some(&eth1_endpoint))
-        .flag(execution_flag, Some(&execution_endpoint))
-        .flag("execution-jwt", jwt_path.as_os_str().to_str())
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.execution_layer.as_ref().unwrap().execution_endpoints,
-                vec![SensitiveUrl::parse(execution_endpoint).unwrap()]
-            );
-
-            // The eth1 endpoint should have been set to the --execution-endpoint value in defiance
-            // of --eth1-endpoints.
-            assert_eq!(
-                config.eth1.endpoint,
-                Eth1Endpoint::Auth {
-                    endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
-                    jwt_path: jwt_path.clone(),
-                    jwt_id: None,
-                    jwt_version: None,
-                }
-            );
-        });
-}
 #[test]
 fn merge_jwt_secrets_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
