@@ -244,60 +244,6 @@ fn paranoid_block_proposal_on() {
 }
 
 #[test]
-fn count_unrealized_no_arg() {
-    CommandLineTest::new()
-        .flag("count-unrealized", None)
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_false() {
-    CommandLineTest::new()
-        .flag("count-unrealized", Some("false"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_true() {
-    CommandLineTest::new()
-        .flag("count-unrealized", Some("true"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_no_arg() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", None)
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_false() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", Some("false"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_true() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", Some("true"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
 fn reset_payload_statuses_default() {
     CommandLineTest::new()
         .run_with_zero_port()
