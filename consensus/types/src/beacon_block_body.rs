@@ -104,7 +104,10 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
         &self,
         _index: usize,
     ) -> Option<FixedVector<Hash256, T::KzgCommitmentInclusionProofDepth>> {
-        todo!()
+        match self {
+            Self::Base(_) | Self::Altair(_) | Self::Merge(_) | Self::Capella(_) => None,
+            Self::Deneb(_body) => Some(FixedVector::from(vec![Hash256::random()])),
+        }
     }
 }
 

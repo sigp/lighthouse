@@ -1557,18 +1557,14 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
                     // The `Full`` variant **must** contains blobs and proofs
                     let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
-                    // TODO(pawan): potential bug
                     builder.register_anonymous_variable_length_item()?;
                     builder.register_type::<KzgProofs<T>>()?;
-
-                    builder.register_anonymous_variable_length_item()?;
                     builder.register_type::<BlobsList<T>>()?;
 
                     let mut decoder = builder.build()?;
                     let block = decoder
                         .decode_next_with(|bytes| BeaconBlock::from_ssz_bytes(bytes, spec))?;
-                    let kzg_proofs =
-                        decoder.decode_next_with(|bytes| KzgProofs::<T>::from_ssz_bytes(bytes))?;
+                    let kzg_proofs = decoder.decode_next()?;
                     let blobs = decoder.decode_next()?;
 
                     Ok(BlockContents::new(block, Some((kzg_proofs, blobs))))
@@ -1722,8 +1718,6 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
                     let mut builder = ssz::SszDecoderBuilder::new(bytes);
                     builder.register_anonymous_variable_length_item()?;
                     builder.register_type::<KzgProofs<T>>()?;
-
-                    builder.register_anonymous_variable_length_item()?;
                     builder.register_type::<BlobsList<T>>()?;
 
                     let mut decoder = builder.build()?;
