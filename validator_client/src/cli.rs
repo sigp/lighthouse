@@ -36,13 +36,30 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("disable-run-on-all")
-                .long("disable-run-on-all")
-                .value_name("DISABLE_RUN_ON_ALL")
-                .help("By default, Lighthouse publishes attestation, sync committee subscriptions \
+            Arg::with_name("no-broadcast-subscriptions")
+                .long("no-broadcast-subscriptions")
+                .help("By default, Lighthouse broadcasts sync committee subscriptions \
                        and proposer preparation messages to all beacon nodes provided in the \
-                       `--beacon-nodes flag`. This option changes that behaviour such that these \
-                       api calls only go out to the first available and synced beacon node")
+                       `--beacon-nodes` flag. This option changes that behaviour such that these \
+                       api calls only go out to the first available and synced beacon node.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("broadcast-attestations")
+                .long("broadcast-attestations")
+                .help("By default, Lighthouse submits attestations to the first available \
+                       and synced beacon node. This option changes that behaviour such that these \
+                       api calls are broadcasted to all beacon nodes provided in the \
+                       `--beacon-nodes` flag.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("broadcast-blocks")
+                .long("broadcast-blocks")
+                .help("By default, Lighthouse submits blocks to the first available \
+                       and synced beacon node. This option changes that behaviour such that these \
+                       api calls are broadcasted to all beacon nodes provided in `--beacon-nodes` \
+                       and `--proposer-nodes` flags.")
                 .takes_value(false)
         )
         // This argument is deprecated, use `--beacon-nodes` instead.

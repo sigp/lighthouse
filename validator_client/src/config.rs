@@ -73,8 +73,13 @@ pub struct Config {
     ///
     /// This is *not* recommended in prod and should only be used for testing.
     pub block_delay: Option<Duration>,
-    /// Disables publishing http api requests to all beacon nodes for select api calls.
-    pub disable_run_on_all: bool,
+    /// Enables broadcasting sync committee subscriptions and proposer preparation messages
+    /// to all beacon nodes.
+    pub broadcast_subscriptions: bool,
+    /// Enables broadcasting of attestations to all beacon nodes.
+    pub broadcast_attestations: bool,
+    /// Enables broadcasting of blocks to all beacon nodes.
+    pub broadcast_blocks: bool,
     /// Enables a service which attempts to measure latency between the VC and BNs.
     pub enable_latency_measurement_service: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
@@ -117,7 +122,9 @@ impl Default for Config {
             builder_proposals: false,
             builder_registration_timestamp_override: None,
             gas_limit: None,
-            disable_run_on_all: false,
+            broadcast_subscriptions: true,
+            broadcast_attestations: false,
+            broadcast_blocks: false,
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
         }
@@ -215,7 +222,9 @@ impl Config {
                 "msg" => "it no longer has any effect",
             );
         }
-        config.disable_run_on_all = cli_args.is_present("disable-run-on-all");
+        config.broadcast_subscriptions = !cli_args.is_present("no-broadcast-subscriptions");
+        config.broadcast_attestations = cli_args.is_present("broadcast-attestations");
+        config.broadcast_blocks = cli_args.is_present("broadcast-blocks");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
         config.use_long_timeouts = cli_args.is_present("use-long-timeouts");

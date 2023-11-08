@@ -500,19 +500,42 @@ fn monitoring_endpoint() {
         });
 }
 #[test]
-fn disable_run_on_all_default() {
+fn no_broadcast_xxx_flags() {
     CommandLineTest::new().run().with_config(|config| {
-        assert!(!config.disable_run_on_all);
+        assert!(!config.broadcast_attestations);
+        assert!(!config.broadcast_blocks);
+
+        assert!(config.broadcast_subscriptions);
     });
 }
 
 #[test]
-fn disable_run_on_all() {
+fn no_broadcast_subscription_flag() {
     CommandLineTest::new()
-        .flag("disable-run-on-all", None)
+        .flag("no-broadcast-substriptions", None)
         .run()
         .with_config(|config| {
-            assert!(config.disable_run_on_all);
+            assert!(!config.broadcast_subscriptions);
+        });
+}
+
+#[test]
+fn broadcast_attestations_flag() {
+    CommandLineTest::new()
+        .flag("broadcast-attestations", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.broadcast_attestations);
+        });
+}
+
+#[test]
+fn broadcast_blocks_flag() {
+    CommandLineTest::new()
+        .flag("broadcast-blocks", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.broadcast_blocks);
         });
 }
 

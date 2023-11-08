@@ -330,7 +330,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 pub struct BeaconNodeFallback<T, E> {
     candidates: Vec<CandidateBeaconNode<E>>,
     slot_clock: Option<T>,
-    disable_run_on_all: bool,
+    broadcast_topics: Vec<ApiTopic>,
     spec: ChainSpec,
     log: Logger,
 }
@@ -338,14 +338,27 @@ pub struct BeaconNodeFallback<T, E> {
 impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub fn new(
         candidates: Vec<CandidateBeaconNode<E>>,
-        disable_run_on_all: bool,
+        broadcast_attestations: bool,
+        broadcast_blocks: bool,
+        broadcast_subscriptions: bool,
         spec: ChainSpec,
         log: Logger,
     ) -> Self {
+        let mut broadcast_topics = vec![];
+        if broadcast_attestations {
+            broadcast_topics.push(ApiTopic::Attestations);
+        }
+        if broadcast_blocks {
+            broadcast_topics.push(ApiTopic::Blocks);
+        }
+        if broadcast_subscriptions {
+            broadcast_topics.push(ApiTopic::Subscriptions);
+        }
+
         Self {
             candidates,
             slot_clock: None,
-            disable_run_on_all,
+            broadcast_topics,
             spec,
             log,
         }
@@ -579,7 +592,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// It returns a list of errors along with the beacon node id that failed for `func`.
     /// Since this ignores the actual result of `func`, this function should only be used for beacon
     /// node calls whose results we do not care about, only that they completed successfully.
-    pub async fn run_on_all<'a, F, O, Err, R>(
+    pub async fn broadcast<'a, F, O, Err, R>(
         &'a self,
         require_synced: RequireSynced,
         offline_on_failure: OfflineOnFailure,
@@ -687,11 +700,12 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     }
 
     /// Call `func` on first beacon node that returns success or on all beacon nodes
-    /// depending on the value of `disable_run_on_all`.
-    pub async fn run<'a, F, Err, R>(
+    /// depending on a `send_mode`.
+    pub async fn request<'a, F, Err, R>(
         &'a self,
         require_synced: RequireSynced,
         offline_on_failure: OfflineOnFailure,
+        topic: ApiTopic,
         func: F,
     ) -> Result<(), Errors<Err>>
     where
@@ -699,13 +713,22 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         R: Future<Output = Result<(), Err>>,
         Err: Debug,
     {
-        if self.disable_run_on_all {
+        if self.broadcast_topics.contains(&topic) {
+            self.broadcast(require_synced, offline_on_failure, func)
+                .await
+        } else {
             self.first_success(require_synced, offline_on_failure, func)
                 .await?;
             Ok(())
-        } else {
-            self.run_on_all(require_synced, offline_on_failure, func)
-                .await
         }
     }
+}
+
+/// Serves as a cue for `BeaconNodeFallback` to tell which requests need to be broadcasted.
+#[derive(PartialEq)]
+pub enum ApiTopic {
+    Attestations,
+    Blocks,
+    Subscriptions,
+    SyncCommittee,
 }
