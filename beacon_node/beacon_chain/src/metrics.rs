@@ -1009,6 +1009,45 @@ lazy_static! {
         "beacon_aggregated_attestation_subsets_total",
         "Count of new aggregated attestations that are subsets of already known aggregates"
     );
+    /*
+    * Attestation simulator metrics
+     */
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT: Result<IntCounter> =
+    try_create_int_counter(
+        "validator_monitor_attestation_simulator_head_attester_hit_total",
+        "Incremented if a validator is flagged as a previous slot head attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS: Result<IntCounter> =
+    try_create_int_counter(
+        "validator_monitor_attestation_simulator_head_attester_miss_total",
+        "Incremented if a validator is not flagged as a previous slot head attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT: Result<IntCounter> =
+    try_create_int_counter(
+        "validator_monitor_attestation_simulator_target_attester_hit_total",
+        "Incremented if a validator is flagged as a previous slot target attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS: Result<IntCounter> =
+    try_create_int_counter(
+        "validator_monitor_attestation_simulator_target_attester_miss_total",
+        "Incremented if a validator is not flagged as a previous slot target attester \
+        during per slot processing",
+    );
+        pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT: Result<IntCounter> =
+    try_create_int_counter(
+        "validator_monitor_attestation_simulator_source_attester_hit_total",
+        "Incremented if a validator is flagged as a previous slot source attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS: Result<IntCounter> =
+    try_create_int_counter(
+        "validator_monitor_attestation_simulator_source_attester_miss_total",
+        "Incremented if a validator is not flagged as a previous slot source attester \
+        during per slot processing",
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,

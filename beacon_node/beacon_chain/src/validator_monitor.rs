@@ -17,6 +17,9 @@ use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::AbstractExecPayload;
+use types::consts::altair::{
+    TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
+};
 use types::{
     Attestation, AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
     IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
@@ -562,14 +565,51 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 )
             })
             .and_then(|flag_indices| {
-                if flag_indices.iter().len() != 3 {
-                    error!(
-                        self.log,
-                        "Unaggregated attestation has incorrect number of flags";
-                        "unaggregated_attestation" => ?unaggregated_attestation,
-                        "attestation_participation_flag_indices" => ?flag_indices,
+                let head_hit = flag_indices.get(TIMELY_HEAD_FLAG_INDEX);
+                let target_hit = flag_indices.get(TIMELY_TARGET_FLAG_INDEX);
+                let source_hit = flag_indices.get(TIMELY_SOURCE_FLAG_INDEX);
+
+                if head_hit.is_some() {
+                    metrics::inc_counter(
+                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT,
+                    );
+                } else {
+                    metrics::inc_counter(
+                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS,
                     );
                 }
+                if target_hit.is_some() {
+                    metrics::inc_counter(
+                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT,
+                    );
+                } else {
+                    metrics::inc_counter(
+                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS,
+                    );
+                }
+                if source_hit.is_some() {
+                    metrics::inc_counter(
+                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT,
+                    );
+                } else {
+                    metrics::inc_counter(
+                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS,
+                    );
+                }
+
+                let data = &unaggregated_attestation.data;
+                debug!(
+                  self.log,
+                  "Simulated attestation evaluated";
+                  "attestation_source" => ?data.source.root,
+                  "attestation_target" => ?data.target.root,
+                  "attestation_head" => ?data.beacon_block_root,
+                  "attestation_slot" => ?data.slot,
+                  "source_hit" => source_hit,
+                  "target_hit" => target_hit,
+                  "head_hit" => head_hit,
+                );
+
                 Ok(flag_indices)
             });
         }
