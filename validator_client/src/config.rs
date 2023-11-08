@@ -1,3 +1,4 @@
+use crate::beacon_node_fallback::ApiTopic;
 use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
 use clap::ArgMatches;
@@ -13,6 +14,7 @@ use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
@@ -73,13 +75,8 @@ pub struct Config {
     ///
     /// This is *not* recommended in prod and should only be used for testing.
     pub block_delay: Option<Duration>,
-    /// Enables broadcasting sync committee subscriptions and proposer preparation messages
-    /// to all beacon nodes.
-    pub broadcast_subscriptions: bool,
-    /// Enables broadcasting of attestations to all beacon nodes.
-    pub broadcast_attestations: bool,
-    /// Enables broadcasting of blocks to all beacon nodes.
-    pub broadcast_blocks: bool,
+    /// Enables broadcasting of various requests (by topic) to all beacon nodes.
+    pub broadcast_topics: Vec<ApiTopic>,
     /// Enables a service which attempts to measure latency between the VC and BNs.
     pub enable_latency_measurement_service: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
@@ -122,9 +119,7 @@ impl Default for Config {
             builder_proposals: false,
             builder_registration_timestamp_override: None,
             gas_limit: None,
-            broadcast_subscriptions: true,
-            broadcast_attestations: false,
-            broadcast_blocks: false,
+            broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
         }
@@ -222,9 +217,7 @@ impl Config {
                 "msg" => "it no longer has any effect",
             );
         }
-        config.broadcast_subscriptions = !cli_args.is_present("no-broadcast-subscriptions");
-        config.broadcast_attestations = cli_args.is_present("broadcast-attestations");
-        config.broadcast_blocks = cli_args.is_present("broadcast-blocks");
+
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
         config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
@@ -265,6 +258,15 @@ impl Config {
 
         if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
             config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
+        }
+
+        if let Some(broadcast_topics) = cli_args.value_of("broadcast") {
+            config.broadcast_topics = broadcast_topics
+                .split(',')
+                .filter(|t| *t != "none")
+                .map(ApiTopic::from_str)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("Unable to parse API topics to broadcast: {:?}", e))?;
         }
 
         /*

@@ -7,12 +7,14 @@ use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_RE
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
+use serde::{Serialize, Deserialize};
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
 use std::future::Future;
 use std::marker::PhantomData;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::{sync::RwLock, time::sleep};
@@ -338,23 +340,10 @@ pub struct BeaconNodeFallback<T, E> {
 impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub fn new(
         candidates: Vec<CandidateBeaconNode<E>>,
-        broadcast_attestations: bool,
-        broadcast_blocks: bool,
-        broadcast_subscriptions: bool,
+        broadcast_topics: Vec<ApiTopic>,
         spec: ChainSpec,
         log: Logger,
     ) -> Self {
-        let mut broadcast_topics = vec![];
-        if broadcast_attestations {
-            broadcast_topics.push(ApiTopic::Attestations);
-        }
-        if broadcast_blocks {
-            broadcast_topics.push(ApiTopic::Blocks);
-        }
-        if broadcast_subscriptions {
-            broadcast_topics.push(ApiTopic::Subscriptions);
-        }
-
         Self {
             candidates,
             slot_clock: None,
@@ -725,10 +714,24 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 }
 
 /// Serves as a cue for `BeaconNodeFallback` to tell which requests need to be broadcasted.
-#[derive(PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ApiTopic {
     Attestations,
     Blocks,
     Subscriptions,
     SyncCommittee,
+}
+
+impl FromStr for ApiTopic {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim() {
+            "attestations" => Ok(ApiTopic::Attestations),
+            "blocks" => Ok(ApiTopic::Blocks),
+            "subscriptions" => Ok(ApiTopic::Subscriptions),
+            "sync-committee-messages" => Ok(ApiTopic::SyncCommittee),
+            _ => Err(format!("Unknown API topic: `{s}`")),
+        }
+    }
 }

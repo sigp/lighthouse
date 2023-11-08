@@ -19,6 +19,7 @@ pub mod http_api;
 pub mod initialized_validators;
 pub mod validator_store;
 
+pub use beacon_node_fallback::ApiTopic;
 pub use cli::cli_app;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
@@ -369,18 +370,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let mut beacon_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
             candidates,
-            config.broadcast_attestations,
-            config.broadcast_blocks,
-            config.broadcast_subscriptions,
+            config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
             log.clone(),
         );
 
         let mut proposer_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
             proposer_candidates,
-            config.broadcast_attestations,
-            config.broadcast_blocks,
-            config.broadcast_subscriptions,
+            config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
             log.clone(),
         );

@@ -36,31 +36,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("no-broadcast-subscriptions")
-                .long("no-broadcast-subscriptions")
-                .help("By default, Lighthouse broadcasts sync committee subscriptions \
-                       and proposer preparation messages to all beacon nodes provided in the \
-                       `--beacon-nodes` flag. This option changes that behaviour such that these \
-                       api calls only go out to the first available and synced beacon node.")
-                .takes_value(false)
-        )
-        .arg(
-            Arg::with_name("broadcast-attestations")
-                .long("broadcast-attestations")
-                .help("By default, Lighthouse submits attestations to the first available \
-                       and synced beacon node. This option changes that behaviour such that these \
-                       api calls are broadcasted to all beacon nodes provided in the \
-                       `--beacon-nodes` flag.")
-                .takes_value(false)
-        )
-        .arg(
-            Arg::with_name("broadcast-blocks")
-                .long("broadcast-blocks")
-                .help("By default, Lighthouse submits blocks to the first available \
-                       and synced beacon node. This option changes that behaviour such that these \
-                       api calls are broadcasted to all beacon nodes provided in `--beacon-nodes` \
-                       and `--proposer-nodes` flags.")
-                .takes_value(false)
+            Arg::with_name("broadcast")
+                .long("broadcast")
+                .value_name("API_TOPICS")
+                .help("Comma-separated list of beacon API topics to broadcast to all beacon nodes. \
+                       Possible values are: none, attestations, blocks, subscriptions, \
+                       sync-commitee-messages. Default (when flag is omitted) is to broadcast \
+                       'subscriptions' only."
+                )
+                .takes_value(true),
         )
         // This argument is deprecated, use `--beacon-nodes` instead.
         .arg(

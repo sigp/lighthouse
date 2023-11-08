@@ -1,4 +1,4 @@
-use validator_client::Config;
+use validator_client::{ApiTopic, Config};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
@@ -500,42 +500,58 @@ fn monitoring_endpoint() {
         });
 }
 #[test]
-fn no_broadcast_xxx_flags() {
+fn no_broadcast_flag() {
     CommandLineTest::new().run().with_config(|config| {
-        assert!(!config.broadcast_attestations);
-        assert!(!config.broadcast_blocks);
-
-        assert!(config.broadcast_subscriptions);
+        assert_eq!(config.broadcast_topics, vec![ApiTopic::Subscriptions]);
     });
 }
 
 #[test]
-fn no_broadcast_subscription_flag() {
+fn broadcast_flag() {
+    // "none" variant
     CommandLineTest::new()
-        .flag("no-broadcast-substriptions", None)
+        .flag("broadcast", Some("none"))
         .run()
         .with_config(|config| {
-            assert!(!config.broadcast_subscriptions);
+            assert_eq!(config.broadcast_topics, vec![]);
+        });
+    // "none" with other values is ignored
+    CommandLineTest::new()
+        .flag("broadcast", Some("none,sync-committee-messages"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::SyncCommittee]);
+        });
+    // Other valid variants
+    CommandLineTest::new()
+        .flag("broadcast", Some("blocks, subscriptions"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.broadcast_topics,
+                vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
+            );
+        });
+    // Omitted "subscription" overrides default
+    CommandLineTest::new()
+        .flag("broadcast", Some("attestations"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
         });
 }
 
 #[test]
-fn broadcast_attestations_flag() {
+#[should_panic(expected = "Unknown API topic")]
+fn wrong_broadcast_flag() {
     CommandLineTest::new()
-        .flag("broadcast-attestations", None)
+        .flag("broadcast", Some("foo, subscriptions"))
         .run()
         .with_config(|config| {
-            assert!(config.broadcast_attestations);
-        });
-}
-
-#[test]
-fn broadcast_blocks_flag() {
-    CommandLineTest::new()
-        .flag("broadcast-blocks", None)
-        .run()
-        .with_config(|config| {
-            assert!(config.broadcast_blocks);
+            assert_eq!(
+                config.broadcast_topics,
+                vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
+            );
         });
 }
 
