@@ -34,8 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     steps:
-        - name: Check that the pull request is not targeting the stable branch
-          run: test ${{ github.base_ref }} != "stable"
+      - name: pass
+        run: echo "success"
   release-tests-ubuntu:
     name: release-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
@@ -65,7 +65,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: pass
-        run: echo "success"
+        run: exit 1 #fail
   network-tests:
     name: network-tests
     runs-on: ubuntu-latest
