@@ -560,7 +560,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     "error" => ?err,
                     "unaggregated_attestation" => ?unaggregated_attestation,
                 )
-            }).and_then(|flag_indices| {
+            })
+            .and_then(|flag_indices| {
                 if flag_indices.iter().len() != 3 {
                     error!(
                         self.log,

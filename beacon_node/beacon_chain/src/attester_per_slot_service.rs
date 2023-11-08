@@ -83,13 +83,12 @@ pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
                     .produce_unaggregated_attestation(current_slot, beacon_committee.index)
                 {
                     Ok(unaggregated_attestation) => {
+                        let data = &unaggregated_attestation.data;
                         debug!(
                         inner_chain.log,
                         "Produce unaggregated attestation";
-                        "slot" => current_slot,
-                        "committee_index" => beacon_committee.index,
-                        "committee_len" => beacon_committee.committee.len(),
-                        "attestation" => ?unaggregated_attestation
+                        "data.source.root" => data.source.root.to_string(),
+                        "data.source.root" => data.target.root.to_string(),
                         );
                         inner_chain
                             .validator_monitor
