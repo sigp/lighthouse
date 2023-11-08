@@ -1,4 +1,4 @@
-use beacon_chain::attester_per_slot_service::produce_unaggregated_attestation;
+use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
 use lazy_static::lazy_static;
