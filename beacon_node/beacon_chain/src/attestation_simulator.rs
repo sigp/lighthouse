@@ -74,9 +74,7 @@ pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
     let beacon_committee_index = 0;
 
     // Store the unaggregated attestation in the validator monitor for later processing
-    match inner_chain
-        .produce_unaggregated_attestation(current_slot, beacon_committee_index)
-    {
+    match inner_chain.produce_unaggregated_attestation(current_slot, beacon_committee_index) {
         Ok(unaggregated_attestation) => {
             let data = &unaggregated_attestation.data;
 
