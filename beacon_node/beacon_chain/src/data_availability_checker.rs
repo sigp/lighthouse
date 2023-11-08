@@ -200,7 +200,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let mut verified_blobs = vec![];
         if let Some(kzg) = self.kzg.as_ref() {
             for blob in blobs.iter().flatten() {
-                verified_blobs.push(verify_kzg_for_blob(blob.clone(), kzg)?)
+                verified_blobs.push(
+                    verify_kzg_for_blob(blob.clone(), kzg).map_err(AvailabilityCheckError::Kzg)?,
+                );
             }
         } else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
@@ -209,7 +211,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_blobs(block_root, verified_blobs)
     }
 
-    /// This first validates the KZG commitments included in the blob sidecar.
     /// Check if we've cached other blobs for this block. If it completes a set and we also
     /// have a block cached, return the `Availability` variant triggering block import.
     /// Otherwise cache the blob sidecar.
@@ -219,15 +220,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        // Verify the KZG commitments.
-        let kzg_verified_blob = if let Some(kzg) = self.kzg.as_ref() {
-            verify_kzg_for_blob(gossip_blob.into_inner(), kzg)?
-        } else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
-
         self.availability_cache
-            .put_kzg_verified_blobs(kzg_verified_blob.block_root(), vec![kzg_verified_blob])
+            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -265,7 +259,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .kzg
                         .as_ref()
                         .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                    verify_kzg_for_blob_list(&blob_list, kzg)?;
+                    verify_kzg_for_blob_list(&blob_list, kzg)
+                        .map_err(AvailabilityCheckError::Kzg)?;
                     Some(blob_list)
                 } else {
                     None

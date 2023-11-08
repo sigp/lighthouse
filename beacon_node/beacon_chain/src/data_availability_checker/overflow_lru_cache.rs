@@ -738,9 +738,7 @@ impl ssz::Decode for OverflowKey {
 mod test {
     use super::*;
     use crate::{
-        blob_verification::{
-            validate_blob_sidecar_for_gossip, verify_kzg_for_blob, GossipVerifiedBlob,
-        },
+        blob_verification::{validate_blob_sidecar_for_gossip, GossipVerifiedBlob},
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         data_availability_checker::STATE_LRU_CAPACITY,
@@ -1041,17 +1039,9 @@ mod test {
             );
         }
 
-        let kzg = harness
-            .chain
-            .kzg
-            .as_ref()
-            .cloned()
-            .expect("kzg should exist");
         let mut kzg_verified_blobs = Vec::new();
         for (blob_index, gossip_blob) in blobs.into_iter().enumerate() {
-            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.into_inner(), kzg.as_ref())
-                .expect("kzg should verify");
-            kzg_verified_blobs.push(kzg_verified_blob);
+            kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
                 .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
@@ -1077,9 +1067,7 @@ mod test {
         let root = pending_block.import_data.block_root;
         let mut kzg_verified_blobs = vec![];
         for gossip_blob in blobs {
-            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.into_inner(), kzg.as_ref())
-                .expect("kzg should verify");
-            kzg_verified_blobs.push(kzg_verified_blob);
+            kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
                 .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
@@ -1203,20 +1191,11 @@ mod test {
         assert!(cache.critical.read().store_keys.contains(&roots[0]));
         assert!(cache.critical.read().store_keys.contains(&roots[1]));
 
-        let kzg = harness
-            .chain
-            .kzg
-            .as_ref()
-            .cloned()
-            .expect("kzg should exist");
-
         let blobs_0 = pending_blobs.pop_front().expect("should have blobs");
         let expected_blobs = blobs_0.len();
         let mut kzg_verified_blobs = vec![];
         for (blob_index, gossip_blob) in blobs_0.into_iter().enumerate() {
-            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.into_inner(), kzg.as_ref())
-                .expect("kzg should verify");
-            kzg_verified_blobs.push(kzg_verified_blob);
+            kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
                 .put_kzg_verified_blobs(roots[0], kzg_verified_blobs.clone())
                 .expect("should put blob");
@@ -1283,13 +1262,6 @@ mod test {
             pending_blobs.push_back(blobs);
         }
 
-        let kzg = harness
-            .chain
-            .kzg
-            .as_ref()
-            .cloned()
-            .expect("kzg should exist");
-
         for _ in 0..(n_epochs * capacity) {
             let pending_block = pending_blocks.pop_front().expect("should have block");
             let mut pending_block_blobs = pending_blobs.pop_front().expect("should have blobs");
@@ -1300,9 +1272,7 @@ mod test {
                 let one_blob = pending_block_blobs
                     .pop()
                     .expect("should have at least one blob");
-                let kzg_verified_blob = verify_kzg_for_blob(one_blob.into_inner(), kzg.as_ref())
-                    .expect("kzg should verify");
-                let kzg_verified_blobs = vec![kzg_verified_blob];
+                let kzg_verified_blobs = vec![one_blob.into_inner()];
                 // generate random boolean
                 let block_first = (rand::random::<usize>() % 2) == 0;
                 if block_first {
@@ -1423,13 +1393,6 @@ mod test {
             pending_blobs.push_back(blobs);
         }
 
-        let kzg = harness
-            .chain
-            .kzg
-            .as_ref()
-            .cloned()
-            .expect("kzg should exist");
-
         let mut remaining_blobs = HashMap::new();
         for _ in 0..(n_epochs * capacity) {
             let pending_block = pending_blocks.pop_front().expect("should have block");
@@ -1441,9 +1404,7 @@ mod test {
                 let one_blob = pending_block_blobs
                     .pop()
                     .expect("should have at least one blob");
-                let kzg_verified_blob = verify_kzg_for_blob(one_blob.into_inner(), kzg.as_ref())
-                    .expect("kzg should verify");
-                let kzg_verified_blobs = vec![kzg_verified_blob];
+                let kzg_verified_blobs = vec![one_blob.into_inner()];
                 // generate random boolean
                 let block_first = (rand::random::<usize>() % 2) == 0;
                 if block_first {
@@ -1556,9 +1517,7 @@ mod test {
             let additional_blobs = blobs.len();
             let mut kzg_verified_blobs = vec![];
             for (i, gossip_blob) in blobs.into_iter().enumerate() {
-                let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.into_inner(), kzg.as_ref())
-                    .expect("kzg should verify");
-                kzg_verified_blobs.push(kzg_verified_blob);
+                kzg_verified_blobs.push(gossip_blob.into_inner());
                 let availability = recovered_cache
                     .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                     .expect("should put blob");
