@@ -18,7 +18,7 @@ pub fn start_attestation_simulator_service<T: BeaconChainTypes>(
     // once it's merged
     executor.clone().spawn(
         async move { attestation_simulator_service(executor, chain).await },
-        "attester_per_slot_service",
+        "attestation_simulator_service",
     );
 }
 
