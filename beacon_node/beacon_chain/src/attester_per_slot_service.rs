@@ -87,8 +87,8 @@ pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
                         debug!(
                         inner_chain.log,
                         "Produce unaggregated attestation";
-                        "data.source.root" => data.source.root.to_string(),
-                        "data.source.root" => data.target.root.to_string(),
+                        "attestation_source" => data.source.root.to_string(),
+                        "attestation_target" => data.target.root.to_string(),
                         );
                         inner_chain
                             .validator_monitor
