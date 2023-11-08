@@ -9,7 +9,7 @@ use types::{BeaconState, RelativeEpoch, Slot};
 /// Spawns a routine which produces an unaggregated attestation at every slot.
 ///
 /// This routine will run once per slot
-pub fn start_attester_per_slot_service<T: BeaconChainTypes>(
+pub fn start_attestation_simulator_service<T: BeaconChainTypes>(
     executor: TaskExecutor,
     chain: Arc<BeaconChain<T>>,
 ) {
@@ -17,13 +17,13 @@ pub fn start_attester_per_slot_service<T: BeaconChainTypes>(
     // Paul has made a refacto of that bit in another PR, I will rebase
     // once it's merged
     executor.clone().spawn(
-        async move { attester_per_slot_service(executor, chain).await },
+        async move { attestation_simulator_service(executor, chain).await },
         "attester_per_slot_service",
     );
 }
 
 /// Loop indefinitely, calling `BeaconChain::produce_unaggregated_attestation` every 4s into each slot.
-async fn attester_per_slot_service<T: BeaconChainTypes>(
+async fn attestation_simulator_service<T: BeaconChainTypes>(
     executor: TaskExecutor,
     chain: Arc<BeaconChain<T>>,
 ) {
@@ -52,7 +52,7 @@ async fn attester_per_slot_service<T: BeaconChainTypes>(
                             produce_unaggregated_attestation(inner_chain, state, current_slot);
                         }
                     },
-                    "attester_per_slot_service",
+                    "attestation_simulator_service",
                 );
             }
             None => {
