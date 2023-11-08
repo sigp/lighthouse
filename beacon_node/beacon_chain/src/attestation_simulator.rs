@@ -43,13 +43,12 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
                 // I am not sure the impact of cloning the state at every epoch yet
                 // That's probably the naive solution, I'll reiterate on this later
                 let inner_chain = chain.clone();
-                let state = inner_chain.head_beacon_state_cloned();
 
                 // Run the task in the executor
                 executor.spawn(
                     async move {
                         if let Ok(current_slot) = inner_chain.slot() {
-                            produce_unaggregated_attestation(inner_chain, state, current_slot);
+                            produce_unaggregated_attestation(inner_chain, current_slot);
                         }
                     },
                     "attestation_simulator_service",
@@ -66,7 +65,6 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
 
 pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
     inner_chain: Arc<BeaconChain<T>>,
-    state: BeaconState<<T as BeaconChainTypes>::EthSpec>,
     current_slot: Slot,
 ) {
     // Since attestations for different committees are practically identical (apart from the committee index field)
