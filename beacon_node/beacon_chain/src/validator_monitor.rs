@@ -540,12 +540,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     fn process_unaggregated_attestations(&mut self, state: &BeaconState<T>, spec: &ChainSpec) {
         // Define range variables
         let current_slot = state.slot();
-        let slot = current_slot - Slot::new(UNAGGREGATED_ATTESTATION_LAG_SLOTS as u64);
 
+        // Ensures that we process attestation when there have been skipped slots between blocks
         let attested_slots: Vec<(Slot, Attestation<T>)> = self
             .unaggregated_attestations
             .iter()
-            .filter(|(attestation_slot, _)| **attestation_slot <= current_slot)
+            .filter(|(attestation_slot, _)| (**attestation_slot < current_slot - Slot::new(UNAGGREGATED_ATTESTATION_LAG_SLOTS as u64)))
             .map(|(slot, attestation)| (*slot, (*attestation).clone()))
             .collect();
 
