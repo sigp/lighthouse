@@ -1677,7 +1677,10 @@ impl ApiTester {
             Err(e) => panic!("query failed incorrectly: {e:?}"),
         };
 
-        let expected = self.chain.latest_seen_optimistic_update.lock().clone();
+        let expected = self
+            .chain
+            .lightclient_server_cache
+            .get_latest_optimistic_update();
         assert_eq!(result, expected);
 
         self
@@ -1693,7 +1696,10 @@ impl ApiTester {
             Err(e) => panic!("query failed incorrectly: {e:?}"),
         };
 
-        let expected = self.chain.latest_seen_finality_update.lock().clone();
+        let expected = self
+            .chain
+            .lightclient_server_cache
+            .get_latest_finality_update();
         assert_eq!(result, expected);
 
         self

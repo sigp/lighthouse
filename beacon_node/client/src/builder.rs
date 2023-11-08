@@ -1,4 +1,7 @@
 use crate::address_change_broadcast::broadcast_address_changes_at_capella;
+use crate::broadcast_lightclient_updates::{
+    compute_lightclient_updates, LIGHTCLIENT_SERVER_CHANNEL_CAPACITY,
+};
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
@@ -6,6 +9,7 @@ use beacon_chain::data_availability_checker::start_availability_cache_maintenanc
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
+use beacon_chain::LightclientProducerEvent;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
@@ -35,6 +39,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
+use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
@@ -76,6 +81,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     beacon_processor_config: Option<BeaconProcessorConfig>,
     beacon_processor_channels: Option<BeaconProcessorChannels<T::EthSpec>>,
+    lightclient_server_rv: Option<Receiver<LightclientProducerEvent<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
 }
 
@@ -111,6 +117,7 @@ where
             eth_spec_instance,
             beacon_processor_config: None,
             beacon_processor_channels: None,
+            lightclient_server_rv: None,
         }
     }
 
@@ -195,6 +202,16 @@ where
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
+        } else {
+            builder
+        };
+
+        let builder = if config.network.enable_light_client_server {
+            let (tx, rv) = tokio::sync::mpsc::channel::<LightclientProducerEvent<TEthSpec>>(
+                LIGHTCLIENT_SERVER_CHANNEL_CAPACITY,
+            );
+            self.lightclient_server_rv = Some(rv);
+            builder.lightclient_server_tx(tx)
         } else {
             builder
         };
@@ -816,7 +833,7 @@ where
                 }
 
                 // Spawn a service to publish BLS to execution changes at the Capella fork.
-                if let Some(network_senders) = self.network_senders {
+                if let Some(network_senders) = self.network_senders.clone() {
                     let inner_chain = beacon_chain.clone();
                     let broadcast_context =
                         runtime_context.service_context("addr_bcast".to_string());
@@ -831,6 +848,21 @@ where
                             .await
                         },
                         "addr_broadcast",
+                    );
+                }
+
+                // Spawn service to publish lightclient updates at some interval into the slot
+                if let Some(lightclient_server_rv) = self.lightclient_server_rv {
+                    let inner_chain = beacon_chain.clone();
+                    let broadcast_context =
+                        runtime_context.service_context("lcserv_bcast".to_string());
+                    let log = broadcast_context.log().clone();
+                    broadcast_context.executor.spawn(
+                        async move {
+                            compute_lightclient_updates(&inner_chain, lightclient_server_rv, &log)
+                                .await
+                        },
+                        "lcserv_broadcast",
                     );
                 }
             }

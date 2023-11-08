@@ -38,6 +38,7 @@ use crate::light_client_finality_update_verification::{
 use crate::light_client_optimistic_update_verification::{
     Error as LightClientOptimisticUpdateError, VerifiedLightClientOptimisticUpdate,
 };
+use crate::lightclient_proofs_cache::LightclientServerCache;
 use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{
     AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
@@ -339,6 +340,8 @@ struct PartialBeaconBlock<E: EthSpec> {
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
+pub type LightclientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
+
 pub type BeaconForkChoice<T> = ForkChoice<
     BeaconForkChoiceStore<
         <T as BeaconChainTypes>::EthSpec,
@@ -418,10 +421,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators we've seen BLS to execution changes for.
     pub(crate) observed_bls_to_execution_changes:
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
-    /// The most recently validated light client finality update received on gossip.
-    pub latest_seen_finality_update: Mutex<Option<LightClientFinalityUpdate<T::EthSpec>>>,
-    /// The most recently validated light client optimistic update received on gossip.
-    pub latest_seen_optimistic_update: Mutex<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     /// Interfaces with the execution client.
@@ -464,6 +463,11 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
+    /// A cache used to produce lightclient server messages
+    pub lightclient_server_cache: LightclientServerCache<T>,
+    /// Sender to signal the lightclient server to produce new updates
+    pub lightclient_server_tx:
+        Option<tokio::sync::mpsc::Sender<LightclientProducerEvent<T::EthSpec>>>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,
@@ -1293,6 +1297,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         .start_slot(T::EthSpec::slots_per_epoch());
 
         self.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)
+    }
+
+    pub fn recompute_and_cache_lightclient_updates(
+        &self,
+        (parent_root, slot, sync_aggregate): LightclientProducerEvent<T::EthSpec>,
+    ) -> Result<(), Error> {
+        self.lightclient_server_cache.recompute_and_cache_updates(
+            &self.log,
+            self.store.clone(),
+            &parent_root,
+            slot,
+            &sync_aggregate,
+        )
     }
 
     /// Returns the current heads of the `BeaconChain`. For the canonical head, see `Self::head`.
@@ -3433,6 +3450,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         let current_finalized_checkpoint = state.finalized_checkpoint();
 
+        // compute state proofs for light client updates before inserting the state into the
+        // snapshot cache.
+        self.lightclient_server_cache
+            .cache_state_data(
+                &self.spec, block, block_root,
+                // mutable reference on the state is needed to compute merkle proofs
+                &mut state,
+            )
+            .unwrap_or_else(|e| {
+                error!(self.log, "error caching lightclient data {:?}", e);
+            });
+
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .ok_or(Error::SnapshotCacheLockTimeout)
@@ -3801,6 +3830,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block: block_root,
                     execution_optimistic: payload_verification_status.is_optimistic(),
                 }));
+            }
+        }
+
+        // Do not trigger lightclient server update producer for old blocks, to extra work
+        // during sync.
+        if block_delay_total < self.slot_clock.slot_duration() * 32 {
+            if let Some(lightclient_server_tx) = self.lightclient_server_tx.clone() {
+                if let Ok(sync_aggregate) = block.body().sync_aggregate() {
+                    if let Err(e) = lightclient_server_tx.try_send((
+                        block.parent_root(),
+                        block.slot(),
+                        sync_aggregate.clone(),
+                    )) {
+                        warn!(
+                            self.log,
+                            "Failed to send lightclient server event";
+                            "error" => ?e
+                        );
+                    }
+                }
             }
         }
     }

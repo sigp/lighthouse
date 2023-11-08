@@ -2471,9 +2471,8 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let update = chain
-                        .latest_seen_optimistic_update
-                        .lock()
-                        .clone()
+                        .lightclient_server_cache
+                        .get_latest_optimistic_update()
                         .ok_or_else(|| {
                             warp_utils::reject::custom_not_found(
                                 "No LightClientOptimisticUpdate is available".to_string(),
@@ -2518,9 +2517,8 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let update = chain
-                        .latest_seen_finality_update
-                        .lock()
-                        .clone()
+                        .lightclient_server_cache
+                        .get_latest_finality_update()
                         .ok_or_else(|| {
                             warp_utils::reject::custom_not_found(
                                 "No LightClientFinalityUpdate is available".to_string(),

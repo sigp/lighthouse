@@ -3,9 +3,7 @@ use derivative::Derivative;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
-use types::{
-    light_client_update::Error as LightClientUpdateError, LightClientFinalityUpdate, Slot,
-};
+use types::{light_client_update::Error as LightClientUpdateError, LightClientFinalityUpdate};
 
 /// Returned when a light client finality update was not successfully verified. It might not have been verified for
 /// two reasons:
@@ -63,42 +61,28 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
     /// Returns `Ok(Self)` if the `light_client_finality_update` is valid to be (re)published on the gossip
     /// network.
     pub fn verify(
-        light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
+        rcv_finality_update: LightClientFinalityUpdate<T::EthSpec>,
         chain: &BeaconChain<T>,
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {
-        let gossiped_finality_slot = light_client_finality_update.finalized_header.beacon.slot;
-        let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
-        let signature_slot = light_client_finality_update.signature_slot;
-        let start_time = chain.slot_clock.start_of(signature_slot);
-        let mut latest_seen_finality_update = chain.latest_seen_finality_update.lock();
-
-        let head = chain.canonical_head.cached_head();
-        let head_block = &head.snapshot.beacon_block;
-        let attested_block_root = head_block.message().parent_root();
-        let attested_block = chain
-            .get_blinded_block(&attested_block_root)?
+        let latest_finality_update = chain
+            .lightclient_server_cache
+            .get_latest_finality_update()
             .ok_or(Error::FailedConstructingUpdate)?;
-        let mut attested_state = chain
-            .get_state(&attested_block.state_root(), Some(attested_block.slot()))?
-            .ok_or(Error::FailedConstructingUpdate)?;
-
-        let finalized_block_root = attested_state.finalized_checkpoint().root;
-        let finalized_block = chain
-            .get_blinded_block(&finalized_block_root)?
-            .ok_or(Error::FailedConstructingUpdate)?;
-        let latest_seen_finality_update_slot = match latest_seen_finality_update.as_ref() {
-            Some(update) => update.finalized_header.beacon.slot,
-            None => Slot::new(0),
-        };
 
         // verify that no other finality_update with a lower or equal
         // finalized_header.slot was already forwarded on the network
-        if gossiped_finality_slot <= latest_seen_finality_update_slot {
+        if rcv_finality_update.finalized_header.beacon.slot
+            <= latest_finality_update.finalized_header.beacon.slot
+        {
             return Err(Error::FinalityUpdateAlreadySeen);
         }
 
         // verify that enough time has passed for the block to have been propagated
+        let start_time = chain
+            .slot_clock
+            .start_of(rcv_finality_update.signature_slot);
+        let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
         match start_time {
             Some(time) => {
                 if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
@@ -110,24 +94,13 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
             None => return Err(Error::SigSlotStartIsNone),
         }
 
-        let head_state = &head.snapshot.beacon_state;
-        let finality_update = LightClientFinalityUpdate::new(
-            &chain.spec,
-            head_state,
-            head_block,
-            &mut attested_state,
-            &finalized_block,
-        )?;
-
         // verify that the gossiped finality update is the same as the locally constructed one.
-        if finality_update != light_client_finality_update {
+        if latest_finality_update != rcv_finality_update {
             return Err(Error::InvalidLightClientFinalityUpdate);
         }
 
-        *latest_seen_finality_update = Some(light_client_finality_update.clone());
-
         Ok(Self {
-            light_client_finality_update,
+            light_client_finality_update: rcv_finality_update,
             seen_timestamp,
         })
     }
