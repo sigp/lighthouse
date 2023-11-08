@@ -69,53 +69,35 @@ pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
     state: BeaconState<<T as BeaconChainTypes>::EthSpec>,
     current_slot: Slot,
 ) {
-    // Get the committee cache for the current slot
-    if let Ok(committee_cache) = state.committee_cache(RelativeEpoch::Current) {
-        let committee_count = committee_cache.committees_per_slot();
+    // Since attestations for different committees are practically identical (apart from the committee index field)
+    // Committee 0 is guaranteed to exist. That means there's no need to load the committee.
+    let beacon_committee_index = 0;
 
-        // Produce an unaggregated attestation for each committee
-        for index in 0..committee_count {
-            if let Some(beacon_committee) =
-                committee_cache.get_beacon_committee(current_slot, index)
-            {
-                // Store the unaggregated attestation in the validator monitor for later processing
-                match inner_chain
-                    .produce_unaggregated_attestation(current_slot, beacon_committee.index)
-                {
-                    Ok(unaggregated_attestation) => {
-                        let data = &unaggregated_attestation.data;
-                        debug!(
-                        inner_chain.log,
-                        "Produce unaggregated attestation";
-                        "attestation_source" => data.source.root.to_string(),
-                        "attestation_target" => data.target.root.to_string(),
-                        );
-                        inner_chain
-                            .validator_monitor
-                            .write()
-                            .set_unaggregated_attestation(unaggregated_attestation);
-                    }
-                    Err(e) => {
-                        error!(
-                        inner_chain.log,
-                        "Produce unaggregated attestation failed";
-                        "error" => ?e
-                        );
-                    }
-                }
-            } else {
-                error!(
-                    inner_chain.log,
-                    "No beacon committee found";
-                    "slot" => current_slot,
-                );
-            }
-        }
-    } else {
-        error!(
+    // Store the unaggregated attestation in the validator monitor for later processing
+    match inner_chain
+        .produce_unaggregated_attestation(current_slot, beacon_committee_index)
+    {
+        Ok(unaggregated_attestation) => {
+            let data = &unaggregated_attestation.data;
+
+            debug!(
             inner_chain.log,
-            "No committee cache found";
-            "slot" => current_slot,
-        );
+            "Produce unaggregated attestation";
+            "attestation_source" => data.source.root.to_string(),
+            "attestation_target" => data.target.root.to_string(),
+            );
+
+            inner_chain
+                .validator_monitor
+                .write()
+                .set_unaggregated_attestation(unaggregated_attestation);
+        }
+        Err(e) => {
+            error!(
+            inner_chain.log,
+            "Produce unaggregated attestation failed";
+            "error" => ?e
+            );
+        }
     }
 }
