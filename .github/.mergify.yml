@@ -6,6 +6,7 @@ queue_rules:
     queue_conditions:
       - "#approved-reviews-by >= 1"
       - "label=ready-for-bors"
+      - "base=unstable"
       - "check-success=license/cla"
       - "check-success=target-branch-check"
     merge_conditions:
