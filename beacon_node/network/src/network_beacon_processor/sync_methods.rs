@@ -225,26 +225,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "commitments" => commitments_formatted,
         );
 
-        let graffiti = block
+        let proposer_client = block
             .as_block()
             .message()
             .body()
             .graffiti()
             .as_utf8_lossy()
             .clone();
-        let proposer_client = if graffiti.contains("lighthouse") {
-            "lighthouse"
-        } else if graffiti.contains("prysm") {
-            "prysm"
-        } else if graffiti.contains("nimbus") {
-            "nimbus"
-        } else if graffiti.contains("teku") {
-            "teku"
-        } else if graffiti.contains("lodestar") {
-            "lodestar"
-        } else {
-            ""
-        };
 
         let result = self
             .chain
@@ -272,7 +259,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     seen_timestamp,
                     None,
                     None,
-                    Some(proposer_client.to_string()),
+                    Some(proposer_client),
                 );
 
                 self.chain.recompute_head_at_current_slot().await;

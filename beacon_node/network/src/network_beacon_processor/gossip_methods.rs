@@ -914,20 +914,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             block.canonical_root()
         };
 
-        let graffiti = block.message().body().graffiti().as_utf8_lossy();
-        let proposer_client = if graffiti.contains("lighthouse") {
-            "lighthouse"
-        } else if graffiti.contains("prysm") {
-            "prysm"
-        } else if graffiti.contains("nimbus") {
-            "nimbus"
-        } else if graffiti.contains("teku") {
-            "teku"
-        } else if graffiti.contains("lodestar") {
-            "lodestar"
-        } else {
-            ""
-        };
+        let proposer_client = block.message().body().graffiti().as_utf8_lossy();
         // Write the time the block was observed into delay cache.
         self.chain.block_times_cache.write().set_time_observed(
             block_root,
@@ -935,7 +922,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             seen_duration,
             Some(peer_id.to_string()),
             Some(peer_client.to_string()),
-            Some(proposer_client.to_string()),
+            Some(proposer_client),
         );
 
         let verified_block = match verification_result {
