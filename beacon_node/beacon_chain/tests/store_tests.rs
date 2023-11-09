@@ -31,7 +31,7 @@ use store::{
     chunked_vector::{chunk_key, Field},
     get_key_for_col,
     iter::{BlockRootsIterator, StateRootsIterator},
-    DBColumn, HotColdDB, KeyValueStore, KeyValueStoreOp, LevelDB, StoreConfig,
+    BlobInfo, DBColumn, HotColdDB, KeyValueStore, KeyValueStoreOp, LevelDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
 use tokio::time::sleep;
@@ -62,12 +62,13 @@ fn get_store_generic(
 ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
+    let blobs_path = db_path.path().join("blobs_db");
     let log = test_logger();
 
     HotColdDB::open(
         &hot_path,
         &cold_path,
-        None,
+        &blobs_path,
         |_, _, _| Ok(()),
         config,
         spec,
@@ -3276,6 +3277,40 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
     );
     check_blob_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
     check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
+}
+
+/// Check that a database with `blobs_db=false` can be upgraded to `blobs_db=true` before Deneb.
+#[tokio::test]
+async fn change_to_separate_blobs_db_before_deneb() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+
+    // Only run this test on forks prior to Deneb. If the blobs database already has blobs, we can't
+    // move it.
+    if store.get_chain_spec().deneb_fork_epoch.is_some() {
+        return;
+    }
+
+    let init_blob_info = store.get_blob_info();
+    assert!(
+        init_blob_info.blobs_db,
+        "separate blobs DB should be the default"
+    );
+
+    // Change to `blobs_db=false` to emulate legacy Deneb DB.
+    let legacy_blob_info = BlobInfo {
+        blobs_db: false,
+        ..init_blob_info
+    };
+    store
+        .compare_and_set_blob_info_with_write(init_blob_info.clone(), legacy_blob_info.clone())
+        .unwrap();
+    assert_eq!(store.get_blob_info(), legacy_blob_info);
+
+    // Re-open the DB and check that `blobs_db` gets changed back to true.
+    drop(store);
+    let store = get_store(&db_path);
+    assert_eq!(store.get_blob_info(), init_blob_info);
 }
 
 /// Check that there are blob sidecars (or not) at every slot in the range.

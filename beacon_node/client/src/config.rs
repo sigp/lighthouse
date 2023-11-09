@@ -10,8 +10,11 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
 use types::Graffiti;
+
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
+/// Default directory name for the blobs database under the top-level data dir.
+const DEFAULT_BLOBS_DB_DIR: &str = "blobs_db";
 
 /// Defines how the client should initialize the `BeaconChain` and other components.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -146,12 +149,19 @@ impl Config {
             .unwrap_or_else(|| self.default_freezer_db_path())
     }
 
+    /// Fetch default path to use for the blobs database.
+    fn default_blobs_db_path(&self) -> PathBuf {
+        self.get_data_dir().join(DEFAULT_BLOBS_DB_DIR)
+    }
+
     /// Returns the path to which the client may initialize the on-disk blobs database.
     ///
     /// Will attempt to use the user-supplied path from e.g. the CLI, or will default
     /// to None.
-    pub fn get_blobs_db_path(&self) -> Option<PathBuf> {
-        self.blobs_db_path.clone()
+    pub fn get_blobs_db_path(&self) -> PathBuf {
+        self.blobs_db_path
+            .clone()
+            .unwrap_or_else(|| self.default_blobs_db_path())
     }
 
     /// Get the freezer DB path, creating it if necessary.
@@ -160,11 +170,8 @@ impl Config {
     }
 
     /// Get the blobs DB path, creating it if necessary.
-    pub fn create_blobs_db_path(&self) -> Result<Option<PathBuf>, String> {
-        match self.get_blobs_db_path() {
-            Some(blobs_db_path) => Ok(Some(ensure_dir_exists(blobs_db_path)?)),
-            None => Ok(None),
-        }
+    pub fn create_blobs_db_path(&self) -> Result<PathBuf, String> {
+        ensure_dir_exists(self.get_blobs_db_path())
     }
 
     /// Returns the "modern" path to the data_dir.
