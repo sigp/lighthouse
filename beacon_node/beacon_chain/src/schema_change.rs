@@ -1,5 +1,4 @@
 //! Utilities for managing database schema changes.
-mod migration_schema_v16;
 mod migration_schema_v17;
 mod migration_schema_v18;
 
