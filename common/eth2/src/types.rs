@@ -1384,6 +1384,11 @@ pub mod serde_status_code {
     }
 }
 
+pub enum ForkVersionedBeaconBlockType<T: EthSpec> {
+    Full(ForkVersionedResponse<BlockContents<T, FullPayload<T>>>),
+    Blinded(ForkVersionedResponse<BlockContents<T, BlindedPayload<T>>>),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

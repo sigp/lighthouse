@@ -244,60 +244,6 @@ fn paranoid_block_proposal_on() {
 }
 
 #[test]
-fn count_unrealized_no_arg() {
-    CommandLineTest::new()
-        .flag("count-unrealized", None)
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_false() {
-    CommandLineTest::new()
-        .flag("count-unrealized", Some("false"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_true() {
-    CommandLineTest::new()
-        .flag("count-unrealized", Some("true"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_no_arg() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", None)
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_false() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", Some("false"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_true() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", Some("true"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
 fn reset_payload_statuses_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -386,23 +332,6 @@ fn eth1_flag() {
         .flag("eth1", None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.sync_eth1_chain));
-}
-#[test]
-fn eth1_endpoints_flag() {
-    CommandLineTest::new()
-        .flag("eth1-endpoints", Some("http://localhost:9545"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.eth1.endpoint.get_endpoint().full.to_string(),
-                "http://localhost:9545/"
-            );
-            assert_eq!(
-                config.eth1.endpoint.get_endpoint().to_string(),
-                "http://localhost:9545/"
-            );
-            assert!(config.sync_eth1_chain);
-        });
 }
 #[test]
 fn eth1_blocks_per_log_query_flag() {
@@ -526,49 +455,6 @@ fn merge_execution_endpoints_flag() {
 #[test]
 fn merge_execution_endpoint_flag() {
     run_merge_execution_endpoints_flag_test("execution-endpoint")
-}
-fn run_execution_endpoints_overrides_eth1_endpoints_test(eth1_flag: &str, execution_flag: &str) {
-    use sensitive_url::SensitiveUrl;
-
-    let eth1_endpoint = "http://bad.bad";
-    let execution_endpoint = "http://good.good";
-
-    assert!(eth1_endpoint != execution_endpoint);
-
-    let dir = TempDir::new().expect("Unable to create temporary directory");
-    let jwt_path = dir.path().join("jwt-file");
-
-    CommandLineTest::new()
-        .flag(eth1_flag, Some(&eth1_endpoint))
-        .flag(execution_flag, Some(&execution_endpoint))
-        .flag("execution-jwt", jwt_path.as_os_str().to_str())
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.execution_layer.as_ref().unwrap().execution_endpoints,
-                vec![SensitiveUrl::parse(execution_endpoint).unwrap()]
-            );
-
-            // The eth1 endpoint should have been set to the --execution-endpoint value in defiance
-            // of --eth1-endpoints.
-            assert_eq!(
-                config.eth1.endpoint,
-                Eth1Endpoint::Auth {
-                    endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
-                    jwt_path: jwt_path.clone(),
-                    jwt_id: None,
-                    jwt_version: None,
-                }
-            );
-        });
-}
-#[test]
-fn execution_endpoints_overrides_eth1_endpoints() {
-    run_execution_endpoints_overrides_eth1_endpoints_test("eth1-endpoints", "execution-endpoints");
-}
-#[test]
-fn execution_endpoint_overrides_eth1_endpoint() {
-    run_execution_endpoints_overrides_eth1_endpoints_test("eth1-endpoint", "execution-endpoint");
 }
 #[test]
 fn merge_jwt_secrets_flag() {
@@ -1772,11 +1658,17 @@ fn metrics_allow_origin_all_flag() {
 
 // Tests for Validator Monitor flags.
 #[test]
+fn validator_monitor_default_values() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.validator_monitor == <_>::default()));
+}
+#[test]
 fn validator_monitor_auto_flag() {
     CommandLineTest::new()
         .flag("validator-monitor-auto", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.validator_monitor_auto));
+        .with_config(|config| assert!(config.validator_monitor.auto_register));
 }
 #[test]
 fn validator_monitor_pubkeys_flag() {
@@ -1785,8 +1677,8 @@ fn validator_monitor_pubkeys_flag() {
                                                 0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.validator_monitor_pubkeys[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
-            assert_eq!(config.validator_monitor_pubkeys[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
         });
 }
 #[test]
@@ -1800,8 +1692,8 @@ fn validator_monitor_file_flag() {
         .flag("validator-monitor-file", dir.path().join("pubkeys.txt").as_os_str().to_str())
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.validator_monitor_pubkeys[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
-            assert_eq!(config.validator_monitor_pubkeys[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
         });
 }
 #[test]
@@ -1810,7 +1702,7 @@ fn validator_monitor_metrics_threshold_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.validator_monitor_individual_tracking_threshold,
+                config.validator_monitor.individual_tracking_threshold,
                 // If this value changes make sure to update the help text for
                 // the CLI command.
                 64
@@ -1826,7 +1718,7 @@ fn validator_monitor_metrics_threshold_custom() {
         )
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.validator_monitor_individual_tracking_threshold, 42)
+            assert_eq!(config.validator_monitor.individual_tracking_threshold, 42)
         });
 }
 
@@ -2472,7 +2364,7 @@ fn gui_flag() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.http_api.enabled);
-            assert!(config.validator_monitor_auto);
+            assert!(config.validator_monitor.auto_register);
         });
 }
 
