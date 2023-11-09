@@ -4,7 +4,7 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use types::{BeaconState, RelativeEpoch, Slot};
+use types::{Slot};
 
 /// Spawns a routine which produces an unaggregated attestation at every slot.
 ///

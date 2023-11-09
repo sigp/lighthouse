@@ -545,7 +545,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let attested_slots: Vec<(Slot, Attestation<T>)> = self
             .unaggregated_attestations
             .iter()
-            .filter(|(attestation_slot, _)| (**attestation_slot < current_slot - Slot::new(UNAGGREGATED_ATTESTATION_LAG_SLOTS as u64)))
+            .filter(|(attestation_slot, _)| {
+                **attestation_slot
+                    < current_slot - Slot::new(UNAGGREGATED_ATTESTATION_LAG_SLOTS as u64)
+            })
             .map(|(slot, attestation)| (*slot, (*attestation).clone()))
             .collect();
 
@@ -563,67 +566,67 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             let inclusion_delay = spec.min_attestation_inclusion_delay;
 
             // Get the reward indices for the unaggregated attestation or log an error
-            let _ = get_attestation_participation_flag_indices(
+            match get_attestation_participation_flag_indices(
                 state,
                 &unaggregated_attestation.data,
                 inclusion_delay,
                 spec,
-            )
-            .map_err(|err| {
-                error!(
-                    self.log,
-                    "Failed to get attestation participation flag indices";
-                    "error" => ?err,
-                    "unaggregated_attestation" => ?unaggregated_attestation,
-                )
-            })
-            .and_then(|flag_indices| {
-                let head_hit = flag_indices.get(TIMELY_HEAD_FLAG_INDEX);
-                let target_hit = flag_indices.get(TIMELY_TARGET_FLAG_INDEX);
-                let source_hit = flag_indices.get(TIMELY_SOURCE_FLAG_INDEX);
+            ) {
+                Ok(flag_indices) => {
+                    let head_hit = flag_indices.get(TIMELY_HEAD_FLAG_INDEX);
+                    let target_hit = flag_indices.get(TIMELY_TARGET_FLAG_INDEX);
+                    let source_hit = flag_indices.get(TIMELY_SOURCE_FLAG_INDEX);
 
-                if head_hit.is_some() {
-                    metrics::inc_counter(
-                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT,
-                    );
-                } else {
-                    metrics::inc_counter(
-                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS,
+                    if head_hit.is_some() {
+                        metrics::inc_counter(
+                            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT,
+                        );
+                    } else {
+                        metrics::inc_counter(
+                            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS,
+                        );
+                    }
+                    if target_hit.is_some() {
+                        metrics::inc_counter(
+                            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT,
+                        );
+                    } else {
+                        metrics::inc_counter(
+                            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS,
+                        );
+                    }
+                    if source_hit.is_some() {
+                        metrics::inc_counter(
+                            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT,
+                        );
+                    } else {
+                        metrics::inc_counter(
+                            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS,
+                        );
+                    }
+
+                    let data = &unaggregated_attestation.data;
+                    debug!(
+                        self.log,
+                        "Simulated attestation evaluated";
+                        "attestation_source" => ?data.source.root,
+                        "attestation_target" => ?data.target.root,
+                        "attestation_head" => ?data.beacon_block_root,
+                        "attestation_slot" => ?data.slot,
+                        "source_hit" => source_hit,
+                        "target_hit" => target_hit,
+                        "head_hit" => head_hit,
                     );
                 }
-                if target_hit.is_some() {
-                    metrics::inc_counter(
-                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT,
-                    );
-                } else {
-                    metrics::inc_counter(
-                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS,
-                    );
-                }
-                if source_hit.is_some() {
-                    metrics::inc_counter(
-                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT,
-                    );
-                } else {
-                    metrics::inc_counter(
-                        &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS,
+                Err(err) => {
+                    error!(
+                        self.log,
+                        "Failed to get attestation participation flag indices";
+                        "error" => ?err,
+                        "unaggregated_attestation" => ?unaggregated_attestation,
                     );
                 }
-
-                let data = &unaggregated_attestation.data;
-                debug!(
-                self.log,
-                "Simulated attestation evaluated";
-                "attestation_source" => ?data.source.root,
-                "attestation_target" => ?data.target.root,
-                "attestation_head" => ?data.beacon_block_root,
-                "attestation_slot" => ?data.slot,
-                "source_hit" => source_hit,
-                "target_hit" => target_hit,
-                "head_hit" => head_hit);
-
-                Ok(())
-            });
+            }
         }
     }
 

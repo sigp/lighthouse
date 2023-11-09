@@ -14,7 +14,7 @@ lazy_static! {
 }
 
 #[tokio::test]
-async fn produces_attestations_from_attester_per_slot_service() {
+async fn produces_attestations_from_attestation_simulator_service() {
     // Produce 2 epochs, or 64 blocks
     let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 2;
 
@@ -54,7 +54,7 @@ async fn produces_attestations_from_attester_per_slot_service() {
             .unwrap();
 
         // Produce an unaggragetated attestation
-        produce_unaggregated_attestation(chain.clone(), state.clone(), chain.slot().unwrap());
+        produce_unaggregated_attestation(chain.clone(), chain.slot().unwrap());
 
         // Verify that the ua is stored in validator monitor
         let validator_monitor = chain.validator_monitor.read();
