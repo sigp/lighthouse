@@ -244,60 +244,6 @@ fn paranoid_block_proposal_on() {
 }
 
 #[test]
-fn count_unrealized_no_arg() {
-    CommandLineTest::new()
-        .flag("count-unrealized", None)
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_false() {
-    CommandLineTest::new()
-        .flag("count-unrealized", Some("false"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_true() {
-    CommandLineTest::new()
-        .flag("count-unrealized", Some("true"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_no_arg() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", None)
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_false() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", Some("false"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_true() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", Some("true"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
 fn reset_payload_statuses_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -386,23 +332,6 @@ fn eth1_flag() {
         .flag("eth1", None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.sync_eth1_chain));
-}
-#[test]
-fn eth1_endpoints_flag() {
-    CommandLineTest::new()
-        .flag("eth1-endpoints", Some("http://localhost:9545"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.eth1.endpoint.get_endpoint().full.to_string(),
-                "http://localhost:9545/"
-            );
-            assert_eq!(
-                config.eth1.endpoint.get_endpoint().to_string(),
-                "http://localhost:9545/"
-            );
-            assert!(config.sync_eth1_chain);
-        });
 }
 #[test]
 fn eth1_blocks_per_log_query_flag() {
@@ -526,49 +455,6 @@ fn merge_execution_endpoints_flag() {
 #[test]
 fn merge_execution_endpoint_flag() {
     run_merge_execution_endpoints_flag_test("execution-endpoint")
-}
-fn run_execution_endpoints_overrides_eth1_endpoints_test(eth1_flag: &str, execution_flag: &str) {
-    use sensitive_url::SensitiveUrl;
-
-    let eth1_endpoint = "http://bad.bad";
-    let execution_endpoint = "http://good.good";
-
-    assert!(eth1_endpoint != execution_endpoint);
-
-    let dir = TempDir::new().expect("Unable to create temporary directory");
-    let jwt_path = dir.path().join("jwt-file");
-
-    CommandLineTest::new()
-        .flag(eth1_flag, Some(&eth1_endpoint))
-        .flag(execution_flag, Some(&execution_endpoint))
-        .flag("execution-jwt", jwt_path.as_os_str().to_str())
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.execution_layer.as_ref().unwrap().execution_endpoints,
-                vec![SensitiveUrl::parse(execution_endpoint).unwrap()]
-            );
-
-            // The eth1 endpoint should have been set to the --execution-endpoint value in defiance
-            // of --eth1-endpoints.
-            assert_eq!(
-                config.eth1.endpoint,
-                Eth1Endpoint::Auth {
-                    endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
-                    jwt_path: jwt_path.clone(),
-                    jwt_id: None,
-                    jwt_version: None,
-                }
-            );
-        });
-}
-#[test]
-fn execution_endpoints_overrides_eth1_endpoints() {
-    run_execution_endpoints_overrides_eth1_endpoints_test("eth1-endpoints", "execution-endpoints");
-}
-#[test]
-fn execution_endpoint_overrides_eth1_endpoint() {
-    run_execution_endpoints_overrides_eth1_endpoints_test("eth1-endpoint", "execution-endpoint");
 }
 #[test]
 fn merge_jwt_secrets_flag() {
