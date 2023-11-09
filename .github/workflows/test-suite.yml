@@ -42,13 +42,13 @@ jobs:
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
       - name: pass
-        run: exit 1
+        run: exit 0
   release-tests-windows:
     name: release-tests-windows
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "CI"]') || 'windows-2019'  }}
     steps:
       - name: pass
-        run: echo "success"
+        run: exit 1
   beacon-chain-tests:
     name: beacon-chain-tests
     # Use self-hosted runners only on the sigp repo.
