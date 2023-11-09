@@ -10,7 +10,7 @@ use directory::{
 use eth2::types::Graffiti;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{info, warn, Logger};
+use slog::{info, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -173,49 +173,12 @@ impl Config {
                 .collect::<Result<_, _>>()
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
-        // To be deprecated.
-        else if let Some(beacon_node) = parse_optional::<String>(cli_args, "beacon-node")? {
-            warn!(
-                log,
-                "The --beacon-node flag is deprecated";
-                "msg" => "please use --beacon-nodes instead"
-            );
-            config.beacon_nodes = vec![SensitiveUrl::parse(&beacon_node)
-                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
-        }
-        // To be deprecated.
-        else if let Some(server) = parse_optional::<String>(cli_args, "server")? {
-            warn!(
-                log,
-                "The --server flag is deprecated";
-                "msg" => "please use --beacon-nodes instead"
-            );
-            config.beacon_nodes = vec![SensitiveUrl::parse(&server)
-                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
-        }
-
         if let Some(proposer_nodes) = parse_optional::<String>(cli_args, "proposer_nodes")? {
             config.proposer_nodes = proposer_nodes
                 .split(',')
                 .map(SensitiveUrl::parse)
                 .collect::<Result<_, _>>()
                 .map_err(|e| format!("Unable to parse proposer node URL: {:?}", e))?;
-        }
-
-        if cli_args.is_present("delete-lockfiles") {
-            warn!(
-                log,
-                "The --delete-lockfiles flag is deprecated";
-                "msg" => "it is no longer necessary, and no longer has any effect",
-            );
-        }
-
-        if cli_args.is_present("allow-unsynced") {
-            warn!(
-                log,
-                "The --allow-unsynced flag is deprecated";
-                "msg" => "it no longer has any effect",
-            );
         }
 
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
@@ -388,14 +351,6 @@ impl Config {
                 registration_timestamp_override
                     .parse::<u64>()
                     .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
-            );
-        }
-
-        if cli_args.is_present("strict-fee-recipient") {
-            warn!(
-                log,
-                "The flag `--strict-fee-recipient` has been deprecated due to a bug causing \
-                missed proposals. The flag will be ignored."
             );
         }
 

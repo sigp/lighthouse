@@ -1033,6 +1033,11 @@ lazy_static! {
         "beacon_aggregated_attestation_subsets_total",
         "Count of new aggregated attestations that are subsets of already known aggregates"
     );
+    pub static ref VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_missed_blocks_total",
+        "Number of non-finalized blocks missed",
+        &["validator"]
+    );
 
     /*
     * Kzg related metrics

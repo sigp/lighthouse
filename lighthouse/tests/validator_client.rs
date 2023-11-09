@@ -102,12 +102,6 @@ fn beacon_nodes_flag() {
 }
 
 #[test]
-fn allow_unsynced_flag() {
-    // No-op, but doesn't crash.
-    CommandLineTest::new().flag("allow-unsynced", None).run();
-}
-
-#[test]
 fn disable_auto_discover_flag() {
     CommandLineTest::new()
         .flag("disable-auto-discover", None)
