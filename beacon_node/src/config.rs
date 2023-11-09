@@ -719,7 +719,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.is_present("validator-monitor-auto") {
-        client_config.validator_monitor_auto = true;
+        client_config.validator_monitor.auto_register = true;
     }
 
     if let Some(pubkeys) = cli_args.value_of("validator-monitor-pubkeys") {
@@ -729,7 +729,8 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Invalid --validator-monitor-pubkeys value: {:?}", e))?;
         client_config
-            .validator_monitor_pubkeys
+            .validator_monitor
+            .validators
             .extend_from_slice(&pubkeys);
     }
 
@@ -747,14 +748,17 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Invalid --validator-monitor-file contents: {:?}", e))?;
         client_config
-            .validator_monitor_pubkeys
+            .validator_monitor
+            .validators
             .extend_from_slice(&pubkeys);
     }
 
     if let Some(count) =
         clap_utils::parse_optional(cli_args, "validator-monitor-individual-tracking-threshold")?
     {
-        client_config.validator_monitor_individual_tracking_threshold = count;
+        client_config
+            .validator_monitor
+            .individual_tracking_threshold = count;
     }
 
     if cli_args.is_present("disable-lock-timeouts") {
@@ -850,7 +854,7 @@ pub fn get_config<E: EthSpec>(
     // Graphical user interface config.
     if cli_args.is_present("gui") {
         client_config.http_api.enabled = true;
-        client_config.validator_monitor_auto = true;
+        client_config.validator_monitor.auto_register = true;
     }
 
     // Optimistic finalized sync.
