@@ -54,14 +54,6 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         //
         // Migrations from before SchemaVersion(16) are deprecated.
         //
-        (SchemaVersion(15), SchemaVersion(16)) => {
-            let ops = migration_schema_v16::upgrade_to_v16::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(16), SchemaVersion(15)) => {
-            let ops = migration_schema_v16::downgrade_from_v16::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
         (SchemaVersion(16), SchemaVersion(17)) => {
             let ops = migration_schema_v17::upgrade_to_v17::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
