@@ -1,0 +1,32 @@
+queue_rules:
+  - name: default
+    batch_size: 8
+    checks_timeout: 10800 s
+    merge_method: squash
+    queue_conditions:
+      - "#approved-reviews-by >= 1"
+      - "label=ready-for-bors"
+      - "base=unstable"
+      - "check-success=license/cla"
+      - "check-success=target-branch-check"
+    merge_conditions:
+      - "check-success=release-tests-ubuntu"
+      - "check-success=release-tests-windows"
+      - "check-success=beacon-chain-tests"
+      - "check-success=op-pool-tests"
+      - "check-success=network-tests"
+      - "check-success=slasher-tests"
+      - "check-success=debug-tests-ubuntu"
+      - "check-success=state-transition-vectors-ubuntu"
+      - "check-success=ef-tests-ubuntu"
+      - "check-success=dockerfile-ubuntu"
+      - "check-success=eth1-simulator-ubuntu"
+      - "check-success=merge-transition-ubuntu"
+      - "check-success=no-eth1-simulator-ubuntu"
+      - "check-success=syncing-simulator-ubuntu"
+      - "check-success=doppelganger-protection-test"
+      - "check-success=execution-engine-integration-ubuntu"
+      - "check-success=check-code"
+      - "check-success=check-msrv"
+      - "check-success=cargo-udeps"
+      - "check-success=compile-with-beta-compiler"
