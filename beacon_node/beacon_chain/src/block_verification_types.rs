@@ -45,6 +45,13 @@ impl<E: EthSpec> RpcBlock<E> {
             RpcBlockInner::BlockAndBlobs(block, _) => block,
         }
     }
+
+    pub fn blobs(&self) -> Option<&BlobSidecarList<E>> {
+        match &self.block {
+            RpcBlockInner::Block(_) => None,
+            RpcBlockInner::BlockAndBlobs(_, blobs) => Some(blobs),
+        }
+    }
 }
 
 /// Note: This variant is intentionally private because we want to safely construct the

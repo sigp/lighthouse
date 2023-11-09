@@ -2464,10 +2464,10 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         if let MaybeAvailableBlock::Available(block) = harness
             .chain
             .data_availability_checker
-            .check_rpc_block_availability(
+            .verify_kzg_for_rpc_block(
                 RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs)).unwrap(),
             )
-            .expect("should check availability")
+            .expect("should verify kzg")
         {
             available_blocks.push(block);
         }
