@@ -77,6 +77,8 @@ pub struct Config {
     pub validator_registration_batch_size: usize,
     /// Enables block production via the block v3 endpoint. This configuration option can be removed post deneb.
     pub produce_block_v3: bool,
+    pub web3_signer_keep_alive_timeout: Option<Duration>,
+    pub web3_signer_max_idle_connections: Option<usize>,
 }
 
 impl Default for Config {
@@ -118,6 +120,8 @@ impl Default for Config {
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
             produce_block_v3: false,
+            web3_signer_keep_alive_timeout: Some(Duration::from_secs(90)),
+            web3_signer_max_idle_connections: None,
         }
     }
 }
@@ -237,6 +241,22 @@ impl Config {
                         .map_err(|_| format!("Unknown API topic to broadcast: {t}"))
                 })
                 .collect::<Result<_, _>>()?;
+        }
+
+        /*
+         * Web3 signer
+         */
+        if let Some(s) = parse_optional::<String>(cli_args, "web3-signer-keep-alive-timeout")? {
+            config.web3_signer_keep_alive_timeout = if s == "null" {
+                None
+            } else {
+                Some(Duration::from_millis(
+                    s.parse().map_err(|_| "invalid timeout value".to_string())?,
+                ))
+            }
+        }
+        if let Some(n) = parse_optional::<usize>(cli_args, "web3-signer-max-idle-connections")? {
+            config.web3_signer_max_idle_connections = Some(n);
         }
 
         /*

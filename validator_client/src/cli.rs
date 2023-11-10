@@ -349,4 +349,24 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("500")
                 .takes_value(true),
         )
+        /*
+         * Experimental/development options.
+         */
+        .arg(
+            Arg::with_name("web3-signer-keep-alive-timeout")
+                .long("web3-signer-keep-alive-timeout")
+                .value_name("MILLIS")
+                .default_value("90000")
+                .help("Keep-alive timeout for each web3signer connection. Set to 'null' to never \
+                       timeout")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("web3-signer-max-idle-connections")
+                .long("web3-signer-max-idle-connections")
+                .value_name("COUNT")
+                .help("Maximum number of idle connections to maintain per web3signer host. Default \
+                       is unlimited.")
+                .takes_value(true),
+        )
 }
