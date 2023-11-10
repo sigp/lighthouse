@@ -1,6 +1,7 @@
 use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
-use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
+use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
+use beacon_chain::{metrics, StateSkipConfig, WhenSlotSkipped};
 use lazy_static::lazy_static;
 use std::sync::Arc;
 use tree_hash::TreeHash;
@@ -13,6 +14,8 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
+/// This test builds a chain that is testing the performance of the unaggregated attestations
+/// produced by the attestation simulator service.
 #[tokio::test]
 async fn produces_attestations_from_attestation_simulator_service() {
     // Produce 2 epochs, or 64 blocks
@@ -62,6 +65,38 @@ async fn produces_attestations_from_attestation_simulator_service() {
             .get_unaggregated_attestation(slot)
             .expect("should get unaggregated attestation");
     }
+
+    // Compare the prometheus metrics that evaluates the performance of the unaggregated attestations
+    let hit_prometheus_metrics = vec![
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL,
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT_TOTAL,
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT_TOTAL,
+    ];
+    let miss_prometheus_metrics = vec![
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL,
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS_TOTAL,
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL,
+    ];
+
+    // Expected metrics count should only apply to hit metrics as miss metrics are never set, nor can be found
+    // when gathering prometheus metrics. If they are found, which should not, it will diff from 0 and fail the test
+    let expected_miss_metrics_count = 0;
+    let expected_hit_metrics_count =
+        num_blocks_produced - UNAGGREGATED_ATTESTATION_LAG_SLOTS as u64;
+    lighthouse_metrics::gather().iter().for_each(|mf| {
+        if hit_prometheus_metrics.contains(&mf.get_name()) {
+            assert_eq!(
+                mf.get_metric()[0].get_counter().get_value() as u64,
+                expected_hit_metrics_count
+            );
+        }
+        if miss_prometheus_metrics.contains(&mf.get_name()) {
+            assert_eq!(
+                mf.get_metric()[0].get_counter().get_value() as u64,
+                expected_miss_metrics_count
+            );
+        }
+    });
 }
 
 /// This test builds a chain that is just long enough to finalize an epoch then it produces an
