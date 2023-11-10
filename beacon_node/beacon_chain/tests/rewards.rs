@@ -139,9 +139,6 @@ async fn test_verify_attestation_rewards_base() {
 
     let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
 
-    // extend slots to beginning of epoch N + 2
-    harness.extend_slots(E::slots_per_epoch() as usize).await;
-
     let mut proposal_rewards_map: HashMap<u64, u64> = HashMap::new();
 
     for _ in 0..E::slots_per_epoch() {

@@ -42,6 +42,12 @@ impl AttestationDelta {
     }
 }
 
+#[derive(Debug)]
+pub enum RewardsCalculationType {
+    Consensus,
+    API(Vec<usize>),
+}
+
 /// Apply attester and proposer rewards.
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -78,7 +84,7 @@ pub fn get_attestation_deltas_all<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
-    get_attestation_deltas(state, validator_statuses, None, spec)
+    get_attestation_deltas(state, validator_statuses, RewardsCalculationType::API(vec![]), spec)
 }
 
 /// Apply rewards for participation in attestations during the previous epoch, and only compute
@@ -89,7 +95,7 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
     validators_subset: &Vec<usize>,
     spec: &ChainSpec,
 ) -> Result<Vec<(usize, AttestationDelta)>, Error> {
-    get_attestation_deltas(state, validator_statuses, Some(validators_subset), spec).map(|deltas| {
+    get_attestation_deltas(state, validator_statuses, RewardsCalculationType::API(validators_subset.clone()), spec).map(|deltas| {
         deltas
             .into_iter()
             .enumerate()
@@ -106,7 +112,7 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
 fn get_attestation_deltas<T: EthSpec>(
     state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
-    maybe_validators_subset: Option<&Vec<usize>>,
+    maybe_validators_subset: RewardsCalculationType,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
     let previous_epoch = state.previous_epoch();
@@ -119,11 +125,20 @@ fn get_attestation_deltas<T: EthSpec>(
 
     let total_balances = &validator_statuses.total_balances;
 
-    // Ignore validator if a subset is specified and validator is not in the subset
-    let include_validator_delta = |idx| match maybe_validators_subset.as_ref() {
-        None => true,
-        Some(validators_subset) if validators_subset.contains(&idx) => true,
-        Some(_) => false,
+    // Check if the calculation is for Consensus or Rewards API and Ignore validator if a subset is specified and validator is not in the subset
+    let include_validator_delta = |idx| match &maybe_validators_subset {
+        RewardsCalculationType::Consensus => true,
+        RewardsCalculationType::API(validator_subset) =>  {
+            if validator_subset.is_empty() {
+                true
+            }
+            else if validator_subset.contains(&idx) {
+                true
+            }
+            else {
+                false
+            }
+        }
     };
 
     for (index, validator) in validator_statuses.statuses.iter().enumerate() {
