@@ -10,6 +10,20 @@ use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
 /// The maximum time to wait for the snapshot cache lock during a metrics scrape.
 const SNAPSHOT_CACHE_TIMEOUT: Duration = Duration::from_millis(100);
 
+// Attestation simulator metrics
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL: &str =
+    "validator_monitor_attestation_simulator_head_attester_hit_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL: &str =
+    "validator_monitor_attestation_simulator_head_attester_miss_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT_TOTAL: &str =
+    "validator_monitor_attestation_simulator_target_attester_hit_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS_TOTAL: &str =
+    "validator_monitor_attestation_simulator_target_attester_miss_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT_TOTAL: &str =
+    "validator_monitor_attestation_simulator_source_attester_hit_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL: &str =
+    "validator_monitor_attestation_simulator_source_attester_miss_total";
+
 lazy_static! {
     /*
      * Block Processing
@@ -1014,37 +1028,37 @@ lazy_static! {
      */
     pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT: Result<IntCounter> =
     try_create_int_counter(
-        "validator_monitor_attestation_simulator_head_attester_hit_total",
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL,
         "Incremented if a validator is flagged as a previous slot head attester \
         during per slot processing",
     );
     pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS: Result<IntCounter> =
     try_create_int_counter(
-        "validator_monitor_attestation_simulator_head_attester_miss_total",
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL,
         "Incremented if a validator is not flagged as a previous slot head attester \
         during per slot processing",
     );
     pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT: Result<IntCounter> =
     try_create_int_counter(
-        "validator_monitor_attestation_simulator_target_attester_hit_total",
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT_TOTAL,
         "Incremented if a validator is flagged as a previous slot target attester \
         during per slot processing",
     );
     pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS: Result<IntCounter> =
     try_create_int_counter(
-        "validator_monitor_attestation_simulator_target_attester_miss_total",
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS_TOTAL,
         "Incremented if a validator is not flagged as a previous slot target attester \
         during per slot processing",
     );
         pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT: Result<IntCounter> =
     try_create_int_counter(
-        "validator_monitor_attestation_simulator_source_attester_hit_total",
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT_TOTAL,
         "Incremented if a validator is flagged as a previous slot source attester \
         during per slot processing",
     );
     pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS: Result<IntCounter> =
     try_create_int_counter(
-        "validator_monitor_attestation_simulator_source_attester_miss_total",
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL,
         "Incremented if a validator is not flagged as a previous slot source attester \
         during per slot processing",
     );
