@@ -13,9 +13,6 @@ pub fn start_attestation_simulator_service<T: BeaconChainTypes>(
     executor: TaskExecutor,
     chain: Arc<BeaconChain<T>>,
 ) {
-    // TODO: AI(joel) Only run the service if validator monitor is enabled
-    // Paul has made a refacto of that bit in another PR, I will rebase
-    // once it's merged
     executor.clone().spawn(
         async move { attestation_simulator_service(executor, chain).await },
         "attestation_simulator_service",
@@ -40,11 +37,8 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
                     "Produce an unaggregated attestation";
                 );
 
-                // I am not sure the impact of cloning the state at every epoch yet
-                // That's probably the naive solution, I'll reiterate on this later
-                let inner_chain = chain.clone();
-
                 // Run the task in the executor
+                let inner_chain = chain.clone();
                 executor.spawn(
                     async move {
                         if let Ok(current_slot) = inner_chain.slot() {
