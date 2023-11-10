@@ -539,6 +539,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     /// and check if the attestation qualifies for a reward matching the flags source/target/head
     fn process_unaggregated_attestations(&mut self, state: &BeaconState<T>, spec: &ChainSpec) {
         let current_slot = state.slot();
+
         // Ensures that we process attestation when there have been skipped slots between blocks
         let attested_slots: Vec<(Slot, Attestation<T>)> = self
             .unaggregated_attestations
