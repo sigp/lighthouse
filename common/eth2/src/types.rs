@@ -1508,13 +1508,6 @@ pub enum BlockContentsWrapper<E: EthSpec> {
     Blinded(BlindedBeaconBlock<E>),
 }
 
-impl<T: EthSpec> BlockContentsWrapper<T> {
-    /// SSZ decode with fork variant determined by slot.
-    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
-        todo!()
-    }
-}
-
 /// A wrapper over a [`BeaconBlock`] or a [`BeaconBlockAndBlobSidecars`].
 #[derive(Debug, Encode, Serialize, Deserialize)]
 #[serde(untagged)]
