@@ -65,7 +65,12 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
         return Err(Error::ValidatorStatusesInconsistent);
     }
 
-    let deltas = get_attestation_deltas_all(state, validator_statuses, spec)?;
+    let deltas = get_attestation_deltas(
+        state,
+        validator_statuses,
+        RewardsCalculationType::Consensus,
+        spec,
+    )?;
 
     // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
     // instead).
@@ -84,7 +89,12 @@ pub fn get_attestation_deltas_all<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
-    get_attestation_deltas(state, validator_statuses, RewardsCalculationType::API(vec![]), spec)
+    get_attestation_deltas(
+        state,
+        validator_statuses,
+        RewardsCalculationType::API(vec![]),
+        spec,
+    )
 }
 
 /// Apply rewards for participation in attestations during the previous epoch, and only compute
@@ -95,7 +105,13 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
     validators_subset: &Vec<usize>,
     spec: &ChainSpec,
 ) -> Result<Vec<(usize, AttestationDelta)>, Error> {
-    get_attestation_deltas(state, validator_statuses, RewardsCalculationType::API(validators_subset.clone()), spec).map(|deltas| {
+    get_attestation_deltas(
+        state,
+        validator_statuses,
+        RewardsCalculationType::API(validators_subset.clone()),
+        spec,
+    )
+    .map(|deltas| {
         deltas
             .into_iter()
             .enumerate()
@@ -128,17 +144,12 @@ fn get_attestation_deltas<T: EthSpec>(
     // Check if the calculation is for Consensus or Rewards API and Ignore validator if a subset is specified and validator is not in the subset
     let include_validator_delta = |idx| match &maybe_validators_subset {
         RewardsCalculationType::Consensus => true,
-        RewardsCalculationType::API(validator_subset) =>  {
-            if validator_subset.is_empty() {
-                true
-            }
-            else if validator_subset.contains(&idx) {
-                true
-            }
-            else {
-                false
-            }
+        RewardsCalculationType::API(validator_subset)
+            if validator_subset.is_empty() || validator_subset.contains(&idx) =>
+        {
+            true
         }
+        _ => false,
     };
 
     for (index, validator) in validator_statuses.statuses.iter().enumerate() {
@@ -178,12 +189,16 @@ fn get_attestation_deltas<T: EthSpec>(
         }
 
         if let Some((proposer_index, proposer_delta)) = proposer_delta {
-            if include_validator_delta(proposer_index) {
-                deltas
-                    .get_mut(proposer_index)
-                    .ok_or(Error::ValidatorStatusesInconsistent)?
-                    .inclusion_delay_delta
-                    .combine(proposer_delta)?;
+            match maybe_validators_subset {
+                RewardsCalculationType::Consensus => {
+                    deltas
+                        .get_mut(proposer_index)
+                        .ok_or(Error::ValidatorStatusesInconsistent)?
+                        .inclusion_delay_delta
+                        .combine(proposer_delta)?;
+                }
+
+                _ => (),
             }
         }
     }
