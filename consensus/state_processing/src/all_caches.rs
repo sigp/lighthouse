@@ -30,12 +30,11 @@ impl<E: EthSpec> AllCaches for BeaconState<E> {
 
     fn all_caches_built(&self) -> bool {
         let current_epoch = self.current_epoch();
-        let epoch_cache_decision_block_root =
-            if let Ok(root) = self.proposer_shuffling_decision_root(Hash256::zero()) {
-                root
-            } else {
-                return false;
-            };
+        let Ok(epoch_cache_decision_block_root) =
+            self.proposer_shuffling_decision_root(Hash256::zero())
+        else {
+            return false;
+        };
         self.get_total_active_balance_at_epoch(current_epoch)
             .is_ok()
             && self.committee_cache_is_initialized(RelativeEpoch::Previous)

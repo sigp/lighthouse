@@ -508,6 +508,14 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
     }
 }
 
+/// Util method helpful for logging.
+pub fn format_kzg_commitments(commitments: &[KzgCommitment]) -> String {
+    let commitment_strings: Vec<String> = commitments.iter().map(|x| x.to_string()).collect();
+    let commitments_joined = commitment_strings.join(", ");
+    let surrounded_commitments = format!("[{}]", commitments_joined);
+    surrounded_commitments
+}
+
 #[cfg(test)]
 mod tests {
     mod base {

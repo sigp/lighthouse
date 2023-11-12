@@ -467,6 +467,11 @@ impl<T: EthSpec> From<GetPayloadResponse<T>>
     }
 }
 
+pub enum GetPayloadResponseType<E: EthSpec> {
+    Full(GetPayloadResponse<E>),
+    Blinded(GetPayloadResponse<E>),
+}
+
 impl<T: EthSpec> GetPayloadResponse<T> {
     pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<T> {
         self.to_ref().into()

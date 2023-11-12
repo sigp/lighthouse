@@ -547,9 +547,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 .peek_lru()
                 .map(|(key, value)| (*key, value.clone()));
 
-            let (lru_root, lru_pending_components) = match lru_entry {
-                Some((r, p)) => (r, p),
-                None => break,
+            let Some((lru_root, lru_pending_components)) = lru_entry else {
+                break;
             };
 
             if lru_pending_components
@@ -605,9 +604,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let delete_if_outdated = |cache: &OverflowLRUCache<T>,
                                   block_data: Option<BlockData>|
          -> Result<(), AvailabilityCheckError> {
-            let block_data = match block_data {
-                Some(block_data) => block_data,
-                None => return Ok(()),
+            let Some(block_data) = block_data else {
+                return Ok(());
             };
             let not_in_store_keys = !cache.critical.read().store_keys.contains(&block_data.root);
             if not_in_store_keys {
@@ -773,12 +771,13 @@ mod test {
     ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
+        let blobs_path = db_path.path().join("blobs_db");
         let config = StoreConfig::default();
 
         HotColdDB::open(
             &hot_path,
             &cold_path,
-            None,
+            &blobs_path,
             |_, _, _| Ok(()),
             config,
             spec,
@@ -970,6 +969,7 @@ mod test {
     ) -> (
         BeaconChainHarness<DiskHarnessType<E>>,
         Arc<OverflowLRUCache<T>>,
+        TempDir,
     )
     where
         E: EthSpec,
@@ -984,7 +984,7 @@ mod test {
             OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
                 .expect("should create cache"),
         );
-        (harness, cache)
+        (harness, cache, chain_db_path)
     }
 
     #[tokio::test]
@@ -992,7 +992,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = 4;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let (pending_block, blobs) = availability_pending_block(&harness).await;
         let root = pending_block.import_data.block_root;
@@ -1104,7 +1104,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = 4;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let mut pending_blocks = VecDeque::new();
         let mut pending_blobs = VecDeque::new();
@@ -1255,7 +1255,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = E::slots_per_epoch() as usize;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let n_epochs = 4;
         let mut pending_blocks = VecDeque::new();
@@ -1395,7 +1395,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = E::slots_per_epoch() as usize;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let n_epochs = 4;
         let mut pending_blocks = VecDeque::new();
@@ -1573,7 +1573,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = STATE_LRU_CAPACITY * 2;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let mut pending_blocks = VecDeque::new();
         let mut states = Vec::new();

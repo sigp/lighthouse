@@ -436,7 +436,7 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
 /// Returns an error if the kzg verification check fails.
 pub fn verify_kzg_for_blob<T: EthSpec>(
     blob: Arc<BlobSidecar<T>>,
-    kzg: &Kzg<T::Kzg>,
+    kzg: &Kzg,
 ) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
     if validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)
@@ -455,7 +455,7 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
 pub fn verify_kzg_for_blob_list<T: EthSpec>(
     blob_list: &BlobSidecarList<T>,
-    kzg: &Kzg<T::Kzg>,
+    kzg: &Kzg,
 ) -> Result<(), AvailabilityCheckError> {
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_BATCH_TIMES);
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list

@@ -54,10 +54,10 @@ mod timeout_rw_lock;
 pub mod validator_monitor;
 
 pub use self::beacon_chain::{
-    AttestationProcessingOutcome, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes,
-    BeaconStore, ChainSegmentResult, ForkChoiceError, OverrideForkchoiceUpdate,
-    ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
-    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    AttestationProcessingOutcome, AvailabilityProcessingStatus, BeaconBlockResponse,
+    BeaconBlockResponseType, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
+    ForkChoiceError, OverrideForkchoiceUpdate, ProduceBlockVerification, StateSkipConfig,
+    WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;

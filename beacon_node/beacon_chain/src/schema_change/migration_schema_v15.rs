@@ -11,16 +11,15 @@ pub fn upgrade_to_v15<T: BeaconChainTypes>(
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     // Load a V14 op pool and transform it to V15.
-    let PersistedOperationPoolV14::<T::EthSpec> {
+    let Some(PersistedOperationPoolV14::<T::EthSpec> {
         attestations,
         sync_contributions,
         attester_slashings,
         proposer_slashings,
         voluntary_exits,
         bls_to_execution_changes,
-    } = if let Some(op_pool_v14) = db.get_item(&OP_POOL_DB_KEY)? {
-        op_pool_v14
-    } else {
+    }) = db.get_item(&OP_POOL_DB_KEY)?
+    else {
         debug!(log, "Nothing to do, no operation pool stored");
         return Ok(vec![]);
     };
@@ -43,7 +42,7 @@ pub fn downgrade_from_v15<T: BeaconChainTypes>(
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     // Load a V15 op pool and transform it to V14.
-    let PersistedOperationPoolV15::<T::EthSpec> {
+    let Some(PersistedOperationPoolV15::<T::EthSpec> {
         attestations,
         sync_contributions,
         attester_slashings,
@@ -51,9 +50,8 @@ pub fn downgrade_from_v15<T: BeaconChainTypes>(
         voluntary_exits,
         bls_to_execution_changes,
         capella_bls_change_broadcast_indices,
-    } = if let Some(op_pool) = db.get_item(&OP_POOL_DB_KEY)? {
-        op_pool
-    } else {
+    }) = db.get_item(&OP_POOL_DB_KEY)?
+    else {
         debug!(log, "Nothing to do, no operation pool stored");
         return Ok(vec![]);
     };

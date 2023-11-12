@@ -5,6 +5,7 @@ use participation_cache::ParticipationCache;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
 use slog::debug;
+use state_processing::per_epoch_processing::altair::process_inactivity_updates_slow;
 use state_processing::{
     common::altair::BaseRewardPerIncrement,
     per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight},
@@ -125,6 +126,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Calculate ideal_rewards
         let participation_cache = ParticipationCache::new(&state, spec)
             .map_err(|_| BeaconChainError::AttestationRewardsError)?;
+        process_inactivity_updates_slow(&mut state, spec)?;
 
         let previous_epoch = state.previous_epoch();
 
@@ -190,6 +192,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let mut head_reward = 0i64;
             let mut target_reward = 0i64;
             let mut source_reward = 0i64;
+            let mut inactivity_penalty = 0i64;
 
             if eligible {
                 let effective_balance = validator.effective_balance;
@@ -213,6 +216,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         head_reward = 0;
                     } else if flag_index == TIMELY_TARGET_FLAG_INDEX {
                         target_reward = *penalty;
+
+                        let penalty_numerator = effective_balance
+                            .safe_mul(state.get_inactivity_score(validator_index)?)?;
+                        let penalty_denominator = spec
+                            .inactivity_score_bias
+                            .safe_mul(spec.inactivity_penalty_quotient_for_state(&state))?;
+                        inactivity_penalty =
+                            -(penalty_numerator.safe_div(penalty_denominator)? as i64);
                     } else if flag_index == TIMELY_SOURCE_FLAG_INDEX {
                         source_reward = *penalty;
                     }
@@ -224,8 +235,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 target: target_reward,
                 source: source_reward,
                 inclusion_delay: None,
-                // TODO: altair calculation logic needs to be updated to include inactivity penalty
-                inactivity: 0,
+                inactivity: inactivity_penalty,
             });
         }
 
@@ -248,7 +258,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             target: 0,
                             source: 0,
                             inclusion_delay: None,
-                            // TODO: altair calculation logic needs to be updated to include inactivity penalty
                             inactivity: 0,
                         });
                     match *flag_index {

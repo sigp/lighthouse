@@ -16,15 +16,14 @@ pub fn upgrade_to_v12<T: BeaconChainTypes>(
     let spec = db.get_chain_spec();
 
     // Load a V5 op pool and transform it to V12.
-    let PersistedOperationPoolV5 {
+    let Some(PersistedOperationPoolV5 {
         attestations_v5,
         sync_contributions,
         attester_slashings_v5,
         proposer_slashings_v5,
         voluntary_exits_v5,
-    } = if let Some(op_pool) = db.get_item(&OP_POOL_DB_KEY)? {
-        op_pool
-    } else {
+    }) = db.get_item(&OP_POOL_DB_KEY)?
+    else {
         debug!(log, "Nothing to do, no operation pool stored");
         return Ok(vec![]);
     };
@@ -168,15 +167,14 @@ pub fn downgrade_from_v12<T: BeaconChainTypes>(
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     // Load a V12 op pool and transform it to V5.
-    let PersistedOperationPoolV12::<T::EthSpec> {
+    let Some(PersistedOperationPoolV12::<T::EthSpec> {
         attestations,
         sync_contributions,
         attester_slashings,
         proposer_slashings,
         voluntary_exits,
-    } = if let Some(op_pool_v12) = db.get_item(&OP_POOL_DB_KEY)? {
-        op_pool_v12
-    } else {
+    }) = db.get_item(&OP_POOL_DB_KEY)?
+    else {
         debug!(log, "Nothing to do, no operation pool stored");
         return Ok(vec![]);
     };

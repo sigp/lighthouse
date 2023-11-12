@@ -525,9 +525,7 @@ impl DoppelgangerService {
             }
 
             // Resolve the index from the server response back to a public key.
-            let pubkey = if let Some(pubkey) = indices_map.get(&response.index) {
-                pubkey
-            } else {
+            let Some(pubkey) = indices_map.get(&response.index) else {
                 crit!(
                     self.log,
                     "Inconsistent indices map";

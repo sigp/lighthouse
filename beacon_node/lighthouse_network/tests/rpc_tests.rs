@@ -715,7 +715,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
 }
 
 // Tests a streamed, chunked BlocksByRoot RPC Message
-// The size of the reponse is a full `BeaconBlock`
+// The size of the response is a full `BeaconBlock`
 // which is greater than the Snappy frame size. Hence, this test
 // serves to test the snappy framing format as well.
 #[test]

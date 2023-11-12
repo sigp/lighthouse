@@ -3,7 +3,7 @@ RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-de
 COPY . lighthouse
 ARG FEATURES
 ARG PROFILE=release
-ARG CARGO_USE_GIT_CLI=false
+ARG CARGO_USE_GIT_CLI=true
 ENV FEATURES $FEATURES
 ENV PROFILE $PROFILE
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=$CARGO_USE_GIT_CLI

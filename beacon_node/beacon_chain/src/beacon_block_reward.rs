@@ -31,6 +31,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state.build_committee_cache(RelativeEpoch::Previous, &self.spec)?;
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
+        self.compute_beacon_block_reward_with_cache(block, block_root, state)
+    }
+
+    // This should only be called after a committee cache has been built
+    // for both the previous and current epoch
+    fn compute_beacon_block_reward_with_cache<Payload: AbstractExecPayload<T::EthSpec>>(
+        &self,
+        block: BeaconBlockRef<'_, T::EthSpec, Payload>,
+        block_root: Hash256,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<StandardBlockReward, BeaconChainError> {
         let proposer_index = block.proposer_index();
 
         let sync_aggregate_reward =
@@ -176,7 +187,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     >(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
-        state: &mut BeaconState<T::EthSpec>,
+        state: &BeaconState<T::EthSpec>,
     ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
         let mut total_proposer_reward = 0;
 
@@ -184,6 +195,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .safe_sub(PROPOSER_WEIGHT)?
             .safe_mul(WEIGHT_DENOMINATOR)?
             .safe_div(PROPOSER_WEIGHT)?;
+
+        let mut current_epoch_participation = state.current_epoch_participation()?.clone();
+        let mut previous_epoch_participation = state.previous_epoch_participation()?.clone();
 
         for attestation in block.body().attestations() {
             let data = &attestation.data;
@@ -197,18 +211,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )?;
 
             let attesting_indices = get_attesting_indices_from_state(state, attestation)?;
-
             let mut proposer_reward_numerator = 0;
             for index in attesting_indices {
                 let index = index as usize;
                 for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                    let previous_epoch = state.previous_epoch();
-                    let current_epoch = state.current_epoch();
-                    let epoch_participation = state.get_epoch_participation_mut(
-                        data.target.epoch,
-                        previous_epoch,
-                        current_epoch,
-                    )?;
+                    let epoch_participation = if data.target.epoch == state.current_epoch() {
+                        &mut current_epoch_participation
+                    } else {
+                        &mut previous_epoch_participation
+                    };
+
                     let validator_participation = epoch_participation
                         .get_mut(index)
                         .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;

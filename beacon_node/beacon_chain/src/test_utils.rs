@@ -1,11 +1,12 @@
 use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::BeaconBlockResponseType;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
     sync_committee_verification::Error as SyncCommitteeError,
-    validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+    validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
     BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
 };
 use crate::{
@@ -16,6 +17,7 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use eth2::types::SignedBlockContentsTuple;
+use eth2_network_config::TRUSTED_SETUP_BYTES;
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     auth::JwtKey,
@@ -56,6 +58,7 @@ use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::TaskExecutor;
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
+use types::payload::BlockProductionVersion;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::test_utils::TestRandom;
@@ -175,6 +178,7 @@ pub struct Builder<T: BeaconChainTypes> {
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     testing_slot_clock: Option<TestingSlotClock>,
+    validator_monitor_config: Option<ValidatorMonitorConfig>,
     runtime: TestRuntime,
     log: Logger,
 }
@@ -310,6 +314,7 @@ where
             execution_layer: None,
             mock_execution_layer: None,
             testing_slot_clock: None,
+            validator_monitor_config: None,
             runtime,
             log,
         }
@@ -379,6 +384,14 @@ where
     pub fn store_mutator(mut self, mutator: BoxedMutator<E, Hot, Cold>) -> Self {
         assert!(self.store_mutator.is_none(), "store mutator already set");
         self.store_mutator = Some(mutator);
+        self
+    }
+
+    pub fn validator_monitor_config(
+        mut self,
+        validator_monitor_config: ValidatorMonitorConfig,
+    ) -> Self {
+        self.validator_monitor_config = Some(validator_monitor_config);
         self
     }
 
@@ -488,12 +501,13 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
-        let chain_config = self.chain_config.unwrap_or_default();
-        let trusted_setup: TrustedSetup =
-            serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
-                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-                .unwrap();
+        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+            .unwrap();
 
+        let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
+
+        let chain_config = self.chain_config.unwrap_or_default();
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
             .logger(log.clone())
             .custom_spec(spec)
@@ -513,7 +527,7 @@ where
                 log.clone(),
                 5,
             )))
-            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
+            .validator_monitor_config(validator_monitor_config)
             .trusted_setup(trusted_setup);
 
         builder = if let Some(mutator) = self.initial_mutator {
@@ -568,10 +582,9 @@ pub fn mock_execution_layer_from_parts<T: EthSpec>(
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
     });
 
-    let trusted_setup: TrustedSetup =
-        serde_json::from_reader(eth2_network_config::get_trusted_setup::<T::Kzg>())
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-            .expect("should have trusted setup");
+    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+        .expect("should have trusted setup");
     let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
 
     MockExecutionLayer::new(
@@ -874,7 +887,7 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-        let (block, state, maybe_blob_sidecars) = self
+        let BeaconBlockResponseType::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -883,14 +896,18 @@ where
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap();
+            .unwrap()
+        else {
+            panic!("Should always be a full payload response");
+        };
 
-        let signed_block = block.sign(
+        let signed_block = block_response.block.sign(
             &self.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
+            &block_response.state.fork(),
+            block_response.state.genesis_validators_root(),
             &self.spec,
         );
 
@@ -901,11 +918,13 @@ where
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) => (
                 signed_block,
-                maybe_blob_sidecars.map(|blobs| self.sign_blobs(blobs, &state, proposer_index)),
+                block_response
+                    .maybe_side_car
+                    .map(|blobs| self.sign_blobs(blobs, &block_response.state, proposer_index)),
             ),
         };
 
-        (block_contents, state)
+        (block_contents, block_response.state)
     }
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
@@ -934,7 +953,7 @@ where
 
         let pre_state = state.clone();
 
-        let (block, state, maybe_blob_sidecars) = self
+        let BeaconBlockResponseType::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -943,14 +962,18 @@ where
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap();
+            .unwrap()
+        else {
+            panic!("Should always be a full payload response");
+        };
 
-        let signed_block = block.sign(
+        let signed_block = block_response.block.sign(
             &self.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
+            &block_response.state.fork(),
+            block_response.state.genesis_validators_root(),
             &self.spec,
         );
 
@@ -960,14 +983,14 @@ where
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) => {
-                if let Some(blobs) = maybe_blob_sidecars {
+                if let Some(blobs) = block_response.maybe_side_car {
                     let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
                         .into_iter()
                         .map(|blob| {
                             blob.sign(
                                 &self.validator_keypairs[proposer_index].sk,
-                                &state.fork(),
-                                state.genesis_validators_root(),
+                                &block_response.state.fork(),
+                                block_response.state.genesis_validators_root(),
                                 &self.spec,
                             )
                         })
@@ -986,7 +1009,6 @@ where
                 }
             }
         };
-
         (block_contents, pre_state)
     }
 
@@ -2339,6 +2361,29 @@ where
             num_slots,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
+        )
+        .await
+    }
+
+    /// Uses `Self::extend_chain` to `num_slots` blocks.
+    ///
+    /// Utilizes:
+    ///
+    ///  - BlockStrategy::OnCanonicalHead,
+    ///  - AttestationStrategy::SomeValidators(validators),
+    pub async fn extend_slots_some_validators(
+        &self,
+        num_slots: usize,
+        validators: Vec<usize>,
+    ) -> Hash256 {
+        if self.chain.slot().unwrap() == self.chain.canonical_head.cached_head().head_slot() {
+            self.advance_slot();
+        }
+
+        self.extend_chain(
+            num_slots,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(validators),
         )
         .await
     }
