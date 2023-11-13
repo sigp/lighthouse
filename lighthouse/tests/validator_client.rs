@@ -511,7 +511,7 @@ fn broadcast_flag() {
         });
     // "none" with other values is ignored
     CommandLineTest::new()
-        .flag("broadcast", Some("none,sync-committee-messages"))
+        .flag("broadcast", Some("none,sync-committee"))
         .run()
         .with_config(|config| {
             assert_eq!(config.broadcast_topics, vec![ApiTopic::SyncCommittee]);

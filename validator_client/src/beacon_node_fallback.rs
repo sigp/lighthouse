@@ -689,7 +689,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     }
 
     /// Call `func` on first beacon node that returns success or on all beacon nodes
-    /// depending on a `send_mode`.
+    /// depending on the `topic` and configuration.
     pub async fn request<'a, F, Err, R>(
         &'a self,
         require_synced: RequireSynced,
