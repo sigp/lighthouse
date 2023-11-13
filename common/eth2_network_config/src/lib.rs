@@ -137,18 +137,19 @@ impl Eth2NetworkConfig {
             ..
         } = self.genesis_state_source
         {
-            Hash256::from_str(genesis_validators_root)
-                .map(Option::Some)
-                .map_err(|e| {
-                    format!(
-                        "Unable to parse genesis state genesis_validators_root: {:?}",
-                        e
-                    )
-                })
-        } else {
-            self.get_genesis_state_from_bytes::<E>()
-                .map(|state| Some(state.genesis_validators_root()))
+            if genesis_validators_root.is_empty() {
+                return Hash256::from_str(genesis_validators_root)
+                    .map(Option::Some)
+                    .map_err(|e| {
+                        format!(
+                            "Unable to parse genesis state genesis_validators_root: {:?}",
+                            e
+                        )
+                    })
+            }
         }
+        self.get_genesis_state_from_bytes::<E>()
+            .map(|state| Some(state.genesis_validators_root()))
     }
 
     /// Construct a consolidated `ChainSpec` from the YAML config.
@@ -183,31 +184,37 @@ impl Eth2NetworkConfig {
                 checksum,
                 genesis_validators_root,
             } => {
-                let checksum = Hash256::from_str(checksum).map_err(|e| {
-                    format!("Unable to parse genesis state bytes checksum: {:?}", e)
-                })?;
+                let mut checksum_hash = Hash256::zero();
+                // The checksum for Ephemery is empty, because it varies with each iteration.
+                if !checksum.is_empty() {
+                    checksum_hash = Hash256::from_str(checksum).map_err(|e| {
+                        format!("Unable to parse genesis state bytes checksum: {:?}", e)
+                    })?;
+                }
                 let bytes = if let Some(specified_url) = genesis_state_url {
-                    download_genesis_state(&[specified_url], timeout, checksum, log).await
+                    download_genesis_state(&[specified_url], timeout, checksum_hash, log).await
                 } else {
-                    download_genesis_state(built_in_urls, timeout, checksum, log).await
+                    download_genesis_state(built_in_urls, timeout, checksum_hash, log).await
                 }?;
                 let state = BeaconState::from_ssz_bytes(bytes.as_ref(), &spec).map_err(|e| {
                     format!("Downloaded genesis state SSZ bytes are invalid: {:?}", e)
                 })?;
 
-                let genesis_validators_root =
-                    Hash256::from_str(genesis_validators_root).map_err(|e| {
-                        format!(
-                            "Unable to parse genesis state genesis_validators_root: {:?}",
-                            e
-                        )
-                    })?;
-                if state.genesis_validators_root() != genesis_validators_root {
-                    return Err(format!(
-                        "Downloaded genesis validators root {:?} does not match expected {:?}",
-                        state.genesis_validators_root(),
-                        genesis_validators_root
-                    ));
+                if !genesis_validators_root.is_empty() {
+                    let genesis_validators_root =
+                        Hash256::from_str(genesis_validators_root).map_err(|e| {
+                            format!(
+                                "Unable to parse genesis state genesis_validators_root: {:?}",
+                                e
+                            )
+                        })?;
+                    if state.genesis_validators_root() != genesis_validators_root {
+                        return Err(format!(
+                            "Downloaded genesis validators root {:?} does not match expected {:?}",
+                            state.genesis_validators_root(),
+                            genesis_validators_root
+                        ));
+                    }
                 }
 
                 Ok(Some(state))
@@ -387,7 +394,7 @@ async fn download_genesis_state(
         match response {
             Ok(bytes) => {
                 // Check the server response against our local checksum.
-                if Sha256::digest(bytes.as_ref())[..] == checksum[..] {
+                if checksum.is_zero() || Sha256::digest(bytes.as_ref())[..] == checksum[..] {
                     return Ok(bytes.into());
                 } else {
                     warn!(

@@ -33,13 +33,14 @@ const HOLESKY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url
     genesis_validators_root: "0x9143aa7c615a7f7115e2b6aac319c03529df8242ae705fba9df39b79c59fa8b1",
 };
 
-// const EPHEMERY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
-//     urls: &[
-//         "https://checkpointz.bordel.wtf/",
-//     ],
-//     checksum: None,
-//     genesis_validators_root: None,
-// };
+const EPHEMERY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
+    urls: &[
+        "https://checkpointz.bordel.wtf/",
+    ],
+    // Checksum and genesis_validators_root vary with each new iteration of Ephemery.
+    checksum: "",
+    genesis_validators_root: "",
+};
 
 const CHIADO_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
     // No default checkpoint sources are provided.
@@ -356,6 +357,6 @@ define_hardcoded_nets!(
         // directory where the configuration files are located for this network.
         "ephemery",
         // Describes how the genesis state can be obtained.
-        GenesisStateSource::IncludedBytes
+        EPHEMERY_GENESIS_STATE_SOURCE
     )
 );
