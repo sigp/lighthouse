@@ -14,7 +14,6 @@ use slog::{info, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
@@ -227,9 +226,12 @@ impl Config {
             config.broadcast_topics = broadcast_topics
                 .split(',')
                 .filter(|t| *t != "none")
-                .map(ApiTopic::from_str)
-                .collect::<Result<_, _>>()
-                .map_err(|e| format!("Unable to parse API topics to broadcast: {:?}", e))?;
+                .map(|t| {
+                    t.trim()
+                        .parse::<ApiTopic>()
+                        .map_err(|_| format!("Unknown API topic to broadcast: {t}"))
+                })
+                .collect::<Result<_, _>>()?;
         }
 
         /*

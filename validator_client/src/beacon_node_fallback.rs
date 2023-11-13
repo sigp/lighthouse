@@ -14,9 +14,9 @@ use std::fmt;
 use std::fmt::Debug;
 use std::future::Future;
 use std::marker::PhantomData;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use strum::{EnumString, EnumVariantNames};
 use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, Config, EthSpec};
 
@@ -714,24 +714,11 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 }
 
 /// Serves as a cue for `BeaconNodeFallback` to tell which requests need to be broadcasted.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, EnumString, EnumVariantNames)]
+#[strum(serialize_all = "kebab-case")]
 pub enum ApiTopic {
     Attestations,
     Blocks,
     Subscriptions,
     SyncCommittee,
-}
-
-impl FromStr for ApiTopic {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim() {
-            "attestations" => Ok(ApiTopic::Attestations),
-            "blocks" => Ok(ApiTopic::Blocks),
-            "subscriptions" => Ok(ApiTopic::Subscriptions),
-            "sync-committee" => Ok(ApiTopic::SyncCommittee),
-            _ => Err(format!("Unknown API topic: `{s}`")),
-        }
-    }
 }
