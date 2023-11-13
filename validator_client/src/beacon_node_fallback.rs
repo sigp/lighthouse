@@ -730,7 +730,7 @@ impl FromStr for ApiTopic {
             "attestations" => Ok(ApiTopic::Attestations),
             "blocks" => Ok(ApiTopic::Blocks),
             "subscriptions" => Ok(ApiTopic::Subscriptions),
-            "sync-committee-messages" => Ok(ApiTopic::SyncCommittee),
+            "sync-committee" => Ok(ApiTopic::SyncCommittee),
             _ => Err(format!("Unknown API topic: `{s}`")),
         }
     }

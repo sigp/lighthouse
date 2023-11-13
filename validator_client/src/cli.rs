@@ -32,8 +32,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("API_TOPICS")
                 .help("Comma-separated list of beacon API topics to broadcast to all beacon nodes. \
                        Possible values are: none, attestations, blocks, subscriptions, \
-                       sync-commitee-messages. Default (when flag is omitted) is to broadcast \
-                       'subscriptions' only."
+                       sync-committee. Default (when flag is omitted) is to broadcast \
+                       subscriptions only."
                 )
                 .takes_value(true),
         )
