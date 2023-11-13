@@ -7,7 +7,7 @@ use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_RE
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
