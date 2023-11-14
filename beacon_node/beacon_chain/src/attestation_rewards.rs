@@ -35,7 +35,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         epoch: Epoch,
         validators: Vec<ValidatorId>,
-    ) -> Result<StandardAttestationRewards, BeaconChainError> {
+    ) -> Result<(StandardAttestationRewards, bool), BeaconChainError> {
         debug!(self.log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
 
         // Get state
@@ -49,15 +49,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_state(&state_root, Some(state_slot))?
             .ok_or(BeaconChainError::MissingBeaconState(state_root))?;
 
-        let block_root = state.get_block_root(state_slot).unwrap();
-        let execution_optimistic = self.is_optimistic_or_invalid_block_root(state_slot, block_root).unwrap();
-        
+        let block_root = state
+            .get_block_root(state_slot)
+            .map_err(|err| BeaconChainError::BeaconStateError(err))?;
+        let execution_optimistic =
+            self.is_optimistic_or_invalid_block_root(state_slot, block_root)?;
+
         match state {
-            BeaconState::Base(_) => self.compute_attestation_rewards_base(state, validators),
+            BeaconState::Base(_) => self
+                .compute_attestation_rewards_base(state, validators)
+                .map(|rewards| (rewards, execution_optimistic)),
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => self.compute_attestation_rewards_altair(state, validators),
+            | BeaconState::Deneb(_) => self
+                .compute_attestation_rewards_altair(state, validators)
+                .map(|rewards| (rewards, execution_optimistic)),
         }
     }
 
