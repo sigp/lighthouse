@@ -49,6 +49,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_state(&state_root, Some(state_slot))?
             .ok_or(BeaconChainError::MissingBeaconState(state_root))?;
 
+        let block_root = state.get_block_root(state_slot).unwrap();
+        let execution_optimistic = self.is_optimistic_or_invalid_block_root(state_slot, block_root).unwrap();
+        
         match state {
             BeaconState::Base(_) => self.compute_attestation_rewards_base(state, validators),
             BeaconState::Altair(_)
