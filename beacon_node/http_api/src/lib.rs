@@ -2434,11 +2434,9 @@ pub fn serve<T: BeaconChainTypes>(
                     let execution_optimistic =
                         chain.is_optimistic_or_invalid_head().unwrap_or_default();
 
-                    let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());
-                    let state_root = chain.state_root_at_slot(state_slot).unwrap().unwrap();
-                    let finalized = chain
-                        .is_finalized_state(&state_root, state_slot)
-                        .unwrap_or_default();
+                    let finalized_checkpoint =
+                        chain.canonical_head.cached_head().finalized_checkpoint();
+                    let finalized = epoch + 2 <= finalized_checkpoint.epoch;
 
                     Ok(attestation_rewards)
                         .map(api_types::GenericResponse::from)
