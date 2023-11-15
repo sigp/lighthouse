@@ -44,12 +44,12 @@ prometheus-client = "0.21.0"
 unused_port = { workspace = true }
 delay_map = { workspace = true }
 void = "1"
-libp2p-quic= { git = "https://github.com/pawanjay176/rust-libp2p", rev = "bba117a94cc9818c5a02b519c89e11a9bee09c4b", features=["tokio"]}
-libp2p-mplex = {git = "https://github.com/pawanjay176/rust-libp2p", rev = "bba117a94cc9818c5a02b519c89e11a9bee09c4b"}
+libp2p-quic= { git = "https://github.com/pawanjay176/rust-libp2p", rev = "38268313cfaf8f80be5b9e8fa8755241c1e06758", features=["tokio"]}
+libp2p-mplex = {git = "https://github.com/pawanjay176/rust-libp2p", rev = "38268313cfaf8f80be5b9e8fa8755241c1e06758"}
 
 [dependencies.libp2p]
 git = "https://github.com/pawanjay176/rust-libp2p"
-rev = "bba117a94cc9818c5a02b519c89e11a9bee09c4b"
+rev = "38268313cfaf8f80be5b9e8fa8755241c1e06758"
 default-features = false
 features = ["identify", "yamux", "noise", "gossipsub", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa"]
 

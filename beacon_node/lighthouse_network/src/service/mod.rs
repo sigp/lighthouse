@@ -1186,10 +1186,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
                 self.peer_manager_mut().report_peer(
                     &peer_id,
-                    PeerAction::Fatal,
+                    PeerAction::MidToleranceError,
                     ReportSource::Gossipsub,
                     Some(GoodbyeReason::Unknown),
-                    "peer_using_too_may_resources",
+                    "peer_using_too_many_resources",
                 );
             }
         }
