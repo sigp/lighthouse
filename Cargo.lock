@@ -4012,7 +4012,7 @@ dependencies = [
 [[package]]
 name = "libp2p"
 version = "0.52.3"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "bytes",
  "futures",
@@ -4041,7 +4041,7 @@ dependencies = [
 [[package]]
 name = "libp2p-allow-block-list"
 version = "0.2.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "libp2p-core 0.40.0",
  "libp2p-identity",
@@ -4052,7 +4052,7 @@ dependencies = [
 [[package]]
 name = "libp2p-connection-limits"
 version = "0.2.1"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "libp2p-core 0.40.0",
  "libp2p-identity",
@@ -4063,7 +4063,7 @@ dependencies = [
 [[package]]
 name = "libp2p-core"
 version = "0.40.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "either",
  "fnv",
@@ -4074,13 +4074,13 @@ dependencies = [
  "log",
  "multiaddr 0.18.1",
  "multihash 0.19.1",
- "multistream-select 0.13.0 (git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5)",
+ "multistream-select 0.13.0 (git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b)",
  "once_cell",
  "parking_lot 0.12.1",
  "pin-project",
  "quick-protobuf",
  "rand",
- "rw-stream-sink 0.4.0 (git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5)",
+ "rw-stream-sink 0.4.0 (git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b)",
  "smallvec",
  "thiserror",
  "unsigned-varint 0.7.2",
@@ -4118,7 +4118,7 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.40.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "futures",
  "libp2p-core 0.40.0",
@@ -4132,7 +4132,7 @@ dependencies = [
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.45.1"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "asynchronous-codec",
  "base64 0.21.5",
@@ -4163,7 +4163,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.43.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "asynchronous-codec",
  "either",
@@ -4206,7 +4206,7 @@ dependencies = [
 [[package]]
 name = "libp2p-mdns"
 version = "0.44.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "data-encoding",
  "futures",
@@ -4226,7 +4226,7 @@ dependencies = [
 [[package]]
 name = "libp2p-metrics"
 version = "0.13.1"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "instant",
  "libp2p-core 0.40.0",
@@ -4241,7 +4241,7 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.40.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -4259,7 +4259,7 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.43.1"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "bytes",
  "curve25519-dalek 4.1.1",
@@ -4283,7 +4283,7 @@ dependencies = [
 [[package]]
 name = "libp2p-plaintext"
 version = "0.40.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -4298,7 +4298,7 @@ dependencies = [
 [[package]]
 name = "libp2p-quic"
 version = "0.9.2"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "bytes",
  "futures",
@@ -4320,7 +4320,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.43.3"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "either",
  "fnv",
@@ -4331,7 +4331,7 @@ dependencies = [
  "libp2p-identity",
  "libp2p-swarm-derive",
  "log",
- "multistream-select 0.13.0 (git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5)",
+ "multistream-select 0.13.0 (git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b)",
  "once_cell",
  "rand",
  "smallvec",
@@ -4342,7 +4342,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm-derive"
 version = "0.33.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "heck",
  "proc-macro-warning",
@@ -4354,7 +4354,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.40.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "futures",
  "futures-timer",
@@ -4370,7 +4370,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tls"
 version = "0.2.1"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "futures",
  "futures-rustls",
@@ -4388,7 +4388,7 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.44.1"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "futures",
  "libp2p-core 0.40.0",
@@ -5077,7 +5077,7 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.13.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "bytes",
  "futures",
@@ -6162,7 +6162,7 @@ dependencies = [
 [[package]]
 name = "quick-protobuf-codec"
 version = "0.2.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -6735,7 +6735,7 @@ dependencies = [
 [[package]]
 name = "rw-stream-sink"
 version = "0.4.0"
-source = "git+https://github.com/pawanjay176/rust-libp2p?rev=d897217f00d15322ff5bf3a2af2f03f10f4e8cb5#d897217f00d15322ff5bf3a2af2f03f10f4e8cb5"
+source = "git+https://github.com/pawanjay176/rust-libp2p?rev=bba117a94cc9818c5a02b519c89e11a9bee09c4b#bba117a94cc9818c5a02b519c89e11a9bee09c4b"
 dependencies = [
  "futures",
  "pin-project",
