@@ -1177,6 +1177,21 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     "does_not_support_gossipsub",
                 );
             }
+            gossipsub::Event::ReportPeer(peer_id) => {
+                warn!(
+                    self.log,
+                    "Peer responding to messages very slow";
+                    "peer_id" => %peer_id,
+                );
+
+                self.peer_manager_mut().report_peer(
+                    &peer_id,
+                    PeerAction::Fatal,
+                    ReportSource::Gossipsub,
+                    Some(GoodbyeReason::Unknown),
+                    "peer_using_too_may_resources",
+                );
+            }
         }
         None
     }
