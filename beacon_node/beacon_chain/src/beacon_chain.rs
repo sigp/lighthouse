@@ -5197,17 +5197,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .kzg
                     .as_ref()
                     .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
-                if !kzg_utils::validate_blobs::<T::EthSpec>(
+                kzg_utils::validate_blobs::<T::EthSpec>(
                     kzg,
                     expected_kzg_commitments,
                     blobs.iter().collect(),
                     &kzg_proofs,
                 )
-                .map_err(BlockProductionError::KzgError)?
-                {
-                    //TODO(sean) fix
-                    return Err(BlockProductionError::KzgError(todo!()));
-                }
+                .map_err(BlockProductionError::KzgError)?;
 
                 Some((kzg_proofs.into(), blobs))
             }

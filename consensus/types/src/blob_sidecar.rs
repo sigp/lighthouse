@@ -3,6 +3,7 @@ use crate::{
     beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, Blob, EthSpec, Hash256,
     SignedBeaconBlockHeader, Slot,
 };
+use crate::{KzgProofs, SignedBeaconBlock};
 use bls::Signature;
 use derivative::Derivative;
 use kzg::{
@@ -94,7 +95,44 @@ impl<T: EthSpec> Ord for BlobSidecar<T> {
     }
 }
 
+#[derive(Debug)]
+pub enum BlobSidecarError {
+    PreDeneb,
+    MissingKzgCommitment,
+}
+
 impl<T: EthSpec> BlobSidecar<T> {
+    pub fn new(
+        index: usize,
+        blob: Blob<T>,
+        signed_block_header: SignedBeaconBlockHeader,
+        signed_block: &SignedBeaconBlock<T>,
+        kzg_proof: KzgProof,
+    ) -> Result<Self, BlobSidecarError> {
+        let expected_kzg_commitments = signed_block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_err(|_e| BlobSidecarError::PreDeneb)?;
+        let kzg_commitment = *expected_kzg_commitments
+            .get(index)
+            .ok_or(BlobSidecarError::MissingKzgCommitment)?;
+        let kzg_commitment_inclusion_proof = signed_block
+            .message()
+            .body()
+            .kzg_commitment_merkle_proof(index)
+            .ok_or(BlobSidecarError::PreDeneb)?;
+
+        Ok(Self {
+            index: index as u64,
+            blob,
+            kzg_commitment,
+            kzg_proof,
+            signed_block_header,
+            kzg_commitment_inclusion_proof,
+        })
+    }
+
     pub fn id(&self) -> BlobIdentifier {
         BlobIdentifier {
             block_root: self.block_root(),
@@ -206,6 +244,21 @@ impl<T: EthSpec> BlobSidecar<T> {
     pub fn max_size() -> usize {
         // Fixed part
         Self::empty().as_ssz_bytes().len()
+    }
+
+    pub fn build_sidecars(
+        blobs: BlobsList<T>,
+        block: &SignedBeaconBlock<T>,
+        kzg_proofs: KzgProofs<T>,
+    ) -> Result<BlobSidecarList<T>, BlobSidecarError> {
+        let signed_block_header = block.signed_block_header();
+        let mut blob_sidecars = vec![];
+        for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
+            let blob_sidecar =
+                BlobSidecar::new(i, blob, signed_block_header.clone(), &block, *kzg_proof)?;
+            blob_sidecars.push(Arc::new(blob_sidecar));
+        }
+        Ok(VariableList::from(blob_sidecars))
     }
 }
 

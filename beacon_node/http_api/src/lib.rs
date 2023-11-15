@@ -76,11 +76,10 @@ use tokio_stream::{
 };
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBlindedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, ProposerPreparationData,
+    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{

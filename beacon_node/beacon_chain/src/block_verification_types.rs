@@ -8,7 +8,7 @@ use derivative::Derivative;
 use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::sync::Arc;
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
+use types::blob_sidecar::{BlobIdentifier, BlobSidecarError, FixedBlobSidecarList};
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
@@ -295,8 +295,7 @@ pub type GossipVerifiedBlockContents<T> =
 pub enum BlockContentsError<T: EthSpec> {
     BlockError(BlockError<T>),
     BlobError(GossipBlobError<T>),
-    // TODO(pawan): absorb into one of the above types
-    SidecarError(String),
+    SidecarError(BlobSidecarError),
 }
 
 impl<T: EthSpec> From<BlockError<T>> for BlockContentsError<T> {
@@ -321,7 +320,7 @@ impl<T: EthSpec> std::fmt::Display for BlockContentsError<T> {
                 write!(f, "BlobError({})", err)
             }
             BlockContentsError::SidecarError(err) => {
-                write!(f, "SidecarError({})", err)
+                write!(f, "SidecarError({:?})", err)
             }
         }
     }

@@ -12,8 +12,8 @@ use std::convert::TryFrom;
 use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
-use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
+// use types::blob_sidecar::build_sidecars;
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -1433,7 +1433,7 @@ mod tests {
         type E = MainnetEthSpec;
         let spec = ForkName::Capella.make_genesis_spec(E::default_spec());
 
-        let block: SignedBlockContents<E, FullPayload<E>> = SignedBeaconBlock::from_block(
+        let block: SignedBlockContents<E> = SignedBeaconBlock::from_block(
             BeaconBlock::<E>::Capella(BeaconBlockCapella::empty(&spec)),
             Signature::empty(),
         )
@@ -1459,34 +1459,13 @@ mod tests {
         let kzg_proofs = KzgProofs::<E>::from(vec![KzgProof::empty()]);
         let signed_block_contents = SignedBlockContents::new(block, Some((kzg_proofs, blobs)));
 
-        let decoded: SignedBlockContents<E, FullPayload<E>> =
+        let decoded: SignedBlockContents<E> =
             SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
                 .expect("should decode BlockAndBlobSidecars");
         assert!(matches!(
             decoded,
             SignedBlockContents::BlockAndBlobSidecars(_)
         ));
-    }
-
-    #[test]
-    fn ssz_signed_blinded_block_contents_with_blobs() {
-        type E = MainnetEthSpec;
-        let mut spec = E::default_spec();
-        spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-        spec.capella_fork_epoch = Some(Epoch::new(0));
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-
-        let blinded_block = SignedBeaconBlock::from_block(
-            BeaconBlock::<E, BlindedPayload<E>>::Deneb(BeaconBlockDeneb::empty(&spec)),
-            Signature::empty(),
-        );
-        let signed_block_contents = SignedBlockContents::new(blinded_block, None);
-
-        let decoded: SignedBlockContents<E, BlindedPayload<E>> =
-            SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
-                .expect("should decode BlindedBlock");
-        assert!(matches!(decoded, SignedBlockContents::Block(_)));
     }
 }
 
@@ -1545,15 +1524,15 @@ impl<T: EthSpec> BlockContents<T> {
             ForkName::Deneb => {
                 let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
-                    builder.register_anonymous_variable_length_item()?;
-                    builder.register_type::<KzgProofs<T>>()?;
-                    builder.register_type::<BlobsList<T>>()?;
+                builder.register_anonymous_variable_length_item()?;
+                builder.register_type::<KzgProofs<T>>()?;
+                builder.register_type::<BlobsList<T>>()?;
 
-                    let mut decoder = builder.build()?;
-                    let block = decoder
-                        .decode_next_with(|bytes| BeaconBlock::from_ssz_bytes(bytes, spec))?;
-                    let kzg_proofs = decoder.decode_next()?;
-                    let blobs = decoder.decode_next()?;
+                let mut decoder = builder.build()?;
+                let block =
+                    decoder.decode_next_with(|bytes| BeaconBlock::from_ssz_bytes(bytes, spec))?;
+                let kzg_proofs = decoder.decode_next()?;
+                let blobs = decoder.decode_next()?;
 
                 Ok(BlockContents::new(block, Some((kzg_proofs, blobs))))
             }
@@ -1688,18 +1667,6 @@ impl<T: EthSpec> SignedBlockContents<T> {
                 &block_and_sidecars.signed_block
             }
             SignedBlockContents::Block(block) => block,
-        }
-    }
-
-    pub fn blobs_sidecar_list(&self) -> Option<BlobSidecarList<T>> {
-        match self {
-            SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
-                let blobs = block_and_sidecars.blobs.clone();
-                let block = &block_and_sidecars.signed_block;
-                let kzg_commitments = block.message().body().blob_kzg_commitments().ok()?;
-                todo!()
-            }
-            SignedBlockContents::Block(_block) => None,
         }
     }
 

@@ -1826,14 +1826,12 @@ where
         block_contents: SignedBlockContentsTuple<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
-        let (block, blobs) = block_contents;
+        let (block, blob_items) = block_contents;
 
-        let sidecars = if let Some(blob_items) = blobs {
-            let expected_kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
-            todo!()
-        } else {
-            None
-        };
+        let sidecars = blob_items
+            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs))
+            .transpose()
+            .unwrap();
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
@@ -1853,14 +1851,12 @@ where
         &self,
         block_contents: SignedBlockContentsTuple<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
-        let (block, blobs) = block_contents;
+        let (block, blob_items) = block_contents;
 
-        let sidecars = if let Some(blob_items) = blobs {
-            let expected_kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
-            todo!()
-        } else {
-            None
-        };
+        let sidecars = blob_items
+            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs))
+            .transpose()
+            .unwrap();
         let block_root = block.canonical_root();
         let block_hash: SignedBeaconBlockHash = self
             .chain

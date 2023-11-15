@@ -3,8 +3,7 @@ use std::sync::Arc;
 use types::{payload::BlockProductionVersion, *};
 
 use beacon_chain::{
-    BeaconBlockResponse, BeaconBlockResponseType, BeaconChain, BeaconChainTypes,
-    ProduceBlockVerification,
+    BeaconBlockResponseType, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
 };
 use eth2::types::{self as api_types, EndpointVersion, SkipRandaoVerification};
 use ssz::Encode;

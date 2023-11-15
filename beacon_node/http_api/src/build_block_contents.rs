@@ -1,7 +1,6 @@
 use beacon_chain::{BeaconBlockResponse, BeaconBlockResponseType, BlockProductionError};
 use eth2::types::{BeaconBlockAndBlobSidecars, BlockContents, BlockContentsWrapper};
-use serde::{Deserialize, Serialize};
-use types::{BlindedBeaconBlock, EthSpec, ForkName};
+use types::{EthSpec, ForkName};
 type Error = warp::reject::Rejection;
 
 pub fn build_block_contents<E: EthSpec>(

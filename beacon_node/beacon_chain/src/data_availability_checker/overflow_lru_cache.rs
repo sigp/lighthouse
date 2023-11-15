@@ -753,7 +753,7 @@ mod test {
     use std::ops::AddAssign;
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
     use tempfile::{tempdir, TempDir};
-    use types::{ChainSpec, ExecPayload, MinimalEthSpec, Sidecar};
+    use types::{ChainSpec, ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 
@@ -919,17 +919,7 @@ mod test {
         info!(log, "done printing kzg commitments");
 
         let gossip_verified_blobs = if let Some((kzg_proofs, blobs)) = maybe_blobs {
-            let sidecars = BlobSidecar::build_sidecar(
-                blobs,
-                &block,
-                block
-                    .message()
-                    .body()
-                    .blob_kzg_commitments()
-                    .expect("should be deneb fork"),
-                kzg_proofs.into(),
-            )
-            .unwrap();
+            let sidecars = BlobSidecar::build_sidecars(blobs, &block, kzg_proofs.into()).unwrap();
             Vec::from(sidecars)
                 .into_iter()
                 .map(|sidecar| {

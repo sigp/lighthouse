@@ -1,7 +1,7 @@
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
-    BlindedPayload, EthSpec, ExecutionBlockHash, ForkVersionedResponse, PublicKeyBytes,
-    SignedBlockContents, SignedValidatorRegistrationData, Slot,
+    EthSpec, ExecutionBlockHash, ForkVersionedResponse, PublicKeyBytes,
+    SignedValidatorRegistrationData, Slot,
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 pub use eth2::Error;

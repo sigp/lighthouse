@@ -19,9 +19,9 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlindedPayload, BlobSidecarList, EthSpec, ExecPayload,
-    ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock,
-    SignedBlindedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, EthSpec, ExecPayload, ExecutionBlockHash,
+    ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    VariableList,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
@@ -109,9 +109,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     let sender_clone = network_tx.clone();
     let log_clone = log.clone();
 
-    // We can clone this because the blobs are `Arc`'d in `BlockContents`, but the block is not,
-    // so we avoid cloning the block at this point.
-    let blobs_opt = block_contents.inner_blobs();
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
     let (gossip_verified_block, gossip_verified_blobs) =
         match block_contents.into_gossip_verified_block(&chain) {
@@ -142,6 +139,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     // Clone here, so we can take advantage of the `Arc`. The block in `BlockContents` is not,
     // `Arc`'d but blobs are.
     let block = gossip_verified_block.block.block_cloned();
+    let blobs_opt = gossip_verified_blobs.as_ref().map(|gossip_verified_blobs| {
+        let blobs = gossip_verified_blobs
+            .into_iter()
+            .map(|b| b.cloned())
+            .collect::<Vec<_>>();
+        VariableList::from(blobs)
+    });
 
     let block_root = block_root.unwrap_or(gossip_verified_block.block_root);
 

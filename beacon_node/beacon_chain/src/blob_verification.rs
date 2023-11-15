@@ -184,7 +184,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     /// This should ONLY be used for testing.
     pub fn __assumed_valid(blob: Arc<BlobSidecar<T::EthSpec>>) -> Self {
         Self {
-            blob: KzgVerifiedBlob { blob: blob },
+            blob: KzgVerifiedBlob { blob },
         }
     }
     pub fn id(&self) -> BlobIdentifier {

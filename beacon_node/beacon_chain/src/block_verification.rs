@@ -99,9 +99,9 @@ use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecarList, ChainSpec, CloneConfig, Epoch,
-    EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
-    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
+    ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 use types::{BlobSidecar, ExecPayload};
 
@@ -669,7 +669,6 @@ pub trait IntoGossipVerifiedBlockContents<T: BeaconChainTypes>: Sized {
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>>;
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec>;
-    fn inner_blobs(&self) -> Option<BlobSidecarList<T::EthSpec>>;
 }
 
 impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedBlockContents<T> {
@@ -682,16 +681,6 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedB
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.0.block.as_block()
     }
-    fn inner_blobs(&self) -> Option<BlobSidecarList<T::EthSpec>> {
-        self.1.as_ref().map(|blobs| {
-            VariableList::from(
-                blobs
-                    .into_iter()
-                    .map(GossipVerifiedBlob::cloned)
-                    .collect::<Vec<_>>(),
-            )
-        })
-    }
 }
 
 impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockContents<T::EthSpec> {
@@ -699,29 +688,21 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
         self,
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
-        let (block, blob_items) = self.deconstruct();
+        let (block, blobs) = self.deconstruct();
 
-        let gossip_verified_blobs = blob_items
+        let gossip_verified_blobs = blobs
             .map(|(kzg_proofs, blobs)| {
-                let expected_kzg_commitments =
-                    block.message().body().blob_kzg_commitments().map_err(|e| {
-                        BlockContentsError::BlockError(BlockError::BeaconChainError(
-                            BeaconChainError::BeaconStateError(e),
-                        ))
-                    })?;
-                let sidecars = BlobSidecar::build_sidecar(
-                    blobs,
-                    &block,
-                    expected_kzg_commitments,
-                    kzg_proofs.into(),
-                )
-                .map_err(BlockContentsError::SidecarError)?;
-                Ok::<_, BlockContentsError<T::EthSpec>>(VariableList::from(
-                    sidecars
-                        .into_iter()
-                        .map(|blob| GossipVerifiedBlob::new(blob, chain))
-                        .collect::<Result<Vec<_>, _>>()?,
-                ))
+                let signed_block_header = block.signed_block_header();
+                let mut gossip_verified_blobs = vec![];
+                for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
+                    let blob =
+                        BlobSidecar::new(i, blob, signed_block_header.clone(), &block, *kzg_proof)
+                            .map_err(BlockContentsError::SidecarError)?;
+                    let gossip_verified_blob = GossipVerifiedBlob::new(Arc::new(blob), chain)?;
+                    gossip_verified_blobs.push(gossip_verified_blob);
+                }
+                let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
+                Ok::<_, BlockContentsError<T::EthSpec>>(VariableList::from(gossip_verified_blobs))
             })
             .transpose()?;
         let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;
@@ -731,10 +712,6 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
 
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.signed_block()
-    }
-
-    fn inner_blobs(&self) -> Option<BlobSidecarList<T::EthSpec>> {
-        self.blobs_sidecar_list()
     }
 }
 
