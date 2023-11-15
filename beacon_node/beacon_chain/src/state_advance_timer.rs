@@ -227,19 +227,51 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
                 // Prepare proposers so that the node can send payload attributes in the case where
                 // it decides to abandon a proposer boost re-org.
-                if let Err(e) = beacon_chain.prepare_beacon_proposer(current_slot).await {
-                    warn!(
-                        log,
-                        "Unable to prepare proposer with lookahead";
-                        "error" => ?e,
-                        "slot" => next_slot,
-                    );
-                }
+                let proposer_head = beacon_chain
+                    .prepare_beacon_proposer(current_slot)
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!(
+                            log,
+                            "Unable to prepare proposer with lookahead";
+                            "error" => ?e,
+                            "slot" => next_slot,
+                        );
+                        None
+                    });
 
                 // Use a blocking task to avoid blocking the core executor whilst waiting for locks
                 // in `ForkChoiceSignalTx`.
                 beacon_chain.task_executor.clone().spawn_blocking(
                     move || {
+                        // If we're proposing, clone the head state preemptively so that it isn't on the hot
+                        // path of proposing. We can delete this once we have tree-states.
+                        if let Some(proposer_head) = proposer_head {
+                            if let Some(proposer_state) = beacon_chain
+                                .snapshot_cache
+                                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                                .and_then(|snapshot_cache| {
+                                    snapshot_cache.get_state_for_block_production(proposer_head)
+                                })
+                            {
+                                *beacon_chain.block_production_state.lock() =
+                                    Some((proposer_head, proposer_state));
+                                debug!(
+                                    log,
+                                    "Cloned state ready for block production";
+                                    "head_block_root" => ?proposer_head,
+                                    "slot" => next_slot
+                                );
+                            }
+                        } else {
+                            warn!(
+                                log,
+                                "Block production state missing from snapshot cache";
+                                "head_block_root" => ?proposer_head,
+                                "slot" => next_slot
+                            );
+                        }
+
                         // Signal block proposal for the next slot (if it happens to be waiting).
                         if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
                             if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
