@@ -700,23 +700,28 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
         let (block, blob_items) = self.deconstruct();
-        let expected_kzg_commitments =
-            block.message().body().blob_kzg_commitments().map_err(|e| {
-                BlockContentsError::BlockError(BlockError::BeaconChainError(
-                    BeaconChainError::BeaconStateError(e),
-                ))
-            })?;
+
         let gossip_verified_blobs = blob_items
             .map(|(kzg_proofs, blobs)| {
-                let gossip_verified_blobs = kzg_proofs
-                    .into_iter()
-                    .zip(blobs.into_iter())
-                    .map(|(proof, blob)| {
-                        //TODO(sean) construct blob sidecar
-                        GossipVerifiedBlob::new(Arc::new(BlobSidecar::empty()), chain)
-                    })
-                    .collect::<Result<Vec<_>, GossipBlobError<T::EthSpec>>>()?;
-                Ok::<_, GossipBlobError<T::EthSpec>>(VariableList::from(gossip_verified_blobs))
+                let expected_kzg_commitments =
+                    block.message().body().blob_kzg_commitments().map_err(|e| {
+                        BlockContentsError::BlockError(BlockError::BeaconChainError(
+                            BeaconChainError::BeaconStateError(e),
+                        ))
+                    })?;
+                let sidecars = BlobSidecar::build_sidecar(
+                    blobs,
+                    &block,
+                    expected_kzg_commitments,
+                    kzg_proofs.into(),
+                )
+                .map_err(BlockContentsError::SidecarError)?;
+                Ok::<_, BlockContentsError<T::EthSpec>>(VariableList::from(
+                    sidecars
+                        .into_iter()
+                        .map(|blob| GossipVerifiedBlob::new(blob, chain))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ))
             })
             .transpose()?;
         let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;

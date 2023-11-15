@@ -677,11 +677,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                         self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
                     }
+                    GossipBlobError::KzgNotInitialized => {
+                        crit!(
+                            self.log,
+                            "Internal error when verifying blob sidecar";
+                            "error" => ?err,
+                        )
+                    }
                     GossipBlobError::ProposerSignatureInvalid
                     | GossipBlobError::UnknownValidator(_)
                     | GossipBlobError::ProposerIndexMismatch { .. }
                     | GossipBlobError::BlobIsNotLaterThanParent { .. }
-                    | GossipBlobError::InvalidSubnet { .. } => {
+                    | GossipBlobError::InvalidSubnet { .. }
+                    | GossipBlobError::InvalidInclusionProof
+                    | GossipBlobError::KzgError(_) => {
                         warn!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Rejecting the blob sidecar";

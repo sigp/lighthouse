@@ -1384,119 +1384,110 @@ pub mod serde_status_code {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use ssz::Encode;
-//     use std::sync::Arc;
-
-//     #[test]
-//     fn query_vec() {
-//         assert_eq!(
-//             QueryVec::try_from("0,1,2".to_string()).unwrap(),
-//             QueryVec {
-//                 values: vec![0_u64, 1, 2]
-//             }
-//         );
-//     }
-
-//     #[test]
-//     fn parse_accept_header_content() {
-//         assert_eq!(
-//             Accept::from_str("application/json; charset=utf-8").unwrap(),
-//             Accept::Json
-//         );
-
-//         assert_eq!(
-//             Accept::from_str("text/plain,application/octet-stream;q=0.3,application/json;q=0.9")
-//                 .unwrap(),
-//             Accept::Json
-//         );
-
-//         assert_eq!(
-//             Accept::from_str("text/plain"),
-//             Err("accept header is not supported".to_string())
-//         );
-
-//         assert_eq!(
-//             Accept::from_str("application/json;message=\"Hello, world!\";q=0.3,*/*;q=0.6").unwrap(),
-//             Accept::Any
-//         );
-//     }
-
-//     #[test]
-//     fn ssz_signed_block_contents_pre_deneb() {
-//         type E = MainnetEthSpec;
-//         let spec = ForkName::Capella.make_genesis_spec(E::default_spec());
-
-//         let block: SignedBlockContents<E, FullPayload<E>> = SignedBeaconBlock::from_block(
-//             BeaconBlock::<E>::Capella(BeaconBlockCapella::empty(&spec)),
-//             Signature::empty(),
-//         )
-//         .try_into()
-//         .expect("should convert into signed block contents");
-
-//         let decoded: SignedBlockContents<E> =
-//             SignedBlockContents::from_ssz_bytes(&block.as_ssz_bytes(), &spec)
-//                 .expect("should decode Block");
-//         assert!(matches!(decoded, SignedBlockContents::Block(_)));
-//     }
-
-//     #[test]
-//     fn ssz_signed_block_contents_with_blobs() {
-//         type E = MainnetEthSpec;
-//         let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
-
-//         let block = SignedBeaconBlock::from_block(
-//             BeaconBlock::<E>::Deneb(BeaconBlockDeneb::empty(&spec)),
-//             Signature::empty(),
-//         );
-//         let blobs = SignedSidecarList::from(vec![SignedSidecar {
-//             message: Arc::new(BlobSidecar::empty()),
-//             signature: Signature::empty(),
-//             _phantom: Default::default(),
-//         }]);
-//         let signed_block_contents = SignedBlockContents::new(block, Some(blobs));
-
-//         let decoded: SignedBlockContents<E, FullPayload<E>> =
-//             SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
-//                 .expect("should decode BlockAndBlobSidecars");
-//         assert!(matches!(
-//             decoded,
-//             SignedBlockContents::BlockAndBlobSidecars(_)
-//         ));
-//     }
-
-//     #[test]
-//     fn ssz_signed_blinded_block_contents_with_blobs() {
-//         type E = MainnetEthSpec;
-//         let mut spec = E::default_spec();
-//         spec.altair_fork_epoch = Some(Epoch::new(0));
-//         spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-//         spec.capella_fork_epoch = Some(Epoch::new(0));
-//         spec.deneb_fork_epoch = Some(Epoch::new(0));
-
-//         let blinded_block = SignedBeaconBlock::from_block(
-//             BeaconBlock::<E, BlindedPayload<E>>::Deneb(BeaconBlockDeneb::empty(&spec)),
-//             Signature::empty(),
-//         );
-//         let blinded_blobs = SignedSidecarList::from(vec![SignedSidecar {
-//             message: Arc::new(BlindedBlobSidecar::empty()),
-//             signature: Signature::empty(),
-//             _phantom: Default::default(),
-//         }]);
-//         let signed_block_contents = SignedBlockContents::new(blinded_block, Some(blinded_blobs));
-
-//         let decoded: SignedBlockContents<E, BlindedPayload<E>> =
-//             SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
-//                 .expect("should decode BlindedBlock");
-//         assert!(matches!(decoded, SignedBlockContents::BlindedBlock(_)));
-//     }
-// }
-
 pub enum ForkVersionedBeaconBlockType<T: EthSpec> {
     Full(ForkVersionedResponse<BlockContents<T>>),
     Blinded(ForkVersionedResponse<BlindedBeaconBlock<T>>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ssz::Encode;
+
+    #[test]
+    fn query_vec() {
+        assert_eq!(
+            QueryVec::try_from("0,1,2".to_string()).unwrap(),
+            QueryVec {
+                values: vec![0_u64, 1, 2]
+            }
+        );
+    }
+
+    #[test]
+    fn parse_accept_header_content() {
+        assert_eq!(
+            Accept::from_str("application/json; charset=utf-8").unwrap(),
+            Accept::Json
+        );
+
+        assert_eq!(
+            Accept::from_str("text/plain,application/octet-stream;q=0.3,application/json;q=0.9")
+                .unwrap(),
+            Accept::Json
+        );
+
+        assert_eq!(
+            Accept::from_str("text/plain"),
+            Err("accept header is not supported".to_string())
+        );
+
+        assert_eq!(
+            Accept::from_str("application/json;message=\"Hello, world!\";q=0.3,*/*;q=0.6").unwrap(),
+            Accept::Any
+        );
+    }
+
+    #[test]
+    fn ssz_signed_block_contents_pre_deneb() {
+        type E = MainnetEthSpec;
+        let spec = ForkName::Capella.make_genesis_spec(E::default_spec());
+
+        let block: SignedBlockContents<E, FullPayload<E>> = SignedBeaconBlock::from_block(
+            BeaconBlock::<E>::Capella(BeaconBlockCapella::empty(&spec)),
+            Signature::empty(),
+        )
+        .try_into()
+        .expect("should convert into signed block contents");
+
+        let decoded: SignedBlockContents<E> =
+            SignedBlockContents::from_ssz_bytes(&block.as_ssz_bytes(), &spec)
+                .expect("should decode Block");
+        assert!(matches!(decoded, SignedBlockContents::Block(_)));
+    }
+
+    #[test]
+    fn ssz_signed_block_contents_with_blobs() {
+        type E = MainnetEthSpec;
+        let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
+
+        let block = SignedBeaconBlock::from_block(
+            BeaconBlock::<E>::Deneb(BeaconBlockDeneb::empty(&spec)),
+            Signature::empty(),
+        );
+        let blobs = BlobsList::<E>::from(vec![Blob::<E>::default()]);
+        let kzg_proofs = KzgProofs::<E>::from(vec![KzgProof::empty()]);
+        let signed_block_contents = SignedBlockContents::new(block, Some((kzg_proofs, blobs)));
+
+        let decoded: SignedBlockContents<E, FullPayload<E>> =
+            SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
+                .expect("should decode BlockAndBlobSidecars");
+        assert!(matches!(
+            decoded,
+            SignedBlockContents::BlockAndBlobSidecars(_)
+        ));
+    }
+
+    #[test]
+    fn ssz_signed_blinded_block_contents_with_blobs() {
+        type E = MainnetEthSpec;
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(0));
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+
+        let blinded_block = SignedBeaconBlock::from_block(
+            BeaconBlock::<E, BlindedPayload<E>>::Deneb(BeaconBlockDeneb::empty(&spec)),
+            Signature::empty(),
+        );
+        let signed_block_contents = SignedBlockContents::new(blinded_block, None);
+
+        let decoded: SignedBlockContents<E, BlindedPayload<E>> =
+            SignedBlockContents::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
+                .expect("should decode BlindedBlock");
+        assert!(matches!(decoded, SignedBlockContents::Block(_)));
+    }
 }
 
 #[derive(Debug, Encode, Serialize, Deserialize)]
@@ -1554,19 +1545,15 @@ impl<T: EthSpec> BlockContents<T> {
             ForkName::Deneb => {
                 let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
-                // TODO(pawan): potential bug
-                builder.register_anonymous_variable_length_item()?;
-                builder.register_type::<KzgProofs<T>>()?;
+                    builder.register_anonymous_variable_length_item()?;
+                    builder.register_type::<KzgProofs<T>>()?;
+                    builder.register_type::<BlobsList<T>>()?;
 
-                builder.register_anonymous_variable_length_item()?;
-                builder.register_type::<BlobsList<T>>()?;
-
-                let mut decoder = builder.build()?;
-                let block =
-                    decoder.decode_next_with(|bytes| BeaconBlock::from_ssz_bytes(bytes, spec))?;
-                let kzg_proofs =
-                    decoder.decode_next_with(|bytes| KzgProofs::<T>::from_ssz_bytes(bytes))?;
-                let blobs = decoder.decode_next()?;
+                    let mut decoder = builder.build()?;
+                    let block = decoder
+                        .decode_next_with(|bytes| BeaconBlock::from_ssz_bytes(bytes, spec))?;
+                    let kzg_proofs = decoder.decode_next()?;
+                    let blobs = decoder.decode_next()?;
 
                 Ok(BlockContents::new(block, Some((kzg_proofs, blobs))))
             }
@@ -1683,8 +1670,6 @@ impl<T: EthSpec> SignedBlockContents<T> {
                 let mut builder = ssz::SszDecoderBuilder::new(bytes);
                 builder.register_anonymous_variable_length_item()?;
                 builder.register_type::<KzgProofs<T>>()?;
-
-                builder.register_anonymous_variable_length_item()?;
                 builder.register_type::<BlobsList<T>>()?;
 
                 let mut decoder = builder.build()?;

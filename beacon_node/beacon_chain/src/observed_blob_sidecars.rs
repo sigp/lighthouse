@@ -100,6 +100,7 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use types::{BlobSidecar, Hash256, MainnetEthSpec};
 
     type E = MainnetEthSpec;

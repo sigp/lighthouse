@@ -87,8 +87,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             }
             SignedBeaconBlock::Deneb(_) => {
                 let mut pubsub_messages = vec![PubsubMessage::BeaconBlock(block.clone())];
-                if let Some(signed_blobs) = blobs_opt {
-                    for (blob_index, blob) in signed_blobs.into_iter().enumerate() {
+                if let Some(blob_sidecars) = blobs_opt {
+                    for (blob_index, blob) in blob_sidecars.into_iter().enumerate() {
                         pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((
                             blob_index as u64,
                             blob,
@@ -112,7 +112,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     // We can clone this because the blobs are `Arc`'d in `BlockContents`, but the block is not,
     // so we avoid cloning the block at this point.
     let blobs_opt = block_contents.inner_blobs();
-
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
     let (gossip_verified_block, gossip_verified_blobs) =
         match block_contents.into_gossip_verified_block(&chain) {

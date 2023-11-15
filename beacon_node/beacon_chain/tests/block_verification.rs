@@ -1,7 +1,6 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
 use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RpcBlock};
-use beacon_chain::test_utils::BlobSignatureKey;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, ExecutionPendingBlock,
@@ -77,10 +76,8 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<BlobSidecarL
     (segment, segment_blobs)
 }
 
-async fn get_chain_segment_with_signed_blobs() -> (
-    Vec<BeaconSnapshot<E>>,
-    Vec<Option<VariableList<SignedBlobSidecar<E>, <E as EthSpec>::MaxBlobsPerBlock>>>,
-) {
+async fn get_chain_segment_with_blob_sidecars(
+) -> (Vec<BeaconSnapshot<E>>, Vec<Option<BlobSidecarList<E>>>) {
     let harness = get_harness(VALIDATOR_COUNT);
 
     harness
@@ -111,27 +108,11 @@ async fn get_chain_segment_with_signed_blobs() -> (
             beacon_block: Arc::new(full_block),
             beacon_state: snapshot.beacon_state,
         });
-        let signed_blobs = harness
+        let blob_sidecars = harness
             .chain
             .get_blobs(&snapshot.beacon_block_root)
-            .unwrap()
-            .into_iter()
-            .map(|blob| {
-                let block_root = blob.block_root;
-                let blob_index = blob.index;
-                SignedBlobSidecar {
-                    message: blob,
-                    signature: harness
-                        .blob_signature_cache
-                        .read()
-                        .get(&BlobSignatureKey::new(block_root, blob_index))
-                        .unwrap()
-                        .clone(),
-                    _phantom: PhantomData,
-                }
-            })
-            .collect::<Vec<_>>();
-        segment_blobs.push(Some(VariableList::from(signed_blobs)))
+            .unwrap();
+        segment_blobs.push(Some(VariableList::from(blob_sidecars)))
     }
     (segment, segment_blobs)
 }
@@ -214,34 +195,28 @@ fn update_parent_roots(
             let (mut block, signature) = child.beacon_block.as_ref().clone().deconstruct();
             *block.parent_root_mut() = root;
             let new_child = Arc::new(SignedBeaconBlock::from_block(block, signature));
-            let new_child_root = new_child.canonical_root();
-            child.beacon_block = new_child;
             if let Some(blobs) = child_blobs {
-                update_blob_roots(new_child_root, blobs);
+                update_blob_signed_header(&new_child, blobs);
             }
+            child.beacon_block = new_child;
         }
     }
 }
 
-fn update_blob_roots<E: EthSpec>(block_root: Hash256, blobs: &mut BlobSidecarList<E>) {
+fn update_blob_signed_header<E: EthSpec>(
+    signed_block: &SignedBeaconBlock<E>,
+    blobs: &mut BlobSidecarList<E>,
+) {
     for old_blob_sidecar in blobs.iter_mut() {
-        let index = old_blob_sidecar.index;
-        let slot = old_blob_sidecar.slot;
-        let block_parent_root = old_blob_sidecar.block_parent_root;
-        let proposer_index = old_blob_sidecar.proposer_index;
-        let blob = old_blob_sidecar.blob.clone();
-        let kzg_commitment = old_blob_sidecar.kzg_commitment;
-        let kzg_proof = old_blob_sidecar.kzg_proof;
-
         let new_blob = Arc::new(BlobSidecar::<E> {
-            block_root,
-            index,
-            slot,
-            block_parent_root,
-            proposer_index,
-            blob,
-            kzg_commitment,
-            kzg_proof,
+            index: old_blob_sidecar.index,
+            blob: old_blob_sidecar.blob.clone(),
+            kzg_commitment: old_blob_sidecar.kzg_commitment,
+            kzg_proof: old_blob_sidecar.kzg_proof,
+            signed_block_header: signed_block.signed_block_header(),
+            kzg_commitment_inclusion_proof: signed_block
+                .kzg_commitment_merkle_proof(old_blob_sidecar.index as usize)
+                .unwrap(),
         });
         *old_blob_sidecar = new_blob;
     }
@@ -879,7 +854,7 @@ fn unwrap_err<T, E>(result: Result<T, E>) -> E {
 #[tokio::test]
 async fn block_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
-    let (chain_segment, chain_segment_blobs) = get_chain_segment_with_signed_blobs().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment_with_blob_sidecars().await;
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
 
@@ -909,12 +884,12 @@ async fn block_gossip_verification() {
             )
             .await
             .expect("should import valid gossip verified block");
-        if let Some(blobs) = blobs_opt {
-            for blob in blobs {
-                let blob_index = blob.message.index;
+        if let Some(blob_sidecars) = blobs_opt {
+            for blob_sidecar in blob_sidecars {
+                let blob_index = blob_sidecar.index;
                 let gossip_verified = harness
                     .chain
-                    .verify_blob_sidecar_for_gossip(blob.clone(), blob_index)
+                    .verify_blob_sidecar_for_gossip(blob_sidecar.clone(), blob_index)
                     .expect("should obtain gossip verified blob");
 
                 harness
@@ -1178,12 +1153,24 @@ async fn verify_block_for_gossip_slashing_detection() {
         .await
         .unwrap();
 
-    if let Some(blobs) = blobs1 {
-        for blob in blobs {
-            let blob_index = blob.message.index;
+    if let Some((kzg_proofs, blobs)) = blobs1 {
+        let sidecars = BlobSidecar::build_sidecar(
+            blobs,
+            verified_block.block(),
+            verified_block
+                .block()
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .unwrap(),
+            kzg_proofs.into(),
+        )
+        .unwrap();
+        for sidecar in sidecars {
+            let blob_index = sidecar.index;
             let verified_blob = harness
                 .chain
-                .verify_blob_sidecar_for_gossip(blob, blob_index)
+                .verify_blob_sidecar_for_gossip(sidecar, blob_index)
                 .unwrap();
             harness
                 .chain
