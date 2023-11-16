@@ -1651,7 +1651,7 @@ impl ApiTester {
             .get_beacon_light_client_optimistic_update::<E>()
             .await
         {
-            Ok(result) => result,
+            Ok(result) => result.map(|res| res.data),
             Err(_) => panic!("query did not fail correctly"),
         };
 
@@ -1667,7 +1667,7 @@ impl ApiTester {
             .get_beacon_light_client_finality_update::<E>()
             .await
         {
-            Ok(result) => result,
+            Ok(result) => result.map(|res| res.data),
             Err(_) => panic!("query did not fail correctly"),
         };
 
