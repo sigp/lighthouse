@@ -528,7 +528,7 @@ where
 
         BeaconChainHarness {
             spec: chain.spec.clone(),
-            chain: Arc::new(chain),
+            chain,
             validator_keypairs,
             withdrawal_keypairs: self.withdrawal_keypairs,
             shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),

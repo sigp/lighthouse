@@ -1,3 +1,4 @@
+use crate::attestation_simulator::start_attestation_simulator_service;
 use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::eth1_finalization_cache::Eth1FinalizationCache;
@@ -635,7 +636,7 @@ where
     pub fn build(
         mut self,
     ) -> Result<
-        BeaconChain<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>,
+        Arc<BeaconChain<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>>,
         String,
     > {
         let log = self.log.ok_or("Cannot build without a logger")?;
@@ -958,6 +959,16 @@ where
                 "prune_payloads_background",
             );
         }
+
+        info!(
+            log,
+            "start_attestation_simulator_service initialized";
+        );
+        let beacon_chain = Arc::new(beacon_chain);
+        start_attestation_simulator_service(
+            beacon_chain.task_executor.clone(),
+            beacon_chain.clone(),
+        );
 
         Ok(beacon_chain)
     }

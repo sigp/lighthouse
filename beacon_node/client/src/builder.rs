@@ -2,7 +2,6 @@ use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
-use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
@@ -837,10 +836,6 @@ where
                 }
             }
 
-            start_attestation_simulator_service(
-                runtime_context.executor.clone(),
-                beacon_chain.clone(),
-            );
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
             start_otb_verification_service(runtime_context.executor.clone(), beacon_chain.clone());
         }
@@ -883,7 +878,7 @@ where
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 
-        self.beacon_chain = Some(Arc::new(chain));
+        self.beacon_chain = Some(chain);
         self.beacon_chain_builder = None;
 
         // a beacon chain requires a timer

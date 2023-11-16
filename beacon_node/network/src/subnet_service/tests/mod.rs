@@ -51,35 +51,33 @@ impl TestBeaconChain {
 
         let test_runtime = TestRuntime::default();
 
-        let chain = Arc::new(
-            BeaconChainBuilder::new(MainnetEthSpec)
-                .logger(log.clone())
-                .custom_spec(spec.clone())
-                .store(Arc::new(store))
-                .task_executor(test_runtime.task_executor.clone())
-                .genesis_state(
-                    interop_genesis_state::<MainnetEthSpec>(
-                        &keypairs,
-                        0,
-                        Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                        None,
-                        &spec,
-                    )
-                    .expect("should generate interop state"),
+        let chain = BeaconChainBuilder::new(MainnetEthSpec)
+            .logger(log.clone())
+            .custom_spec(spec.clone())
+            .store(Arc::new(store))
+            .task_executor(test_runtime.task_executor.clone())
+            .genesis_state(
+                interop_genesis_state::<MainnetEthSpec>(
+                    &keypairs,
+                    0,
+                    Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+                    None,
+                    &spec,
                 )
-                .expect("should build state using recent genesis")
-                .dummy_eth1_backend()
-                .expect("should build dummy backend")
-                .slot_clock(SystemTimeSlotClock::new(
-                    Slot::new(0),
-                    Duration::from_secs(recent_genesis_time()),
-                    Duration::from_millis(SLOT_DURATION_MILLIS),
-                ))
-                .shutdown_sender(shutdown_tx)
-                .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
-                .build()
-                .expect("should build"),
-        );
+                .expect("should generate interop state"),
+            )
+            .expect("should build state using recent genesis")
+            .dummy_eth1_backend()
+            .expect("should build dummy backend")
+            .slot_clock(SystemTimeSlotClock::new(
+                Slot::new(0),
+                Duration::from_secs(recent_genesis_time()),
+                Duration::from_millis(SLOT_DURATION_MILLIS),
+            ))
+            .shutdown_sender(shutdown_tx)
+            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
+            .build()
+            .expect("should build");
         Self {
             chain,
             _test_runtime: test_runtime,
