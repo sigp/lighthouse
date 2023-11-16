@@ -273,25 +273,6 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             Self::PayloadAndBlobs { block_value, .. } => block_value,
         }
     }
-    pub fn default_at_fork(fork_name: ForkName) -> Result<Self, BeaconStateError> {
-        Ok(match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                BlockProposalContents::Payload {
-                    payload: Payload::default_at_fork(fork_name)?,
-                    block_value: Uint256::zero(),
-                }
-            }
-            ForkName::Deneb => BlockProposalContents::PayloadAndBlobs {
-                payload: Payload::default_at_fork(fork_name)?,
-                block_value: Uint256::zero(),
-                kzg_commitments: VariableList::default(),
-                //TODO(sean) fix
-                // blobs: Some(Payload::default_blobs_at_fork(fork_name)?),
-                blobs: None,
-                proofs: Some(VariableList::default()),
-            },
-        })
-    }
 }
 
 #[derive(Clone, PartialEq)]

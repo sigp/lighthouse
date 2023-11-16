@@ -101,8 +101,6 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + Into<Self>
         + for<'a> From<Cow<'a, ExecutionPayloadDeneb<T>>>
         + TryFrom<ExecutionPayloadHeaderDeneb<T>>;
-
-    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
 }
 
 #[superstruct(
@@ -275,6 +273,15 @@ impl<T: EthSpec> FullPayload<T> {
             cons(inner.execution_payload)
         })
     }
+
+    pub fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
+        match fork_name {
+            ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
+            ForkName::Merge => Ok(FullPayloadMerge::default().into()),
+            ForkName::Capella => Ok(FullPayloadCapella::default().into()),
+            ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
+        }
+    }
 }
 
 impl<'a, T: EthSpec> FullPayloadRef<'a, T> {
@@ -383,15 +390,6 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
     type Merge = FullPayloadMerge<T>;
     type Capella = FullPayloadCapella<T>;
     type Deneb = FullPayloadDeneb<T>;
-
-    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
-        match fork_name {
-            ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
-            ForkName::Merge => Ok(FullPayloadMerge::default().into()),
-            ForkName::Capella => Ok(FullPayloadCapella::default().into()),
-            ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
-        }
-    }
 }
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for FullPayload<T> {
@@ -896,15 +894,6 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Merge = BlindedPayloadMerge<T>;
     type Capella = BlindedPayloadCapella<T>;
     type Deneb = BlindedPayloadDeneb<T>;
-
-    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
-        match fork_name {
-            ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
-            ForkName::Merge => Ok(BlindedPayloadMerge::default().into()),
-            ForkName::Capella => Ok(BlindedPayloadCapella::default().into()),
-            ForkName::Deneb => Ok(BlindedPayloadDeneb::default().into()),
-        }
-    }
 }
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for BlindedPayload<T> {
