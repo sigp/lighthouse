@@ -2,6 +2,7 @@ use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
+use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
@@ -35,7 +36,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::oneshot;
-use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -837,7 +837,10 @@ where
                 }
             }
 
-            start_attestation_simulator_service(runtime_context.executor.clone(), beacon_chain.clone());
+            start_attestation_simulator_service(
+                runtime_context.executor.clone(),
+                beacon_chain.clone(),
+            );
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
             start_otb_verification_service(runtime_context.executor.clone(), beacon_chain.clone());
         }
