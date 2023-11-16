@@ -1,7 +1,7 @@
 use crate::local_network::LocalNetwork;
 use node_test_rig::eth2::types::{BlockId, StateId};
 use std::time::Duration;
-use types::{Epoch, EthSpec, ExecutionBlockHash, Hash256, Slot, Unsigned};
+use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, Slot, Unsigned};
 
 /// Checks that all of the validators have on-boarded by the start of the second eth1 voting
 /// period.
@@ -228,7 +228,7 @@ pub async fn verify_transition_block_finalized<E: EthSpec>(
             .map_err(|e| format!("Get state root via http failed: {:?}", e))?
             .message()
             .execution_payload()
-            .map(|payload| payload.execution_payload.block_hash)
+            .map(|payload| payload.block_hash())
             .map_err(|e| format!("Execution payload does not exist: {:?}", e))?;
         block_hashes.push(execution_block_hash);
     }

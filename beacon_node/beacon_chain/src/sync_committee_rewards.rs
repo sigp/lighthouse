@@ -6,10 +6,10 @@ use slog::error;
 use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
 use std::collections::HashMap;
 use store::RelativeEpoch;
-use types::{BeaconBlockRef, BeaconState, ExecPayload};
+use types::{AbstractExecPayload, BeaconBlockRef, BeaconState};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub fn compute_sync_committee_rewards<Payload: ExecPayload<T::EthSpec>>(
+    pub fn compute_sync_committee_rewards<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &mut BeaconState<T::EthSpec>,

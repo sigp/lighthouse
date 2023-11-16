@@ -1,5 +1,6 @@
 extern crate slog;
 
+mod address_change_broadcast;
 pub mod config;
 mod metrics;
 mod notifier;
@@ -43,11 +44,6 @@ impl<T: BeaconChainTypes> Client<T> {
     /// Returns the address of the client's HTTP Prometheus metrics server, if it was started.
     pub fn http_metrics_listen_addr(&self) -> Option<SocketAddr> {
         self.http_metrics_listen_addr
-    }
-
-    /// Returns the port of the client's libp2p stack, if it was started.
-    pub fn libp2p_listen_port(&self) -> Option<u16> {
-        self.network_globals.as_ref().map(|n| n.listen_port_tcp())
     }
 
     /// Returns the list of libp2p addresses the client is listening to.

@@ -6,9 +6,8 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
-    BeaconChain, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
+    BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
-use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
 use state_processing::{
@@ -19,7 +18,7 @@ use types::{
 };
 
 // Should ideally be divisible by 3.
-pub const VALIDATOR_COUNT: usize = 24;
+pub const VALIDATOR_COUNT: usize = 48;
 
 lazy_static! {
     /// A cached set of keys.
@@ -29,6 +28,10 @@ lazy_static! {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
+        .chain_config(ChainConfig {
+            reconstruct_historic_states: true,
+            ..ChainConfig::default()
+        })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -500,7 +503,7 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();
     fork_choice
-        .update_time(harness.chain.slot().unwrap(), &harness.chain.spec)
+        .update_time(harness.chain.slot().unwrap())
         .unwrap();
 
     let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
@@ -614,7 +617,7 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();
     fork_choice
-        .update_time(harness.chain.slot().unwrap(), &harness.chain.spec)
+        .update_time(harness.chain.slot().unwrap())
         .unwrap();
 
     let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
@@ -681,19 +684,20 @@ async fn run_skip_slot_test(skip_slots: u64) {
         Slot::new(0)
     );
 
-    assert_eq!(
-        harness_b
-            .chain
-            .process_block(
-                harness_a.chain.head_snapshot().beacon_block_root,
-                harness_a.chain.head_snapshot().beacon_block.clone(),
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes,
-            )
-            .await
-            .unwrap(),
-        harness_a.chain.head_snapshot().beacon_block_root
-    );
+    let status = harness_b
+        .chain
+        .process_block(
+            harness_a.chain.head_snapshot().beacon_block_root,
+            harness_a.get_head_block(),
+            NotifyExecutionLayer::Yes,
+            || Ok(()),
+        )
+        .await
+        .unwrap();
+
+    let root: Hash256 = status.try_into().unwrap();
+
+    assert_eq!(root, harness_a.chain.head_snapshot().beacon_block_root);
 
     harness_b.chain.recompute_head_at_current_slot().await;
 

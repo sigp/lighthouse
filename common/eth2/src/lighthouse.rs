@@ -13,14 +13,14 @@ use crate::{
         BeaconState, ChainSpec, DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock,
         GenericResponse, ValidatorId,
     },
-    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, StateId, StatusCode,
+    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot, StateId, StatusCode,
 };
 use proto_array::core::ProtoArray;
 use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
-use store::{AnchorInfo, Split, StoreConfig};
+use store::{AnchorInfo, BlobInfo, Split, StoreConfig};
 
 pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
@@ -95,8 +95,8 @@ pub struct ValidatorInclusionData {
 
 #[cfg(target_os = "linux")]
 use {
-    procinfo::pid, psutil::cpu::os::linux::CpuTimesExt,
-    psutil::memory::os::linux::VirtualMemoryExt, psutil::process::Process,
+    psutil::cpu::os::linux::CpuTimesExt, psutil::memory::os::linux::VirtualMemoryExt,
+    psutil::process::Process,
 };
 
 /// Reports on the health of the Lighthouse instance.
@@ -238,7 +238,7 @@ pub struct ProcessHealth {
     /// The pid of this process.
     pub pid: u32,
     /// The number of threads used by this pid.
-    pub pid_num_threads: i32,
+    pub pid_num_threads: i64,
     /// The total resident memory used by this pid.
     pub pid_mem_resident_set_size: u64,
     /// The total virtual memory used by this pid.
@@ -262,7 +262,12 @@ impl ProcessHealth {
             .memory_info()
             .map_err(|e| format!("Unable to get process memory info: {:?}", e))?;
 
-        let stat = pid::stat_self().map_err(|e| format!("Unable to get stat: {:?}", e))?;
+        let me = procfs::process::Process::myself()
+            .map_err(|e| format!("Unable to get process: {:?}", e))?;
+        let stat = me
+            .stat()
+            .map_err(|e| format!("Unable to get stat: {:?}", e))?;
+
         let process_times = process
             .cpu_times()
             .map_err(|e| format!("Unable to get process cpu times : {:?}", e))?;
@@ -359,17 +364,18 @@ pub struct DatabaseInfo {
     pub config: StoreConfig,
     pub split: Split,
     pub anchor: Option<AnchorInfo>,
+    pub blob_info: BlobInfo,
 }
 
 impl BeaconNodeHttpClient {
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_bytes_opt<U: IntoUrl>(&self, url: U) -> Result<Option<Vec<u8>>, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
+        let response = self.client.get(url).send().await.map_err(Error::from)?;
         match ok_or_error(response).await {
             Ok(resp) => Ok(Some(
                 resp.bytes()
                     .await
-                    .map_err(Error::Reqwest)?
+                    .map_err(Error::from)?
                     .into_iter()
                     .collect::<Vec<_>>(),
             )),
@@ -565,5 +571,74 @@ impl BeaconNodeHttpClient {
             .push("reconstruct");
 
         self.post_with_response(path, &()).await
+    }
+
+    ///
+    /// Analysis endpoints.
+    ///
+
+    /// `GET` lighthouse/analysis/block_rewards?start_slot,end_slot
+    pub async fn get_lighthouse_analysis_block_rewards(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+    ) -> Result<Vec<BlockReward>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("analysis")
+            .push("block_rewards");
+
+        path.query_pairs_mut()
+            .append_pair("start_slot", &start_slot.to_string())
+            .append_pair("end_slot", &end_slot.to_string());
+
+        self.get(path).await
+    }
+
+    /// `GET` lighthouse/analysis/block_packing?start_epoch,end_epoch
+    pub async fn get_lighthouse_analysis_block_packing(
+        &self,
+        start_epoch: Epoch,
+        end_epoch: Epoch,
+    ) -> Result<Vec<BlockPackingEfficiency>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("analysis")
+            .push("block_packing_efficiency");
+
+        path.query_pairs_mut()
+            .append_pair("start_epoch", &start_epoch.to_string())
+            .append_pair("end_epoch", &end_epoch.to_string());
+
+        self.get(path).await
+    }
+
+    /// `GET` lighthouse/analysis/attestation_performance/{index}?start_epoch,end_epoch
+    pub async fn get_lighthouse_analysis_attestation_performance(
+        &self,
+        start_epoch: Epoch,
+        end_epoch: Epoch,
+        target: String,
+    ) -> Result<Vec<AttestationPerformance>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("analysis")
+            .push("attestation_performance")
+            .push(&target);
+
+        path.query_pairs_mut()
+            .append_pair("start_epoch", &start_epoch.to_string())
+            .append_pair("end_epoch", &end_epoch.to_string());
+
+        self.get(path).await
     }
 }

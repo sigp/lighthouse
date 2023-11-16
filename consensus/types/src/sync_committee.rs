@@ -3,7 +3,7 @@ use crate::typenum::Unsigned;
 use crate::{EthSpec, FixedVector, SyncSubnetId};
 use bls::PublicKeyBytes;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use test_random_derive::TestRandom;
@@ -25,9 +25,20 @@ impl From<ArithError> for Error {
     }
 }
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Debug,
+    PartialEq,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    arbitrary::Arbitrary,
+)]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct SyncCommittee<T: EthSpec> {
     pub pubkeys: FixedVector<PublicKeyBytes, T::SyncCommitteeSize>,
     pub aggregate_pubkey: PublicKeyBytes,

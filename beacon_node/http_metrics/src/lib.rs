@@ -116,7 +116,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|ctx: Arc<Context<T>>| async move {
             Ok::<_, warp::Rejection>(
                 metrics::gather_prometheus_metrics(&ctx)
-                    .map(|body| Response::builder().status(200).body(body).unwrap())
+                    .map(|body| {
+                        Response::builder()
+                            .status(200)
+                            .header("Content-Type", "text/plain")
+                            .body(body)
+                            .unwrap()
+                    })
                     .unwrap_or_else(|e| {
                         Response::builder()
                             .status(500)

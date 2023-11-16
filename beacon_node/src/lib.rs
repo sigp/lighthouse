@@ -16,7 +16,7 @@ pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_config, get_data_dir, get_slots_per_restore_point, set_network_config};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
-use slasher::Slasher;
+use slasher::{DatabaseBackendOverride, Slasher};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -64,6 +64,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let _datadir = client_config.create_data_dir()?;
         let db_path = client_config.create_db_path()?;
         let freezer_db_path = client_config.create_freezer_db_path()?;
+        let blobs_db_path = client_config.create_blobs_db_path()?;
         let executor = context.executor.clone();
 
         if let Some(legacy_dir) = client_config.get_existing_legacy_data_dir() {
@@ -83,10 +84,37 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
             .chain_spec(spec)
+            .beacon_processor(client_config.beacon_processor.clone())
             .http_api_config(client_config.http_api.clone())
-            .disk_store(&db_path, &freezer_db_path, store_config, log.clone())?;
+            .disk_store(
+                &db_path,
+                &freezer_db_path,
+                &blobs_db_path,
+                store_config,
+                log.clone(),
+            )?;
 
-        let builder = if let Some(slasher_config) = client_config.slasher.clone() {
+        let builder = if let Some(mut slasher_config) = client_config.slasher.clone() {
+            match slasher_config.override_backend() {
+                DatabaseBackendOverride::Success(old_backend) => {
+                    info!(
+                        log,
+                        "Slasher backend overriden";
+                        "reason" => "database exists",
+                        "configured_backend" => %old_backend,
+                        "override_backend" => %slasher_config.backend,
+                    );
+                }
+                DatabaseBackendOverride::Failure(path) => {
+                    warn!(
+                        log,
+                        "Slasher backend override failed";
+                        "advice" => "delete old MDBX database or enable MDBX backend",
+                        "path" => path.display()
+                    );
+                }
+                _ => {}
+            }
             let slasher = Arc::new(
                 Slasher::open(slasher_config, log.new(slog::o!("service" => "slasher")))
                     .map_err(|e| format!("Slasher open error: {:?}", e))?,

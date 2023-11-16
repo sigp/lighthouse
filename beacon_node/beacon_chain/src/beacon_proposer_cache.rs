@@ -25,7 +25,7 @@ const CACHE_SIZE: usize = 16;
 /// This value is fairly unimportant, it's used to avoid heap allocations. The result of it being
 /// incorrect is non-substantial from a consensus perspective (and probably also from a
 /// performance perspective).
-const TYPICAL_SLOTS_PER_EPOCH: usize = 32;
+pub const TYPICAL_SLOTS_PER_EPOCH: usize = 32;
 
 /// For some given slot, this contains the proposer index (`index`) and the `fork` that should be
 /// used to verify their signature.
@@ -135,7 +135,7 @@ impl BeaconProposerCache {
 
 /// Compute the proposer duties using the head state without cache.
 pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
-    current_epoch: Epoch,
+    request_epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<(Vec<usize>, Hash256, ExecutionStatus, Fork), BeaconChainError> {
     // Atomically collect information about the head whilst holding the canonical head `Arc` as
@@ -159,7 +159,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         .ok_or(BeaconChainError::HeadMissingFromForkChoice(head_block_root))?;
 
     // Advance the state into the requested epoch.
-    ensure_state_is_in_epoch(&mut state, head_state_root, current_epoch, &chain.spec)?;
+    ensure_state_is_in_epoch(&mut state, head_state_root, request_epoch, &chain.spec)?;
 
     let indices = state
         .get_beacon_proposer_indices(&chain.spec)

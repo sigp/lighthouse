@@ -2,7 +2,7 @@ use super::{AggregateSignature, EthSpec, SignedRoot};
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeMessage};
 use safe_arith::ArithError;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -15,13 +15,24 @@ pub enum Error {
 }
 
 /// An aggregation of `SyncCommitteeMessage`s, used in creating a `SignedContributionAndProof`.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    arbitrary::Arbitrary,
+)]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct SyncCommitteeContribution<T: EthSpec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub subcommittee_index: u64,
     pub aggregation_bits: BitVector<T::SyncSubcommitteeSize>,
     pub signature: AggregateSignature,

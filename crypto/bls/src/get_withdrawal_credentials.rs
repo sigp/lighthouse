@@ -1,5 +1,5 @@
 use crate::PublicKey;
-use eth2_hashing::hash;
+use ethereum_hashing::hash;
 use ssz::Encode;
 
 /// Returns the withdrawal credentials for a given public key.

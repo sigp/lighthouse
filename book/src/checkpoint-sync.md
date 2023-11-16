@@ -34,7 +34,7 @@ INFO Loaded checkpoint block and state       state_root: 0xe8252c68784a8d5cc7e54
 ```
 
 > **Security Note**: You should cross-reference the `block_root` and `slot` of the loaded checkpoint
-> against a trusted source like a friend's node, or a block explorer.
+> against a trusted source like a friend's node, a block explorer or some [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/).
 
 Once the checkpoint is loaded Lighthouse will sync forwards to the head of the chain.
 
@@ -47,6 +47,17 @@ The Ethereum community provides various [public endpoints](https://eth-clients.g
 ```
 lighthouse bn --checkpoint-sync-url https://example.com/ ...
 ```
+
+### Adjusting the timeout
+
+If the beacon node fails to start due to a timeout from the checkpoint sync server, you can try
+running it again with a longer timeout by adding the flag `--checkpoint-sync-url-timeout`.
+
+```
+lighthouse bn --checkpoint-sync-url-timeout 300 --checkpoint-sync-url https://example.com/ ...
+```
+
+The flag takes a value in seconds. For more information see `lighthouse bn --help`.
 
 ## Backfilling Blocks
 
@@ -61,6 +72,10 @@ INFO Downloading historical blocks  est_time: 5 hrs 0 mins, speed: 111.96 slots/
 ```
 
 Once backfill is complete, a `INFO Historical block download complete` log will be emitted.
+
+> Note: Since [v4.1.0](https://github.com/sigp/lighthouse/releases/tag/v4.1.0), Lighthouse implements rate-limited backfilling to mitigate validator performance issues after a recent checkpoint sync. This means that the speed at which historical blocks are downloaded is limited, typically to less than 20 slots/sec. This will not affect validator performance. However, if you would still prefer to sync the chain as fast as possible, you can add the flag `--disable-backfill-rate-limiting` to the beacon node.
+
+> Note: Since [v4.2.0](https://github.com/sigp/lighthouse/releases/tag/v4.2.0), Lighthouse limits the backfill sync to only sync backwards to the weak subjectivity point (approximately 5 months). This will help to save disk space. However, if you would like to sync back to the genesis, you can add the flag `--genesis-backfill` to the beacon node.
 
 ## FAQ
 
@@ -101,8 +116,9 @@ states:
   database. Additionally, the genesis block is always available.
 * `state_lower_limit`: All states with slots _less than or equal to_ this value are available in
   the database. The minimum value is 0, indicating that the genesis state is always available.
-* `state_upper_limit`: All states with slots _greater than or equal to_ this value are available
-  in the database.
+* `state_upper_limit`: All states with slots _greater than or equal to_ `min(split.slot,
+  state_upper_limit)` are available in the database. In the case where the `state_upper_limit` is
+  higher than the `split.slot`, this means states are not being written to the freezer database.
 
 Reconstruction runs from the state lower limit to the upper limit, narrowing the window of
 unavailable states as it goes. It will log messages like the following to show its progress:
@@ -138,18 +154,8 @@ To manually specify a checkpoint use the following two flags:
 * `--checkpoint-state`: accepts an SSZ-encoded `BeaconState` blob
 * `--checkpoint-block`: accepts an SSZ-encoded `SignedBeaconBlock` blob
 
-_Both_ the state and block must be provided and **must** adhere to the [Alignment
-Requirements](#alignment-requirements) described below.
-
-### Alignment Requirements
-
-* The block must be a finalized block from an epoch boundary, i.e. `block.slot() % 32 == 0`.
-* The state must be the state corresponding to `block` with `state.slot() == block.slot()`
-  and `state.hash_tree_root() == block.state_root()`.
-
-These requirements are imposed to align with Lighthouse's database schema, and notably exclude
-finalized blocks from skipped slots. You can avoid alignment issues by using
-[Automatic Checkpoint Sync](#automatic-checkpoint-sync), which will search for a suitable block
-and state pair.
+_Both_ the state and block must be provided and the state **must** match the block. The
+state may be from the same slot as the block (unadvanced), or advanced to an epoch boundary,
+in which case it will be assumed to be finalized at that epoch.
 
 [weak-subj]: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity/

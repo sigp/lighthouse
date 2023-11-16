@@ -3,16 +3,27 @@ use super::{
     SignedRoot, SyncCommitteeContribution, SyncSelectionProof,
 };
 use crate::test_utils::TestRandom;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// A Validators signed contribution proof to publish on the `sync_committee_contribution_and_proof`
 /// gossipsub topic.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TestRandom,
+    TreeHash,
+    arbitrary::Arbitrary,
+)]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct SignedContributionAndProof<T: EthSpec> {
     /// The `ContributionAndProof` that was signed.
     pub message: ContributionAndProof<T>,

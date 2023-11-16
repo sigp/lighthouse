@@ -45,6 +45,10 @@ lazy_static::lazy_static! {
         "execution_layer_get_payload_by_block_hash_time",
         "Time to reconstruct a payload from the EE using eth_getBlockByHash"
     );
+    pub static ref EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE: Result<Histogram> = try_create_histogram(
+        "execution_layer_get_payload_bodies_by_range_time",
+        "Time to fetch a range of payload bodies from the EE"
+    );
     pub static ref EXECUTION_LAYER_VERIFY_BLOCK_HASH: Result<Histogram> = try_create_histogram_with_buckets(
         "execution_layer_verify_block_hash_time",
         "Time to verify the execution block hash in Lighthouse, without the EL",

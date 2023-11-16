@@ -1,16 +1,19 @@
 use crate::{
     error::Error,
     proto_array::{
-        calculate_committee_fraction, CountUnrealizedFull, InvalidationOperation, Iter,
-        ProposerBoost, ProtoArray, ProtoNode,
+        calculate_committee_fraction, InvalidationOperation, Iter, ProposerBoost, ProtoArray,
+        ProtoNode,
     },
     ssz_container::SszContainer,
     JustifiedBalances,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt,
+};
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
     Slot,
@@ -125,6 +128,17 @@ impl ExecutionStatus {
     }
 }
 
+impl fmt::Display for ExecutionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExecutionStatus::Valid(_) => write!(f, "valid"),
+            ExecutionStatus::Invalid(_) => write!(f, "invalid"),
+            ExecutionStatus::Optimistic(_) => write!(f, "optimistic"),
+            ExecutionStatus::Irrelevant(_) => write!(f, "irrelevant"),
+        }
+    }
+}
+
 /// A block that is to be applied to the fork choice.
 ///
 /// A simplified version of `types::BeaconBlock`.
@@ -236,6 +250,9 @@ pub enum DoNotReOrg {
     ParentDistance,
     HeadDistance,
     ShufflingUnstable,
+    DisallowedOffset {
+        offset: u64,
+    },
     JustificationAndFinalizationNotCompetitive,
     ChainNotFinalizing {
         epochs_since_finalization: u64,
@@ -257,6 +274,9 @@ impl std::fmt::Display for DoNotReOrg {
             Self::ParentDistance => write!(f, "parent too far from head"),
             Self::HeadDistance => write!(f, "head too far from current slot"),
             Self::ShufflingUnstable => write!(f, "shuffling unstable at epoch boundary"),
+            Self::DisallowedOffset { offset } => {
+                write!(f, "re-orgs disabled at offset {offset}")
+            }
             Self::JustificationAndFinalizationNotCompetitive => {
                 write!(f, "justification or finalization not competitive")
             }
@@ -290,6 +310,31 @@ impl std::fmt::Display for DoNotReOrg {
 #[serde(transparent)]
 pub struct ReOrgThreshold(pub u64);
 
+/// New-type for disallowed re-org slots.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct DisallowedReOrgOffsets {
+    // Vecs are faster than hashmaps for small numbers of items.
+    offsets: Vec<u64>,
+}
+
+impl Default for DisallowedReOrgOffsets {
+    fn default() -> Self {
+        DisallowedReOrgOffsets { offsets: vec![0] }
+    }
+}
+
+impl DisallowedReOrgOffsets {
+    pub fn new<E: EthSpec>(offsets: Vec<u64>) -> Result<Self, Error> {
+        for &offset in &offsets {
+            if offset >= E::slots_per_epoch() {
+                return Err(Error::InvalidEpochOffset(offset));
+            }
+        }
+        Ok(Self { offsets })
+    }
+}
+
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
@@ -300,6 +345,7 @@ pub struct ProtoArrayForkChoice {
 impl ProtoArrayForkChoice {
     #[allow(clippy::too_many_arguments)]
     pub fn new<E: EthSpec>(
+        current_slot: Slot,
         finalized_block_slot: Slot,
         finalized_block_state_root: Hash256,
         justified_checkpoint: Checkpoint,
@@ -307,7 +353,6 @@ impl ProtoArrayForkChoice {
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
         execution_status: ExecutionStatus,
-        count_unrealized_full: CountUnrealizedFull,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -316,7 +361,6 @@ impl ProtoArrayForkChoice {
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
             previous_proposer_boost: ProposerBoost::default(),
-            count_unrealized_full,
         };
 
         let block = Block {
@@ -337,7 +381,7 @@ impl ProtoArrayForkChoice {
         };
 
         proto_array
-            .on_block::<E>(block, finalized_block_slot)
+            .on_block::<E>(block, current_slot)
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
@@ -358,12 +402,12 @@ impl ProtoArrayForkChoice {
     }
 
     /// See `ProtoArray::propagate_execution_payload_invalidation` for documentation.
-    pub fn process_execution_payload_invalidation(
+    pub fn process_execution_payload_invalidation<E: EthSpec>(
         &mut self,
         op: &InvalidationOperation,
     ) -> Result<(), String> {
         self.proto_array
-            .propagate_execution_payload_invalidation(op)
+            .propagate_execution_payload_invalidation::<E>(op)
             .map_err(|e| format!("Failed to process invalid payload: {:?}", e))
     }
 
@@ -448,6 +492,7 @@ impl ProtoArrayForkChoice {
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
         re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
@@ -455,6 +500,7 @@ impl ProtoArrayForkChoice {
             canonical_head,
             justified_balances,
             re_org_threshold,
+            disallowed_offsets,
             max_epochs_since_finalization,
         )?;
 
@@ -489,6 +535,7 @@ impl ProtoArrayForkChoice {
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
         re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
@@ -531,6 +578,12 @@ impl ProtoArrayForkChoice {
         let shuffling_stable = re_org_block_slot % E::slots_per_epoch() != 0;
         if !shuffling_stable {
             return Err(DoNotReOrg::ShufflingUnstable.into());
+        }
+
+        // Check allowed slot offsets.
+        let offset = (re_org_block_slot % E::slots_per_epoch()).as_u64();
+        if disallowed_offsets.offsets.contains(&offset) {
+            return Err(DoNotReOrg::DisallowedOffset { offset }.into());
         }
 
         // Check FFG.
@@ -702,29 +755,20 @@ impl ProtoArrayForkChoice {
             .and_then(|i| self.proto_array.nodes.get(i))
             .map(|parent| parent.root);
 
-        // If a node does not have a `finalized_checkpoint` or `justified_checkpoint` populated,
-        // it means it is not a descendant of the finalized checkpoint, so it is valid to return
-        // `None` here.
-        if let (Some(justified_checkpoint), Some(finalized_checkpoint)) =
-            (block.justified_checkpoint, block.finalized_checkpoint)
-        {
-            Some(Block {
-                slot: block.slot,
-                root: block.root,
-                parent_root,
-                state_root: block.state_root,
-                target_root: block.target_root,
-                current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
-                next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
-                justified_checkpoint,
-                finalized_checkpoint,
-                execution_status: block.execution_status,
-                unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
-                unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
-            })
-        } else {
-            None
-        }
+        Some(Block {
+            slot: block.slot,
+            root: block.root,
+            parent_root,
+            state_root: block.state_root,
+            target_root: block.target_root,
+            current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
+            next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
+            justified_checkpoint: block.justified_checkpoint,
+            finalized_checkpoint: block.finalized_checkpoint,
+            execution_status: block.execution_status,
+            unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
+        })
     }
 
     /// Returns the `block.execution_status` field, if the block is present.
@@ -746,6 +790,15 @@ impl ProtoArrayForkChoice {
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
         self.proto_array
             .is_descendant(ancestor_root, descendant_root)
+    }
+
+    /// See `ProtoArray` documentation.
+    pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(
+        &self,
+        descendant_root: Hash256,
+    ) -> bool {
+        self.proto_array
+            .is_finalized_checkpoint_or_descendant::<E>(descendant_root)
     }
 
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
@@ -771,13 +824,10 @@ impl ProtoArrayForkChoice {
         SszContainer::from(self).as_ssz_bytes()
     }
 
-    pub fn from_bytes(
-        bytes: &[u8],
-        count_unrealized_full: CountUnrealizedFull,
-    ) -> Result<Self, String> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let container = SszContainer::from_ssz_bytes(bytes)
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))?;
-        (container, count_unrealized_full)
+        container
             .try_into()
             .map_err(|e| format!("Failed to initialize ProtoArrayForkChoice: {e:?}"))
     }
@@ -928,8 +978,13 @@ mod test_compute_deltas {
             epoch: genesis_epoch,
             root: finalized_root,
         };
+        let junk_checkpoint = Checkpoint {
+            epoch: Epoch::new(42),
+            root: Hash256::repeat_byte(42),
+        };
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            genesis_slot,
             genesis_slot,
             state_root,
             genesis_checkpoint,
@@ -937,7 +992,6 @@ mod test_compute_deltas {
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
-            CountUnrealizedFull::default(),
         )
         .unwrap();
 
@@ -973,8 +1027,10 @@ mod test_compute_deltas {
                     target_root: finalized_root,
                     current_epoch_shuffling_id: junk_shuffling_id.clone(),
                     next_epoch_shuffling_id: junk_shuffling_id,
-                    justified_checkpoint: genesis_checkpoint,
-                    finalized_checkpoint: genesis_checkpoint,
+                    // Use the junk checkpoint for the next to values to prevent
+                    // the loop-shortcutting mechanism from triggering.
+                    justified_checkpoint: junk_checkpoint,
+                    finalized_checkpoint: junk_checkpoint,
                     execution_status,
                     unrealized_justified_checkpoint: None,
                     unrealized_finalized_checkpoint: None,
@@ -993,6 +1049,11 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(finalized_root, not_finalized_desc));
         assert!(!fc.is_descendant(finalized_root, unknown));
 
+        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_root));
+        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_desc));
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(not_finalized_desc));
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(unknown));
+
         assert!(!fc.is_descendant(finalized_desc, not_finalized_desc));
         assert!(fc.is_descendant(finalized_desc, finalized_desc));
         assert!(!fc.is_descendant(finalized_desc, finalized_root));
@@ -1002,6 +1063,171 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(not_finalized_desc, finalized_desc));
         assert!(!fc.is_descendant(not_finalized_desc, finalized_root));
         assert!(!fc.is_descendant(not_finalized_desc, unknown));
+    }
+
+    /// This test covers an interesting case where a block can be a descendant
+    /// of the finalized *block*, but not a descenant of the finalized
+    /// *checkpoint*.
+    ///
+    /// ## Example
+    ///
+    /// Consider this block tree which has three blocks (`A`, `B` and `C`):
+    ///
+    /// ```ignore
+    /// [A] <--- [-] <--- [B]
+    ///       |
+    ///       |--[C]
+    /// ```
+    ///
+    /// - `A` (slot 31) is the common descendant.
+    /// - `B` (slot 33) descends from `A`, but there is a single skip slot
+    ///     between it and `A`.
+    /// - `C` (slot 32) descends from `A` and conflicts with `B`.
+    ///
+    /// Imagine that the `B` chain is finalized at epoch 1. This means that the
+    /// finalized checkpoint points to the skipped slot at 32. The root of the
+    /// finalized checkpoint is `A`.
+    ///
+    /// In this scenario, the block `C` has the finalized root (`A`) as an
+    /// ancestor whilst simultaneously conflicting with the finalized
+    /// checkpoint.
+    ///
+    /// This means that to ensure a block does not conflict with finality we
+    /// must check to ensure that it's an ancestor of the finalized
+    /// *checkpoint*, not just the finalized *block*.
+    #[test]
+    fn finalized_descendant_edge_case() {
+        let get_block_root = Hash256::from_low_u64_be;
+        let genesis_slot = Slot::new(0);
+        let junk_state_root = Hash256::zero();
+        let junk_shuffling_id =
+            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let execution_status = ExecutionStatus::irrelevant();
+
+        let genesis_checkpoint = Checkpoint {
+            epoch: Epoch::new(0),
+            root: get_block_root(0),
+        };
+
+        let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            genesis_slot,
+            genesis_slot,
+            junk_state_root,
+            genesis_checkpoint,
+            genesis_checkpoint,
+            junk_shuffling_id.clone(),
+            junk_shuffling_id.clone(),
+            execution_status,
+        )
+        .unwrap();
+
+        struct TestBlock {
+            slot: u64,
+            root: u64,
+            parent_root: u64,
+        }
+
+        let insert_block = |fc: &mut ProtoArrayForkChoice, block: TestBlock| {
+            fc.proto_array
+                .on_block::<MainnetEthSpec>(
+                    Block {
+                        slot: Slot::from(block.slot),
+                        root: get_block_root(block.root),
+                        parent_root: Some(get_block_root(block.parent_root)),
+                        state_root: Hash256::zero(),
+                        target_root: Hash256::zero(),
+                        current_epoch_shuffling_id: junk_shuffling_id.clone(),
+                        next_epoch_shuffling_id: junk_shuffling_id.clone(),
+                        justified_checkpoint: Checkpoint {
+                            epoch: Epoch::new(0),
+                            root: get_block_root(0),
+                        },
+                        finalized_checkpoint: genesis_checkpoint,
+                        execution_status,
+                        unrealized_justified_checkpoint: Some(genesis_checkpoint),
+                        unrealized_finalized_checkpoint: Some(genesis_checkpoint),
+                    },
+                    Slot::from(block.slot),
+                )
+                .unwrap();
+        };
+
+        /*
+         * Start of interesting part of tests.
+         */
+
+        // Produce the 0th epoch of blocks. They should all form a chain from
+        // the genesis block.
+        for i in 1..MainnetEthSpec::slots_per_epoch() {
+            insert_block(
+                &mut fc,
+                TestBlock {
+                    slot: i,
+                    root: i,
+                    parent_root: i - 1,
+                },
+            )
+        }
+
+        let last_slot_of_epoch_0 = MainnetEthSpec::slots_per_epoch() - 1;
+
+        // Produce a block that descends from the last block of epoch -.
+        //
+        // This block will be non-canonical.
+        let non_canonical_slot = last_slot_of_epoch_0 + 1;
+        insert_block(
+            &mut fc,
+            TestBlock {
+                slot: non_canonical_slot,
+                root: non_canonical_slot,
+                parent_root: non_canonical_slot - 1,
+            },
+        );
+
+        // Produce a block that descends from the last block of the 0th epoch,
+        // that skips the 1st slot of the 1st epoch.
+        //
+        // This block will be canonical.
+        let canonical_slot = last_slot_of_epoch_0 + 2;
+        insert_block(
+            &mut fc,
+            TestBlock {
+                slot: canonical_slot,
+                root: canonical_slot,
+                parent_root: non_canonical_slot - 1,
+            },
+        );
+
+        let finalized_root = get_block_root(last_slot_of_epoch_0);
+
+        // Set the finalized checkpoint to finalize the first slot of epoch 1 on
+        // the canonical chain.
+        fc.proto_array.finalized_checkpoint = Checkpoint {
+            root: finalized_root,
+            epoch: Epoch::new(1),
+        };
+
+        assert!(
+            fc.proto_array
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_root),
+            "the finalized checkpoint is the finalized checkpoint"
+        );
+
+        assert!(
+            fc.proto_array
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
+                    canonical_slot
+                )),
+            "the canonical block is a descendant of the finalized checkpoint"
+        );
+        assert!(
+            !fc.proto_array
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
+                    non_canonical_slot
+                )),
+            "although the non-canonical block is a descendant of the finalized block, \
+            it's not a descendant of the finalized checkpoint"
+        );
     }
 
     #[test]

@@ -2,8 +2,10 @@ use super::*;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::cases::common::previous_fork;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
-use serde_derive::Deserialize;
-use state_processing::upgrade::{upgrade_to_altair, upgrade_to_bellatrix};
+use serde::Deserialize;
+use state_processing::upgrade::{
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
+};
 use types::{BeaconState, ForkName};
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -61,6 +63,8 @@ impl<E: EthSpec> Case for ForkTest<E> {
             ForkName::Base => panic!("phase0 not supported"),
             ForkName::Altair => upgrade_to_altair(&mut result_state, spec).map(|_| result_state),
             ForkName::Merge => upgrade_to_bellatrix(&mut result_state, spec).map(|_| result_state),
+            ForkName::Capella => upgrade_to_capella(&mut result_state, spec).map(|_| result_state),
+            ForkName::Deneb => upgrade_to_deneb(&mut result_state, spec).map(|_| result_state),
         };
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)

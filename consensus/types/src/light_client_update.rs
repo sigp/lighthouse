@@ -1,7 +1,7 @@
 use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::{beacon_state, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec};
 use safe_arith::ArithError;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::typenum::{U5, U6};
 use std::sync::Arc;
@@ -52,9 +52,19 @@ impl From<ArithError> for Error {
 /// A LightClientUpdate is the update we request solely to either complete the bootstraping process,
 /// or to sync up to the last committee period, we need to have one ready for each ALTAIR period
 /// we go over, note: there is no need to keep all of the updates from [ALTAIR_PERIOD, CURRENT_PERIOD].
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TestRandom,
+    arbitrary::Arbitrary,
+)]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     pub attested_header: BeaconBlockHeader,

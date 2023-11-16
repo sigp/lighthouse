@@ -1,8 +1,6 @@
-#![recursion_limit = "256"]
-
 //! This crate provides a simluation that creates `n` beacon node and validator clients, each with
 //! `v` validators. A deposit contract is deployed at the start of the simulation using a local
-//! `ganache` instance (you must have `ganache` installed and avaliable on your path). All
+//! `anvil` instance (you must have `anvil` installed and avaliable on your path). All
 //! beacon nodes independently listen for genesis from the deposit contract, then start operating.
 //!
 //! As the simulation runs, there are checks made to ensure that all components are running
@@ -23,6 +21,7 @@ mod cli;
 mod eth1_sim;
 mod local_network;
 mod no_eth1_sim;
+mod retry;
 mod sync_sim;
 
 use cli::cli_app;

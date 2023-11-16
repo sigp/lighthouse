@@ -3,7 +3,7 @@ use crate::test_utils::TestRandom;
 use crate::{AggregateSignature, BitVector, EthSpec, SyncCommitteeContribution};
 use derivative::Derivative;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -20,12 +20,21 @@ impl From<ArithError> for Error {
     }
 }
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    Derivative,
+    arbitrary::Arbitrary,
 )]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct SyncAggregate<T: EthSpec> {
     pub sync_committee_bits: BitVector<T::SyncCommitteeSize>,
     pub sync_committee_signature: AggregateSignature,

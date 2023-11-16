@@ -1,5 +1,3 @@
-#![recursion_limit = "512"]
-
 mod metrics;
 
 use beacon_node::ProductionBeaconNode;
@@ -8,11 +6,12 @@ use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_hashing::have_sha_extensions;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
+use ethereum_hashing::have_sha_extensions;
+use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
-use slog::{crit, info, warn};
+use slog::{crit, info};
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
@@ -39,6 +38,17 @@ fn allocator_name() -> &'static str {
     }
 }
 
+fn build_profile_name() -> String {
+    // Nice hack from https://stackoverflow.com/questions/73595435/how-to-get-profile-from-cargo-toml-in-build-rs-or-at-runtime
+    // The profile name is always the 3rd last part of the path (with 1 based indexing).
+    // e.g. /code/core/target/cli/build/my-build-info-9f91ba6f99d7a061/out
+    std::env!("OUT_DIR")
+        .split(std::path::MAIN_SEPARATOR)
+        .nth_back(3)
+        .unwrap_or_else(|| "unknown")
+        .to_string()
+}
+
 fn main() {
     // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
     if std::env::var("RUST_BACKTRACE").is_err() {
@@ -60,24 +70,16 @@ fn main() {
                  BLS library: {}\n\
                  SHA256 hardware acceleration: {}\n\
                  Allocator: {}\n\
+                 Profile: {}\n\
                  Specs: mainnet (true), minimal ({}), gnosis ({})",
                  VERSION.replace("Lighthouse/", ""),
                  bls_library_name(),
                  have_sha_extensions(),
                  allocator_name(),
+                 build_profile_name(),
                  cfg!(feature = "spec-minimal"),
                  cfg!(feature = "gnosis"),
             ).as_str()
-        )
-        .arg(
-            Arg::with_name("spec")
-                .short("s")
-                .long("spec")
-                .value_name("DEPRECATED")
-                .help("This flag is deprecated, it will be disallowed in a future release. This \
-                    value is now derived from the --network or --testnet-dir flags.")
-                .takes_value(true)
-                .global(true)
         )
         .arg(
             Arg::with_name("env_log")
@@ -154,7 +156,8 @@ fn main() {
                 .help(
                     "If present, log files will be generated as world-readable meaning they can be read by \
                     any user on the machine. Note that logs can often contain sensitive information \
-                    about your validator and so this flag should be used with caution.")
+                    about your validator and so this flag should be used with caution. For Windows users, \
+                    the log file permissions will be inherited from the parent folder.")
                 .global(true),
         )
         .arg(
@@ -312,11 +315,36 @@ fn main() {
                 .takes_value(true)
                 .global(true)
         )
+        .arg(
+            Arg::with_name("genesis-state-url")
+                .long("genesis-state-url")
+                .value_name("URL")
+                .help(
+                    "A URL of a beacon-API compatible server from which to download the genesis state. \
+                    Checkpoint sync server URLs can generally be used with this flag. \
+                    If not supplied, a default URL or the --checkpoint-sync-url may be used. \
+                    If the genesis state is already included in this binary then this value will be ignored.",
+                )
+                .takes_value(true)
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("genesis-state-url-timeout")
+                .long("genesis-state-url-timeout")
+                .value_name("SECONDS")
+                .help(
+                    "The timeout in seconds for the request to --genesis-state-url.",
+                )
+                .takes_value(true)
+                .default_value("180")
+                .global(true),
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
         .subcommand(database_manager::cli_app())
+        .subcommand(validator_manager::cli_app())
         .get_matches();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
@@ -471,6 +499,16 @@ fn run<E: EthSpec>(
         };
     }
 
+    let sse_logging = {
+        if let Some(bn_matches) = matches.subcommand_matches("beacon_node") {
+            bn_matches.is_present("gui")
+        } else if let Some(vc_matches) = matches.subcommand_matches("validator_client") {
+            vc_matches.is_present("http")
+        } else {
+            false
+        }
+    };
+
     let logger_config = LoggerConfig {
         path: log_path,
         debug_level: String::from(debug_level),
@@ -483,13 +521,14 @@ fn run<E: EthSpec>(
         max_log_number: logfile_max_number,
         compression: logfile_compress,
         is_restricted: logfile_restricted,
+        sse_logging,
     };
 
     let builder = environment_builder.initialize_logger(logger_config.clone())?;
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_network_config(Some(eth2_network_config))?
+        .eth2_network_config(eth2_network_config)?
         .build()?;
 
     let log = environment.core_context().log().clone();
@@ -500,16 +539,9 @@ fn run<E: EthSpec>(
     // Allow Prometheus access to the version and commit of the Lighthouse build.
     metrics::expose_lighthouse_version();
 
-    if matches.is_present("spec") {
-        warn!(
-            log,
-            "The --spec flag is deprecated and will be removed in a future release"
-        );
-    }
-
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
-        warn!(
+        slog::warn!(
             log,
             "CPU seems incompatible with optimized Lighthouse build";
             "advice" => "If you get a SIGILL, please try Lighthouse portable build"
@@ -535,10 +567,20 @@ fn run<E: EthSpec>(
         (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 
-    if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
+    if let Some(sub_matches) = matches.subcommand_matches(account_manager::CMD) {
         eprintln!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         account_manager::run(sub_matches, environment)?;
+
+        // Exit as soon as account manager returns control.
+        return Ok(());
+    }
+
+    if let Some(sub_matches) = matches.subcommand_matches(validator_manager::CMD) {
+        eprintln!("Running validator manager for {} network", network_name);
+
+        // Pass the entire `environment` to the account manager so it can run blocking operations.
+        validator_manager::run::<E>(sub_matches, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());
@@ -601,8 +643,8 @@ fn run<E: EthSpec>(
                 executor.clone().spawn(
                     async move {
                         if let Err(e) = ProductionValidatorClient::new(context, config)
+                            .and_then(|mut vc| async move { vc.start_service().await })
                             .await
-                            .and_then(|mut vc| vc.start_service())
                         {
                             crit!(log, "Failed to start validator client"; "reason" => e);
                             // Ignore the error since it always occurs during normal operation when

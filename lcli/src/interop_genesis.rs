@@ -42,7 +42,7 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
         &spec,
     )?;
 
-    eth2_network_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes());
+    eth2_network_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes().into());
     eth2_network_config.force_write_to_file(testnet_dir)?;
 
     Ok(())

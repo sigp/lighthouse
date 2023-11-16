@@ -1,5 +1,5 @@
 use crate::*;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 type ValidatorIndex = usize;
@@ -42,7 +42,6 @@ impl PubkeyCache {
     }
 }
 
-#[cfg(feature = "arbitrary-fuzz")]
 impl arbitrary::Arbitrary<'_> for PubkeyCache {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())

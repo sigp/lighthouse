@@ -1,8 +1,8 @@
 use eth2::types::builder_bid::SignedBuilderBid;
+use eth2::types::FullPayloadContents;
 use eth2::types::{
-    BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload,
-    ForkVersionedResponse, PublicKeyBytes, SignedBeaconBlock, SignedValidatorRegistrationData,
-    Slot,
+    BlindedPayload, EthSpec, ExecutionBlockHash, ForkVersionedResponse, PublicKeyBytes,
+    SignedBlockContents, SignedValidatorRegistrationData, Slot,
 };
 pub use eth2::Error;
 use eth2::{ok_or_error, StatusCode};
@@ -16,6 +16,9 @@ pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;
 
 /// This timeout is in accordance with v0.2.0 of the [builder specs](https://github.com/flashbots/mev-boost/pull/20).
 pub const DEFAULT_GET_HEADER_TIMEOUT_MILLIS: u64 = 1000;
+
+/// Default user agent for HTTP requests.
+pub const DEFAULT_USER_AGENT: &str = lighthouse_version::VERSION;
 
 #[derive(Clone)]
 pub struct Timeouts {
@@ -41,23 +44,23 @@ pub struct BuilderHttpClient {
     client: reqwest::Client,
     server: SensitiveUrl,
     timeouts: Timeouts,
+    user_agent: String,
 }
 
 impl BuilderHttpClient {
-    pub fn new(server: SensitiveUrl) -> Result<Self, Error> {
+    pub fn new(server: SensitiveUrl, user_agent: Option<String>) -> Result<Self, Error> {
+        let user_agent = user_agent.unwrap_or(DEFAULT_USER_AGENT.to_string());
+        let client = reqwest::Client::builder().user_agent(&user_agent).build()?;
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             server,
             timeouts: Timeouts::default(),
+            user_agent,
         })
     }
 
-    pub fn new_with_timeouts(server: SensitiveUrl, timeouts: Timeouts) -> Result<Self, Error> {
-        Ok(Self {
-            client: reqwest::Client::new(),
-            server,
-            timeouts,
-        })
+    pub fn get_user_agent(&self) -> &str {
+        &self.user_agent
     }
 
     async fn get_with_timeout<T: DeserializeOwned, U: IntoUrl>(
@@ -69,7 +72,7 @@ impl BuilderHttpClient {
             .await?
             .json()
             .await
-            .map_err(Error::Reqwest)
+            .map_err(Into::into)
     }
 
     /// Perform a HTTP GET request, returning the `Response` for further processing.
@@ -82,7 +85,7 @@ impl BuilderHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let response = builder.send().await.map_err(Error::Reqwest)?;
+        let response = builder.send().await.map_err(Error::from)?;
         ok_or_error(response).await
     }
 
@@ -111,7 +114,7 @@ impl BuilderHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let response = builder.json(body).send().await.map_err(Error::Reqwest)?;
+        let response = builder.json(body).send().await.map_err(Error::from)?;
         ok_or_error(response).await
     }
 
@@ -137,8 +140,8 @@ impl BuilderHttpClient {
     /// `POST /eth/v1/builder/blinded_blocks`
     pub async fn post_builder_blinded_blocks<E: EthSpec>(
         &self,
-        blinded_block: &SignedBeaconBlock<E, BlindedPayload<E>>,
-    ) -> Result<ForkVersionedResponse<ExecutionPayload<E>>, Error> {
+        blinded_block: &SignedBlockContents<E, BlindedPayload<E>>,
+    ) -> Result<ForkVersionedResponse<FullPayloadContents<E>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -160,12 +163,12 @@ impl BuilderHttpClient {
     }
 
     /// `GET /eth/v1/builder/header`
-    pub async fn get_builder_header<E: EthSpec, Payload: ExecPayload<E>>(
+    pub async fn get_builder_header<E: EthSpec>(
         &self,
         slot: Slot,
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
-    ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E, Payload>>>, Error> {
+    ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()

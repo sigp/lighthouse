@@ -12,7 +12,7 @@ if [ -f "$1" ]; then
       [[ -n "$pid" ]] || continue
 
       echo killing $pid
-      kill $pid
+      kill $pid || true
     done < $1
 fi
 

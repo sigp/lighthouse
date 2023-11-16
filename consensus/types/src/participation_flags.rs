@@ -1,15 +1,15 @@
 use crate::{consts::altair::NUM_FLAG_INDICES, test_utils::TestRandom, Hash256};
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::{PackedEncoding, TreeHash, TreeHashType};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize, Serialize, TestRandom)]
 #[serde(transparent)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[derive(arbitrary::Arbitrary)]
 pub struct ParticipationFlags {
-    #[serde(with = "eth2_serde_utils::quoted_u8")]
+    #[serde(with = "serde_utils::quoted_u8")]
     bits: u8,
 }
 

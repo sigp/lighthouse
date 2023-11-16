@@ -4,9 +4,9 @@ use crate::{
     generic_signature::{GenericSignature, TSignature},
     Error, Hash256, INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN,
 };
-use eth2_serde_utils::hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+use serde_utils::hex::encode as hex_encode;
 use ssz::{Decode, Encode};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -266,7 +266,7 @@ where
 }
 
 /// Hashes the `self.serialize()` bytes.
-#[allow(clippy::derive_hash_xor_eq)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 impl<Pub, AggPub, Sig, AggSig> Hash for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Sig: TSignature<Pub>,

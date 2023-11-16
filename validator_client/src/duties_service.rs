@@ -9,35 +9,81 @@
 mod sync;
 
 use crate::beacon_node_fallback::{BeaconNodeFallback, OfflineOnFailure, RequireSynced};
+use crate::http_metrics::metrics::{get_int_gauge, set_int_gauge, ATTESTATION_DUTY};
 use crate::{
     block_service::BlockServiceNotification,
     http_metrics::metrics,
     validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore},
 };
 use environment::RuntimeContext;
-use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
-use futures::future::join_all;
+use eth2::types::{
+    AttesterData, BeaconCommitteeSubscription, DutiesResponse, ProposerData, StateId, ValidatorId,
+};
+use futures::{stream, StreamExt};
 use parking_lot::RwLock;
-use safe_arith::ArithError;
+use safe_arith::{ArithError, SafeArith};
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use std::collections::{HashMap, HashSet};
+use std::cmp::min;
+use std::collections::{hash_map, BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use sync::poll_sync_committee_duties;
 use sync::SyncDutiesMap;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
 
+/// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.
+const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
+
+/// Compute attestation selection proofs this many slots before they are required.
+///
+/// At start-up selection proofs will be computed with less lookahead out of necessity.
+const SELECTION_PROOF_SLOT_LOOKAHEAD: u64 = 8;
+
+/// Fraction of a slot at which selection proof signing should happen (2 means half way).
+const SELECTION_PROOF_SCHEDULE_DENOM: u32 = 2;
+
+/// Minimum number of validators for which we auto-enable per-validator metrics.
+/// For validators greater than this value, we need to manually set the `enable-per-validator-metrics`
+/// flag in the cli to enable collection of per validator metrics.
+const VALIDATOR_METRICS_MIN_COUNT: usize = 64;
+
+/// The number of validators to request duty information for in the initial request.
+/// The initial request is used to determine if further requests are required, so that it
+/// reduces the amount of data that needs to be transferred.
+const INITIAL_DUTIES_QUERY_SIZE: usize = 1;
+
+/// Offsets from the attestation duty slot at which a subscription should be sent.
+const ATTESTATION_SUBSCRIPTION_OFFSETS: [u64; 8] = [3, 4, 5, 6, 7, 8, 16, 32];
+
+/// Check that `ATTESTATION_SUBSCRIPTION_OFFSETS` is sorted ascendingly.
+const _: () = assert!({
+    let mut i = 0;
+    loop {
+        let prev = if i > 0 {
+            ATTESTATION_SUBSCRIPTION_OFFSETS[i - 1]
+        } else {
+            0
+        };
+        let curr = ATTESTATION_SUBSCRIPTION_OFFSETS[i];
+        if curr < prev {
+            break false;
+        }
+        i += 1;
+        if i == ATTESTATION_SUBSCRIPTION_OFFSETS.len() {
+            break true;
+        }
+    }
+});
 /// Since the BN does not like it when we subscribe to slots that are close to the current time, we
-/// will only subscribe to slots which are further than `SUBSCRIPTION_BUFFER_SLOTS` away.
+/// will only subscribe to slots which are further than 2 slots away.
 ///
 /// This number is based upon `MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD` value in the
 /// `beacon_node::network::attestation_service` crate. It is not imported directly to avoid
 /// bringing in the entire crate.
-const SUBSCRIPTION_BUFFER_SLOTS: u64 = 2;
-
-/// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.
-const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
+const _: () = assert!(ATTESTATION_SUBSCRIPTION_OFFSETS[0] > 2);
 
 #[derive(Debug)]
 pub enum Error {
@@ -61,11 +107,21 @@ pub struct DutyAndProof {
     pub duty: AttesterData,
     /// This value is only set to `Some` if the proof indicates that the validator is an aggregator.
     pub selection_proof: Option<SelectionProof>,
+    /// Track which slots we should send subscriptions at for this duty.
+    ///
+    /// This value is updated after each subscription is successfully sent.
+    pub subscription_slots: Arc<SubscriptionSlots>,
+}
+
+/// Tracker containing the slots at which an attestation subscription should be sent.
+pub struct SubscriptionSlots {
+    /// Pairs of `(slot, already_sent)` in slot-descending order.
+    slots: Vec<(Slot, AtomicBool)>,
 }
 
 impl DutyAndProof {
     /// Instantiate `Self`, computing the selection proof as well.
-    pub async fn new<T: SlotClock + 'static, E: EthSpec>(
+    pub async fn new_with_selection_proof<T: SlotClock + 'static, E: EthSpec>(
         duty: AttesterData,
         validator_store: &ValidatorStore<T, E>,
         spec: &ChainSpec,
@@ -88,10 +144,56 @@ impl DutyAndProof {
                 }
             })?;
 
+        let subscription_slots = SubscriptionSlots::new(duty.slot);
+
         Ok(Self {
             duty,
             selection_proof,
+            subscription_slots,
         })
+    }
+
+    /// Create a new `DutyAndProof` with the selection proof waiting to be filled in.
+    pub fn new_without_selection_proof(duty: AttesterData) -> Self {
+        let subscription_slots = SubscriptionSlots::new(duty.slot);
+        Self {
+            duty,
+            selection_proof: None,
+            subscription_slots,
+        }
+    }
+}
+
+impl SubscriptionSlots {
+    fn new(duty_slot: Slot) -> Arc<Self> {
+        let slots = ATTESTATION_SUBSCRIPTION_OFFSETS
+            .into_iter()
+            .filter_map(|offset| duty_slot.safe_sub(offset).ok())
+            .map(|scheduled_slot| (scheduled_slot, AtomicBool::new(false)))
+            .collect();
+        Arc::new(Self { slots })
+    }
+
+    /// Return `true` if we should send a subscription at `slot`.
+    fn should_send_subscription_at(&self, slot: Slot) -> bool {
+        // Iterate slots from smallest to largest looking for one that hasn't been completed yet.
+        self.slots
+            .iter()
+            .rev()
+            .any(|(scheduled_slot, already_sent)| {
+                slot >= *scheduled_slot && !already_sent.load(Ordering::Relaxed)
+            })
+    }
+
+    /// Update our record of subscribed slots to account for successful subscription at `slot`.
+    fn record_successful_subscription_at(&self, slot: Slot) {
+        for (scheduled_slot, already_sent) in self.slots.iter().rev() {
+            if slot >= *scheduled_slot {
+                already_sent.store(true, Ordering::Relaxed);
+            } else {
+                break;
+            }
+        }
     }
 }
 
@@ -116,11 +218,7 @@ pub struct DutiesService<T, E: EthSpec> {
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.
     pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    /// Controls whether or not this function will refuse to interact with non-synced beacon nodes.
-    ///
-    /// This functionality is a little redundant since most BNs will likely reject duties when they
-    /// aren't synced, but we keep it around for an emergency.
-    pub require_synced: RequireSynced,
+    pub enable_high_validator_count_metrics: bool,
     pub context: RuntimeContext<E>,
     pub spec: ChainSpec,
 }
@@ -219,6 +317,12 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             })
             .cloned()
             .collect()
+    }
+
+    /// Returns `true` if we should collect per validator metrics and `false` otherwise.
+    pub fn per_validator_metrics(&self) -> bool {
+        self.enable_high_validator_count_metrics
+            || self.total_validator_count() <= VALIDATOR_METRICS_MIN_COUNT
     }
 }
 
@@ -383,7 +487,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
             let download_result = duties_service
                 .beacon_nodes
                 .first_success(
-                    duties_service.require_synced,
+                    RequireSynced::No,
                     OfflineOnFailure::Yes,
                     |beacon_node| async move {
                         let _timer = metrics::start_timer_vec(
@@ -458,7 +562,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
 /// 3. Push out any attestation subnet subscriptions to the BN.
 /// 4. Prune old entries from `duties_service.attesters`.
 async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &DutiesService<T, E>,
+    duties_service: &Arc<DutiesService<T, E>>,
 ) -> Result<(), Error> {
     let current_epoch_timer = metrics::start_timer_vec(
         &metrics::DUTIES_SERVICE_TIMES,
@@ -513,6 +617,8 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         )
     }
 
+    update_per_validator_duty_metrics::<T, E>(duties_service, current_epoch, current_slot);
+
     drop(current_epoch_timer);
     let next_epoch_timer = metrics::start_timer_vec(
         &metrics::DUTIES_SERVICE_TIMES,
@@ -533,12 +639,30 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         )
     }
 
+    update_per_validator_duty_metrics::<T, E>(duties_service, next_epoch, current_slot);
+
     drop(next_epoch_timer);
     let subscriptions_timer =
         metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::SUBSCRIPTIONS]);
 
-    // This vector is likely to be a little oversized, but it won't reallocate.
-    let mut subscriptions = Vec::with_capacity(local_pubkeys.len() * 2);
+    // This vector is intentionally oversized by 10% so that it won't reallocate.
+    // Each validator has 2 attestation duties occuring in the current and next epoch, for which
+    // they must send `ATTESTATION_SUBSCRIPTION_OFFSETS.len()` subscriptions. These subscription
+    // slots are approximately evenly distributed over the two epochs, usually with a slight lag
+    // that balances out (some subscriptions for the current epoch were sent in the previous, and
+    // some subscriptions for the next next epoch will be sent in the next epoch but aren't included
+    // in our calculation). We cancel the factor of 2 from the formula for simplicity.
+    let overallocation_numerator = 110;
+    let overallocation_denominator = 100;
+    let num_expected_subscriptions = overallocation_numerator
+        * std::cmp::max(
+            1,
+            local_pubkeys.len() * ATTESTATION_SUBSCRIPTION_OFFSETS.len()
+                / E::slots_per_epoch() as usize,
+        )
+        / overallocation_denominator;
+    let mut subscriptions = Vec::with_capacity(num_expected_subscriptions);
+    let mut subscription_slots_to_confirm = Vec::with_capacity(num_expected_subscriptions);
 
     // For this epoch and the next epoch, produce any beacon committee subscriptions.
     //
@@ -551,10 +675,10 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             .read()
             .iter()
             .filter_map(|(_, map)| map.get(epoch))
-            // The BN logs a warning if we try and subscribe to current or near-by slots. Give it a
-            // buffer.
             .filter(|(_, duty_and_proof)| {
-                current_slot + SUBSCRIPTION_BUFFER_SLOTS < duty_and_proof.duty.slot
+                duty_and_proof
+                    .subscription_slots
+                    .should_send_subscription_at(current_slot)
             })
             .for_each(|(_, duty_and_proof)| {
                 let duty = &duty_and_proof.duty;
@@ -566,7 +690,8 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
                     committees_at_slot: duty.committees_at_slot,
                     slot: duty.slot,
                     is_aggregator,
-                })
+                });
+                subscription_slots_to_confirm.push(duty_and_proof.subscription_slots.clone());
             });
     }
 
@@ -576,7 +701,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         if let Err(e) = duties_service
             .beacon_nodes
             .run(
-                duties_service.require_synced,
+                RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
                     let _timer = metrics::start_timer_vec(
@@ -595,6 +720,16 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
                 "Failed to subscribe validators";
                 "error" => %e
             )
+        } else {
+            // Record that subscriptions were successfully sent.
+            debug!(
+                log,
+                "Broadcast attestation subscriptions";
+                "count" => subscriptions.len(),
+            );
+            for subscription_slots in subscription_slots_to_confirm {
+                subscription_slots.record_successful_subscription_at(current_slot);
+            }
         }
     }
 
@@ -615,7 +750,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
 /// For the given `local_indices` and `local_pubkeys`, download the duties for the given `epoch` and
 /// store them in `duties_service.attesters`.
 async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &DutiesService<T, E>,
+    duties_service: &Arc<DutiesService<T, E>>,
     epoch: Epoch,
     local_indices: &[u64],
     local_pubkeys: &HashSet<PublicKeyBytes>,
@@ -637,54 +772,68 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         &[metrics::UPDATE_ATTESTERS_FETCH],
     );
 
-    let response = duties_service
-        .beacon_nodes
-        .first_success(
-            duties_service.require_synced,
-            OfflineOnFailure::Yes,
-            |beacon_node| async move {
-                let _timer = metrics::start_timer_vec(
-                    &metrics::DUTIES_SERVICE_TIMES,
-                    &[metrics::ATTESTER_DUTIES_HTTP_POST],
-                );
-                beacon_node
-                    .post_validator_duties_attester(epoch, local_indices)
-                    .await
-            },
-        )
-        .await
-        .map_err(|e| Error::FailedToDownloadAttesters(e.to_string()))?;
+    // Request duties for all uninitialized validators. If there isn't any, we will just request for
+    // `INITIAL_DUTIES_QUERY_SIZE` validators. We use the `dependent_root` in the response to
+    // determine whether validator duties need to be updated. This is to ensure that we don't
+    // request for extra data unless necessary in order to save on network bandwidth.
+    let uninitialized_validators =
+        get_uninitialized_validators(duties_service, &epoch, local_pubkeys);
+    let indices_to_request = if !uninitialized_validators.is_empty() {
+        uninitialized_validators.as_slice()
+    } else {
+        &local_indices[0..min(INITIAL_DUTIES_QUERY_SIZE, local_indices.len())]
+    };
+
+    let response =
+        post_validator_duties_attester(duties_service, epoch, indices_to_request).await?;
+    let dependent_root = response.dependent_root;
+
+    // Find any validators which have conflicting (epoch, dependent_root) values or missing duties for the epoch.
+    let validators_to_update: Vec<_> = {
+        // Avoid holding the read-lock for any longer than required.
+        let attesters = duties_service.attesters.read();
+        local_pubkeys
+            .iter()
+            .filter(|pubkey| {
+                attesters.get(pubkey).map_or(true, |duties| {
+                    duties
+                        .get(&epoch)
+                        .map_or(true, |(prior, _)| *prior != dependent_root)
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+
+    if validators_to_update.is_empty() {
+        // No validators have conflicting (epoch, dependent_root) values or missing duties for the epoch.
+        return Ok(());
+    }
+
+    // Filter out validators which have already been requested.
+    let initial_duties = &response.data;
+    let indices_to_request = validators_to_update
+        .iter()
+        .filter(|&&&pubkey| !initial_duties.iter().any(|duty| duty.pubkey == pubkey))
+        .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
+        .collect::<Vec<_>>();
+
+    let new_duties = if !indices_to_request.is_empty() {
+        post_validator_duties_attester(duties_service, epoch, indices_to_request.as_slice())
+            .await?
+            .data
+            .into_iter()
+            .chain(response.data)
+            .collect::<Vec<_>>()
+    } else {
+        response.data
+    };
 
     drop(fetch_timer);
+
     let _store_timer = metrics::start_timer_vec(
         &metrics::DUTIES_SERVICE_TIMES,
         &[metrics::UPDATE_ATTESTERS_STORE],
     );
-
-    let dependent_root = response.dependent_root;
-
-    // Filter any duties that are not relevant or already known.
-    let new_duties = {
-        // Avoid holding the read-lock for any longer than required.
-        let attesters = duties_service.attesters.read();
-        response
-            .data
-            .into_iter()
-            .filter(|duty| {
-                local_pubkeys.contains(&duty.pubkey) && {
-                    // Only update the duties if either is true:
-                    //
-                    // - There were no known duties for this epoch.
-                    // - The dependent root has changed, signalling a re-org.
-                    attesters.get(&duty.pubkey).map_or(true, |duties| {
-                        duties
-                            .get(&epoch)
-                            .map_or(true, |(prior, _)| *prior != dependent_root)
-                    })
-                }
-            })
-            .collect::<Vec<_>>()
-    };
 
     debug!(
         log,
@@ -693,31 +842,16 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         "num_new_duties" => new_duties.len(),
     );
 
-    // Produce the `DutyAndProof` messages in parallel.
-    let duty_and_proof_results = join_all(new_duties.into_iter().map(|duty| {
-        DutyAndProof::new(duty, &duties_service.validator_store, &duties_service.spec)
-    }))
-    .await;
-
     // Update the duties service with the new `DutyAndProof` messages.
     let mut attesters = duties_service.attesters.write();
     let mut already_warned = Some(());
-    for result in duty_and_proof_results {
-        let duty_and_proof = match result {
-            Ok(duty_and_proof) => duty_and_proof,
-            Err(e) => {
-                error!(
-                    log,
-                    "Failed to produce duty and proof";
-                    "error" => ?e,
-                    "msg" => "may impair attestation duties"
-                );
-                // Do not abort the entire batch for a single failure.
-                continue;
-            }
-        };
+    for duty in &new_duties {
+        let attester_map = attesters.entry(duty.pubkey).or_default();
 
-        let attester_map = attesters.entry(duty_and_proof.duty.pubkey).or_default();
+        // Create initial entries in the map without selection proofs. We'll compute them in the
+        // background later to avoid creating a thundering herd of signing threads whenever new
+        // duties are computed.
+        let duty_and_proof = DutyAndProof::new_without_selection_proof(duty.clone());
 
         if let Some((prior_dependent_root, _)) =
             attester_map.insert(epoch, (dependent_root, duty_and_proof))
@@ -736,7 +870,239 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     }
     drop(attesters);
 
+    // Spawn the background task to compute selection proofs.
+    let subservice = duties_service.clone();
+    duties_service.context.executor.spawn(
+        async move {
+            fill_in_selection_proofs(subservice, new_duties, dependent_root).await;
+        },
+        "duties_service_selection_proofs_background",
+    );
+
     Ok(())
+}
+
+/// Get a filtered list of local validators for which we don't already know their duties for that epoch
+fn get_uninitialized_validators<T: SlotClock + 'static, E: EthSpec>(
+    duties_service: &Arc<DutiesService<T, E>>,
+    epoch: &Epoch,
+    local_pubkeys: &HashSet<PublicKeyBytes>,
+) -> Vec<u64> {
+    let attesters = duties_service.attesters.read();
+    local_pubkeys
+        .iter()
+        .filter(|pubkey| {
+            attesters
+                .get(pubkey)
+                .map_or(true, |duties| !duties.contains_key(epoch))
+        })
+        .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
+        .collect::<Vec<_>>()
+}
+
+fn update_per_validator_duty_metrics<T: SlotClock + 'static, E: EthSpec>(
+    duties_service: &Arc<DutiesService<T, E>>,
+    epoch: Epoch,
+    current_slot: Slot,
+) {
+    if duties_service.per_validator_metrics() {
+        let attesters = duties_service.attesters.read();
+        attesters.values().for_each(|attester_duties_by_epoch| {
+            if let Some((_, duty_and_proof)) = attester_duties_by_epoch.get(&epoch) {
+                let duty = &duty_and_proof.duty;
+                let validator_index = duty.validator_index;
+                let duty_slot = duty.slot;
+                if let Some(existing_slot_gauge) =
+                    get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
+                {
+                    let existing_slot = Slot::new(existing_slot_gauge.get() as u64);
+                    let existing_epoch = existing_slot.epoch(E::slots_per_epoch());
+
+                    // First condition ensures that we switch to the next epoch duty slot
+                    // once the current epoch duty slot passes.
+                    // Second condition is to ensure that next epoch duties don't override
+                    // current epoch duties.
+                    if existing_slot < current_slot
+                        || (duty_slot.epoch(E::slots_per_epoch()) <= existing_epoch
+                            && duty_slot > current_slot
+                            && duty_slot != existing_slot)
+                    {
+                        existing_slot_gauge.set(duty_slot.as_u64() as i64);
+                    }
+                } else {
+                    set_int_gauge(
+                        &ATTESTATION_DUTY,
+                        &[&validator_index.to_string()],
+                        duty_slot.as_u64() as i64,
+                    );
+                }
+            }
+        });
+    }
+}
+
+async fn post_validator_duties_attester<T: SlotClock + 'static, E: EthSpec>(
+    duties_service: &Arc<DutiesService<T, E>>,
+    epoch: Epoch,
+    validator_indices: &[u64],
+) -> Result<DutiesResponse<Vec<AttesterData>>, Error> {
+    duties_service
+        .beacon_nodes
+        .first_success(
+            RequireSynced::No,
+            OfflineOnFailure::Yes,
+            |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::DUTIES_SERVICE_TIMES,
+                    &[metrics::ATTESTER_DUTIES_HTTP_POST],
+                );
+                beacon_node
+                    .post_validator_duties_attester(epoch, validator_indices)
+                    .await
+            },
+        )
+        .await
+        .map_err(|e| Error::FailedToDownloadAttesters(e.to_string()))
+}
+
+/// Compute the attestation selection proofs for the `duties` and add them to the `attesters` map.
+///
+/// Duties are computed in batches each slot. If a re-org is detected then the process will
+/// terminate early as it is assumed the selection proofs from `duties` are no longer relevant.
+async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
+    duties_service: Arc<DutiesService<T, E>>,
+    duties: Vec<AttesterData>,
+    dependent_root: Hash256,
+) {
+    let log = duties_service.context.log();
+
+    // Sort duties by slot in a BTreeMap.
+    let mut duties_by_slot: BTreeMap<Slot, Vec<_>> = BTreeMap::new();
+
+    for duty in duties {
+        duties_by_slot.entry(duty.slot).or_default().push(duty);
+    }
+
+    // At halfway through each slot when nothing else is likely to be getting signed, sign a batch
+    // of selection proofs and insert them into the duties service `attesters` map.
+    let slot_clock = &duties_service.slot_clock;
+    let slot_offset = duties_service.slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM;
+
+    while !duties_by_slot.is_empty() {
+        if let Some(duration) = slot_clock.duration_to_next_slot() {
+            sleep(duration.saturating_sub(slot_offset)).await;
+
+            let Some(current_slot) = slot_clock.now() else {
+                continue;
+            };
+
+            let lookahead_slot = current_slot + SELECTION_PROOF_SLOT_LOOKAHEAD;
+
+            let mut relevant_duties = duties_by_slot.split_off(&lookahead_slot);
+            std::mem::swap(&mut relevant_duties, &mut duties_by_slot);
+
+            let batch_size = relevant_duties.values().map(Vec::len).sum::<usize>();
+
+            if batch_size == 0 {
+                continue;
+            }
+
+            let timer = metrics::start_timer_vec(
+                &metrics::DUTIES_SERVICE_TIMES,
+                &[metrics::ATTESTATION_SELECTION_PROOFS],
+            );
+
+            // Sign selection proofs (serially).
+            let duty_and_proof_results = stream::iter(relevant_duties.into_values().flatten())
+                .then(|duty| async {
+                    DutyAndProof::new_with_selection_proof(
+                        duty,
+                        &duties_service.validator_store,
+                        &duties_service.spec,
+                    )
+                    .await
+                })
+                .collect::<Vec<_>>()
+                .await;
+
+            // Add to attesters store.
+            let mut attesters = duties_service.attesters.write();
+            for result in duty_and_proof_results {
+                let duty_and_proof = match result {
+                    Ok(duty_and_proof) => duty_and_proof,
+                    Err(Error::FailedToProduceSelectionProof(
+                        ValidatorStoreError::UnknownPubkey(pubkey),
+                    )) => {
+                        // A pubkey can be missing when a validator was recently
+                        // removed via the API.
+                        warn!(
+                            log,
+                            "Missing pubkey for duty and proof";
+                            "info" => "a validator may have recently been removed from this VC",
+                            "pubkey" => ?pubkey,
+                        );
+                        // Do not abort the entire batch for a single failure.
+                        continue;
+                    }
+                    Err(e) => {
+                        error!(
+                            log,
+                            "Failed to produce duty and proof";
+                            "error" => ?e,
+                            "msg" => "may impair attestation duties"
+                        );
+                        // Do not abort the entire batch for a single failure.
+                        continue;
+                    }
+                };
+
+                let attester_map = attesters.entry(duty_and_proof.duty.pubkey).or_default();
+                let epoch = duty_and_proof.duty.slot.epoch(E::slots_per_epoch());
+                match attester_map.entry(epoch) {
+                    hash_map::Entry::Occupied(mut entry) => {
+                        // No need to update duties for which no proof was computed.
+                        let Some(selection_proof) = duty_and_proof.selection_proof else {
+                            continue;
+                        };
+
+                        let (existing_dependent_root, existing_duty) = entry.get_mut();
+
+                        if *existing_dependent_root == dependent_root {
+                            // Replace existing proof.
+                            existing_duty.selection_proof = Some(selection_proof);
+                        } else {
+                            // Our selection proofs are no longer relevant due to a reorg, abandon
+                            // this entire background process.
+                            debug!(
+                                log,
+                                "Stopping selection proof background task";
+                                "reason" => "re-org"
+                            );
+                            return;
+                        }
+                    }
+                    hash_map::Entry::Vacant(entry) => {
+                        entry.insert((dependent_root, duty_and_proof));
+                    }
+                }
+            }
+            drop(attesters);
+
+            let time_taken_ms =
+                Duration::from_secs_f64(timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
+            debug!(
+                log,
+                "Computed attestation selection proofs";
+                "batch_size" => batch_size,
+                "lookahead_slot" => lookahead_slot,
+                "time_taken_ms" => time_taken_ms
+            );
+        } else {
+            // Just sleep for one slot if we are unable to read the system clock, this gives
+            // us an opportunity for the clock to eventually come good.
+            sleep(duties_service.slot_clock.slot_duration()).await;
+        }
+    }
 }
 
 /// Download the proposer duties for the current epoch and store them in `duties_service.proposers`.
@@ -753,7 +1119,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
 /// 2. We won't miss a block if the duties for the current slot happen to change with this poll.
 ///
 /// This sounds great, but is it safe? Firstly, the additional notification will only contain block
-/// producers that were not included in the first notification. This should be safety enough.
+/// producers that were not included in the first notification. This should be safe enough.
 /// However, we also have the slashing protection as a second line of defence. These two factors
 /// provide an acceptable level of safety.
 ///
@@ -804,7 +1170,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
         let download_result = duties_service
             .beacon_nodes
             .first_success(
-                duties_service.require_synced,
+                RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
                     let _timer = metrics::start_timer_vec(
@@ -930,5 +1296,69 @@ async fn notify_block_production_service<T: SlotClock + 'static, E: EthSpec>(
                 "error" => %e
             );
         };
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn subscription_slots_exact() {
+        for duty_slot in [
+            Slot::new(32),
+            Slot::new(47),
+            Slot::new(99),
+            Slot::new(1002003),
+        ] {
+            let subscription_slots = SubscriptionSlots::new(duty_slot);
+
+            // Run twice to check idempotence (subscription slots shouldn't be marked as done until
+            // we mark them manually).
+            for _ in 0..2 {
+                for offset in ATTESTATION_SUBSCRIPTION_OFFSETS {
+                    assert!(subscription_slots.should_send_subscription_at(duty_slot - offset));
+                }
+            }
+
+            // Mark each slot as complete and check that all prior slots are still marked
+            // incomplete.
+            for (i, offset) in ATTESTATION_SUBSCRIPTION_OFFSETS
+                .into_iter()
+                .rev()
+                .enumerate()
+            {
+                subscription_slots.record_successful_subscription_at(duty_slot - offset);
+                for lower_offset in ATTESTATION_SUBSCRIPTION_OFFSETS
+                    .into_iter()
+                    .rev()
+                    .skip(i + 1)
+                {
+                    assert!(lower_offset < offset);
+                    assert!(
+                        subscription_slots.should_send_subscription_at(duty_slot - lower_offset)
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn subscription_slots_mark_multiple() {
+        for (i, offset) in ATTESTATION_SUBSCRIPTION_OFFSETS.into_iter().enumerate() {
+            let duty_slot = Slot::new(64);
+            let subscription_slots = SubscriptionSlots::new(duty_slot);
+
+            subscription_slots.record_successful_subscription_at(duty_slot - offset);
+
+            // All past offsets (earlier slots) should be marked as complete.
+            for (j, other_offset) in ATTESTATION_SUBSCRIPTION_OFFSETS.into_iter().enumerate() {
+                let past = j >= i;
+                assert_eq!(other_offset >= offset, past);
+                assert_eq!(
+                    subscription_slots.should_send_subscription_at(duty_slot - other_offset),
+                    !past
+                );
+            }
+        }
     }
 }

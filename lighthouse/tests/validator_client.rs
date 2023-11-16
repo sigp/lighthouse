@@ -102,14 +102,6 @@ fn beacon_nodes_flag() {
 }
 
 #[test]
-fn allow_unsynced_flag() {
-    CommandLineTest::new()
-        .flag("allow-unsynced", None)
-        .run()
-        .with_config(|config| assert!(config.allow_unsynced_beacon_node));
-}
-
-#[test]
 fn disable_auto_discover_flag() {
     CommandLineTest::new()
         .flag("disable-auto-discover", None)
@@ -262,6 +254,7 @@ fn http_flag() {
 fn http_address_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("127.0.0.99"))
         .flag("unencrypted-http-transport", None)
         .run()
@@ -271,6 +264,7 @@ fn http_address_flag() {
 fn http_address_ipv6_flag() {
     let addr = "::1".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("::1"))
         .flag("unencrypted-http-transport", None)
         .run()
@@ -281,6 +275,7 @@ fn http_address_ipv6_flag() {
 fn missing_unencrypted_http_transport_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("127.0.0.99"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
@@ -288,6 +283,7 @@ fn missing_unencrypted_http_transport_flag() {
 #[test]
 fn http_port_flag() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-port", Some("9090"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, 9090));
@@ -295,6 +291,7 @@ fn http_port_flag() {
 #[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-allow-origin", Some("http://localhost:9009"))
         .run()
         .with_config(|config| {
@@ -307,9 +304,40 @@ fn http_allow_origin_flag() {
 #[test]
 fn http_allow_origin_all_flag() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-allow-origin", Some("*"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
+}
+#[test]
+fn http_allow_keystore_export_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run()
+        .with_config(|config| assert!(!config.http_api.allow_keystore_export));
+}
+#[test]
+fn http_allow_keystore_export_present() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("http-allow-keystore-export", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.allow_keystore_export));
+}
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run()
+        .with_config(|config| assert!(!config.http_api.store_passwords_in_secrets_dir));
+}
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_present() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("http-store-passwords-in-secrets-dir", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.store_passwords_in_secrets_dir));
 }
 
 // Tests for Metrics flags.
@@ -324,6 +352,7 @@ fn metrics_flag() {
 fn metrics_address_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-address", Some("127.0.0.99"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
@@ -332,6 +361,7 @@ fn metrics_address_flag() {
 fn metrics_address_ipv6_flag() {
     let addr = "::1".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-address", Some("::1"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
@@ -339,6 +369,7 @@ fn metrics_address_ipv6_flag() {
 #[test]
 fn metrics_port_flag() {
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-port", Some("9090"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, 9090));
@@ -346,6 +377,7 @@ fn metrics_port_flag() {
 #[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-allow-origin", Some("http://localhost:9009"))
         .run()
         .with_config(|config| {
@@ -358,6 +390,7 @@ fn metrics_allow_origin_flag() {
 #[test]
 fn metrics_allow_origin_all_flag() {
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-allow-origin", Some("*"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.allow_origin, Some("*".to_string())));
@@ -475,4 +508,50 @@ fn disable_run_on_all() {
         .with_config(|config| {
             assert!(config.disable_run_on_all);
         });
+}
+
+#[test]
+fn latency_measurement_service() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_latency_measurement_service);
+    });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.enable_latency_measurement_service);
+        });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", Some("true"))
+        .run()
+        .with_config(|config| {
+            assert!(config.enable_latency_measurement_service);
+        });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", Some("false"))
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_latency_measurement_service);
+        });
+}
+
+#[test]
+fn validator_registration_batch_size() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.validator_registration_batch_size, 500);
+    });
+    CommandLineTest::new()
+        .flag("validator-registration-batch-size", Some("100"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.validator_registration_batch_size, 100);
+        });
+}
+
+#[test]
+#[should_panic]
+fn validator_registration_batch_size_zero_value() {
+    CommandLineTest::new()
+        .flag("validator-registration-batch-size", Some("0"))
+        .run();
 }

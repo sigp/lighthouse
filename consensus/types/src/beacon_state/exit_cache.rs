@@ -1,6 +1,6 @@
 use super::{BeaconStateError, ChainSpec, Epoch, Validator};
 use safe_arith::SafeArith;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Map from exit epoch to the number of validators with that exit epoch.
@@ -61,7 +61,6 @@ impl ExitCache {
     }
 }
 
-#[cfg(feature = "arbitrary-fuzz")]
 impl arbitrary::Arbitrary<'_> for ExitCache {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())

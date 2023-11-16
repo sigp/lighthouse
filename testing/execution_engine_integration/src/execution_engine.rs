@@ -4,7 +4,7 @@ use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
 use std::process::Child;
 use tempfile::TempDir;
-use unused_port::unused_tcp_port;
+use unused_port::unused_tcp4_port;
 
 pub const KEYSTORE_PASSWORD: &str = "testpwd";
 pub const ACCOUNT1: &str = "7b8C3a386C0eea54693fFB0DA17373ffC9228139";
@@ -50,8 +50,8 @@ impl<E: GenericExecutionEngine> ExecutionEngine<E> {
     pub fn new(engine: E) -> Self {
         let datadir = E::init_datadir();
         let jwt_secret_path = datadir.path().join(DEFAULT_JWT_FILE);
-        let http_port = unused_tcp_port().unwrap();
-        let http_auth_port = unused_tcp_port().unwrap();
+        let http_port = unused_tcp4_port().unwrap();
+        let http_auth_port = unused_tcp4_port().unwrap();
         let child = E::start_client(&datadir, http_port, http_auth_port, jwt_secret_path);
         let provider = Provider::<Http>::try_from(format!("http://localhost:{}", http_port))
             .expect("failed to instantiate ethers provider");

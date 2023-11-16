@@ -1,5 +1,5 @@
 use crate::Hash256;
-use eth2_hashing::hash_fixed;
+use ethereum_hashing::hash_fixed;
 use std::mem;
 
 const SEED_SIZE: usize = 32;

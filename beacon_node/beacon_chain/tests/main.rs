@@ -1,6 +1,8 @@
 mod attestation_production;
 mod attestation_verification;
 mod block_verification;
+mod capella;
+mod events;
 mod merge;
 mod op_verification;
 mod payload_invalidation;
@@ -8,3 +10,4 @@ mod rewards;
 mod store_tests;
 mod sync_committee_verification;
 mod tests;
+mod validator_monitor;

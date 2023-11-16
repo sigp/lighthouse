@@ -20,6 +20,8 @@ pub struct GossipCache {
     topic_msgs: HashMap<GossipTopic, HashMap<Vec<u8>, Key>>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
+    /// Timeout for blobs.
+    blob_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
     aggregates: Option<Duration>,
     /// Timeout for attestations.
@@ -34,6 +36,8 @@ pub struct GossipCache {
     signed_contribution_and_proof: Option<Duration>,
     /// Timeout for sync committee messages.
     sync_committee_message: Option<Duration>,
+    /// Timeout for signed BLS to execution changes.
+    bls_to_execution_change: Option<Duration>,
     /// Timeout for light client finality updates.
     light_client_finality_update: Option<Duration>,
     /// Timeout for light client optimistic updates.
@@ -45,6 +49,8 @@ pub struct GossipCacheBuilder {
     default_timeout: Option<Duration>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
+    /// Timeout for blob sidecars.
+    blob_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
     aggregates: Option<Duration>,
     /// Timeout for attestations.
@@ -59,6 +65,8 @@ pub struct GossipCacheBuilder {
     signed_contribution_and_proof: Option<Duration>,
     /// Timeout for sync committee messages.
     sync_committee_message: Option<Duration>,
+    /// Timeout for signed BLS to execution changes.
+    bls_to_execution_change: Option<Duration>,
     /// Timeout for light client finality updates.
     light_client_finality_update: Option<Duration>,
     /// Timeout for light client optimistic updates.
@@ -121,6 +129,12 @@ impl GossipCacheBuilder {
         self
     }
 
+    /// Timeout for BLS to execution change messages.
+    pub fn bls_to_execution_change_timeout(mut self, timeout: Duration) -> Self {
+        self.bls_to_execution_change = Some(timeout);
+        self
+    }
+
     /// Timeout for light client finality update messages.
     pub fn light_client_finality_update_timeout(mut self, timeout: Duration) -> Self {
         self.light_client_finality_update = Some(timeout);
@@ -137,6 +151,7 @@ impl GossipCacheBuilder {
         let GossipCacheBuilder {
             default_timeout,
             beacon_block,
+            blob_sidecar,
             aggregates,
             attestation,
             voluntary_exit,
@@ -144,6 +159,7 @@ impl GossipCacheBuilder {
             attester_slashing,
             signed_contribution_and_proof,
             sync_committee_message,
+            bls_to_execution_change,
             light_client_finality_update,
             light_client_optimistic_update,
         } = self;
@@ -151,6 +167,7 @@ impl GossipCacheBuilder {
             expirations: DelayQueue::default(),
             topic_msgs: HashMap::default(),
             beacon_block: beacon_block.or(default_timeout),
+            blob_sidecar: blob_sidecar.or(default_timeout),
             aggregates: aggregates.or(default_timeout),
             attestation: attestation.or(default_timeout),
             voluntary_exit: voluntary_exit.or(default_timeout),
@@ -158,6 +175,7 @@ impl GossipCacheBuilder {
             attester_slashing: attester_slashing.or(default_timeout),
             signed_contribution_and_proof: signed_contribution_and_proof.or(default_timeout),
             sync_committee_message: sync_committee_message.or(default_timeout),
+            bls_to_execution_change: bls_to_execution_change.or(default_timeout),
             light_client_finality_update: light_client_finality_update.or(default_timeout),
             light_client_optimistic_update: light_client_optimistic_update.or(default_timeout),
         }
@@ -175,6 +193,7 @@ impl GossipCache {
     pub fn insert(&mut self, topic: GossipTopic, data: Vec<u8>) {
         let expire_timeout = match topic.kind() {
             GossipKind::BeaconBlock => self.beacon_block,
+            GossipKind::BlobSidecar(_) => self.blob_sidecar,
             GossipKind::BeaconAggregateAndProof => self.aggregates,
             GossipKind::Attestation(_) => self.attestation,
             GossipKind::VoluntaryExit => self.voluntary_exit,
@@ -182,12 +201,12 @@ impl GossipCache {
             GossipKind::AttesterSlashing => self.attester_slashing,
             GossipKind::SignedContributionAndProof => self.signed_contribution_and_proof,
             GossipKind::SyncCommitteeMessage(_) => self.sync_committee_message,
+            GossipKind::BlsToExecutionChange => self.bls_to_execution_change,
             GossipKind::LightClientFinalityUpdate => self.light_client_finality_update,
             GossipKind::LightClientOptimisticUpdate => self.light_client_optimistic_update,
         };
-        let expire_timeout = match expire_timeout {
-            Some(expire_timeout) => expire_timeout,
-            None => return,
+        let Some(expire_timeout) = expire_timeout else {
+            return;
         };
         match self
             .topic_msgs

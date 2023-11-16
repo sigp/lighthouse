@@ -14,7 +14,7 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
+use types::{ChainSpec, Epoch, EthSpec, VoluntaryExit};
 
 pub const CMD: &str = "exit";
 pub const KEYSTORE_FLAG: &str = "keystore";
@@ -27,7 +27,6 @@ pub const PASSWORD_PROMPT: &str = "Enter the keystore password";
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
 pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-exit.html";
-pub const PROMPT: &str = "WARNING: WITHDRAWING STAKED ETH IS NOT CURRENTLY POSSIBLE";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("exit")
@@ -124,10 +123,8 @@ async fn publish_voluntary_exit<E: EthSpec>(
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = eth2_network_config
-        .beacon_state::<E>()
-        .as_ref()
-        .expect("network should have valid genesis state")
-        .genesis_validators_root();
+        .genesis_validators_root::<E>()?
+        .ok_or("Genesis state is unknown")?;
 
     // Verify that the beacon node and validator being exited are on the same network.
     if genesis_data.genesis_validators_root != testnet_genesis_root {
@@ -149,7 +146,6 @@ async fn publish_voluntary_exit<E: EthSpec>(
         .ok_or("Failed to get current epoch. Please check your system time")?;
     let validator_index = get_validator_index_for_exit(client, &keypair.pk, epoch, spec).await?;
 
-    let fork = get_beacon_state_fork(client).await?;
     let voluntary_exit = VoluntaryExit {
         epoch,
         validator_index,
@@ -161,7 +157,6 @@ async fn publish_voluntary_exit<E: EthSpec>(
     );
     if !no_confirmation {
         eprintln!("WARNING: THIS IS AN IRREVERSIBLE OPERATION\n");
-        eprintln!("{}\n", PROMPT);
         eprintln!(
             "PLEASE VISIT {} TO MAKE SURE YOU UNDERSTAND THE IMPLICATIONS OF A VOLUNTARY EXIT.",
             WEBSITE_URL
@@ -177,12 +172,8 @@ async fn publish_voluntary_exit<E: EthSpec>(
 
     if confirmation == CONFIRMATION_PHRASE {
         // Sign and publish the voluntary exit to network
-        let signed_voluntary_exit = voluntary_exit.sign(
-            &keypair.sk,
-            &fork,
-            genesis_data.genesis_validators_root,
-            spec,
-        );
+        let signed_voluntary_exit =
+            voluntary_exit.sign(&keypair.sk, genesis_data.genesis_validators_root, spec);
         client
             .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
             .await
@@ -318,16 +309,6 @@ async fn is_syncing(client: &BeaconNodeHttpClient) -> Result<bool, String> {
         .map_err(|e| format!("Failed to get sync status: {:?}", e))?
         .data
         .is_syncing)
-}
-
-/// Get fork object for the current state by querying the beacon node client.
-async fn get_beacon_state_fork(client: &BeaconNodeHttpClient) -> Result<Fork, String> {
-    Ok(client
-        .get_beacon_states_fork(StateId::Head)
-        .await
-        .map_err(|e| format!("Failed to get get fork: {:?}", e))?
-        .ok_or("Failed to get fork, state not found")?
-        .data)
 }
 
 /// Calculates the current epoch from the genesis time and current time.

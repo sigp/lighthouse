@@ -16,6 +16,7 @@ use std::path::Path;
 
 pub use reqwest;
 pub use reqwest::{Response, StatusCode, Url};
+use types::graffiti::GraffitiString;
 
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Validator Client HTTP server (`validator_client/src/http_api`).
@@ -57,7 +58,7 @@ pub fn parse_pubkey(secret: &str) -> Result<Option<PublicKey>, Error> {
         &secret[SECRET_PREFIX.len()..]
     };
 
-    eth2_serde_utils::hex::decode(secret)
+    serde_utils::hex::decode(secret)
         .map_err(|e| Error::InvalidSecret(format!("invalid hex: {:?}", e)))
         .and_then(|bytes| {
             if bytes.len() != PK_LEN {
@@ -169,12 +170,12 @@ impl ValidatorClientHttpClient {
             .map_err(|_| Error::InvalidSignatureHeader)?
             .to_string();
 
-        let body = response.bytes().await.map_err(Error::Reqwest)?;
+        let body = response.bytes().await.map_err(Error::from)?;
 
         let message =
             Message::parse_slice(digest(&SHA256, &body).as_ref()).expect("sha256 is 32 bytes");
 
-        eth2_serde_utils::hex::decode(&sig)
+        serde_utils::hex::decode(&sig)
             .ok()
             .and_then(|bytes| {
                 let sig = Signature::parse_der(&bytes).ok()?;
@@ -221,7 +222,7 @@ impl ValidatorClientHttpClient {
             .headers(self.headers()?)
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::from)?;
         ok_or_error(response).await
     }
 
@@ -235,7 +236,7 @@ impl ValidatorClientHttpClient {
             .await?
             .json()
             .await
-            .map_err(Error::Reqwest)
+            .map_err(Error::from)
     }
 
     /// Perform a HTTP GET request, returning `None` on a 404 error.
@@ -265,7 +266,7 @@ impl ValidatorClientHttpClient {
             .json(body)
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::from)?;
         ok_or_error(response).await
     }
 
@@ -296,7 +297,7 @@ impl ValidatorClientHttpClient {
             .json(body)
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::from)?;
         let response = ok_or_error(response).await?;
         self.signed_body(response).await?;
         Ok(())
@@ -315,7 +316,7 @@ impl ValidatorClientHttpClient {
             .json(body)
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::from)?;
         ok_or_error(response).await
     }
 
@@ -467,6 +468,7 @@ impl ValidatorClientHttpClient {
         enabled: Option<bool>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        graffiti: Option<GraffitiString>,
     ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
@@ -482,9 +484,25 @@ impl ValidatorClientHttpClient {
                 enabled,
                 gas_limit,
                 builder_proposals,
+                graffiti,
             },
         )
         .await
+    }
+
+    /// `DELETE eth/v1/keystores`
+    pub async fn delete_lighthouse_keystores(
+        &self,
+        req: &DeleteKeystoresRequest,
+    ) -> Result<ExportKeystoresResponse, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("keystores");
+
+        self.delete_with_unsigned_response(path, req).await
     }
 
     fn make_keystores_url(&self) -> Result<Url, Error> {
@@ -641,6 +659,30 @@ impl ValidatorClientHttpClient {
     pub async fn delete_gas_limit(&self, pubkey: &PublicKeyBytes) -> Result<Response, Error> {
         let url = self.make_gas_limit_url(pubkey)?;
         self.delete_with_raw_response(url, &()).await
+    }
+
+    /// `POST /eth/v1/validator/{pubkey}/voluntary_exit`
+    pub async fn post_validator_voluntary_exit(
+        &self,
+        pubkey: &PublicKeyBytes,
+        epoch: Option<Epoch>,
+    ) -> Result<GenericResponse<SignedVoluntaryExit>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push(&pubkey.to_string())
+            .push("voluntary_exit");
+
+        if let Some(epoch) = epoch {
+            path.query_pairs_mut()
+                .append_pair("epoch", &epoch.to_string());
+        }
+
+        self.post(path, &()).await
     }
 }
 

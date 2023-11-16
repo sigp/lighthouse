@@ -1,7 +1,10 @@
 use super::signature_sets::Error as SignatureSetError;
+use crate::per_epoch_processing::altair::participation_cache;
 use crate::ContextError;
 use merkle_proof::MerkleTreeError;
+use participation_cache::Error as ParticipationCacheError;
 use safe_arith::ArithError;
+use ssz::DecodeError;
 use types::*;
 
 /// The error returned from the `per_block_processing` function. Indicates that a block is either
@@ -48,12 +51,17 @@ pub enum BlockProcessingError {
         index: usize,
         reason: ExitInvalid,
     },
+    BlsExecutionChangeInvalid {
+        index: usize,
+        reason: BlsExecutionChangeInvalid,
+    },
     SyncAggregateInvalid {
         reason: SyncAggregateInvalid,
     },
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    SszDecodeError(DecodeError),
     MerkleTreeError(MerkleTreeError),
     ArithError(ArithError),
     InconsistentBlockFork(InconsistentFork),
@@ -70,8 +78,18 @@ pub enum BlockProcessingError {
         expected: u64,
         found: u64,
     },
+    ExecutionInvalidBlobsLen {
+        max: usize,
+        actual: usize,
+    },
     ExecutionInvalid,
     ConsensusContext(ContextError),
+    WithdrawalsRootMismatch {
+        expected: Hash256,
+        found: Hash256,
+    },
+    WithdrawalCredentialsInvalid,
+    ParticipationCacheError(ParticipationCacheError),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -89,6 +107,12 @@ impl From<SignatureSetError> for BlockProcessingError {
 impl From<ssz_types::Error> for BlockProcessingError {
     fn from(error: ssz_types::Error) -> Self {
         BlockProcessingError::SszTypesError(error)
+    }
+}
+
+impl From<DecodeError> for BlockProcessingError {
+    fn from(error: DecodeError) -> Self {
+        BlockProcessingError::SszDecodeError(error)
     }
 }
 
@@ -120,6 +144,12 @@ impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
             BlockOperationError::ConsensusContext(e) => BlockProcessingError::ConsensusContext(e),
             BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
         }
+    }
+}
+
+impl From<ParticipationCacheError> for BlockProcessingError {
+    fn from(e: ParticipationCacheError) -> Self {
+        BlockProcessingError::ParticipationCacheError(e)
     }
 }
 
@@ -160,7 +190,8 @@ impl_into_block_processing_error_with_index!(
     IndexedAttestationInvalid,
     AttestationInvalid,
     DepositInvalid,
-    ExitInvalid
+    ExitInvalid,
+    BlsExecutionChangeInvalid
 );
 
 pub type HeaderValidationError = BlockOperationError<HeaderInvalid>;
@@ -170,6 +201,7 @@ pub type AttestationValidationError = BlockOperationError<AttestationInvalid>;
 pub type SyncCommitteeMessageValidationError = BlockOperationError<SyncAggregateInvalid>;
 pub type DepositValidationError = BlockOperationError<DepositInvalid>;
 pub type ExitValidationError = BlockOperationError<ExitInvalid>;
+pub type BlsExecutionChangeValidationError = BlockOperationError<BlsExecutionChangeInvalid>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BlockOperationError<T> {
@@ -274,7 +306,7 @@ pub enum AttesterSlashingInvalid {
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq, Clone)]
 pub enum AttestationInvalid {
-    /// Commmittee index exceeds number of committees in that slot.
+    /// Committee index exceeds number of committees in that slot.
     BadCommitteeIndex,
     /// Attestation included before the inclusion delay.
     IncludedTooEarly {
@@ -383,6 +415,18 @@ pub enum ExitInvalid {
     /// There was an error whilst attempting to get a set of signatures. The signatures may have
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum BlsExecutionChangeInvalid {
+    /// The specified validator is not in the state's validator registry.
+    ValidatorUnknown(u64),
+    /// Validator does not have BLS Withdrawal credentials before this change.
+    NonBlsWithdrawalCredentials,
+    /// Provided BLS pubkey does not match withdrawal credentials.
+    WithdrawalCredentialsMismatch,
+    /// The signature is invalid.
+    BadSignature,
 }
 
 #[derive(Debug, PartialEq, Clone)]

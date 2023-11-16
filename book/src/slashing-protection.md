@@ -21,8 +21,8 @@ and carefully to keep your validators safe. See the [Troubleshooting](#troublesh
 
 The database will be automatically created, and your validators registered with it when:
 
-* Importing keys from another source (e.g. Launchpad, Teku, Prysm, `ethdo`).
-  See [the docs on importing keys](./validator-import-launchpad.md).
+* Importing keys from another source (e.g. [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/releases), Lodestar, Nimbus, Prysm, Teku, [ethdo](https://github.com/wealdtech/ethdo)).
+  See [import validator keys](./mainnet-validator.md#step-3-import-validator-keys-to-lighthouse).
 * Creating keys using Lighthouse itself (`lighthouse account validator create`)
 * Creating keys via the [validator client API](./api-vc.md).
 
@@ -45,7 +45,7 @@ Examples of circumstances where the slashing protection database is effective ar
   your client to be imported into Lighthouse's slashing protection database. See
   [Import and Export](#import-and-export).
 * Misplacing `slashing_protection.sqlite` during a datadir change or migration between machines.
-  By default Lighthouse will refuse to start if it finds validator keys that are not registered
+  By default, Lighthouse will refuse to start if it finds validator keys that are not registered
   in the slashing protection database.
 
 Examples where it is **ineffective** are:
@@ -54,7 +54,7 @@ Examples where it is **ineffective** are:
   clients (e.g. Lighthouse and Prysm) running on the same machine, two Lighthouse instances using
   different datadirs, or two clients on completely different machines (e.g. one on a cloud server
   and one running locally). You are responsible for ensuring that your validator keys are never
-  running simultaneously – the slashing protection DB **cannot protect you in this case**.
+  running simultaneously – the slashing protection database **cannot protect you in this case**.
 * Importing keys from another client without also importing voting history.
 * If you use `--init-slashing-protection` to recreate a missing slashing protection database.
 
@@ -64,19 +64,22 @@ Lighthouse supports the slashing protection interchange format described in [EIP
 interchange file is a record of blocks and attestations signed by a set of validator keys –
 basically a portable slashing protection database!
 
-With your validator client stopped, you can import a `.json` interchange file from another client
+To import a slashing protection database to Lighthouse, you first need to export your existing client's database. Instructions to export the slashing protection database for other clients are listed below:
+- [Lodestar](https://chainsafe.github.io/lodestar/reference/cli/#validator-slashing-protection-export)
+- [Nimbus](https://nimbus.guide/migration.html#2-export-slashing-protection-history)
+- [Prysm](https://docs.prylabs.network/docs/wallet/slashing-protection#exporting-your-validators-slashing-protection-history)
+- [Teku](https://docs.teku.consensys.net/HowTo/Prevent-Slashing#export-a-slashing-protection-file)
+
+
+Once you have the slashing protection database from your existing client, you can now import the database to Lighthouse. With your validator client stopped, you can import a `.json` interchange file from another client
 using this command:
 
 ```bash
 lighthouse account validator slashing-protection import <my_interchange.json>
 ```
 
-Instructions for exporting your existing client's database are out of scope for this document,
-please check the other client's documentation for instructions.
-
 When importing an interchange file, you still need to import the validator keystores themselves
-separately, using the instructions for [importing keystores into
-Lighthouse](./validator-import-launchpad.md).
+separately, using the instructions for [import validator keys](./mainnet-validator.md#step-3-import-validator-keys-to-lighthouse).
 
 ---
 
@@ -93,7 +96,7 @@ up to date.
 
 ### How Import Works
 
-Since version 1.6.0 Lighthouse will ignore any slashable data in the import data and will safely
+Since version 1.6.0, Lighthouse will ignore any slashable data in the import data and will safely
 update the low watermarks for blocks and attestations. It will store only the maximum-slot block
 for each validator, and the maximum source/target attestation. This is faster than importing
 all data while also being more resilient to repeated imports & stale data.
@@ -121,7 +124,7 @@ Oct 12 14:41:26.415 CRIT Failed to start validator client        reason: Failed 
 Ensure that `slashing_protection.sqlite` is in "/home/karlm/.lighthouse/mainnet/validators" folder
 ```
 
-Usually this indicates that during some manual intervention the slashing database has been
+Usually this indicates that during some manual intervention, the slashing database has been
 misplaced. This error can also occur if you have upgraded from Lighthouse v0.2.x to v0.3.x without
 moving the slashing protection database. If you have imported your keys into a new node, you should
 never see this error (see [Initialization](#initialization)).
@@ -137,7 +140,7 @@ the Lighthouse validator client with the `--init-slashing-protection` flag. This
 dangerous and should not be used lightly, and we **strongly recommend** you try finding
 your old slashing protection database before using it. If you do decide to use it, you should
 wait at least 1 epoch (~7 minutes) from when your validator client was last actively signing
-messages. If you suspect your node experienced a clock drift issue you should wait
+messages. If you suspect your node experienced a clock drift issue, you should wait
 longer. Remember that the inactivity penalty for being offline for even a day or so
 is approximately equal to the rewards earned in a day. You will get slashed if you use
 `--init-slashing-protection` incorrectly.

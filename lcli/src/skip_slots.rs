@@ -49,6 +49,7 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{types::StateId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
+use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
 use state_processing::state_advance::{complete_state_advance, partial_state_advance};
 use std::fs::File;
@@ -59,8 +60,12 @@ use types::{BeaconState, CloneConfig, EthSpec, Hash256};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
-    let spec = &T::default_spec();
+pub fn run<T: EthSpec>(
+    env: Environment<T>,
+    network_config: Eth2NetworkConfig,
+    matches: &ArgMatches,
+) -> Result<(), String> {
+    let spec = &network_config.chain_spec::<T>()?;
     let executor = env.core_context().executor;
 
     let output_path: Option<PathBuf> = parse_optional(matches, "output-path")?;
@@ -104,12 +109,13 @@ pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), 
         }
         _ => return Err("must supply either --state-path or --beacon-url".into()),
     };
+    let mut post_state = None;
 
     let initial_slot = state.slot();
     let target_slot = initial_slot + slots;
 
     state
-        .build_all_caches(spec)
+        .build_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
 
     let state_root = if let Some(root) = cli_state_root.or(state_root) {
@@ -135,14 +141,15 @@ pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), 
 
         let duration = Instant::now().duration_since(start);
         info!("Run {}: {:?}", i, duration);
+        post_state = Some(state);
     }
 
-    if let Some(output_path) = output_path {
+    if let (Some(post_state), Some(output_path)) = (post_state, output_path) {
         let mut output_file = File::create(output_path)
             .map_err(|e| format!("Unable to create output file: {:?}", e))?;
 
         output_file
-            .write_all(&state.as_ssz_bytes())
+            .write_all(&post_state.as_ssz_bytes())
             .map_err(|e| format!("Unable to write to output file: {:?}", e))?;
     }
 

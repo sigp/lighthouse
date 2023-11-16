@@ -1,6 +1,6 @@
 use derivative::Derivative;
 use safe_arith::ArithError;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -23,12 +23,21 @@ pub enum Error {
 /// Details an attestation that can be slashable.
 ///
 /// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
+    arbitrary::Arbitrary,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    Derivative,
 )]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct Attestation<T: EthSpec> {
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,

@@ -1,6 +1,7 @@
 use crate::metrics;
 use beacon_chain::{
-    merge_readiness::{MergeConfig, MergeReadiness},
+    capella_readiness::CapellaReadiness,
+    merge_readiness::{GenesisExecutionPayloadStatus, MergeConfig, MergeReadiness},
     BeaconChain, BeaconChainTypes, ExecutionStatus,
 };
 use lighthouse_network::{types::SyncState, NetworkGlobals};
@@ -61,6 +62,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "wait_time" => estimated_time_pretty(Some(next_slot.as_secs() as f64)),
                     );
                     eth1_logging(&beacon_chain, &log);
+                    merge_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
+                    capella_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
+                    genesis_execution_payload_logging(&beacon_chain, &log).await;
                     sleep(slot_duration).await;
                 }
                 _ => break,
@@ -141,7 +145,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             .get_anchor_info()
                             .map(|ai| ai.oldest_block_slot)
                         {
-                            sync_distance = current_anchor_slot;
+                            sync_distance = current_anchor_slot
+                                .saturating_sub(beacon_chain.genesis_backfill_slot);
                             speedo
                                 // For backfill sync use a fake slot which is the distance we've progressed from the starting `oldest_block_slot`.
                                 .observe(
@@ -206,14 +211,14 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "Downloading historical blocks";
                         "distance" => distance,
                         "speed" => sync_speed_pretty(speed),
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot))),
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot).saturating_sub(beacon_chain.genesis_backfill_slot))),
                     );
                 } else {
                     info!(
                         log,
                         "Downloading historical blocks";
                         "distance" => distance,
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot))),
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot).saturating_sub(beacon_chain.genesis_backfill_slot))),
                     );
                 }
             } else if !is_backfilling && last_backfill_log_slot.is_some() {
@@ -313,6 +318,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             eth1_logging(&beacon_chain, &log);
             merge_readiness_logging(current_slot, &beacon_chain, &log).await;
+            capella_readiness_logging(current_slot, &beacon_chain, &log).await;
         }
     };
 
@@ -350,16 +356,19 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
     }
 
     if merge_completed && !has_execution_layer {
-        error!(
-            log,
-            "Execution endpoint required";
-            "info" => "you need an execution engine to validate blocks, see: \
-                       https://lighthouse-book.sigmaprime.io/merge-migration.html"
-        );
+        if !beacon_chain.is_time_to_prepare_for_capella(current_slot) {
+            // logging of the EE being offline is handled in `capella_readiness_logging()`
+            error!(
+                log,
+                "Execution endpoint required";
+                "info" => "you need an execution engine to validate blocks, see: \
+                           https://lighthouse-book.sigmaprime.io/merge-migration.html"
+            );
+        }
         return;
     }
 
-    match beacon_chain.check_merge_readiness().await {
+    match beacon_chain.check_merge_readiness(current_slot).await {
         MergeReadiness::Ready {
             config,
             current_difficulty,
@@ -398,14 +407,6 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
                 "config" => ?other
             ),
         },
-        readiness @ MergeReadiness::ExchangeTransitionConfigurationFailed { error: _ } => {
-            error!(
-                log,
-                "Not ready for merge";
-                "info" => %readiness,
-                "hint" => "try updating Lighthouse and/or the execution layer",
-            )
-        }
         readiness @ MergeReadiness::NotSynced => warn!(
             log,
             "Not ready for merge";
@@ -416,6 +417,138 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
             "Not ready for merge";
             "info" => %readiness,
         ),
+    }
+}
+
+/// Provides some helpful logging to users to indicate if their node is ready for Capella
+async fn capella_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+    log: &Logger,
+) {
+    let capella_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_block
+        .message()
+        .body()
+        .execution_payload()
+        .map_or(false, |payload| payload.withdrawals_root().is_ok());
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if capella_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_capella(current_slot)
+    {
+        return;
+    }
+
+    if capella_completed && !has_execution_layer {
+        error!(
+            log,
+            "Execution endpoint required";
+            "info" => "you need a Capella enabled execution engine to validate blocks, see: \
+                       https://lighthouse-book.sigmaprime.io/merge-migration.html"
+        );
+        return;
+    }
+
+    match beacon_chain.check_capella_readiness().await {
+        CapellaReadiness::Ready => {
+            info!(
+                log,
+                "Ready for Capella";
+                "info" => "ensure the execution endpoint is updated to the latest Capella/Shanghai release"
+            )
+        }
+        readiness @ CapellaReadiness::ExchangeCapabilitiesFailed { error: _ } => {
+            error!(
+                log,
+                "Not ready for Capella";
+                "hint" => "the execution endpoint may be offline",
+                "info" => %readiness,
+            )
+        }
+        readiness => warn!(
+            log,
+            "Not ready for Capella";
+            "hint" => "try updating the execution endpoint",
+            "info" => %readiness,
+        ),
+    }
+}
+
+async fn genesis_execution_payload_logging<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+    log: &Logger,
+) {
+    match beacon_chain
+        .check_genesis_execution_payload_is_correct()
+        .await
+    {
+        Ok(GenesisExecutionPayloadStatus::Correct(block_hash)) => {
+            info!(
+                log,
+                "Execution enabled from genesis";
+                "genesis_payload_block_hash" => ?block_hash,
+            );
+        }
+        Ok(GenesisExecutionPayloadStatus::BlockHashMismatch { got, expected }) => {
+            error!(
+                log,
+                "Genesis payload block hash mismatch";
+                "info" => "genesis is misconfigured and likely to fail",
+                "consensus_node_block_hash" => ?expected,
+                "execution_node_block_hash" => ?got,
+            );
+        }
+        Ok(GenesisExecutionPayloadStatus::TransactionsRootMismatch { got, expected }) => {
+            error!(
+                log,
+                "Genesis payload transactions root mismatch";
+                "info" => "genesis is misconfigured and likely to fail",
+                "consensus_node_transactions_root" => ?expected,
+                "execution_node_transactions_root" => ?got,
+            );
+        }
+        Ok(GenesisExecutionPayloadStatus::WithdrawalsRootMismatch { got, expected }) => {
+            error!(
+                log,
+                "Genesis payload withdrawals root mismatch";
+                "info" => "genesis is misconfigured and likely to fail",
+                "consensus_node_withdrawals_root" => ?expected,
+                "execution_node_withdrawals_root" => ?got,
+            );
+        }
+        Ok(GenesisExecutionPayloadStatus::OtherMismatch) => {
+            error!(
+                log,
+                "Genesis payload header mismatch";
+                "info" => "genesis is misconfigured and likely to fail",
+                "detail" => "see debug logs for payload headers"
+            );
+        }
+        Ok(GenesisExecutionPayloadStatus::Irrelevant) => {
+            info!(
+                log,
+                "Execution is not enabled from genesis";
+            );
+        }
+        Ok(GenesisExecutionPayloadStatus::AlreadyHappened) => {
+            warn!(
+                log,
+                "Unable to check genesis which has already occurred";
+                "info" => "this is probably a race condition or a bug"
+            );
+        }
+        Err(e) => {
+            error!(
+                log,
+                "Unable to check genesis execution payload";
+                "error" => ?e
+            );
+        }
     }
 }
 

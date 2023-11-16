@@ -3,16 +3,26 @@ use super::{
     Slot, SyncAggregate,
 };
 use crate::{light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
 /// A LightClientFinalityUpdate is the update lightclient request or received by a gossip that
 /// signal a new finalized beacon block header for the light client sync protocol.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TestRandom,
+    arbitrary::Arbitrary,
+)]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientFinalityUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     pub attested_header: BeaconBlockHeader,

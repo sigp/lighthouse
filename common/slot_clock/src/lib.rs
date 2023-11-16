@@ -7,8 +7,8 @@ mod system_time_slot_clock;
 
 use std::time::Duration;
 
-pub use crate::manual_slot_clock::ManualSlotClock;
 pub use crate::manual_slot_clock::ManualSlotClock as TestingSlotClock;
+pub use crate::manual_slot_clock::ManualSlotClock;
 pub use crate::system_time_slot_clock::SystemTimeSlotClock;
 pub use metrics::scrape_for_metrics;
 use types::consts::merge::INTERVALS_PER_SLOT;
@@ -104,12 +104,23 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
         self.slot_duration() * 2 / INTERVALS_PER_SLOT as u32
     }
 
-    /// Returns the `Duration` since the start of the current `Slot`. Useful in determining whether to apply proposer boosts.
-    fn seconds_from_current_slot_start(&self, seconds_per_slot: u64) -> Option<Duration> {
+    /// Returns the `Duration` since the start of the current `Slot` at seconds precision. Useful in determining whether to apply proposer boosts.
+    fn seconds_from_current_slot_start(&self) -> Option<Duration> {
         self.now_duration()
             .and_then(|now| now.checked_sub(self.genesis_duration()))
             .map(|duration_into_slot| {
-                Duration::from_secs(duration_into_slot.as_secs() % seconds_per_slot)
+                Duration::from_secs(duration_into_slot.as_secs() % self.slot_duration().as_secs())
+            })
+    }
+
+    /// Returns the `Duration` since the start of the current `Slot` at milliseconds precision.
+    fn millis_from_current_slot_start(&self) -> Option<Duration> {
+        self.now_duration()
+            .and_then(|now| now.checked_sub(self.genesis_duration()))
+            .map(|duration_into_slot| {
+                Duration::from_millis(
+                    (duration_into_slot.as_millis() % self.slot_duration().as_millis()) as u64,
+                )
             })
     }
 
@@ -125,5 +136,14 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
         );
         slot_clock.set_current_time(freeze_at);
         slot_clock
+    }
+
+    /// Returns the delay between the start of the slot and when a request for block components
+    /// missed over gossip in the current slot should be made via RPC.
+    ///
+    /// Currently set equal to 1/2 of the `unagg_attestation_production_delay`, but this may be
+    /// changed in the future.
+    fn single_lookup_delay(&self) -> Duration {
+        self.unagg_attestation_production_delay() / 2
     }
 }

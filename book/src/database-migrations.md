@@ -26,9 +26,17 @@ validator client or the slasher**.
 | v3.1.0             | Sep 2022     | v12            | yes                  |
 | v3.2.0             | Oct 2022     | v12            | yes                  |
 | v3.3.0             | Nov 2022     | v13            | yes                  |
+| v3.4.0             | Jan 2023     | v13            | yes                  |
+| v3.5.0             | Feb 2023     | v15            | yes before Capella   |
+| v4.0.1             | Mar 2023     | v16            | yes before Capella   |
+| v4.2.0             | May 2023     | v17            | yes                  |
 
 > **Note**: All point releases (e.g. v2.3.1) are schema-compatible with the prior minor release
 > (e.g. v2.3.0).
+
+> **Note**: Support for old schemas is gradually removed from newer versions of Lighthouse. We
+usually do this after a major version has been out for a while and everyone has upgraded. In this
+case the above table will continue to record the deprecated schema changes for reference.
 
 ## How to apply a database downgrade
 
@@ -75,23 +83,36 @@ on downgrades above.
 To check the schema version of a running Lighthouse instance you can use the HTTP API:
 
 ```bash
-curl "http://localhost:5052/lighthouse/database/info"
+curl "http://localhost:5052/lighthouse/database/info" | jq
 ```
 
 ```json
 {
-  "schema_version": 8,
+  "schema_version": 16,
   "config": {
     "slots_per_restore_point": 8192,
-    "slots_per_restore_point_set_explicitly": true,
+    "slots_per_restore_point_set_explicitly": false,
     "block_cache_size": 5,
+    "historic_state_cache_size": 1,
     "compact_on_init": false,
-    "compact_on_prune": true
+    "compact_on_prune": true,
+    "prune_payloads": true
+  },
+  "split": {
+    "slot": "5485952",
+    "state_root": "0xcfe5d41e6ab5a9dab0de00d89d97ae55ecaeed3b08e4acda836e69b2bef698b4"
+  },
+  "anchor": {
+    "anchor_slot": "5414688",
+    "oldest_block_slot": "0",
+    "oldest_block_parent": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "state_upper_limit": "5414912",
+    "state_lower_limit": "8192"
   }
 }
 ```
 
-The `schema_version` key indicates that this database is using schema version 8.
+The `schema_version` key indicates that this database is using schema version 16.
 
 Alternatively, you can check the schema version with the `lighthouse db` command.
 
@@ -110,7 +131,7 @@ Several conditions need to be met in order to run `lighthouse db`:
 2. The command must run as the user that owns the beacon node database. If you are using systemd then
    your beacon node might run as a user called `lighthousebeacon`.
 3. The `--datadir` flag must be set to the location of the Lighthouse data directory.
-4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `prater` or `ropsten`.
+4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `goerli` or `sepolia`.
 
 The general form for a `lighthouse db` command is:
 
@@ -137,3 +158,38 @@ lighthouse db version --network mainnet
 ```
 
 [run-correctly]: #how-to-run-lighthouse-db-correctly
+
+## How to prune historic states
+
+Pruning historic states helps in managing the disk space used by the Lighthouse beacon node by removing old beacon 
+states from the freezer database. This can be especially useful when the database has accumulated a significant amount 
+of historic data. This command is intended for nodes synced before 4.4.1, as newly synced node no longer store 
+historic states by default.
+
+Here are the steps to prune historic states:
+
+1. Before running the prune command, make sure that the Lighthouse beacon node is not running. If you are using systemd, you might stop the Lighthouse beacon node with a command like:
+    
+   ```bash
+    sudo systemctl stop lighthousebeacon
+    ```
+
+2. Use the `prune-states` command to prune the historic states. You can do a test run without the `--confirm` flag to check that the database can be pruned:
+    
+   ```bash
+    sudo -u "$LH_USER" lighthouse db prune-states --datadir "$LH_DATADIR" --network "$NET"
+    ```
+
+3. If you are ready to prune the states irreversibly, add the `--confirm` flag to commit the changes:
+    
+   ```bash
+    sudo -u "$LH_USER" lighthouse db prune-states --confirm --datadir "$LH_DATADIR" --network "$NET"
+    ```
+
+   The `--confirm` flag ensures that you are aware the action is irreversible, and historic states will be permanently removed.
+
+4. After successfully pruning the historic states, you can restart the Lighthouse beacon node:
+   
+   ```bash
+    sudo systemctl start lighthousebeacon
+    ```

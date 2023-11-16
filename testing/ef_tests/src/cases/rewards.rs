@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result_detailed;
 use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use compare_fields_derive::CompareFields;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -118,7 +118,7 @@ impl<E: EthSpec> Case for RewardsTest<E> {
                 let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
                 validator_statuses.process_attestations(&state)?;
 
-                let deltas = base::rewards_and_penalties::get_attestation_deltas(
+                let deltas = base::rewards_and_penalties::get_attestation_deltas_all(
                     &state,
                     &validator_statuses,
                     spec,

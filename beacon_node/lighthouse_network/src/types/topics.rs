@@ -1,7 +1,8 @@
 use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
-use types::{SubnetId, SyncSubnetId};
+use types::consts::deneb::BLOB_SIDECAR_SUBNET_COUNT;
+use types::{EthSpec, ForkName, SubnetId, SyncSubnetId};
 
 use crate::Subnet;
 
@@ -13,27 +14,66 @@ pub const SSZ_SNAPPY_ENCODING_POSTFIX: &str = "ssz_snappy";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
+pub const BLOB_SIDECAR_PREFIX: &str = "blob_sidecar_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 pub const SIGNED_CONTRIBUTION_AND_PROOF_TOPIC: &str = "sync_committee_contribution_and_proof";
 pub const SYNC_COMMITTEE_PREFIX_TOPIC: &str = "sync_committee_";
+pub const BLS_TO_EXECUTION_CHANGE_TOPIC: &str = "bls_to_execution_change";
 pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 
-pub const CORE_TOPICS: [GossipKind; 6] = [
+pub const BASE_CORE_TOPICS: [GossipKind; 5] = [
     GossipKind::BeaconBlock,
     GossipKind::BeaconAggregateAndProof,
     GossipKind::VoluntaryExit,
     GossipKind::ProposerSlashing,
     GossipKind::AttesterSlashing,
-    GossipKind::SignedContributionAndProof,
 ];
+
+pub const ALTAIR_CORE_TOPICS: [GossipKind; 1] = [GossipKind::SignedContributionAndProof];
+
+pub const CAPELLA_CORE_TOPICS: [GossipKind; 1] = [GossipKind::BlsToExecutionChange];
 
 pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
     GossipKind::LightClientFinalityUpdate,
     GossipKind::LightClientOptimisticUpdate,
 ];
+
+pub const DENEB_CORE_TOPICS: [GossipKind; 0] = [];
+
+/// Returns the core topics associated with each fork that are new to the previous fork
+pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName) -> Vec<GossipKind> {
+    match fork_name {
+        ForkName::Base => BASE_CORE_TOPICS.to_vec(),
+        ForkName::Altair => ALTAIR_CORE_TOPICS.to_vec(),
+        ForkName::Merge => vec![],
+        ForkName::Capella => CAPELLA_CORE_TOPICS.to_vec(),
+        ForkName::Deneb => {
+            // All of deneb blob topics are core topics
+            let mut deneb_blob_topics = Vec::new();
+            for i in 0..BLOB_SIDECAR_SUBNET_COUNT {
+                deneb_blob_topics.push(GossipKind::BlobSidecar(i));
+            }
+            let mut deneb_topics = DENEB_CORE_TOPICS.to_vec();
+            deneb_topics.append(&mut deneb_blob_topics);
+            deneb_topics
+        }
+    }
+}
+
+/// Returns all the topics that we need to subscribe to for a given fork
+/// including topics from older forks and new topics for the current fork.
+pub fn core_topics_to_subscribe<T: EthSpec>(mut current_fork: ForkName) -> Vec<GossipKind> {
+    let mut topics = fork_core_topics::<T>(&current_fork);
+    while let Some(previous_fork) = current_fork.previous_fork() {
+        let previous_fork_topics = fork_core_topics::<T>(&previous_fork);
+        topics.extend(previous_fork_topics);
+        current_fork = previous_fork;
+    }
+    topics
+}
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
 /// the pubsub protocol and the way the messages should be encoded.
@@ -56,6 +96,8 @@ pub enum GossipKind {
     BeaconBlock,
     /// Topic for publishing aggregate attestations and proofs.
     BeaconAggregateAndProof,
+    /// Topic for publishing BlobSidecars.
+    BlobSidecar(u64),
     /// Topic for publishing raw attestations on a particular subnet.
     #[strum(serialize = "beacon_attestation")]
     Attestation(SubnetId),
@@ -70,6 +112,8 @@ pub enum GossipKind {
     /// Topic for publishing unaggregated sync committee signatures on a particular subnet.
     #[strum(serialize = "sync_committee")]
     SyncCommitteeMessage(SyncSubnetId),
+    /// Topic for validator messages which change their withdrawal address.
+    BlsToExecutionChange,
     /// Topic for publishing finality updates for light clients.
     LightClientFinalityUpdate,
     /// Topic for publishing optimistic updates for light clients.
@@ -82,6 +126,9 @@ impl std::fmt::Display for GossipKind {
             GossipKind::Attestation(subnet_id) => write!(f, "beacon_attestation_{}", **subnet_id),
             GossipKind::SyncCommitteeMessage(subnet_id) => {
                 write!(f, "sync_committee_{}", **subnet_id)
+            }
+            GossipKind::BlobSidecar(blob_index) => {
+                write!(f, "{}{}", BLOB_SIDECAR_PREFIX, blob_index)
             }
             x => f.write_str(x.as_ref()),
         }
@@ -147,13 +194,11 @@ impl GossipTopic {
                 VOLUNTARY_EXIT_TOPIC => GossipKind::VoluntaryExit,
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipKind::AttesterSlashing,
+                BLS_TO_EXECUTION_CHANGE_TOPIC => GossipKind::BlsToExecutionChange,
                 LIGHT_CLIENT_FINALITY_UPDATE => GossipKind::LightClientFinalityUpdate,
                 LIGHT_CLIENT_OPTIMISTIC_UPDATE => GossipKind::LightClientOptimisticUpdate,
-                topic => match committee_topic_index(topic) {
-                    Some(subnet) => match subnet {
-                        Subnet::Attestation(s) => GossipKind::Attestation(s),
-                        Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeMessage(s),
-                    },
+                topic => match subnet_topic_index(topic) {
+                    Some(kind) => kind,
                     None => return Err(format!("Unknown topic: {}", topic)),
                 },
             };
@@ -207,6 +252,10 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::SyncCommitteeMessage(index) => {
                 format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
             }
+            GossipKind::BlobSidecar(blob_index) => {
+                format!("{}{}", BLOB_SIDECAR_PREFIX, blob_index)
+            }
+            GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
             GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
             GossipKind::LightClientOptimisticUpdate => LIGHT_CLIENT_OPTIMISTIC_UPDATE.into(),
         };
@@ -237,28 +286,26 @@ pub fn subnet_from_topic_hash(topic_hash: &TopicHash) -> Option<Subnet> {
     GossipTopic::decode(topic_hash.as_str()).ok()?.subnet_id()
 }
 
-// Determines if a string is an attestation or sync committee topic.
-fn committee_topic_index(topic: &str) -> Option<Subnet> {
-    if topic.starts_with(BEACON_ATTESTATION_PREFIX) {
-        return Some(Subnet::Attestation(SubnetId::new(
-            topic
-                .trim_start_matches(BEACON_ATTESTATION_PREFIX)
-                .parse::<u64>()
-                .ok()?,
+// Determines if the topic name is of an indexed topic.
+fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
+    if let Some(index) = topic.strip_prefix(BEACON_ATTESTATION_PREFIX) {
+        return Some(GossipKind::Attestation(SubnetId::new(
+            index.parse::<u64>().ok()?,
         )));
-    } else if topic.starts_with(SYNC_COMMITTEE_PREFIX_TOPIC) {
-        return Some(Subnet::SyncCommittee(SyncSubnetId::new(
-            topic
-                .trim_start_matches(SYNC_COMMITTEE_PREFIX_TOPIC)
-                .parse::<u64>()
-                .ok()?,
+    } else if let Some(index) = topic.strip_prefix(SYNC_COMMITTEE_PREFIX_TOPIC) {
+        return Some(GossipKind::SyncCommitteeMessage(SyncSubnetId::new(
+            index.parse::<u64>().ok()?,
         )));
+    } else if let Some(index) = topic.strip_prefix(BLOB_SIDECAR_PREFIX) {
+        return Some(GossipKind::BlobSidecar(index.parse::<u64>().ok()?));
     }
     None
 }
 
 #[cfg(test)]
 mod tests {
+    use types::MainnetEthSpec;
+
     use super::GossipKind::*;
     use super::*;
 
@@ -383,5 +430,19 @@ mod tests {
         assert_eq!("voluntary_exit", VoluntaryExit.as_ref());
         assert_eq!("proposer_slashing", ProposerSlashing.as_ref());
         assert_eq!("attester_slashing", AttesterSlashing.as_ref());
+    }
+
+    #[test]
+    fn test_core_topics_to_subscribe() {
+        type E = MainnetEthSpec;
+        let mut all_topics = Vec::new();
+        let mut deneb_core_topics = fork_core_topics::<E>(&ForkName::Deneb);
+        all_topics.append(&mut deneb_core_topics);
+        all_topics.extend(CAPELLA_CORE_TOPICS);
+        all_topics.extend(ALTAIR_CORE_TOPICS);
+        all_topics.extend(BASE_CORE_TOPICS);
+
+        let latest_fork = *ForkName::list_all().last().unwrap();
+        assert_eq!(core_topics_to_subscribe::<E>(latest_fork), all_topics);
     }
 }

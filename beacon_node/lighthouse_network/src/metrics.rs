@@ -1,3 +1,6 @@
+use libp2p::bandwidth::BandwidthSinks;
+use std::sync::Arc;
+
 pub use lighthouse_metrics::*;
 
 lazy_static! {
@@ -12,6 +15,16 @@ lazy_static! {
     pub static ref PEERS_CONNECTED: Result<IntGauge> = try_create_int_gauge(
         "libp2p_peers",
         "Count of libp2p peers currently connected"
+    );
+
+    pub static ref TCP_PEERS_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "libp2p_tcp_peers",
+        "Count of libp2p peers currently connected via TCP"
+    );
+
+    pub static ref QUIC_PEERS_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "libp2p_quic_peers",
+        "Count of libp2p peers currently connected via QUIC"
     );
 
     pub static ref PEER_CONNECT_EVENT_COUNT: Result<IntCounter> = try_create_int_counter(
@@ -159,7 +172,7 @@ pub fn check_nat() {
     if NAT_OPEN.as_ref().map(|v| v.get()).unwrap_or(0) != 0 {
         return;
     }
-    if ADDRESS_UPDATE_COUNT.as_ref().map(|v| v.get()).unwrap_or(0) == 0
+    if ADDRESS_UPDATE_COUNT.as_ref().map(|v| v.get()).unwrap_or(0) != 0
         || NETWORK_INBOUND_PEERS.as_ref().map(|v| v.get()).unwrap_or(0) != 0_i64
     {
         inc_counter(&NAT_OPEN);
@@ -167,9 +180,53 @@ pub fn check_nat() {
 }
 
 pub fn scrape_discovery_metrics() {
-    let metrics = discv5::metrics::Metrics::from(discv5::Discv5::raw_metrics());
+    let metrics =
+        discv5::metrics::Metrics::from(discv5::Discv5::<discv5::DefaultProtocolId>::raw_metrics());
     set_float_gauge(&DISCOVERY_REQS, metrics.unsolicited_requests_per_second);
     set_gauge(&DISCOVERY_SESSIONS, metrics.active_sessions as i64);
     set_gauge(&DISCOVERY_SENT_BYTES, metrics.bytes_sent as i64);
     set_gauge(&DISCOVERY_RECV_BYTES, metrics.bytes_recv as i64);
+}
+
+/// Aggregated `BandwidthSinks` of tcp and quic transports
+/// used in libp2p.
+pub struct AggregatedBandwidthSinks {
+    tcp_sinks: Arc<BandwidthSinks>,
+    quic_sinks: Option<Arc<BandwidthSinks>>,
+}
+
+impl AggregatedBandwidthSinks {
+    /// Create a new `AggregatedBandwidthSinks`.
+    pub fn new(tcp_sinks: Arc<BandwidthSinks>, quic_sinks: Option<Arc<BandwidthSinks>>) -> Self {
+        AggregatedBandwidthSinks {
+            tcp_sinks,
+            quic_sinks,
+        }
+    }
+
+    /// Total QUIC inbound bandwidth.
+    pub fn total_quic_inbound(&self) -> u64 {
+        self.quic_sinks
+            .as_ref()
+            .map(|q| q.total_inbound())
+            .unwrap_or_default()
+    }
+
+    /// Total TCP inbound bandwidth.
+    pub fn total_tcp_inbound(&self) -> u64 {
+        self.tcp_sinks.total_inbound()
+    }
+
+    /// Total QUIC outbound bandwidth.
+    pub fn total_quic_outbound(&self) -> u64 {
+        self.quic_sinks
+            .as_ref()
+            .map(|q| q.total_outbound())
+            .unwrap_or_default()
+    }
+
+    /// Total TCP outbound bandwidth.
+    pub fn total_tcp_outbound(&self) -> u64 {
+        self.tcp_sinks.total_outbound()
+    }
 }

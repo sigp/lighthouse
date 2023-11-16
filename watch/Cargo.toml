@@ -1,0 +1,48 @@
+[package]
+name = "watch"
+version = "0.1.0"
+edition = { workspace = true }
+
+[lib]
+name = "watch"
+path = "src/lib.rs"
+
+[[bin]]
+name = "watch"
+path = "src/main.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+types = { workspace = true }
+eth2 = { workspace = true }
+beacon_node = { workspace = true }
+tokio = { workspace = true }
+axum = "0.6.18"
+hyper = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+url = { workspace = true }
+rand = { workspace = true }
+diesel = { version = "2.0.2", features = ["postgres", "r2d2"] }
+diesel_migrations = { version = "2.0.0", features = ["postgres"] }
+byteorder = { workspace = true }
+bls = { workspace = true }
+hex = { workspace = true }
+r2d2 = { workspace = true }
+serde_yaml = { workspace = true }
+
+[dev-dependencies]
+tokio-postgres = "0.7.5"
+http_api = { workspace = true }
+beacon_chain = { workspace = true }
+network = { workspace = true }
+# TODO: update to 0.15 when released: https://github.com/testcontainers/testcontainers-rs/issues/497
+testcontainers = { git = "https://github.com/testcontainers/testcontainers-rs/", rev = "0f2c9851" }
+unused_port = { workspace = true }
+task_executor = { workspace = true }
+logging = { workspace = true }

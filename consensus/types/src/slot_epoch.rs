@@ -15,7 +15,7 @@ use crate::{ChainSpec, SignedRoot};
 
 use rand::RngCore;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 use std::hash::Hash;
@@ -24,15 +24,37 @@ use std::iter::Iterator;
 #[cfg(feature = "legacy-arith")]
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    arbitrary::Arbitrary,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[serde(transparent)]
-pub struct Slot(#[serde(with = "eth2_serde_utils::quoted_u64")] u64);
+pub struct Slot(#[serde(with = "serde_utils::quoted_u64")] u64);
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    arbitrary::Arbitrary,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[serde(transparent)]
-pub struct Epoch(#[serde(with = "eth2_serde_utils::quoted_u64")] u64);
+pub struct Epoch(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 impl_common!(Slot);
 impl_common!(Epoch);
@@ -54,8 +76,8 @@ impl Slot {
 }
 
 impl Epoch {
-    pub const fn new(slot: u64) -> Epoch {
-        Epoch(slot)
+    pub const fn new(epoch: u64) -> Epoch {
+        Epoch(epoch)
     }
 
     pub fn max_value() -> Epoch {

@@ -1,21 +1,36 @@
 use crate::{ChainSpec, Epoch};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Decode, Encode, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String")]
 #[serde(into = "String")]
+#[ssz(enum_behaviour = "tag")]
 pub enum ForkName {
     Base,
     Altair,
     Merge,
+    Capella,
+    Deneb,
 }
 
 impl ForkName {
     pub fn list_all() -> Vec<ForkName> {
-        vec![ForkName::Base, ForkName::Altair, ForkName::Merge]
+        vec![
+            ForkName::Base,
+            ForkName::Altair,
+            ForkName::Merge,
+            ForkName::Capella,
+            ForkName::Deneb,
+        ]
+    }
+
+    pub fn latest() -> ForkName {
+        // This unwrap is safe as long as we have 1+ forks. It is tested below.
+        *ForkName::list_all().last().unwrap()
     }
 
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
@@ -26,16 +41,36 @@ impl ForkName {
             ForkName::Base => {
                 spec.altair_fork_epoch = None;
                 spec.bellatrix_fork_epoch = None;
+                spec.capella_fork_epoch = None;
+                spec.deneb_fork_epoch = None;
                 spec
             }
             ForkName::Altair => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = None;
+                spec.capella_fork_epoch = None;
+                spec.deneb_fork_epoch = None;
                 spec
             }
             ForkName::Merge => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = None;
+                spec.deneb_fork_epoch = None;
+                spec
+            }
+            ForkName::Capella => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = None;
+                spec
+            }
+            ForkName::Deneb => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(Epoch::new(0));
                 spec
             }
         }
@@ -49,6 +84,8 @@ impl ForkName {
             ForkName::Base => None,
             ForkName::Altair => Some(ForkName::Base),
             ForkName::Merge => Some(ForkName::Altair),
+            ForkName::Capella => Some(ForkName::Merge),
+            ForkName::Deneb => Some(ForkName::Capella),
         }
     }
 
@@ -59,7 +96,9 @@ impl ForkName {
         match self {
             ForkName::Base => Some(ForkName::Altair),
             ForkName::Altair => Some(ForkName::Merge),
-            ForkName::Merge => None,
+            ForkName::Merge => Some(ForkName::Capella),
+            ForkName::Capella => Some(ForkName::Deneb),
+            ForkName::Deneb => None,
         }
     }
 }
@@ -101,6 +140,14 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Merge(value), extra_data)
             }
+            ForkName::Capella => {
+                let (value, extra_data) = $body;
+                ($t::Capella(value), extra_data)
+            }
+            ForkName::Deneb => {
+                let (value, extra_data) = $body;
+                ($t::Deneb(value), extra_data)
+            }
         }
     };
 }
@@ -113,6 +160,8 @@ impl FromStr for ForkName {
             "phase0" | "base" => ForkName::Base,
             "altair" => ForkName::Altair,
             "bellatrix" | "merge" => ForkName::Merge,
+            "capella" => ForkName::Capella,
+            "deneb" => ForkName::Deneb,
             _ => return Err(format!("unknown fork name: {}", fork_name)),
         })
     }
@@ -124,6 +173,8 @@ impl Display for ForkName {
             ForkName::Base => "phase0".fmt(f),
             ForkName::Altair => "altair".fmt(f),
             ForkName::Merge => "bellatrix".fmt(f),
+            ForkName::Capella => "capella".fmt(f),
+            ForkName::Deneb => "deneb".fmt(f),
         }
     }
 }
@@ -155,7 +206,7 @@ mod test {
 
     #[test]
     fn previous_and_next_fork_consistent() {
-        assert_eq!(ForkName::Merge.next_fork(), None);
+        assert_eq!(ForkName::latest().next_fork(), None);
         assert_eq!(ForkName::Base.previous_fork(), None);
 
         for (prev_fork, fork) in ForkName::list_all().into_iter().tuple_windows() {
@@ -187,5 +238,16 @@ mod test {
         assert_eq!(ForkName::from_str("bellatrix"), Ok(ForkName::Merge));
         assert_eq!(ForkName::from_str("merge"), Ok(ForkName::Merge));
         assert_eq!(ForkName::Merge.to_string(), "bellatrix");
+    }
+
+    #[test]
+    fn fork_name_latest() {
+        assert_eq!(ForkName::latest(), *ForkName::list_all().last().unwrap());
+
+        let mut fork = ForkName::Base;
+        while let Some(next_fork) = fork.next_fork() {
+            fork = next_fork;
+        }
+        assert_eq!(ForkName::latest(), fork);
     }
 }

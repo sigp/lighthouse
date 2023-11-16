@@ -8,21 +8,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             "When connected to a beacon node, performs the duties of a staked \
                 validator (e.g., proposing blocks and attestations).",
         )
-        // This argument is deprecated, use `--beacon-nodes` instead.
-        .arg(
-            Arg::with_name("beacon-node")
-                .long("beacon-node")
-                .value_name("NETWORK_ADDRESS")
-                .help("Deprecated. Use --beacon-nodes.")
-                .takes_value(true)
-                .conflicts_with("beacon-nodes"),
-        )
         .arg(
             Arg::with_name("beacon-nodes")
                 .long("beacon-nodes")
                 .value_name("NETWORK_ADDRESSES")
                 .help("Comma-separated addresses to one or more beacon node HTTP APIs. \
                        Default is http://localhost:5052."
+                )
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("proposer-nodes")
+                .long("proposer-nodes")
+                .value_name("NETWORK_ADDRESSES")
+                .help("Comma-separated addresses to one or more beacon node HTTP APIs. \
+                These specify nodes that are used to send beacon block proposals. A failure will revert back to the standard beacon nodes specified in --beacon-nodes."
                 )
                 .takes_value(true),
         )
@@ -35,15 +35,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        `--beacon-nodes flag`. This option changes that behaviour such that these \
                        api calls only go out to the first available and synced beacon node")
                 .takes_value(false)
-        )
-        // This argument is deprecated, use `--beacon-nodes` instead.
-        .arg(
-            Arg::with_name("server")
-                .long("server")
-                .value_name("NETWORK_ADDRESS")
-                .help("Deprecated. Use --beacon-nodes.")
-                .takes_value(true)
-                .conflicts_with_all(&["beacon-node", "beacon-nodes"]),
         )
         .arg(
             Arg::with_name("validators-dir")
@@ -72,13 +63,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("datadir")
         )
         .arg(
-            Arg::with_name("delete-lockfiles")
-            .long("delete-lockfiles")
-            .help(
-                "DEPRECATED. This flag does nothing and will be removed in a future release."
-            )
-        )
-        .arg(
             Arg::with_name("init-slashing-protection")
                 .long("init-slashing-protection")
                 .help(
@@ -98,14 +82,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             )
         )
         .arg(
-            Arg::with_name("allow-unsynced")
-                .long("allow-unsynced")
-                .help(
-                    "If present, the validator client will still poll for duties if the beacon
-                      node is not synced.",
-                ),
-        )
-        .arg(
             Arg::with_name("use-long-timeouts")
                 .long("use-long-timeouts")
                 .help("If present, the validator client will use longer timeouts for requests \
@@ -118,7 +94,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("CERTIFICATE-FILES")
                 .takes_value(true)
                 .help("Comma-separated paths to custom TLS certificates to use when connecting \
-                        to a beacon node. These certificates must be in PEM format and are used \
+                        to a beacon node (and/or proposer node). These certificates must be in PEM format and are used \
                         in addition to the OS trust store. Commas must only be used as a \
                         delimiter, and must not be part of the certificate path.")
         )
@@ -164,6 +140,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
          .arg(
              Arg::with_name("http-address")
                  .long("http-address")
+                 .requires("http")
                  .value_name("ADDRESS")
                  .help("Set the address for the HTTP address. The HTTP server is not encrypted \
                         and therefore it is unsafe to publish on a public network. When this \
@@ -183,20 +160,42 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-port")
                 .long("http-port")
+                .requires("http")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
-                .default_value("5062")
+                .default_value_if("http", None, "5062")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("http-allow-origin")
                 .long("http-allow-origin")
+                .requires("http")
                 .value_name("ORIGIN")
                 .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5062).")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("http-allow-keystore-export")
+                .long("http-allow-keystore-export")
+                .requires("http")
+                .help("If present, allow access to the DELETE /lighthouse/keystores HTTP \
+                    API method, which allows exporting keystores and passwords to HTTP API \
+                    consumers who have access to the API token. This method is useful for \
+                    exporting validators, however it should be used with caution since it \
+                    exposes private key data to authorized users.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("http-store-passwords-in-secrets-dir")
+                .long("http-store-passwords-in-secrets-dir")
+                .requires("http")
+                .help("If present, any validators created via the HTTP will have keystore \
+                    passwords stored in the secrets-dir rather than the validator \
+                    definitions file.")
+                .takes_value(false),
         )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
@@ -208,28 +207,40 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("metrics-address")
                 .long("metrics-address")
+                .requires("metrics")
                 .value_name("ADDRESS")
                 .help("Set the listen address for the Prometheus metrics HTTP server.")
-                .default_value("127.0.0.1")
+                .default_value_if("metrics", None, "127.0.0.1")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("metrics-port")
                 .long("metrics-port")
+                .requires("metrics")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the Prometheus metrics HTTP server.")
-                .default_value("5064")
+                .default_value_if("metrics", None, "5064")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("metrics-allow-origin")
                 .long("metrics-allow-origin")
+                .requires("metrics")
                 .value_name("ORIGIN")
                 .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5064).")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enable-high-validator-count-metrics")
+                .long("enable-high-validator-count-metrics")
+                .help("Enable per validator metrics for > 64 validators. \
+                    Note: This flag is automatically enabled for <= 64 validators. \
+                    Enabling this metric for higher validator counts will lead to higher volume \
+                    of prometheus metrics being collected.")
+                .takes_value(false),
         )
         /*
          * Explorer metrics
@@ -278,18 +289,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     headers during proposals and will sign over headers. Useful for outsourcing \
                     execution payload construction during proposals.")
                 .takes_value(false),
-        ).arg(
-            Arg::with_name("strict-fee-recipient")
-                .long("strict-fee-recipient")
-                .help("[DEPRECATED] If this flag is set, Lighthouse will refuse to sign any block whose \
-                        `fee_recipient` does not match the `suggested_fee_recipient` sent by this validator. \
-                         This applies to both the normal block proposal flow, as well as block proposals \
-                         through the builder API. Proposals through the builder API are more likely to have a \
-                         discrepancy in `fee_recipient` so you should be aware of how your connected relay \
-                         sends proposer payments before using this flag. If this flag is used, a fee recipient \
-                         mismatch in the builder API flow will result in a fallback to the local execution engine \
-                         for payload construction, where a strict fee recipient check will still be applied.")
-                .takes_value(false),
         )
         .arg(
             Arg::with_name("builder-registration-timestamp-override")
@@ -308,6 +307,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     by this validator client. Note this will not necessarily be used if the gas limit \
                     set here moves too far from the previous block's gas limit. [default: 30,000,000]")
                 .requires("builder-proposals"),
+        )
+        .arg(
+            Arg::with_name("latency-measurement-service")
+                .long("latency-measurement-service")
+                .value_name("BOOLEAN")
+                .help("Set to 'true' to enable a service that periodically attempts to measure latency to BNs. \
+                    Set to 'false' to disable.")
+                .default_value("true")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("validator-registration-batch-size")
+                .long("validator-registration-batch-size")
+                .value_name("INTEGER")
+                .help("Defines the number of validators per \
+                    validator/register_validator request sent to the BN. This value \
+                    can be reduced to avoid timeouts from builders.")
+                .default_value("500")
+                .takes_value(true),
         )
         /*
          * Experimental/development options.

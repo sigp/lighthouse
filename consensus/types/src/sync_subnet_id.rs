@@ -2,7 +2,7 @@
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::EthSpec;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_types::typenum::Unsigned;
 use std::collections::HashSet;
 use std::fmt::{self, Display};
@@ -19,10 +19,9 @@ lazy_static! {
     };
 }
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct SyncSubnetId(#[serde(with = "eth2_serde_utils::quoted_u64")] u64);
+pub struct SyncSubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 pub fn sync_subnet_id_to_string(i: u64) -> &'static str {
     if i < SYNC_COMMITTEE_SUBNET_COUNT {
