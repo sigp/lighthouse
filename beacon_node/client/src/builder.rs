@@ -35,6 +35,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::oneshot;
+use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -836,6 +837,7 @@ where
                 }
             }
 
+            start_attestation_simulator_service(runtime_context.executor.clone(), beacon_chain.clone());
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
             start_otb_verification_service(runtime_context.executor.clone(), beacon_chain.clone());
         }
