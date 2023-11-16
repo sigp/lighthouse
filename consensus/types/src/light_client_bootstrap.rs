@@ -1,6 +1,10 @@
-use super::{BeaconBlockHeader, BeaconState, EthSpec, FixedVector, Hash256, SyncCommittee};
-use crate::{light_client_update::*, test_utils::TestRandom};
-use serde::{Deserialize, Serialize};
+use super::{BeaconState, EthSpec, FixedVector, Hash256, SyncCommittee};
+use crate::{
+    light_client_update::*, test_utils::TestRandom, ForkName, ForkVersionDeserialize,
+    LightClientHeader,
+};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
@@ -22,8 +26,8 @@ use tree_hash::TreeHash;
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientBootstrap<T: EthSpec> {
-    /// Requested beacon block header.
-    pub header: BeaconBlockHeader,
+    /// The requested beacon block header.
+    pub header: LightClientHeader,
     /// The `SyncCommittee` used in the requested period.
     pub current_sync_committee: Arc<SyncCommittee<T>>,
     /// Merkle proof for sync committee
@@ -37,10 +41,28 @@ impl<T: EthSpec> LightClientBootstrap<T> {
         let current_sync_committee_branch =
             beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?;
         Ok(LightClientBootstrap {
-            header,
+            header: header.into(),
             current_sync_committee: beacon_state.current_sync_committee()?.clone(),
             current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
         })
+    }
+}
+
+impl<T: EthSpec> ForkVersionDeserialize for LightClientBootstrap<T> {
+    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
+        value: Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        match fork_name {
+            ForkName::Altair => Ok(serde_json::from_value::<LightClientBootstrap<T>>(value)
+                .map_err(serde::de::Error::custom))?,
+            ForkName::Base | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
+                Err(serde::de::Error::custom(format!(
+                    "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
+                    fork_name
+                )))
+            }
+        }
     }
 }
 
