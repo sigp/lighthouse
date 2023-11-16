@@ -163,8 +163,6 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
     current_epoch: Epoch,
     validator_indices: Vec<u64>,
 ) -> LivenessResponses {
-    // let validator_indices = validator_indices.as_slice();
-
     let previous_epoch = current_epoch.saturating_sub(1_u64);
 
     let previous_epoch_responses = if previous_epoch == current_epoch {
