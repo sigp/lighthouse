@@ -2967,10 +2967,8 @@ async fn schema_downgrade_to_min_version() {
         // Can't downgrade beyond V18 once Deneb is reached, for simplicity don't test that
         // at all if Deneb is enabled.
         SchemaVersion(18)
-    } else if harness.spec.capella_fork_epoch.is_some() {
-        SchemaVersion(14)
     } else {
-        SchemaVersion(11)
+        SchemaVersion(16)
     };
 
     // Save the slot clock so that the new harness doesn't revert in time.

@@ -5,7 +5,9 @@ use participation_cache::ParticipationCache;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
 use slog::debug;
-use state_processing::per_epoch_processing::altair::process_inactivity_updates;
+use state_processing::per_epoch_processing::altair::{
+    process_inactivity_updates, process_justification_and_finalization,
+};
 use state_processing::{
     common::altair::BaseRewardPerIncrement,
     per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight},
@@ -27,6 +29,7 @@ use state_processing::per_epoch_processing::base::rewards_and_penalties::{
 };
 use state_processing::per_epoch_processing::base::validator_statuses::InclusionInfo;
 use state_processing::per_epoch_processing::base::{
+    process_justification_and_finalization as process_justification_and_finalization_base,
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
 
@@ -66,6 +69,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let spec = &self.spec;
         let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
         validator_statuses.process_attestations(&state)?;
+
+        process_justification_and_finalization_base(
+            &state,
+            &validator_statuses.total_balances,
+            spec,
+        )?
+        .apply_changes_to_state(&mut state);
 
         let ideal_rewards =
             self.compute_ideal_rewards_base(&state, &validator_statuses.total_balances)?;
@@ -125,6 +135,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Calculate ideal_rewards
         let participation_cache = ParticipationCache::new(&state, spec)?;
+        process_justification_and_finalization(&state, &participation_cache)?
+            .apply_changes_to_state(&mut state);
         process_inactivity_updates(&mut state, &participation_cache, spec)?;
 
         let previous_epoch = state.previous_epoch();
