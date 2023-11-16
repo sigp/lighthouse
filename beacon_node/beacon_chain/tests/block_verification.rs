@@ -1154,18 +1154,8 @@ async fn verify_block_for_gossip_slashing_detection() {
         .unwrap();
 
     if let Some((kzg_proofs, blobs)) = blobs1 {
-        let sidecars = BlobSidecar::build_sidecar(
-            blobs,
-            verified_block.block(),
-            verified_block
-                .block()
-                .message()
-                .body()
-                .blob_kzg_commitments()
-                .unwrap(),
-            kzg_proofs.into(),
-        )
-        .unwrap();
+        let sidecars =
+            BlobSidecar::build_sidecars(blobs, verified_block.block(), kzg_proofs).unwrap();
         for sidecar in sidecars {
             let blob_index = sidecar.index;
             let verified_blob = harness
