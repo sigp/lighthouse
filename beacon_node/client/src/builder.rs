@@ -165,7 +165,6 @@ where
         } else {
             None
         };
-        self.http_api_config.enable_light_client_server = config.network.enable_light_client_server;
 
         let execution_layer = if let Some(config) = config.execution_layer.clone() {
             let context = runtime_context.service_context("exec".into());

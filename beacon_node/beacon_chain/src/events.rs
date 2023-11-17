@@ -117,21 +117,11 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
             EventKind::LightClientFinalityUpdate(_) => self
                 .light_client_finality_update_tx
                 .send(kind)
-                .map(|count| {
-                    log_count(
-                        "Registering server-sent light client finality update event",
-                        count,
-                    )
-                }),
+                .map(|count| log_count("light client finality update", count)),
             EventKind::LightClientOptimisticUpdate(_) => self
                 .light_client_optimistic_update_tx
                 .send(kind)
-                .map(|count| {
-                    log_count(
-                        "Registering server-sent light client optimistic update event",
-                        count,
-                    )
-                }),
+                .map(|count| log_count("light client optimistic update", count)),
             EventKind::BlockReward(_) => self
                 .block_reward_tx
                 .send(kind)

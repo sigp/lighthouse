@@ -2397,7 +2397,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     /*
-     * beacon/rewards
+     * beacon/light_client
      */
 
     let beacon_light_client_path = eth_v1
@@ -2405,7 +2405,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("light_client"))
         .and(chain_filter.clone());
 
-    // GET beacon/light_client/bootrap/{block_root}
+    // GET beacon/light_client/bootstrap/{block_root}
     let get_beacon_light_client_bootstrap = beacon_light_client_path
         .clone()
         .and(task_spawner_filter.clone())
@@ -2496,8 +2496,11 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => Ok(warp::reply::json(&api_types::GenericResponse::from(update))
-                            .into_response()),
+                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
+                            version: Some(fork_name),
+                            data: update,
+                        })
+                        .into_response()),
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
@@ -2540,8 +2543,11 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => Ok(warp::reply::json(&api_types::GenericResponse::from(update))
-                            .into_response()),
+                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
+                            version: Some(fork_name),
+                            data: update,
+                        })
+                        .into_response()),
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
