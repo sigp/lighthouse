@@ -2359,6 +2359,16 @@ fn light_client_server_enabled() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enable_light_client_server, true);
+        });
+}
+
+#[test]
+fn light_client_http_server_enabled() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("light-client-server", None)
+        .run_with_zero_port()
+        .with_config(|config| {
             assert_eq!(config.http_api.enable_light_client_server, true);
         });
 }
