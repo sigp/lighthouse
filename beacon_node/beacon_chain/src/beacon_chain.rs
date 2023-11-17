@@ -6450,6 +6450,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Gets the `LightClientBootstrap` object for a requested block root.
     ///
     /// Returns `None` when the state or block is not found in the database.
+    #[allow(clippy::type_complexity)]
     pub fn get_light_client_bootstrap(
         &self,
         block_root: &Hash256,
