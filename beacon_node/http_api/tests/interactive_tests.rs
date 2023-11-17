@@ -17,8 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::{
-    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
+    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, MainnetEthSpec,
+    MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
 use eth2::types::ForkVersionedBeaconBlockType::{Blinded, Full};
@@ -824,7 +824,7 @@ pub async fn fork_choice_before_proposal() {
         .into();
     let block_d = tester
         .client
-        .get_validator_blocks::<E, FullPayload<E>>(slot_d, &randao_reveal, None)
+        .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
         .await
         .unwrap()
         .data
