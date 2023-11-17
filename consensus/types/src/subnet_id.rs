@@ -80,28 +80,36 @@ impl SubnetId {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(impl Iterator<Item = SubnetId>, Epoch), &'static str> {
+        const ATTESTATION_SUBNET_SHUFFLING_PREFIX_BITS: u8 = 3; // TODO: this should be in the spec.
+
         // Simplify the variable name
         let subscription_duration = spec.epochs_per_subnet_subscription;
 
-        let node_id_prefix =
-            (node_id >> (256 - spec.attestation_subnet_prefix_bits as usize)).as_usize();
-
-        // NOTE: The as_u64() panics if the number is larger than u64::max_value(). This cannot be
-        // true as spec.epochs_per_subnet_subscription is a u64.
-        let node_offset = (node_id % ethereum_types::U256::from(subscription_duration)).as_u64();
+        let subnet_prefix = node_id >> (256 - spec.attestation_subnet_prefix_bits as usize);
+        let shuffling_bits = node_id
+            >> (256
+                - spec.attestation_subnet_prefix_bits as usize
+                - ATTESTATION_SUBNET_SHUFFLING_PREFIX_BITS as usize)
+                % (1 << ATTESTATION_SUBNET_SHUFFLING_PREFIX_BITS);
+        let epoch_transition = (subnet_prefix
+            + (shuffling_bits
+                * (subscription_duration >> ATTESTATION_SUBNET_SHUFFLING_PREFIX_BITS)))
+            % subscription_duration;
 
         // Calculate at which epoch this node needs to re-evaluate
         let valid_until_epoch = epoch.as_u64()
-            + subscription_duration
-                .saturating_sub((epoch.as_u64() + node_offset) % subscription_duration);
+            + subscription_duration.saturating_sub(
+                (epoch.as_u64() + epoch_transition.as_u64()) % subscription_duration,
+            );
 
-        let subscription_event_idx = (epoch.as_u64() + node_offset) / subscription_duration;
+        let subscription_event_idx =
+            (epoch.as_u64() + epoch_transition.as_u64()) / subscription_duration;
         let permutation_seed =
             ethereum_hashing::hash(&int_to_bytes::int_to_bytes8(subscription_event_idx));
 
         let num_subnets = 1 << spec.attestation_subnet_prefix_bits;
         let permutated_prefix = compute_shuffled_index(
-            node_id_prefix,
+            subnet_prefix.as_usize(),
             num_subnets,
             &permutation_seed,
             spec.shuffle_round_count,
@@ -197,8 +205,8 @@ mod tests {
 
         // Calculated by hand
         let expected_valid_time: Vec<u64> = [
-            54528, 1017090371, 1827567108, 846256076, 766597570, 1204990135, 1616209582,
-            1774367723, 1484598953, 3525502371,
+            54528, 1017090415, 1827566998, 846256049, 766597547, 1204990127, 1616209632,
+            1774367665, 1484598943, 3525502279,
         ]
         .into();
 
@@ -206,7 +214,7 @@ mod tests {
         let expected_subnets = vec![
             vec![4u64, 5u64],
             vec![61, 62],
-            vec![23, 24],
+            vec![39, 40],
             vec![38, 39],
             vec![53, 54],
             vec![39, 40],
