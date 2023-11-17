@@ -221,6 +221,7 @@ pub enum BeaconChainError {
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
     UnableToPublish,
     AvailabilityCheckError(AvailabilityCheckError),
+    LightClientError(LightClientError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

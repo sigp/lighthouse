@@ -76,8 +76,8 @@ use tokio_stream::{
 };
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
-    LightClientBootstrap, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
+    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
+    ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
     SignedAggregateAndProof, SignedBlsToExecutionChange, SignedContributionAndProof,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
     SyncContributionData,
@@ -2423,41 +2423,21 @@ pub fn serve<T: BeaconChainTypes>(
              block_root: Hash256,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
-                    let state_root = chain
-                        .get_blinded_block(&block_root)
-                        .map_err(|_| {
-                            warp_utils::reject::custom_server_error(
-                                "Error retrieving block".to_string(),
-                            )
-                        })?
-                        .map(|signed_block| signed_block.state_root())
-                        .ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(
+                    let (bootstrap, fork_name) = match chain.get_light_client_bootstrap(&block_root)
+                    {
+                        Ok(Some(res)) => res,
+                        Ok(None) => {
+                            return Err(warp_utils::reject::custom_not_found(
                                 "Light client bootstrap unavailable".to_string(),
-                            )
-                        })?;
+                            ));
+                        }
+                        Err(e) => {
+                            return Err(warp_utils::reject::custom_server_error(format!(
+                                "Unable to obtain LightClientBootstrap instance: {e:?}"
+                            )));
+                        }
+                    };
 
-                    let mut state = chain
-                        .get_state(&state_root, None)
-                        .map_err(|_| {
-                            warp_utils::reject::custom_server_error(
-                                "Error retrieving state".to_string(),
-                            )
-                        })?
-                        .ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(
-                                "Light client bootstrap unavailable".to_string(),
-                            )
-                        })?;
-                    let fork_name = state
-                        .fork_name(&chain.spec)
-                        .map_err(inconsistent_fork_rejection)?;
-                    let bootstrap =
-                        LightClientBootstrap::from_beacon_state(&mut state).map_err(|_| {
-                            warp_utils::reject::custom_server_error(
-                                "Failed to create light client bootstrap".to_string(),
-                            )
-                        })?;
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -2469,10 +2449,11 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => Ok(
-                            warp::reply::json(&api_types::GenericResponse::from(bootstrap))
-                                .into_response(),
-                        ),
+                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
+                            version: Some(fork_name),
+                            data: bootstrap,
+                        })
+                        .into_response()),
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
                 })

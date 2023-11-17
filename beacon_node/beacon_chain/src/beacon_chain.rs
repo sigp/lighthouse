@@ -6446,6 +6446,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
         self.data_availability_checker.data_availability_boundary()
     }
+
+    /// Gets the `LightClientBootstrap` object for a requested block root.
+    ///
+    /// Returns `None` when the state or block is not found in the database.
+    pub fn get_light_client_bootstrap(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, Error> {
+        let Some(state_root) = self
+            .get_blinded_block(block_root)?
+            .map(|block| block.state_root())
+        else {
+            return Ok(None);
+        };
+
+        let Some(mut state) = self.get_state(&state_root, None)? else {
+            return Ok(None);
+        };
+
+        let fork_name = state
+            .fork_name(&self.spec)
+            .map_err(Error::InconsistentFork)?;
+
+        LightClientBootstrap::from_beacon_state(&mut state)
+            .map(|bootstrap| Some((bootstrap, fork_name)))
+            .map_err(Error::LightClientError)
+    }
 }
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
