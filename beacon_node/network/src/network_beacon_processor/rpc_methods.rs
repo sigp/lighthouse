@@ -224,7 +224,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request_id: PeerRequestId,
         request: BlobsByRootRequest,
     ) {
-        let Some(requested_root) = request.blob_ids.get(0).map(|id| id.block_root) else {
+        let Some(requested_root) = request.blob_ids.first().map(|id| id.block_root) else {
             // No blob ids requested.
             return;
         };

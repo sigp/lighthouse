@@ -215,7 +215,8 @@ lint:
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push \
 		-A clippy::question-mark \
-		-A clippy::uninlined-format-args
+		-A clippy::uninlined-format-args \
+		-A clippy::enum_variant_names
 
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
