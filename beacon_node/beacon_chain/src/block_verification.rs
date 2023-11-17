@@ -702,7 +702,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
                     gossip_verified_blobs.push(gossip_verified_blob);
                 }
                 let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
-                Ok::<_, BlockContentsError<T::EthSpec>>(VariableList::from(gossip_verified_blobs))
+                Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
             })
             .transpose()?;
         let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;

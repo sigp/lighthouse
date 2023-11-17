@@ -229,7 +229,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     pub fn kzg_commitment_merkle_proof(
         &self,
         _index: usize,
-    ) -> Option<FixedVector<Hash256, E::KzgCommitmentInclusionProofDepth>> {
+    ) -> Result<FixedVector<Hash256, E::KzgCommitmentInclusionProofDepth>, Error> {
         self.message().body().kzg_commitment_merkle_proof(_index)
     }
 

@@ -492,22 +492,22 @@ pub enum BeaconBlockResponseType<T: EthSpec> {
 impl<E: EthSpec> BeaconBlockResponseType<E> {
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
         Ok(match self {
-            BeaconBlockResponseType::Full(resp) => resp.block.to_ref().fork_name(&spec)?,
-            BeaconBlockResponseType::Blinded(resp) => resp.block.to_ref().fork_name(&spec)?,
+            BeaconBlockResponseType::Full(resp) => resp.block.to_ref().fork_name(spec)?,
+            BeaconBlockResponseType::Blinded(resp) => resp.block.to_ref().fork_name(spec)?,
         })
     }
 
     pub fn execution_payload_value(&self) -> Option<Uint256> {
         match self {
-            BeaconBlockResponseType::Full(resp) => resp.execution_payload_value.clone(),
-            BeaconBlockResponseType::Blinded(resp) => resp.execution_payload_value.clone(),
+            BeaconBlockResponseType::Full(resp) => resp.execution_payload_value,
+            BeaconBlockResponseType::Blinded(resp) => resp.execution_payload_value,
         }
     }
 
     pub fn consensus_block_value(&self) -> Option<u64> {
         match self {
-            BeaconBlockResponseType::Full(resp) => resp.consensus_block_value.clone(),
-            BeaconBlockResponseType::Blinded(resp) => resp.consensus_block_value.clone(),
+            BeaconBlockResponseType::Full(resp) => resp.consensus_block_value,
+            BeaconBlockResponseType::Blinded(resp) => resp.consensus_block_value,
         }
     }
 

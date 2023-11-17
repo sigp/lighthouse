@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::{
-    beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, Blob, EthSpec, Hash256,
-    SignedBeaconBlockHeader, Slot,
+    beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, BeaconStateError, Blob,
+    EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
 };
 use crate::{KzgProofs, SignedBeaconBlock};
 use bls::Signature;
@@ -10,8 +10,9 @@ use kzg::{
     Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT,
     FIELD_ELEMENTS_PER_BLOB,
 };
-use merkle_proof::{merkle_root_from_branch, verify_merkle_proof};
+use merkle_proof::{merkle_root_from_branch, verify_merkle_proof, MerkleTreeError};
 use rand::Rng;
+use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -99,6 +100,27 @@ impl<T: EthSpec> Ord for BlobSidecar<T> {
 pub enum BlobSidecarError {
     PreDeneb,
     MissingKzgCommitment,
+    BeaconState(BeaconStateError),
+    MerkleTree(MerkleTreeError),
+    ArithError(ArithError),
+}
+
+impl From<BeaconStateError> for BlobSidecarError {
+    fn from(e: BeaconStateError) -> Self {
+        BlobSidecarError::BeaconState(e)
+    }
+}
+
+impl From<MerkleTreeError> for BlobSidecarError {
+    fn from(e: MerkleTreeError) -> Self {
+        BlobSidecarError::MerkleTree(e)
+    }
+}
+
+impl From<ArithError> for BlobSidecarError {
+    fn from(e: ArithError) -> Self {
+        BlobSidecarError::ArithError(e)
+    }
 }
 
 impl<T: EthSpec> BlobSidecar<T> {
@@ -120,8 +142,7 @@ impl<T: EthSpec> BlobSidecar<T> {
         let kzg_commitment_inclusion_proof = signed_block
             .message()
             .body()
-            .kzg_commitment_merkle_proof(index)
-            .ok_or(BlobSidecarError::PreDeneb)?;
+            .kzg_commitment_merkle_proof(index)?;
 
         Ok(Self {
             index: index as u64,
@@ -179,30 +200,33 @@ impl<T: EthSpec> BlobSidecar<T> {
     }
 
     /// Verifies the kzg commitment inclusion merkle proof.
-    pub fn verify_blob_sidecar_inclusion_proof(&self) -> bool {
+    pub fn verify_blob_sidecar_inclusion_proof(&self) -> Result<bool, MerkleTreeError> {
         // Depth of the subtree rooted at `blob_kzg_commitments` in the `BeaconBlockBody`
         // is equal to depth of the ssz List max size + 1 for the length mixin
         let kzg_commitments_tree_depth = (T::max_blob_commitments_per_block()
             .next_power_of_two()
             .ilog2()
-            + 1) as usize;
+            .safe_add(1))? as usize;
         // Compute the `tree_hash_root` of the `blob_kzg_commitments` subtree using the
         // inclusion proof branches
         let blob_kzg_commitments_root = merkle_root_from_branch(
             self.kzg_commitment.tree_hash_root(),
-            &self.kzg_commitment_inclusion_proof[0..kzg_commitments_tree_depth],
+            self.kzg_commitment_inclusion_proof
+                .get(0..kzg_commitments_tree_depth)
+                .ok_or(MerkleTreeError::PleaseNotifyTheDevs)?,
             kzg_commitments_tree_depth,
             self.index as usize,
         );
         // The remaining inclusion proof branches are for the top level `BeaconBlockBody` tree
-        verify_merkle_proof(
+        Ok(verify_merkle_proof(
             blob_kzg_commitments_root,
-            &self.kzg_commitment_inclusion_proof
-                [kzg_commitments_tree_depth..T::kzg_proof_inclusion_proof_depth()],
-            T::kzg_proof_inclusion_proof_depth() - kzg_commitments_tree_depth,
+            self.kzg_commitment_inclusion_proof
+                .get(kzg_commitments_tree_depth..T::kzg_proof_inclusion_proof_depth())
+                .ok_or(MerkleTreeError::PleaseNotifyTheDevs)?,
+            T::kzg_proof_inclusion_proof_depth().safe_sub(kzg_commitments_tree_depth)?,
             BLOB_KZG_COMMITMENTS_INDEX,
             self.signed_block_header.message.body_root,
-        )
+        ))
     }
 
     pub fn random_valid<R: Rng>(rng: &mut R, kzg: &Kzg) -> Result<Self, String> {
@@ -255,7 +279,7 @@ impl<T: EthSpec> BlobSidecar<T> {
         let mut blob_sidecars = vec![];
         for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
             let blob_sidecar =
-                BlobSidecar::new(i, blob, signed_block_header.clone(), &block, *kzg_proof)?;
+                BlobSidecar::new(i, blob, signed_block_header.clone(), block, *kzg_proof)?;
             blob_sidecars.push(Arc::new(blob_sidecar));
         }
         Ok(VariableList::from(blob_sidecars))

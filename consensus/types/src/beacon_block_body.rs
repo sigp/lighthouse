@@ -1,6 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;
+use merkle_proof::{MerkleTree, MerkleTreeError};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
@@ -111,9 +112,11 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
     pub fn kzg_commitment_merkle_proof(
         &self,
         index: usize,
-    ) -> Option<FixedVector<Hash256, T::KzgCommitmentInclusionProofDepth>> {
+    ) -> Result<FixedVector<Hash256, T::KzgCommitmentInclusionProofDepth>, Error> {
         match self {
-            Self::Base(_) | Self::Altair(_) | Self::Merge(_) | Self::Capella(_) => None,
+            Self::Base(_) | Self::Altair(_) | Self::Merge(_) | Self::Capella(_) => {
+                Err(Error::IncorrectStateVariant)
+            }
             Self::Deneb(body) => {
                 // We compute the branches by generating 2 merkle trees:
                 // 1. Merkle tree for the `blob_kzg_commitments` List object
@@ -131,7 +134,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                     .iter()
                     .map(|commitment| commitment.tree_hash_root())
                     .collect();
-                let tree = merkle_proof::MerkleTree::create(&leaves, depth as usize);
+                let tree = MerkleTree::create(&leaves, depth as usize);
                 let (_, mut proof) = tree
                     .generate_proof(index, depth as usize)
                     .expect("Merkle tree consists of just leaf nodes");
@@ -140,7 +143,10 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 let length = body.blob_kzg_commitments.len();
                 let usize_len = std::mem::size_of::<usize>();
                 let mut length_bytes = [0; BYTES_PER_CHUNK];
-                length_bytes[0..usize_len].copy_from_slice(&length.to_le_bytes());
+                length_bytes
+                    .get_mut(0..usize_len)
+                    .ok_or(Error::MerkleTreeError(MerkleTreeError::PleaseNotifyTheDevs))?
+                    .copy_from_slice(&length.to_le_bytes());
                 let length_root = Hash256::from_slice(length_bytes.as_slice());
                 proof.push(length_root);
 
@@ -160,7 +166,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                     body.bls_to_execution_changes.tree_hash_root(),
                     body.blob_kzg_commitments.tree_hash_root(),
                 ];
-                let tree = merkle_proof::MerkleTree::create(&leaves, BEACON_BLOCK_BODY_TREE_DEPTH);
+                let tree = MerkleTree::create(&leaves, BEACON_BLOCK_BODY_TREE_DEPTH);
                 let (_, mut proof_body) = tree
                     .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, BEACON_BLOCK_BODY_TREE_DEPTH)
                     .expect("Merkle tree consists of just leaf nodes");
@@ -168,7 +174,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 proof.append(&mut proof_body);
 
                 debug_assert_eq!(proof.len(), T::kzg_proof_inclusion_proof_depth());
-                Some(proof.into())
+                Ok(proof.into())
             }
         }
     }

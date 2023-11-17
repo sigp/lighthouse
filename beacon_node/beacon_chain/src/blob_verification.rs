@@ -8,6 +8,7 @@ use crate::block_verification::cheap_state_advance_to_obtain_committees;
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
+use merkle_proof::MerkleTreeError;
 use slog::{debug, warn};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
@@ -123,6 +124,13 @@ pub enum GossipBlobError<T: EthSpec> {
     ///
     /// The blob sidecar is invalid and the peer is faulty.
     KzgError(kzg::Error),
+
+    /// The kzg commitment inclusion proof failed.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob sidecar is invalid
+    InclusionProof(MerkleTreeError),
 }
 
 impl<T: EthSpec> std::fmt::Display for GossipBlobError<T> {
@@ -265,8 +273,8 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
     blob: Arc<BlobSidecar<T>>,
     kzg: &Kzg,
 ) -> Result<KzgVerifiedBlob<T>, KzgError> {
-    let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
-    let _ = validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)?;
+    let _timer = metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
+    validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)?;
 
     Ok(KzgVerifiedBlob { blob })
 }
@@ -359,7 +367,10 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     }
 
     // Verify the inclusion proof in the sidecar
-    if !blob_sidecar.verify_blob_sidecar_inclusion_proof() {
+    if !blob_sidecar
+        .verify_blob_sidecar_inclusion_proof()
+        .map_err(GossipBlobError::InclusionProof)?
+    {
         return Err(GossipBlobError::InvalidInclusionProof);
     }
 
@@ -521,7 +532,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(GossipBlobError::KzgNotInitialized)?;
     let kzg_verified_blob =
-        verify_kzg_for_blob(blob_sidecar, &kzg).map_err(GossipBlobError::KzgError)?;
+        verify_kzg_for_blob(blob_sidecar, kzg).map_err(GossipBlobError::KzgError)?;
 
     Ok(GossipVerifiedBlob {
         blob: kzg_verified_blob,
