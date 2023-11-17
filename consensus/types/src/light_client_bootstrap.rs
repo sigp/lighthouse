@@ -8,7 +8,6 @@ use serde_json::Value;
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 
 /// A LightClientBootstrap is the initializer we send over to lightclient nodes
 /// that are trying to generate their basic storage when booting up.
@@ -37,7 +36,7 @@ pub struct LightClientBootstrap<T: EthSpec> {
 impl<T: EthSpec> LightClientBootstrap<T> {
     pub fn from_beacon_state(beacon_state: &mut BeaconState<T>) -> Result<Self, Error> {
         let mut header = beacon_state.latest_block_header().clone();
-        header.state_root = beacon_state.tree_hash_root();
+        header.state_root = beacon_state.update_tree_hash_cache()?;
         let current_sync_committee_branch =
             beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?;
         Ok(LightClientBootstrap {

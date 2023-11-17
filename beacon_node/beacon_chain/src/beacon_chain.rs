@@ -6469,9 +6469,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name(&self.spec)
             .map_err(Error::InconsistentFork)?;
 
-        LightClientBootstrap::from_beacon_state(&mut state)
-            .map(|bootstrap| Some((bootstrap, fork_name)))
-            .map_err(Error::LightClientError)
+        match fork_name {
+            ForkName::Altair | ForkName::Merge => {
+                LightClientBootstrap::from_beacon_state(&mut state)
+                    .map(|bootstrap| Some((bootstrap, fork_name)))
+                    .map_err(Error::LightClientError)
+            }
+            ForkName::Base | ForkName::Capella | ForkName::Deneb => Err(Error::UnsupportedFork),
+        }
     }
 }
 

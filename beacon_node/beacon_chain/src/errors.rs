@@ -222,6 +222,7 @@ pub enum BeaconChainError {
     UnableToPublish,
     AvailabilityCheckError(AvailabilityCheckError),
     LightClientError(LightClientError),
+    UnsupportedFork,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
