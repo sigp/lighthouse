@@ -49,11 +49,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_state(&state_root, Some(state_slot))?
             .ok_or(BeaconChainError::MissingBeaconState(state_root))?;
 
-        let block_root = state
-            .get_block_root(state_slot)
-            .map_err(|err| BeaconChainError::BeaconStateError(err))?;
+        let block_root = state.get_latest_block_root(state_root);
         let execution_optimistic =
-            self.is_optimistic_or_invalid_block_root(state_slot, block_root)?;
+            self.is_optimistic_or_invalid_block_root(state_slot, &block_root)?;
 
         match state {
             BeaconState::Base(_) => self
