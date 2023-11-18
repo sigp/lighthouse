@@ -379,12 +379,6 @@ mod ssz_static {
     }
 
     #[test]
-    fn signed_blob_sidecar() {
-        SszStaticHandler::<SignedBlobSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only().run();
-        SszStaticHandler::<SignedBlobSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only().run();
-    }
-
-    #[test]
     fn blob_identifier() {
         SszStaticHandler::<BlobIdentifier, MinimalEthSpec>::deneb_only().run();
         SszStaticHandler::<BlobIdentifier, MainnetEthSpec>::deneb_only().run();

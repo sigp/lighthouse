@@ -228,9 +228,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     /// Produces the proof of inclusion for a `KzgCommitment` in `self`.
     pub fn kzg_commitment_merkle_proof(
         &self,
-        _index: usize,
+        index: usize,
     ) -> Result<FixedVector<Hash256, E::KzgCommitmentInclusionProofDepth>, Error> {
-        self.message().body().kzg_commitment_merkle_proof(_index)
+        self.message().body().kzg_commitment_merkle_proof(index)
     }
 
     /// Convenience accessor for the block's slot.

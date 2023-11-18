@@ -1,6 +1,7 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::PayloadVerificationStatus;
+use beacon_chain::blob_verification::GossipBlobError;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     attestation_verification::{
@@ -413,6 +414,8 @@ impl<E: EthSpec> Tester<E> {
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
 
+        let mut blob_success = true;
+
         // Convert blobs and kzg_proofs into sidecars, then plumb them into the availability tracker
         if let Some(blobs) = blobs.clone() {
             let proofs = kzg_proofs.unwrap();
@@ -440,11 +443,18 @@ impl<E: EthSpec> Tester<E> {
                     signed_block_header: block.signed_block_header(),
                     kzg_commitment_inclusion_proof: block.kzg_commitment_merkle_proof(i).unwrap(),
                 });
-                let result = self.block_on_dangerous(
-                    self.harness
-                        .chain
-                        .process_gossip_blob(GossipVerifiedBlob::__assumed_valid(blob_sidecar)),
-                )?;
+
+                let chain = self.harness.chain.clone();
+                let blob = match GossipVerifiedBlob::new(blob_sidecar.clone(), &chain) {
+                    Ok(gossip_verified_blob) => gossip_verified_blob,
+                    Err(GossipBlobError::KzgError(_)) => {
+                        blob_success = false;
+                        GossipVerifiedBlob::__assumed_valid(blob_sidecar)
+                    }
+                    Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
+                };
+                let result =
+                    self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
                 if valid {
                     assert!(result.is_ok());
                 }
@@ -460,7 +470,7 @@ impl<E: EthSpec> Tester<E> {
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
-        let success = result.as_ref().map_or(false, |inner| inner.is_ok());
+        let success = blob_success && result.as_ref().map_or(false, |inner| inner.is_ok());
         if success != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",

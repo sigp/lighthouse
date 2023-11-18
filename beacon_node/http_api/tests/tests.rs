@@ -2735,7 +2735,7 @@ impl ApiTester {
                 .data;
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
-            dbg!(&signed_block);
+
             self.client
                 .post_beacon_blinded_blocks(&signed_block)
                 .await
