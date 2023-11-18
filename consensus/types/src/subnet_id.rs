@@ -87,10 +87,10 @@ impl SubnetId {
 
         let subnet_prefix = node_id >> (256 - spec.attestation_subnet_prefix_bits as usize);
         let shuffling_bits = node_id
-            >> (256
+            >> ((256
                 - spec.attestation_subnet_prefix_bits as usize
                 - ATTESTATION_SUBNET_SHUFFLING_PREFIX_BITS as usize)
-                % (1 << ATTESTATION_SUBNET_SHUFFLING_PREFIX_BITS);
+                % (1 << ATTESTATION_SUBNET_SHUFFLING_PREFIX_BITS));
         let epoch_transition = (subnet_prefix
             + (shuffling_bits
                 * (subscription_duration >> ATTESTATION_SUBNET_SHUFFLING_PREFIX_BITS)))
