@@ -12,8 +12,7 @@ use futures::prelude::*;
 use futures::{Sink, SinkExt};
 use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
-    FullyNegotiatedInbound, FullyNegotiatedOutbound, KeepAlive, StreamUpgradeError,
-    SubstreamProtocol,
+    FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
 };
 use libp2p::swarm::Stream;
 use slog::{crit, debug, trace, warn};
@@ -320,7 +319,6 @@ where
 {
     type FromBehaviour = RPCSend<Id, TSpec>;
     type ToBehaviour = HandlerEvent<Id, TSpec>;
-    type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = OutboundRequestContainer<TSpec>;
     type OutboundOpenInfo = (Id, OutboundRequest<TSpec>); // Keep track of the id and the request
@@ -342,11 +340,11 @@ where
         }
     }
 
-    fn connection_keep_alive(&self) -> KeepAlive {
+    fn connection_keep_alive(&self) -> bool {
         // Check that we don't have outbound items pending for dialing, nor dialing, nor
         // established. Also check that there are no established inbound substreams.
         // Errors and events need to be reported back, so check those too.
-        let should_shutdown = match self.state {
+        let keep_alive = match self.state {
             HandlerState::ShuttingDown(_) => {
                 self.dial_queue.is_empty()
                     && self.outbound_substreams.is_empty()
@@ -356,27 +354,19 @@ where
             }
             HandlerState::Deactivated => {
                 // Regardless of events, the timeout has expired. Force the disconnect.
-                true
+                false
             }
-            _ => false,
+            _ => true,
         };
-        if should_shutdown {
-            KeepAlive::No
-        } else {
-            KeepAlive::Yes
-        }
+
+        keep_alive
     }
 
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<
-        ConnectionHandlerEvent<
-            Self::OutboundProtocol,
-            Self::OutboundOpenInfo,
-            Self::ToBehaviour,
-            Self::Error,
-        >,
+        ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::ToBehaviour>,
     > {
         if let Some(waker) = &self.waker {
             if waker.will_wake(cx.waker()) {
@@ -400,7 +390,6 @@ where
                 Poll::Ready(_) => {
                     self.state = HandlerState::Deactivated;
                     debug!(self.log, "Handler deactivated");
-                    return Poll::Ready(ConnectionHandlerEvent::Close(RPCError::Disconnected));
                 }
                 Poll::Pending => {}
             };
@@ -432,9 +421,12 @@ where
                 Poll::Ready(Some(Err(e))) => {
                     warn!(self.log, "Inbound substream poll failed"; "error" => ?e);
                     // drops the peer if we cannot read the delay queue
-                    return Poll::Ready(ConnectionHandlerEvent::Close(RPCError::InternalError(
-                        "Could not poll inbound stream timer",
-                    )));
+                    // TODO(@divma): the events out that we model occur over specific substreams so
+                    // adding this there does not really fit well. And changing the abstaction just
+                    // to deal with these errors (that i think we have never seen) seems like an
+                    // unnecessary complication.
+                    // Live with the log and that's it?
+                    self.state = HandlerState::Deactivated
                 }
                 Poll::Pending | Poll::Ready(None) => break,
             }
@@ -462,9 +454,7 @@ where
                 }
                 Poll::Ready(Some(Err(e))) => {
                     warn!(self.log, "Outbound substream poll failed"; "error" => ?e);
-                    return Poll::Ready(ConnectionHandlerEvent::Close(RPCError::InternalError(
-                        "Could not poll outbound stream timer",
-                    )));
+                    self.state = HandlerState::Deactivated;
                 }
                 Poll::Pending | Poll::Ready(None) => break,
             }
@@ -831,7 +821,7 @@ where
                 && self.events_out.is_empty()
                 && self.dial_negotiated == 0
             {
-                return Poll::Ready(ConnectionHandlerEvent::Close(RPCError::Disconnected));
+                self.state = HandlerState::Deactivated;
             }
         }
 
@@ -859,24 +849,9 @@ where
             ConnectionEvent::DialUpgradeError(DialUpgradeError { info, error }) => {
                 self.on_dial_upgrade_error(info, error)
             }
-            ConnectionEvent::ListenUpgradeError(libp2p::swarm::handler::ListenUpgradeError {
-                info: _,
-                error: _, /* RPCError */
-            }) => {
-                // This is going to be removed in the next libp2p release. I think its fine to do
-                // nothing.
-            }
-            ConnectionEvent::LocalProtocolsChange(_) => {
-                // This shouldn't effect this handler, we will still negotiate streams if we support
-                // the protocol as usual.
-            }
-            ConnectionEvent::RemoteProtocolsChange(_) => {
-                // This shouldn't effect this handler, we will still negotiate streams if we support
-                // the protocol as usual.
-            }
-            ConnectionEvent::AddressChange(_) => {
-                // We dont care about these changes as they have no bearing on our RPC internal
-                // logic.
+            _ => {
+                // NOTE: ConnectionEvent is a non exhaustive enum so updates should be based on
+                // release notes more than compiler feedback
             }
         }
     }

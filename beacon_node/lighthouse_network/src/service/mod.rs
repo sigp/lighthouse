@@ -1624,7 +1624,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         None
                     }
                 }
-                SwarmEvent::Dialing { .. } => None,
+                _ => {
+                    // NOTE: SwarmEvent is a non exhaustive enum so updates should be based on
+                    // release notes more than compiler feedback
+                    None
+                }
             };
 
             if let Some(ev) = maybe_event {

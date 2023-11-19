@@ -7,8 +7,7 @@
 use futures::future::FutureExt;
 use handler::{HandlerEvent, RPCHandler};
 use libp2p::swarm::{
-    handler::ConnectionHandler, ConnectionId, NetworkBehaviour, NotifyHandler, PollParameters,
-    ToSwarm,
+    handler::ConnectionHandler, ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm,
 };
 use libp2p::swarm::{FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
@@ -282,25 +281,9 @@ where
         Ok(handler)
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
-        match event {
-            FromSwarm::ConnectionClosed(_)
-            | FromSwarm::ConnectionEstablished(_)
-            | FromSwarm::AddressChange(_)
-            | FromSwarm::DialFailure(_)
-            | FromSwarm::ListenFailure(_)
-            | FromSwarm::NewListener(_)
-            | FromSwarm::NewListenAddr(_)
-            | FromSwarm::ExpiredListenAddr(_)
-            | FromSwarm::ListenerError(_)
-            | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddrCandidate(_)
-            | FromSwarm::ExternalAddrExpired(_)
-            | FromSwarm::ExternalAddrConfirmed(_) => {
-                // Rpc Behaviour does not act on these swarm events. We use a comprehensive match
-                // statement to ensure future events are dealt with appropriately.
-            }
-        }
+    fn on_swarm_event(&mut self, _event: FromSwarm) {
+        // NOTE: FromSwarm is a non exhaustive enum so updates should be based on release notes more
+        // than compiler feedback
     }
 
     fn on_connection_handler_event(
@@ -374,11 +357,7 @@ where
         }
     }
 
-    fn poll(
-        &mut self,
-        cx: &mut Context,
-        _: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         // let the rate limiter prune.
         if let Some(limiter) = self.limiter.as_mut() {
             let _ = limiter.poll_unpin(cx);
