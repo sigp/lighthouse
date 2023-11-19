@@ -270,6 +270,48 @@ impl<E: EthSpec> LocalNetwork<E> {
         Ok(())
     }
 
+    pub async fn add_validator_client_with_fallbacks(
+        &self,
+        mut validator_config: ValidatorConfig,
+        validator_index: usize,
+        beacon_nodes: Vec<usize>,
+        validator_files: ValidatorFiles,
+    ) -> Result<(), String> {
+        let context = self
+            .context
+            .service_context(format!("validator_{}", validator_index));
+        let self_1 = self.clone();
+        let mut beacon_node_urls = vec![];
+        for beacon_node in beacon_nodes {
+            let socket_addr = {
+                let read_lock = self.beacon_nodes.read();
+                let beacon_node = read_lock
+                    .get(beacon_node)
+                    .ok_or_else(|| format!("No beacon node for index {}", beacon_node))?;
+                beacon_node
+                    .client
+                    .http_api_listen_addr()
+                    .expect("Must have http started")
+            };
+            let beacon_node = SensitiveUrl::parse(
+                format!("http://{}:{}", socket_addr.ip(), socket_addr.port()).as_str(),
+            )
+            .unwrap();
+            beacon_node_urls.push(beacon_node);
+        }
+
+        validator_config.beacon_nodes = beacon_node_urls;
+
+        let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
+            context,
+            validator_config,
+            validator_files,
+        )
+        .await?;
+        self_1.validator_clients.write().push(validator_client);
+        Ok(())
+    }
+
     /// For all beacon nodes in `Self`, return a HTTP client to access each nodes HTTP API.
     pub fn remote_nodes(&self) -> Result<Vec<BeaconNodeHttpClient>, String> {
         let beacon_nodes = self.beacon_nodes.read();

@@ -714,11 +714,35 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 }
 
 /// Serves as a cue for `BeaconNodeFallback` to tell which requests need to be broadcasted.
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, EnumString, EnumVariantNames)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
 pub enum ApiTopic {
     Attestations,
     Blocks,
     Subscriptions,
     SyncCommittee,
+}
+
+impl ApiTopic {
+    pub fn all() -> Vec<ApiTopic> {
+        use ApiTopic::*;
+        vec![Attestations, Blocks, Subscriptions, SyncCommittee]
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::str::FromStr;
+    use strum::VariantNames;
+
+    #[test]
+    fn api_topic_all() {
+        let all = ApiTopic::all();
+        assert_eq!(all.len(), ApiTopic::VARIANTS.len());
+        assert!(ApiTopic::VARIANTS
+            .iter()
+            .map(|topic| ApiTopic::from_str(topic).unwrap())
+            .eq(all.into_iter()));
+    }
 }
