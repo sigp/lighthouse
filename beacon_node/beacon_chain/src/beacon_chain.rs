@@ -122,7 +122,6 @@ use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
 use types::payload::BlockProductionVersion;
-use types::sidecar::BlobItems;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -490,10 +489,37 @@ pub enum BeaconBlockResponseType<T: EthSpec> {
     Blinded(BeaconBlockResponse<T, BlindedPayload<T>>),
 }
 
+impl<E: EthSpec> BeaconBlockResponseType<E> {
+    pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
+        Ok(match self {
+            BeaconBlockResponseType::Full(resp) => resp.block.to_ref().fork_name(spec)?,
+            BeaconBlockResponseType::Blinded(resp) => resp.block.to_ref().fork_name(spec)?,
+        })
+    }
+
+    pub fn execution_payload_value(&self) -> Option<Uint256> {
+        match self {
+            BeaconBlockResponseType::Full(resp) => resp.execution_payload_value,
+            BeaconBlockResponseType::Blinded(resp) => resp.execution_payload_value,
+        }
+    }
+
+    pub fn consensus_block_value(&self) -> Option<u64> {
+        match self {
+            BeaconBlockResponseType::Full(resp) => resp.consensus_block_value,
+            BeaconBlockResponseType::Blinded(resp) => resp.consensus_block_value,
+        }
+    }
+
+    pub fn is_blinded(&self) -> bool {
+        matches!(self, BeaconBlockResponseType::Blinded(_))
+    }
+}
+
 pub struct BeaconBlockResponse<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub block: BeaconBlock<T, Payload>,
     pub state: BeaconState<T>,
-    pub blob_items: Option<(KzgProofs<T>, <Payload::Sidecar as Sidecar<T>>::BlobItems)>,
+    pub blob_items: Option<(KzgProofs<T>, BlobsList<T>)>,
     pub execution_payload_value: Option<Uint256>,
     pub consensus_block_value: Option<u64>,
 }
@@ -4384,23 +4410,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         canonical_forkchoice_params: ForkchoiceUpdateParameters,
     ) -> Result<ForkchoiceUpdateParameters, Error> {
-        self.overridden_forkchoice_update_params_or_failure_reason(&canonical_forkchoice_params)
-            .or_else(|e| match e {
-                ProposerHeadError::DoNotReOrg(reason) => {
-                    trace!(
-                        self.log,
-                        "Not suppressing fork choice update";
-                        "reason" => %reason,
-                    );
-                    Ok(canonical_forkchoice_params)
-                }
-                ProposerHeadError::Error(e) => Err(e),
-            })
+        self.overridden_forkchoice_update_params_or_failure_reason(
+            &canonical_forkchoice_params,
+            false,
+        )
+        .or_else(|e| match e {
+            ProposerHeadError::DoNotReOrg(reason) => {
+                trace!(
+                    self.log,
+                    "Not suppressing fork choice update";
+                    "reason" => %reason,
+                );
+                Ok(canonical_forkchoice_params)
+            }
+            ProposerHeadError::Error(e) => Err(e),
+        })
     }
 
-    fn overridden_forkchoice_update_params_or_failure_reason(
+    pub fn overridden_forkchoice_update_params_or_failure_reason(
         &self,
         canonical_forkchoice_params: &ForkchoiceUpdateParameters,
+        testing: bool,
     ) -> Result<ForkchoiceUpdateParameters, ProposerHeadError<Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_OVERRIDE_FCU_TIMES);
 
@@ -4452,7 +4482,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Only attempt a re-org if we have a proposer registered for the re-org slot.
-        let proposing_at_re_org_slot = {
+        let proposing_at_re_org_slot = testing || {
             // The proposer shuffling has the same decision root as the next epoch attestation
             // shuffling. We know our re-org block is not on the epoch boundary, so it has the
             // same proposer shuffling as the head (but not necessarily the parent which may lie
@@ -4507,7 +4537,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // current slot, which would be necessary for determining its weight.
         let head_block_late =
             self.block_observed_after_attestation_deadline(head_block_root, head_slot);
-        if !head_block_late {
+        if !head_block_late && !testing {
             return Err(DoNotReOrg::HeadNotLate.into());
         }
 
@@ -5148,7 +5178,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let blobs_verification_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
         let blob_item = match (blobs_opt, proofs_opt) {
-            (Some(blobs_or_blobs_roots), Some(proofs)) => {
+            (Some(blobs), Some(proofs)) => {
                 let expected_kzg_commitments =
                     block.body().blob_kzg_commitments().map_err(|_| {
                         BlockProductionError::InvalidBlockVariant(
@@ -5156,32 +5186,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         )
                     })?;
 
-                if expected_kzg_commitments.len() != blobs_or_blobs_roots.len() {
+                if expected_kzg_commitments.len() != blobs.len() {
                     return Err(BlockProductionError::MissingKzgCommitment(format!(
                         "Missing KZG commitment for slot {}. Expected {}, got: {}",
                         block.slot(),
-                        blobs_or_blobs_roots.len(),
+                        blobs.len(),
                         expected_kzg_commitments.len()
                     )));
                 }
 
                 let kzg_proofs = Vec::from(proofs);
 
-                if let Some(blobs) = blobs_or_blobs_roots.blobs() {
-                    let kzg = self
-                        .kzg
-                        .as_ref()
-                        .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
-                    kzg_utils::validate_blobs::<T::EthSpec>(
-                        kzg,
-                        expected_kzg_commitments,
-                        blobs.iter().collect(),
-                        &kzg_proofs,
-                    )
-                    .map_err(BlockProductionError::KzgError)?;
-                }
+                let kzg = self
+                    .kzg
+                    .as_ref()
+                    .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
+                kzg_utils::validate_blobs::<T::EthSpec>(
+                    kzg,
+                    expected_kzg_commitments,
+                    blobs.iter().collect(),
+                    &kzg_proofs,
+                )
+                .map_err(BlockProductionError::KzgError)?;
 
-                Some((kzg_proofs.into(), blobs_or_blobs_roots))
+                Some((kzg_proofs.into(), blobs))
             }
             _ => None,
         };

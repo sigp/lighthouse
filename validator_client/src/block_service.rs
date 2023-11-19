@@ -23,8 +23,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use types::{
-    AbstractExecPayload, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti, PublicKeyBytes,
-    Slot,
+    BlindedBeaconBlock, EthSpec, Graffiti, PublicKeyBytes, SignedBlindedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -346,7 +345,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     if builder_proposals {
                         let result = service
                             .clone()
-                            .publish_block::<BlindedPayload<E>>(slot, validator_pubkey)
+                            .publish_block(slot, validator_pubkey, true)
                             .await;
                         match result {
                             Err(BlockError::Recoverable(e)) => {
@@ -357,9 +356,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     "block_slot" => ?slot,
                                     "info" => "blinded proposal failed, attempting full block"
                                 );
-                                if let Err(e) = service
-                                    .publish_block::<FullPayload<E>>(slot, validator_pubkey)
-                                    .await
+                                if let Err(e) =
+                                    service.publish_block(slot, validator_pubkey, false).await
                                 {
                                     // Log a `crit` since a full block
                                     // (non-builder) proposal failed.
@@ -386,9 +384,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             }
                             Ok(_) => {}
                         };
-                    } else if let Err(e) = service
-                        .publish_block::<FullPayload<E>>(slot, validator_pubkey)
-                        .await
+                    } else if let Err(e) =
+                        service.publish_block(slot, validator_pubkey, false).await
                     {
                         // Log a `crit` since a full block (non-builder)
                         // proposal failed.
@@ -409,10 +406,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     }
 
     /// Produce a block at the given slot for validator_pubkey
-    async fn publish_block<Payload: AbstractExecPayload<E>>(
+    async fn publish_block(
         self,
         slot: Slot,
         validator_pubkey: PublicKeyBytes,
+        builder_proposal: bool,
     ) -> Result<(), BlockError> {
         let log = self.context.log();
         let _timer =
@@ -475,7 +473,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         //
         // Try the proposer nodes last, since it's likely that they don't have a
         // great view of attestations on the network.
-        let block_contents = proposer_fallback
+        let unsigned_block = proposer_fallback
             .first_success_try_proposers_last(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
@@ -486,20 +484,32 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         randao_reveal_ref,
                         graffiti,
                         proposer_index,
+                        builder_proposal,
                         log,
                     )
                 },
             )
             .await?;
 
-        let (block, blob_items) = block_contents.deconstruct();
         let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
 
-        let signed_block = match self_ref
-            .validator_store
-            .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
-            .await
-        {
+        let res = match unsigned_block {
+            UnsignedBlock::Full(block_contents) => {
+                let (block, maybe_blobs) = block_contents.deconstruct();
+                self_ref
+                    .validator_store
+                    .sign_block(*validator_pubkey_ref, block, current_slot)
+                    .await
+                    .map(|b| SignedBlock::Full(SignedBlockContents::new(b, maybe_blobs)))
+            }
+            UnsignedBlock::Blinded(block) => self_ref
+                .validator_store
+                .sign_block(*validator_pubkey_ref, block, current_slot)
+                .await
+                .map(SignedBlock::Blinded),
+        };
+
+        let signed_block = match res {
             Ok(block) => block,
             Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
                 // A pubkey can be missing when a validator was recently removed
@@ -531,8 +541,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "signing_time_ms" => signing_time_ms,
         );
 
-        let signed_block_contents = SignedBlockContents::from((signed_block, blob_items));
-
         // Publish block with first available beacon node.
         //
         // Try the proposer nodes first, since we've likely gone to efforts to
@@ -543,11 +551,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async {
-                    self.publish_signed_block_contents::<Payload>(
-                        &signed_block_contents,
-                        beacon_node,
-                    )
-                    .await
+                    self.publish_signed_block_contents(&signed_block, beacon_node)
+                        .await
                 },
             )
             .await?;
@@ -555,41 +560,41 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         info!(
             log,
             "Successfully published block";
-            "block_type" => ?Payload::block_type(),
-            "deposits" => signed_block_contents.signed_block().message().body().deposits().len(),
-            "attestations" => signed_block_contents.signed_block().message().body().attestations().len(),
+            "builder_proposal" => builder_proposal,
+            "deposits" => signed_block.num_deposits(),
+            "attestations" => signed_block.num_attestations(),
             "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
-            "slot" => signed_block_contents.signed_block().slot().as_u64(),
+            "slot" => signed_block.slot().as_u64(),
         );
 
         Ok(())
     }
 
-    async fn publish_signed_block_contents<Payload: AbstractExecPayload<E>>(
+    async fn publish_signed_block_contents(
         &self,
-        signed_block_contents: &SignedBlockContents<E, Payload>,
+        signed_block: &SignedBlock<E>,
         beacon_node: &BeaconNodeHttpClient,
     ) -> Result<(), BlockError> {
         let log = self.context.log();
-        let slot = signed_block_contents.signed_block().slot();
-        match Payload::block_type() {
-            BlockType::Full => {
+        let slot = signed_block.slot();
+        match signed_block {
+            SignedBlock::Full(signed_block) => {
                 let _post_timer = metrics::start_timer_vec(
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BEACON_BLOCK_HTTP_POST],
                 );
                 beacon_node
-                    .post_beacon_blocks(signed_block_contents)
+                    .post_beacon_blocks(signed_block)
                     .await
                     .or_else(|e| handle_block_post_error(e, slot, log))?
             }
-            BlockType::Blinded => {
+            SignedBlock::Blinded(signed_block) => {
                 let _post_timer = metrics::start_timer_vec(
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
                 );
                 beacon_node
-                    .post_beacon_blinded_blocks(signed_block_contents)
+                    .post_beacon_blinded_blocks(signed_block)
                     .await
                     .or_else(|e| handle_block_post_error(e, slot, log))?
             }
@@ -597,22 +602,23 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         Ok::<_, BlockError>(())
     }
 
-    async fn get_validator_block<Payload: AbstractExecPayload<E>>(
+    async fn get_validator_block(
         beacon_node: &BeaconNodeHttpClient,
         slot: Slot,
         randao_reveal_ref: &SignatureBytes,
         graffiti: Option<Graffiti>,
         proposer_index: Option<u64>,
+        builder_proposal: bool,
         log: &Logger,
-    ) -> Result<BlockContents<E, Payload>, BlockError> {
-        let block_contents: BlockContents<E, Payload> = match Payload::block_type() {
-            BlockType::Full => {
-                let _get_timer = metrics::start_timer_vec(
-                    &metrics::BLOCK_SERVICE_TIMES,
-                    &[metrics::BEACON_BLOCK_HTTP_GET],
-                );
+    ) -> Result<UnsignedBlock<E>, BlockError> {
+        let unsigned_block = if !builder_proposal {
+            let _get_timer = metrics::start_timer_vec(
+                &metrics::BLOCK_SERVICE_TIMES,
+                &[metrics::BEACON_BLOCK_HTTP_GET],
+            );
+            UnsignedBlock::Full(
                 beacon_node
-                    .get_validator_blocks::<E, Payload>(slot, randao_reveal_ref, graffiti.as_ref())
+                    .get_validator_blocks::<E>(slot, randao_reveal_ref, graffiti.as_ref())
                     .await
                     .map_err(|e| {
                         BlockError::Recoverable(format!(
@@ -620,19 +626,16 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             e
                         ))
                     })?
-                    .data
-            }
-            BlockType::Blinded => {
-                let _get_timer = metrics::start_timer_vec(
-                    &metrics::BLOCK_SERVICE_TIMES,
-                    &[metrics::BLINDED_BEACON_BLOCK_HTTP_GET],
-                );
+                    .data,
+            )
+        } else {
+            let _get_timer = metrics::start_timer_vec(
+                &metrics::BLOCK_SERVICE_TIMES,
+                &[metrics::BLINDED_BEACON_BLOCK_HTTP_GET],
+            );
+            UnsignedBlock::Blinded(
                 beacon_node
-                    .get_validator_blinded_blocks::<E, Payload>(
-                        slot,
-                        randao_reveal_ref,
-                        graffiti.as_ref(),
-                    )
+                    .get_validator_blinded_blocks::<E>(slot, randao_reveal_ref, graffiti.as_ref())
                     .await
                     .map_err(|e| {
                         BlockError::Recoverable(format!(
@@ -640,8 +643,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             e
                         ))
                     })?
-                    .data
-            }
+                    .data,
+            )
         };
 
         info!(
@@ -649,13 +652,53 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "Received unsigned block";
             "slot" => slot.as_u64(),
         );
-        if proposer_index != Some(block_contents.block().proposer_index()) {
+        if proposer_index != Some(unsigned_block.proposer_index()) {
             return Err(BlockError::Recoverable(
                 "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
             ));
         }
 
-        Ok::<_, BlockError>(block_contents)
+        Ok::<_, BlockError>(unsigned_block)
+    }
+}
+
+pub enum UnsignedBlock<E: EthSpec> {
+    Full(BlockContents<E>),
+    Blinded(BlindedBeaconBlock<E>),
+}
+
+impl<E: EthSpec> UnsignedBlock<E> {
+    pub fn proposer_index(&self) -> u64 {
+        match self {
+            UnsignedBlock::Full(block) => block.block().proposer_index(),
+            UnsignedBlock::Blinded(block) => block.proposer_index(),
+        }
+    }
+}
+
+pub enum SignedBlock<E: EthSpec> {
+    Full(SignedBlockContents<E>),
+    Blinded(SignedBlindedBeaconBlock<E>),
+}
+
+impl<E: EthSpec> SignedBlock<E> {
+    pub fn slot(&self) -> Slot {
+        match self {
+            SignedBlock::Full(block) => block.signed_block().message().slot(),
+            SignedBlock::Blinded(block) => block.message().slot(),
+        }
+    }
+    pub fn num_deposits(&self) -> usize {
+        match self {
+            SignedBlock::Full(block) => block.signed_block().message().body().deposits().len(),
+            SignedBlock::Blinded(block) => block.message().body().deposits().len(),
+        }
+    }
+    pub fn num_attestations(&self) -> usize {
+        match self {
+            SignedBlock::Full(block) => block.signed_block().message().body().attestations().len(),
+            SignedBlock::Blinded(block) => block.message().body().attestations().len(),
+        }
     }
 }
 

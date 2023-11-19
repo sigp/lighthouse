@@ -101,17 +101,41 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use types::{BlobSidecar, Hash256, MainnetEthSpec};
+    use tree_hash::TreeHash;
+    use types::{
+        test_utils::TestRandom, BlobSidecar, Hash256, MainnetEthSpec, SignedBeaconBlockHeader,
+    };
 
     type E = MainnetEthSpec;
 
-    fn get_blob_sidecar(slot: u64, block_root: Hash256, index: u64) -> Arc<BlobSidecar<E>> {
+    fn get_blob_sidecar(slot: u64, index: u64) -> (Hash256, Arc<BlobSidecar<E>>) {
+        let mut header = SignedBeaconBlockHeader::random_for_test(&mut rand::thread_rng());
+        header.message.slot = slot.into();
+        let block_root = header.message.tree_hash_root();
+
         let mut blob_sidecar = BlobSidecar::empty();
-        // TODO(pawan): have a block root setter for tests
-        // blob_sidecar.block_root = block_root;
-        blob_sidecar.signed_block_header.message.slot = slot.into();
+        blob_sidecar.signed_block_header = header;
         blob_sidecar.index = index;
-        Arc::new(blob_sidecar)
+        (block_root, Arc::new(blob_sidecar))
+    }
+
+    fn get_blob_sidecars(
+        slot: u64,
+        start_index: u64,
+        count: u64,
+    ) -> (Hash256, Vec<Arc<BlobSidecar<E>>>) {
+        let mut sidecars = vec![];
+        let mut header = SignedBeaconBlockHeader::random_for_test(&mut rand::thread_rng());
+        header.message.slot = slot.into();
+        let block_root = header.message.tree_hash_root();
+
+        let mut blob_sidecar = BlobSidecar::empty();
+        blob_sidecar.signed_block_header = header;
+        for i in start_index..start_index + count {
+            blob_sidecar.index = i;
+            sidecars.push(Arc::new(blob_sidecar.clone()));
+        }
+        (block_root, sidecars)
     }
 
     #[test]
@@ -122,8 +146,7 @@ mod tests {
         assert_eq!(cache.items.len(), 0, "no slots should be present");
 
         // Slot 0, index 0
-        let block_root_a = Hash256::random();
-        let sidecar_a = get_blob_sidecar(0, block_root_a, 0);
+        let (block_root_a, sidecar_a) = get_blob_sidecar(0, 0);
 
         assert_eq!(
             cache.observe_sidecar(&sidecar_a),
@@ -186,7 +209,7 @@ mod tests {
          */
 
         // First slot of finalized epoch
-        let block_b = get_blob_sidecar(E::slots_per_epoch(), Hash256::random(), 0);
+        let (_, block_b) = get_blob_sidecar(E::slots_per_epoch(), 0);
 
         assert_eq!(
             cache.observe_sidecar(&block_b),
@@ -206,8 +229,7 @@ mod tests {
         let three_epochs = E::slots_per_epoch() * 3;
 
         // First slot of finalized epoch
-        let block_root_b = Hash256::random();
-        let block_b = get_blob_sidecar(three_epochs, block_root_b, 0);
+        let (block_root_b, block_b) = get_blob_sidecar(three_epochs, 0);
 
         assert_eq!(
             cache.observe_sidecar(&block_b),
@@ -255,9 +277,14 @@ mod tests {
     fn simple_observations() {
         let mut cache = ObservedBlobSidecars::default();
 
+        let invalid_index = E::max_blobs_per_block() as u64;
+        let (block_root_a, sidecars) = get_blob_sidecars(0, 0, invalid_index + 1);
         // Slot 0, index 0
-        let block_root_a = Hash256::random();
-        let sidecar_a = get_blob_sidecar(0, block_root_a, 0);
+        let sidecar_a = sidecars[0].clone();
+        // Slot 0, index 1
+        let sidecar_c = sidecars[1].clone();
+        // Slot 0, index 6 (invalid)
+        let sidecar_d = sidecars[6].clone();
 
         assert_eq!(
             cache.is_known(&sidecar_a),
@@ -296,9 +323,7 @@ mod tests {
         );
 
         // Slot 1, proposer 0
-
-        let block_root_b = Hash256::random();
-        let sidecar_b = get_blob_sidecar(1, block_root_b, 0);
+        let (block_root_b, sidecar_b) = get_blob_sidecar(1, 0);
 
         assert_eq!(
             cache.is_known(&sidecar_b),
@@ -342,9 +367,6 @@ mod tests {
             "only one proposer should be present in slot 1"
         );
 
-        // Slot 0, index 1
-        let sidecar_c = get_blob_sidecar(0, block_root_a, 1);
-
         assert_eq!(
             cache.is_known(&sidecar_c),
             Ok(false),
@@ -378,9 +400,6 @@ mod tests {
             "two blob indices should be present in slot 0"
         );
 
-        // Try adding an out of bounds index
-        let invalid_index = E::max_blobs_per_block() as u64;
-        let sidecar_d = get_blob_sidecar(0, block_root_a, invalid_index);
         assert_eq!(
             cache.observe_sidecar(&sidecar_d),
             Err(Error::InvalidBlobIndex(invalid_index)),

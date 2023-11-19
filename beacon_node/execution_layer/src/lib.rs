@@ -14,8 +14,8 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
+use eth2::types::FullPayloadContents;
 use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
-use eth2::types::{FullPayloadContents, SignedBlockContents};
 use ethers_core::types::Transaction as EthersTransaction;
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
@@ -43,8 +43,9 @@ use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::builder_bid::BuilderBid;
 use types::payload::BlockProductionVersion;
-use types::sidecar::{BlobItems, Sidecar};
-use types::{AbstractExecPayload, ExecutionPayloadDeneb, KzgProofs};
+use types::{
+    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, KzgProofs, SignedBlindedBeaconBlock,
+};
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadCapella,
     ExecutionPayloadMerge, FullPayload, ProposerPreparationData, PublicKeyBytes, Signature, Slot,
@@ -109,12 +110,9 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                     .try_into()
                     .map_err(|_| Error::InvalidPayloadConversion)?,
                 block_value: builder_bid.value,
-                kzg_commitments: builder_bid.blinded_blobs_bundle.commitments,
-                blobs: BlobItems::<E>::try_from_blob_roots(
-                    builder_bid.blinded_blobs_bundle.blob_roots,
-                )
-                .map_err(Error::InvalidBlobConversion)?,
-                proofs: builder_bid.blinded_blobs_bundle.proofs,
+                kzg_commitments: builder_bid.blob_kzg_commitments,
+                blobs: None,
+                proofs: None,
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -176,8 +174,8 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         payload: Payload,
         block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
-        blobs: <Payload::Sidecar as Sidecar<T>>::BlobItems,
-        proofs: KzgProofs<T>,
+        blobs: Option<BlobsList<T>>,
+        proofs: Option<KzgProofs<T>>,
     },
 }
 
@@ -209,9 +207,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
                 payload: execution_payload.into(),
                 block_value,
                 kzg_commitments: bundle.commitments,
-                blobs: BlobItems::try_from_blobs(bundle.blobs)
-                    .map_err(Error::InvalidBlobConversion)?,
-                proofs: bundle.proofs,
+                blobs: Some(bundle.blobs),
+                proofs: Some(bundle.proofs),
             }),
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),
@@ -239,7 +236,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
     ) -> (
         Payload,
         Option<KzgCommitments<T>>,
-        Option<<Payload::Sidecar as Sidecar<T>>::BlobItems>,
+        Option<BlobsList<T>>,
         Option<KzgProofs<T>>,
         Uint256,
     ) {
@@ -254,13 +251,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 kzg_commitments,
                 blobs,
                 proofs,
-            } => (
-                payload,
-                Some(kzg_commitments),
-                Some(blobs),
-                Some(proofs),
-                block_value,
-            ),
+            } => (payload, Some(kzg_commitments), blobs, proofs, block_value),
         }
     }
 
@@ -281,23 +272,6 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             Self::Payload { block_value, .. } => block_value,
             Self::PayloadAndBlobs { block_value, .. } => block_value,
         }
-    }
-    pub fn default_at_fork(fork_name: ForkName) -> Result<Self, BeaconStateError> {
-        Ok(match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                BlockProposalContents::Payload {
-                    payload: Payload::default_at_fork(fork_name)?,
-                    block_value: Uint256::zero(),
-                }
-            }
-            ForkName::Deneb => BlockProposalContents::PayloadAndBlobs {
-                payload: Payload::default_at_fork(fork_name)?,
-                block_value: Uint256::zero(),
-                blobs: Payload::default_blobs_at_fork(fork_name)?,
-                kzg_commitments: VariableList::default(),
-                proofs: VariableList::default(),
-            },
-        })
     }
 }
 
@@ -1965,7 +1939,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn propose_blinded_beacon_block(
         &self,
         block_root: Hash256,
-        block: &SignedBlockContents<T, BlindedPayload<T>>,
+        block: &SignedBlindedBeaconBlock<T>,
     ) -> Result<FullPayloadContents<T>, Error> {
         debug!(
             self.log(),
@@ -2014,7 +1988,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "relay_response_ms" => duration.as_millis(),
                         "block_root" => ?block_root,
                         "parent_hash" => ?block
-                            .signed_block()
                             .message()
                             .execution_payload()
                             .map(|payload| format!("{}", payload.parent_hash()))

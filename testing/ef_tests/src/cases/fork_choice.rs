@@ -1,6 +1,10 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use ::fork_choice::PayloadVerificationStatus;
+use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
+use beacon_chain::blob_verification::GossipBlobError;
+use beacon_chain::chain_config::{
+    DisallowedReOrgOffsets, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+};
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     attestation_verification::{
@@ -38,6 +42,13 @@ pub struct Head {
     root: Hash256,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShouldOverrideFcu {
+    validator_is_connected: bool,
+    result: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Checks {
@@ -50,6 +61,8 @@ pub struct Checks {
     u_justified_checkpoint: Option<Checkpoint>,
     u_finalized_checkpoint: Option<Checkpoint>,
     proposer_boost_root: Option<Hash256>,
+    get_proposer_head: Option<Hash256>,
+    should_override_forkchoice_update: Option<ShouldOverrideFcu>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -256,6 +269,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         u_justified_checkpoint,
                         u_finalized_checkpoint,
                         proposer_boost_root,
+                        get_proposer_head,
+                        should_override_forkchoice_update: should_override_fcu,
                     } = checks.as_ref();
 
                     if let Some(expected_head) = head {
@@ -293,6 +308,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 
                     if let Some(expected_proposer_boost_root) = proposer_boost_root {
                         tester.check_expected_proposer_boost_root(*expected_proposer_boost_root)?;
+                    }
+
+                    if let Some(expected_proposer_head) = get_proposer_head {
+                        tester.check_expected_proposer_head(*expected_proposer_head)?;
+                    }
+
+                    if let Some(should_override_fcu) = should_override_fcu {
+                        tester.check_should_override_fcu(*should_override_fcu)?;
                     }
                 }
             }
@@ -413,6 +436,8 @@ impl<E: EthSpec> Tester<E> {
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
 
+        let mut blob_success = true;
+
         // Convert blobs and kzg_proofs into sidecars, then plumb them into the availability tracker
         if let Some(blobs) = blobs.clone() {
             let proofs = kzg_proofs.unwrap();
@@ -440,11 +465,18 @@ impl<E: EthSpec> Tester<E> {
                     signed_block_header: block.signed_block_header(),
                     kzg_commitment_inclusion_proof: block.kzg_commitment_merkle_proof(i).unwrap(),
                 });
-                let result = self.block_on_dangerous(
-                    self.harness
-                        .chain
-                        .process_gossip_blob(GossipVerifiedBlob::__assumed_valid(blob_sidecar)),
-                )?;
+
+                let chain = self.harness.chain.clone();
+                let blob = match GossipVerifiedBlob::new(blob_sidecar.clone(), &chain) {
+                    Ok(gossip_verified_blob) => gossip_verified_blob,
+                    Err(GossipBlobError::KzgError(_)) => {
+                        blob_success = false;
+                        GossipVerifiedBlob::__assumed_valid(blob_sidecar)
+                    }
+                    Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
+                };
+                let result =
+                    self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
                 if valid {
                     assert!(result.is_ok());
                 }
@@ -460,7 +492,7 @@ impl<E: EthSpec> Tester<E> {
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
-        let success = result.as_ref().map_or(false, |inner| inner.is_ok());
+        let success = blob_success && result.as_ref().map_or(false, |inner| inner.is_ok());
         if success != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
@@ -695,6 +727,64 @@ impl<E: EthSpec> Tester<E> {
             "proposer_boost_root",
             proposer_boost_root,
             expected_proposer_boost_root,
+        )
+    }
+
+    pub fn check_expected_proposer_head(
+        &self,
+        expected_proposer_head: Hash256,
+    ) -> Result<(), Error> {
+        let mut fc = self.harness.chain.canonical_head.fork_choice_write_lock();
+        let slot = self.harness.chain.slot().unwrap();
+        let canonical_head = fc.get_head(slot, &self.harness.spec).unwrap();
+        let proposer_head_result = fc.get_proposer_head(
+            slot,
+            canonical_head,
+            DEFAULT_RE_ORG_THRESHOLD,
+            &DisallowedReOrgOffsets::default(),
+            DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+        );
+        let proposer_head = match proposer_head_result {
+            Ok(head) => head.parent_node.root,
+            Err(ProposerHeadError::DoNotReOrg(_)) => canonical_head,
+            _ => panic!("Unexpected error in get proposer head"),
+        };
+
+        check_equal("proposer_head", proposer_head, expected_proposer_head)
+    }
+
+    pub fn check_should_override_fcu(
+        &self,
+        expected_should_override_fcu: ShouldOverrideFcu,
+    ) -> Result<(), Error> {
+        let canonical_fcu_params = self
+            .harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .forkchoice_update_parameters();
+        let fcu_params_result = self
+            .harness
+            .chain
+            .overridden_forkchoice_update_params_or_failure_reason(&canonical_fcu_params, true);
+
+        let should_override = match fcu_params_result {
+            Ok(_) => true,
+            Err(ProposerHeadError::DoNotReOrg(_)) => false,
+            _ => panic!("Unexpected error in fcu override"),
+        };
+
+        let should_override_fcu = ShouldOverrideFcu {
+            // Testing this doesn't really make sense because we don't call `override_forkchoice_update_params`
+            // unless a validator is connected.
+            validator_is_connected: expected_should_override_fcu.validator_is_connected,
+            result: should_override,
+        };
+
+        check_equal(
+            "proposer_head",
+            should_override_fcu,
+            expected_should_override_fcu,
         )
     }
 }

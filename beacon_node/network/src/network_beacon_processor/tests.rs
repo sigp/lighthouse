@@ -34,8 +34,8 @@ use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     Attestation, AttesterSlashing, BlobSidecar, BlobSidecarList, Epoch, Hash256, MainnetEthSpec,
-    ProposerSlashing, Sidecar, SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit,
-    Slot, SubnetId,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot,
+    SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -186,8 +186,10 @@ impl TestRig {
 
         let log = harness.logger().clone();
 
-        let mut beacon_processor_config = BeaconProcessorConfig::default();
-        beacon_processor_config.enable_backfill_rate_limiting = enable_backfill_rate_limiting;
+        let beacon_processor_config = BeaconProcessorConfig {
+            enable_backfill_rate_limiting,
+            ..Default::default()
+        };
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
@@ -243,18 +245,10 @@ impl TestRig {
             chain.spec.maximum_gossip_clock_disparity(),
         );
 
-        assert!(!beacon_processor.is_err());
+        assert!(beacon_processor.is_ok());
         let block = next_block_tuple.0;
         let blob_sidecars = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
-            Some(
-                BlobSidecar::build_sidecar(
-                    blobs,
-                    &block,
-                    block.message().body().blob_kzg_commitments().unwrap(),
-                    kzg_proofs.into(),
-                )
-                .unwrap(),
-            )
+            Some(BlobSidecar::build_sidecars(blobs, &block, kzg_proofs).unwrap())
         } else {
             None
         };
@@ -319,7 +313,7 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone().into()),
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
                 std::time::Duration::default(),
                 BlockProcessType::ParentLookup {
                     chain_hash: Hash256::random(),
@@ -333,7 +327,7 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone().into()),
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )
@@ -341,8 +335,7 @@ impl TestRig {
     }
     pub fn enqueue_single_lookup_rpc_blobs(&self) {
         if let Some(blobs) = self.next_blobs.clone() {
-            let blobs =
-                FixedBlobSidecarList::from(blobs.into_iter().map(|b| Some(b)).collect::<Vec<_>>());
+            let blobs = FixedBlobSidecarList::from(blobs.into_iter().map(Some).collect::<Vec<_>>());
             self.network_beacon_processor
                 .send_rpc_blobs(
                     self.next_block.canonical_root(),
