@@ -1,0 +1,13 @@
+[package]
+name = "serde_utils"
+version = "0.1.0"
+authors = ["Jack McPherson <jack@sigmaprime.io>"]
+edition = { workspace = true }
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+types = { workspace = true }

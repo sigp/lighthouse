@@ -38,6 +38,7 @@ members = [
     "common/oneshot_broadcast",
     "common/pretty_reqwest_error",
     "common/sensitive_url",
+    "common/serde_utils",
     "common/slot_clock",
     "common/system_health",
     "common/task_executor",
