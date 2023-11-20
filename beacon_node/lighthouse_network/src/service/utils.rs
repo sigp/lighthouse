@@ -44,7 +44,7 @@ type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 pub fn build_transport(
     local_private_key: Keypair,
     quic_support: bool,
-) -> std::io::Result<(BoxedTransport, AggregatedBandwidthSinks)> {
+) -> std::io::Result<BoxedTransport> {
     // mplex config
     let mut mplex_config = libp2p_mplex::MplexConfig::new();
     mplex_config.set_max_buffer_size(256);
@@ -53,44 +53,35 @@ pub fn build_transport(
     // yamux config
     let mut yamux_config = yamux::Config::default();
     yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());
-
     // Creates the TCP transport layer
-    let (tcp, tcp_bandwidth) =
-        libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
-            .upgrade(core::upgrade::Version::V1)
-            .authenticate(generate_noise_config(&local_private_key))
-            .multiplex(core::upgrade::SelectUpgrade::new(
-                yamux_config,
-                mplex_config,
-            ))
-            .timeout(Duration::from_secs(10))
-            .with_bandwidth_logging();
-
-    let (transport, bandwidth) = if quic_support {
+    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
+        .upgrade(core::upgrade::Version::V1)
+        .authenticate(generate_noise_config(&local_private_key))
+        .multiplex(core::upgrade::SelectUpgrade::new(
+            yamux_config,
+            mplex_config,
+        ))
+        .timeout(Duration::from_secs(10));
+    let transport = if quic_support {
         // Enables Quic
         // The default quic configuration suits us for now.
         let quic_config = libp2p_quic::Config::new(&local_private_key);
-        let (quic, quic_bandwidth) =
-            libp2p_quic::tokio::Transport::new(quic_config).with_bandwidth_logging();
+        let quic = libp2p_quic::tokio::Transport::new(quic_config);
         let transport = tcp
             .or_transport(quic)
             .map(|either_output, _| match either_output {
                 Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
                 Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
-            })
-            .boxed();
-        (
-            transport,
-            AggregatedBandwidthSinks::new(tcp_bandwidth, Some(quic_bandwidth)),
-        )
+            });
+        transport.boxed()
     } else {
-        (tcp, AggregatedBandwidthSinks::new(tcp_bandwidth, None))
+        tcp.boxed()
     };
 
     // Enables DNS over the transport.
     let transport = libp2p::dns::tokio::Transport::system(transport)?.boxed();
 
-    Ok((transport, bandwidth))
+    Ok(transport)
 }
 
 // Useful helper functions for debugging. Currently not used in the client.
