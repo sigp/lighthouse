@@ -45,6 +45,9 @@ const MAX_ADVANCE_DISTANCE: u64 = 4;
 /// impact whilst having 8 epochs without a block is a comfortable grace period.
 const MAX_FORK_CHOICE_DISTANCE: u64 = 256;
 
+/// Drop any unused block production state cache after this many slots.
+const MAX_BLOCK_PRODUCTION_CACHE_DISTANCE: u64 = 4;
+
 #[derive(Debug)]
 enum Error {
     BeaconChain(BeaconChainError),
@@ -244,8 +247,8 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                 // in `ForkChoiceSignalTx`.
                 beacon_chain.task_executor.clone().spawn_blocking(
                     move || {
-                        // If we're proposing, clone the head state preemptively so that it isn't on the hot
-                        // path of proposing. We can delete this once we have tree-states.
+                        // If we're proposing, clone the head state preemptively so that it isn't on
+                        // the hot path of proposing. We can delete this once we have tree-states.
                         if let Some(proposer_head) = proposer_head {
                             if let Some(proposer_state) = beacon_chain
                                 .snapshot_cache
@@ -262,14 +265,25 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                                     "head_block_root" => ?proposer_head,
                                     "slot" => next_slot
                                 );
+                            } else {
+                                warn!(
+                                    log,
+                                    "Block production state missing from snapshot cache";
+                                    "head_block_root" => ?proposer_head,
+                                    "slot" => next_slot
+                                );
                             }
                         } else {
-                            warn!(
-                                log,
-                                "Block production state missing from snapshot cache";
-                                "head_block_root" => ?proposer_head,
-                                "slot" => next_slot
-                            );
+                            // If we aren't proposing, drop any old block production cache to save
+                            // memory.
+                            let mut cache = beacon_chain.block_production_state.lock();
+                            if let Some((_, state)) = &*cache {
+                                if state.pre_state.slot() + MAX_BLOCK_PRODUCTION_CACHE_DISTANCE
+                                    <= current_slot
+                                {
+                                    drop(cache.take());
+                                }
+                            }
                         }
 
                         // Signal block proposal for the next slot (if it happens to be waiting).

@@ -482,6 +482,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     /// The KZG trusted setup used by this chain.
     pub kzg: Option<Arc<Kzg>>,
+    /// State with complete tree hash cache, ready for block production.
+    ///
+    /// NB: We can delete this once we have tree-states.
     #[allow(clippy::type_complexity)]
     pub block_production_state: Arc<Mutex<Option<(Hash256, BlockProductionPreState<T::EthSpec>)>>>,
 }
