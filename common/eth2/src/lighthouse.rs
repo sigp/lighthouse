@@ -11,7 +11,7 @@ use crate::{
     ok_or_error,
     types::{
         BeaconState, ChainSpec, DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock,
-        GenericResponse, ValidatorId,
+        GenericResponse, PeersData, ValidatorId,
     },
     BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot, StateId, StatusCode,
 };
@@ -41,7 +41,7 @@ four_byte_option_impl!(four_byte_option_hash256, Hash256);
 
 /// Information returned by `peers` and `connected_peers`.
 // TODO: this should be deserializable..
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct Peer<T: EthSpec> {
     /// The Peer's ID
@@ -420,6 +420,17 @@ impl BeaconNodeHttpClient {
      * `Deserialize` on the `PeerInfo` struct since it contains use of `Instant`. This could be
      * fairly simply achieved, if desired.
      */
+
+    pub async fn get_lighthouse_peers(&self) -> Result<GenericResponse<PeersData>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("peers");
+
+        self.get(path).await
+    }
 
     /// `GET lighthouse/proto_array`
     pub async fn get_lighthouse_proto_array(&self) -> Result<GenericResponse<ProtoArray>, Error> {

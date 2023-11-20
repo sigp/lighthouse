@@ -4527,6 +4527,7 @@ dependencies = [
  "rand",
  "regex",
  "serde",
+ "serde_utils",
  "sha2 0.9.9",
  "slog",
  "slog-async",

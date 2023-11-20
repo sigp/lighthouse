@@ -7,7 +7,7 @@ use discv5::Enr;
 use libp2p::core::multiaddr::{Multiaddr, Protocol};
 use serde::{
     ser::{SerializeStruct, Serializer},
-    Serialize,
+    Deserialize, Serialize,
 };
 use std::collections::HashSet;
 use std::net::IpAddr;
@@ -16,8 +16,10 @@ use strum::AsRefStr;
 use types::EthSpec;
 use PeerConnectionStatus::*;
 
+use serde_utils::approx_instant;
+
 /// Information about a given connected peer.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct PeerInfo<T: EthSpec> {
     /// The peers reputation
@@ -35,6 +37,7 @@ pub struct PeerInfo<T: EthSpec> {
     /// The current syncing state of the peer. The state may be determined after it's initial
     /// connection.
     sync_status: SyncStatus,
+    #[serde(skip)]
     /// The ENR subnet bitfield of the peer. This may be determined after it's initial
     /// connection.
     meta_data: Option<MetaData<T>>,
@@ -473,7 +476,7 @@ impl<T: EthSpec> PeerInfo<T> {
 }
 
 /// Connection Direction of connection.
-#[derive(Debug, Clone, Serialize, AsRefStr)]
+#[derive(Debug, Clone, Deserialize, Serialize, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum ConnectionDirection {
     /// The connection was established by a peer dialing us.
@@ -483,7 +486,7 @@ pub enum ConnectionDirection {
 }
 
 /// Connection Status of the peer.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub enum PeerConnectionStatus {
     /// The peer is connected.
     Connected {
@@ -499,16 +502,19 @@ pub enum PeerConnectionStatus {
     },
     /// The peer has disconnected.
     Disconnected {
+        #[serde(with = "approx_instant")]
         /// last time the peer was connected or discovered.
         since: Instant,
     },
     /// The peer has been banned and is disconnected.
     Banned {
+        #[serde(with = "approx_instant")]
         /// moment when the peer was banned.
         since: Instant,
     },
     /// We are currently dialing this peer.
     Dialing {
+        #[serde(with = "approx_instant")]
         /// time since we last communicated with the peer.
         since: Instant,
     },

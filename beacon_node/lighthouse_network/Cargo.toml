@@ -5,6 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
 [dependencies]
+serde_utils = { path = "../../common/serde_utils" }
 discv5 = { workspace = true }
 unsigned-varint = { version = "0.6", features = ["codec"] }
 ssz_types = { workspace = true }

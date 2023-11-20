@@ -1,8 +1,8 @@
+use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 /// Serialise and deserialise `std::time::Instant`s
-/// 
+///
 /// Due to David Tolnay via: https://github.com/serde-rs/serde/issues/1375#issuecomment-419688068
 use std::time::{Instant, SystemTime};
-use serde::{Serialize, Serializer, Deserialize, Deserializer, de::Error};
 
 pub fn serialize<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
 where
