@@ -413,14 +413,6 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /*
-     * Note:
-     *
-     * The `lighthouse/peers` endpoints do not have functions here. We are yet to implement
-     * `Deserialize` on the `PeerInfo` struct since it contains use of `Instant`. This could be
-     * fairly simply achieved, if desired.
-     */
-
     pub async fn get_lighthouse_peers(&self) -> Result<GenericResponse<PeersData>, Error> {
         let mut path = self.server.full.clone();
 
