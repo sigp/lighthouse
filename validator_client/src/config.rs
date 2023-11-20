@@ -10,7 +10,7 @@ use directory::{
 use eth2::types::Graffiti;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{info, Logger};
+use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -222,6 +222,14 @@ impl Config {
             config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
         }
 
+        if cli_args.is_present("disable-run-on-all") {
+            warn!(
+                log,
+                "The --disable-run-on-all flag is deprecated";
+                "msg" => "please use --broadcast instead"
+            );
+            config.broadcast_topics = vec![];
+        }
         if let Some(broadcast_topics) = cli_args.value_of("broadcast") {
             config.broadcast_topics = broadcast_topics
                 .split(',')
