@@ -26,24 +26,29 @@ pub use self::error::Error;
 pub use self::models::{WatchBeaconBlock, WatchCanonicalSlot, WatchProposerInfo, WatchValidator};
 pub use self::watch_types::{WatchHash, WatchPK, WatchSlot};
 
+// Clippy has false positives on these re-exports from Rust 1.75.0-beta.1.
+#[allow(unused_imports)]
 pub use crate::block_rewards::{
     get_block_rewards_by_root, get_block_rewards_by_slot, get_highest_block_rewards,
     get_lowest_block_rewards, get_unknown_block_rewards, insert_batch_block_rewards,
     WatchBlockRewards,
 };
 
+#[allow(unused_imports)]
 pub use crate::block_packing::{
     get_block_packing_by_root, get_block_packing_by_slot, get_highest_block_packing,
     get_lowest_block_packing, get_unknown_block_packing, insert_batch_block_packing,
     WatchBlockPacking,
 };
 
+#[allow(unused_imports)]
 pub use crate::suboptimal_attestations::{
     get_all_suboptimal_attestations_for_epoch, get_attestation_by_index, get_attestation_by_pubkey,
     get_highest_attestation, get_lowest_attestation, insert_batch_suboptimal_attestations,
     WatchAttestation, WatchSuboptimalAttestation,
 };
 
+#[allow(unused_imports)]
 pub use crate::blockprint::{
     get_blockprint_by_root, get_blockprint_by_slot, get_highest_blockprint, get_lowest_blockprint,
     get_unknown_blockprint, get_validators_clients_at_slot, insert_batch_blockprint,

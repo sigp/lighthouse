@@ -2604,6 +2604,98 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_block_production_v3_ssz(self) -> Self {
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+
+            let proposer_pubkey_bytes = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|duty| duty.slot == slot)
+                .map(|duty| duty.pubkey)
+                .unwrap();
+            let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+            let sk = self
+                .validator_keypairs()
+                .iter()
+                .find(|kp| kp.pk == proposer_pubkey)
+                .map(|kp| kp.sk.clone())
+                .unwrap();
+
+            let randao_reveal = {
+                let domain = self.chain.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = epoch.signing_root(domain);
+                sk.sign(message).into()
+            };
+
+            let (fork_version_response_bytes, is_blinded_payload) = self
+                .client
+                .get_validator_blocks_v3_ssz::<E>(slot, &randao_reveal, None)
+                .await
+                .unwrap();
+
+            if is_blinded_payload {
+                let block_contents = <BlockContents<E, BlindedPayload<E>>>::from_ssz_bytes(
+                    &fork_version_response_bytes.unwrap(),
+                    &self.chain.spec,
+                )
+                .expect("block contents bytes can be decoded");
+
+                let signed_block_contents =
+                    block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+
+                self.client
+                    .post_beacon_blocks_ssz(&signed_block_contents)
+                    .await
+                    .unwrap();
+
+                // This converts the generic `Payload` to a concrete type for comparison.
+                let signed_block = signed_block_contents.deconstruct().0;
+                let head_block = SignedBeaconBlock::from(signed_block.clone());
+                assert_eq!(head_block, signed_block);
+
+                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+            } else {
+                let block_contents = <BlockContents<E, FullPayload<E>>>::from_ssz_bytes(
+                    &fork_version_response_bytes.unwrap(),
+                    &self.chain.spec,
+                )
+                .expect("block contents bytes can be decoded");
+
+                let signed_block_contents =
+                    block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+
+                self.client
+                    .post_beacon_blocks_ssz(&signed_block_contents)
+                    .await
+                    .unwrap();
+
+                assert_eq!(
+                    self.chain.head_beacon_block().as_ref(),
+                    signed_block_contents.signed_block()
+                );
+
+                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+            }
+        }
+
+        self
+    }
+
     pub async fn test_block_production_no_verify_randao(self) -> Self {
         for _ in 0..E::slots_per_epoch() {
             let slot = self.chain.slot().unwrap();
@@ -5030,6 +5122,20 @@ async fn block_production_ssz_with_skip_slots() {
         .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_block_production_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_ssz_v3() {
+    ApiTester::new().await.test_block_production_v3_ssz().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_v3_ssz_with_skip_slots() {
+    ApiTester::new()
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_block_production_v3_ssz()
         .await;
 }
 

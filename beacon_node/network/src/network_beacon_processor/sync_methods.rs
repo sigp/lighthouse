@@ -340,7 +340,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                warn!(
+                debug!(
                     self.log,
                     "Missing components over rpc";
                     "block_hash" => %block_root,
@@ -560,14 +560,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let available_blocks = match downloaded_blocks
-            .into_iter()
-            .map(|block| {
-                self.chain
-                    .data_availability_checker
-                    .check_rpc_block_availability(block)
-            })
-            .collect::<Result<Vec<_>, _>>()
+        let available_blocks = match self
+            .chain
+            .data_availability_checker
+            .verify_kzg_for_rpc_blocks(downloaded_blocks)
         {
             Ok(blocks) => blocks
                 .into_iter()

@@ -94,21 +94,15 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
     fn try_from(value: BuilderBid<E>) -> Result<Self, Error> {
         let block_proposal_contents = match value {
             BuilderBid::Merge(builder_bid) => BlockProposalContents::Payload {
-                payload: ExecutionPayloadHeader::Merge(builder_bid.header)
-                    .try_into()
-                    .map_err(|_| Error::InvalidPayloadConversion)?,
+                payload: ExecutionPayloadHeader::Merge(builder_bid.header).into(),
                 block_value: builder_bid.value,
             },
             BuilderBid::Capella(builder_bid) => BlockProposalContents::Payload {
-                payload: ExecutionPayloadHeader::Capella(builder_bid.header)
-                    .try_into()
-                    .map_err(|_| Error::InvalidPayloadConversion)?,
+                payload: ExecutionPayloadHeader::Capella(builder_bid.header).into(),
                 block_value: builder_bid.value,
             },
             BuilderBid::Deneb(builder_bid) => BlockProposalContents::PayloadAndBlobs {
-                payload: ExecutionPayloadHeader::Deneb(builder_bid.header)
-                    .try_into()
-                    .map_err(|_| Error::InvalidPayloadConversion)?,
+                payload: ExecutionPayloadHeader::Deneb(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs: None,

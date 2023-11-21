@@ -764,12 +764,13 @@ mod test {
     ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
+        let blobs_path = db_path.path().join("blobs_db");
         let config = StoreConfig::default();
 
         HotColdDB::open(
             &hot_path,
             &cold_path,
-            None,
+            &blobs_path,
             |_, _, _| Ok(()),
             config,
             spec,
