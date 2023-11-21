@@ -691,7 +691,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipBlobError::InvalidSubnet { .. }
                     | GossipBlobError::InvalidInclusionProof
                     | GossipBlobError::KzgError(_)
-                    | GossipBlobError::InclusionProof(_) => {
+                    | GossipBlobError::InclusionProof(_)
+                    | GossipBlobError::NotFinalizedDescendant { .. } => {
                         warn!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Rejecting the blob sidecar";

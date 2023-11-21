@@ -140,6 +140,14 @@ pub enum GossipBlobError<T: EthSpec> {
     ///
     /// The blob sidecar may be valis, this is an internal error.
     PubkeyCacheTimeout,
+
+    /// The block conflicts with finalization, no need to propagate.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
+    /// imported.
+    NotFinalizedDescendant { block_parent_root: Hash256 },
 }
 
 impl<T: EthSpec> std::fmt::Display for GossipBlobError<T> {
@@ -385,15 +393,34 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         return Err(GossipBlobError::InvalidInclusionProof);
     }
 
+    let fork_choice = chain.canonical_head.fork_choice_read_lock();
+
     // We have already verified that the blob is past finalization, so we can
     // just check fork choice for the block's parent.
-    let Some(parent_block) = chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .get_block(&block_parent_root)
-    else {
+    let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
         return Err(GossipBlobError::BlobParentUnknown(blob_sidecar));
     };
+
+    // If fork choice does *not* consider the parent to be a descendant of the finalized block,
+    // then there are two more cases:
+    //
+    // 1. We have the parent stored in our database. Because fork-choice has confirmed the
+    //    parent is *not* in our post-finalization DAG, all other blocks must be either
+    //    pre-finalization or conflicting with finalization.
+    // 2. The parent is unknown to us, we probably want to download it since it might actually
+    //    descend from the finalized root.
+    if !fork_choice.is_finalized_checkpoint_or_descendant(block_parent_root) {
+        if chain
+            .store
+            .block_exists(&block_parent_root)
+            .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
+        {
+            return Err(GossipBlobError::NotFinalizedDescendant { block_parent_root });
+        } else {
+            return Err(GossipBlobError::BlobParentUnknown(blob_sidecar));
+        }
+    }
+    drop(fork_choice);
 
     if parent_block.slot >= blob_slot {
         return Err(GossipBlobError::BlobIsNotLaterThanParent {
@@ -518,7 +545,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         let pubkey_cache =
             get_validator_pubkey_cache(chain).map_err(|_| GossipBlobError::PubkeyCacheTimeout)?;
         let pubkey = pubkey_cache
-            .get(proposer_index as usize)
+            .get(proposer_index)
             .ok_or_else(|| GossipBlobError::UnknownValidator(proposer_index as u64))?;
         signed_block_header.verify_signature::<T::EthSpec>(
             pubkey,
