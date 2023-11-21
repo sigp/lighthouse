@@ -8,6 +8,7 @@ use serde_json::Value;
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
+use tree_hash_derive::TreeHash;
 
 /// A LightClientBootstrap is the initializer we send over to lightclient nodes
 /// that are trying to generate their basic storage when booting up.
@@ -19,6 +20,7 @@ use test_random_derive::TestRandom;
     Deserialize,
     Encode,
     Decode,
+    TreeHash,
     TestRandom,
     arbitrary::Arbitrary,
 )]

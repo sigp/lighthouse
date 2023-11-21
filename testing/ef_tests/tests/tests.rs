@@ -236,7 +236,6 @@ mod ssz_static {
     ssz_static_test!(fork_data, ForkData);
     ssz_static_test!(historical_batch, HistoricalBatch<_>);
     ssz_static_test!(indexed_attestation, IndexedAttestation<_>);
-    // NOTE: LightClient* intentionally omitted
     ssz_static_test!(pending_attestation, PendingAttestation<_>);
     ssz_static_test!(proposer_slashing, ProposerSlashing);
     ssz_static_test!(signed_aggregate_and_proof, SignedAggregateAndProof<_>);
@@ -283,6 +282,46 @@ mod ssz_static {
         SszStaticHandler::<ContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_and_later(
         )
         .run();
+    }
+
+    #[test]
+    fn light_client_bootstrap() {
+        SszStaticHandler::<LightClientBootstrap<MinimalEthSpec>, MinimalEthSpec>::altair_only()
+            .run();
+        SszStaticHandler::<LightClientBootstrap<MainnetEthSpec>, MainnetEthSpec>::altair_only()
+            .run();
+    }
+
+    #[test]
+    fn light_client_finality_update() {
+        SszStaticHandler::<LightClientFinalityUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_only(
+        )
+        .run();
+        SszStaticHandler::<LightClientFinalityUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_only(
+        )
+        .run();
+    }
+
+    #[test]
+    fn light_client_header() {
+        SszStaticHandler::<LightClientHeader, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<LightClientHeader, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
+    fn light_client_optimistic_update() {
+        SszStaticHandler::<LightClientOptimisticUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientOptimisticUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_only(
+        )
+            .run();
+    }
+
+    #[test]
+    fn light_client_update() {
+        SszStaticHandler::<LightClientUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<LightClientUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
     }
 
     #[test]

@@ -10,6 +10,7 @@ use serde_json::Value;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 
 /// A LightClientFinalityUpdate is the update lightclient request or received by a gossip that
 /// signal a new finalized beacon block header for the light client sync protocol.
@@ -21,6 +22,7 @@ use tree_hash::TreeHash;
     Deserialize,
     Encode,
     Decode,
+    TreeHash,
     TestRandom,
     arbitrary::Arbitrary,
 )]

@@ -11,6 +11,7 @@ use ssz_types::typenum::{U5, U6};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 
 pub const FINALIZED_ROOT_INDEX: usize = 105;
 pub const CURRENT_SYNC_COMMITTEE_INDEX: usize = 54;
@@ -64,6 +65,7 @@ impl From<ArithError> for Error {
     Deserialize,
     Encode,
     Decode,
+    TreeHash,
     TestRandom,
     arbitrary::Arbitrary,
 )]

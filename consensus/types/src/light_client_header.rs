@@ -3,6 +3,7 @@ use crate::BeaconBlockHeader;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash_derive::TreeHash;
 
 #[derive(
     Debug,
@@ -12,6 +13,7 @@ use test_random_derive::TestRandom;
     Deserialize,
     Encode,
     Decode,
+    TreeHash,
     TestRandom,
     arbitrary::Arbitrary,
 )]
