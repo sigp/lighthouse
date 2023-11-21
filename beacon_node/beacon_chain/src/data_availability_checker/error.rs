@@ -71,3 +71,9 @@ impl From<state_processing::BlockReplayError> for Error {
         Self::BlockReplayError(value)
     }
 }
+
+impl From<KzgError> for Error {
+    fn from(value: KzgError) -> Self {
+        Self::Kzg(value)
+    }
+}
