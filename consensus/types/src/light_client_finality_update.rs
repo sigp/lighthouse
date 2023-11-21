@@ -28,9 +28,9 @@ use tree_hash::TreeHash;
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientFinalityUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
-    pub attested_header: LightClientHeader,
+    pub attested_header: LightClientHeader<T>,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
-    pub finalized_header: LightClientHeader,
+    pub finalized_header: LightClientHeader<T>,
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate

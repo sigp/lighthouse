@@ -71,13 +71,13 @@ impl From<ArithError> for Error {
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
-    pub attested_header: LightClientHeader,
+    pub attested_header: LightClientHeader<T>,
     /// The `SyncCommittee` used in the next period.
     pub next_sync_committee: Arc<SyncCommittee<T>>,
     /// Merkle proof for next sync committee
     pub next_sync_committee_branch: FixedVector<Hash256, NextSyncCommitteeProofLen>,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
-    pub finalized_header: LightClientHeader,
+    pub finalized_header: LightClientHeader<T>,
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate

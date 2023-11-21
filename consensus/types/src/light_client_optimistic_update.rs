@@ -26,7 +26,7 @@ use tree_hash::TreeHash;
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientOptimisticUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
-    pub attested_header: LightClientHeader,
+    pub attested_header: LightClientHeader<T>,
     /// current sync aggreggate
     pub sync_aggregate: SyncAggregate<T>,
     /// Slot of the sync aggregated singature

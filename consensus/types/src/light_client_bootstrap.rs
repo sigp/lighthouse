@@ -26,7 +26,7 @@ use test_random_derive::TestRandom;
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientBootstrap<T: EthSpec> {
     /// The requested beacon block header.
-    pub header: LightClientHeader,
+    pub header: LightClientHeader<T>,
     /// The `SyncCommittee` used in the requested period.
     pub current_sync_committee: Arc<SyncCommittee<T>>,
     /// Merkle proof for sync committee
