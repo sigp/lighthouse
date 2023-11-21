@@ -344,7 +344,7 @@ where
         // Check that we don't have outbound items pending for dialing, nor dialing, nor
         // established. Also check that there are no established inbound substreams.
         // Errors and events need to be reported back, so check those too.
-        let keep_alive = match self.state {
+        match self.state {
             HandlerState::ShuttingDown(_) => {
                 self.dial_queue.is_empty()
                     && self.outbound_substreams.is_empty()
@@ -357,9 +357,7 @@ where
                 false
             }
             _ => true,
-        };
-
-        keep_alive
+        }
     }
 
     fn poll(
