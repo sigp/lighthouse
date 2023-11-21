@@ -8,15 +8,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             "When connected to a beacon node, performs the duties of a staked \
                 validator (e.g., proposing blocks and attestations).",
         )
-        // This argument is deprecated, use `--beacon-nodes` instead.
-        .arg(
-            Arg::with_name("beacon-node")
-                .long("beacon-node")
-                .value_name("NETWORK_ADDRESS")
-                .help("Deprecated. Use --beacon-nodes.")
-                .takes_value(true)
-                .conflicts_with("beacon-nodes"),
-        )
         .arg(
             Arg::with_name("beacon-nodes")
                 .long("beacon-nodes")
@@ -45,15 +36,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        api calls only go out to the first available and synced beacon node")
                 .takes_value(false)
         )
-        // This argument is deprecated, use `--beacon-nodes` instead.
-        .arg(
-            Arg::with_name("server")
-                .long("server")
-                .value_name("NETWORK_ADDRESS")
-                .help("Deprecated. Use --beacon-nodes.")
-                .takes_value(true)
-                .conflicts_with_all(&["beacon-node", "beacon-nodes"]),
-        )
         .arg(
             Arg::with_name("validators-dir")
                 .long("validators-dir")
@@ -81,13 +63,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("datadir")
         )
         .arg(
-            Arg::with_name("delete-lockfiles")
-            .long("delete-lockfiles")
-            .help(
-                "DEPRECATED. This flag does nothing and will be removed in a future release."
-            )
-        )
-        .arg(
             Arg::with_name("init-slashing-protection")
                 .long("init-slashing-protection")
                 .help(
@@ -105,11 +80,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 "If present, do not attempt to discover new validators in the validators-dir. Validators \
                 will need to be manually added to the validator_definitions.yml file."
             )
-        )
-        .arg(
-            Arg::with_name("allow-unsynced")
-                .long("allow-unsynced")
-                .help("DEPRECATED: this flag does nothing"),
         )
         .arg(
             Arg::with_name("use-long-timeouts")
@@ -318,18 +288,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("If this flag is set, Lighthouse will query the Beacon Node for only block \
                     headers during proposals and will sign over headers. Useful for outsourcing \
                     execution payload construction during proposals.")
-                .takes_value(false),
-        ).arg(
-            Arg::with_name("strict-fee-recipient")
-                .long("strict-fee-recipient")
-                .help("[DEPRECATED] If this flag is set, Lighthouse will refuse to sign any block whose \
-                        `fee_recipient` does not match the `suggested_fee_recipient` sent by this validator. \
-                         This applies to both the normal block proposal flow, as well as block proposals \
-                         through the builder API. Proposals through the builder API are more likely to have a \
-                         discrepancy in `fee_recipient` so you should be aware of how your connected relay \
-                         sends proposer payments before using this flag. If this flag is used, a fee recipient \
-                         mismatch in the builder API flow will result in a fallback to the local execution engine \
-                         for payload construction, where a strict fee recipient check will still be applied.")
                 .takes_value(false),
         )
         .arg(

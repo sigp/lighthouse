@@ -378,7 +378,7 @@ fn handle_error<T>(
                 Ok(None)
             }
         }
-        _ => Err(err.into()),
+        _ => Err(RPCError::from(err)),
     }
 }
 

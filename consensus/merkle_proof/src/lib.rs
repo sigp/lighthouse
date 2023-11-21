@@ -250,7 +250,7 @@ impl MerkleTree {
         if deposit_count == (0x1 << level) {
             return Ok(MerkleTree::Finalized(
                 *finalized_branch
-                    .get(0)
+                    .first()
                     .ok_or(MerkleTreeError::PleaseNotifyTheDevs)?,
             ));
         }

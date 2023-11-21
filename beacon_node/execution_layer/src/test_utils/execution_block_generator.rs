@@ -655,14 +655,17 @@ pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, 
 
     Ok((
         commitments
-            .get(0)
+            .first()
             .cloned()
             .ok_or("commitment missing in test bundle")?,
         proofs
-            .get(0)
+            .first()
             .cloned()
             .ok_or("proof missing in test bundle")?,
-        blobs.get(0).cloned().ok_or("blob missing in test bundle")?,
+        blobs
+            .first()
+            .cloned()
+            .ok_or("blob missing in test bundle")?,
     ))
 }
 

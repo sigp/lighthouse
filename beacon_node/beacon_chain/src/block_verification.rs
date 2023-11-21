@@ -583,29 +583,33 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         &chain.spec,
     )?;
 
+    // unzip chain segment and verify kzg in bulk
+    let (roots, blocks): (Vec<_>, Vec<_>) = chain_segment.into_iter().unzip();
+    let maybe_available_blocks = chain
+        .data_availability_checker
+        .verify_kzg_for_rpc_blocks(blocks)?;
+    // zip it back up
+    let mut signature_verified_blocks = roots
+        .into_iter()
+        .zip(maybe_available_blocks)
+        .map(|(block_root, maybe_available_block)| {
+            let consensus_context = ConsensusContext::new(maybe_available_block.slot())
+                .set_current_block_root(block_root);
+            SignatureVerifiedBlock {
+                block: maybe_available_block,
+                block_root,
+                parent: None,
+                consensus_context,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // verify signatures
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
-
-    let mut signature_verified_blocks = Vec::with_capacity(chain_segment.len());
-
-    for (block_root, block) in &chain_segment {
-        let mut consensus_context =
-            ConsensusContext::new(block.slot()).set_current_block_root(*block_root);
-
-        signature_verifier.include_all_signatures(block.as_block(), &mut consensus_context)?;
-
-        let maybe_available_block = chain
-            .data_availability_checker
-            .check_rpc_block_availability(block.clone())?;
-
-        // Save the block and its consensus context. The context will have had its proposer index
-        // and attesting indices filled in, which can be used to accelerate later block processing.
-        signature_verified_blocks.push(SignatureVerifiedBlock {
-            block: maybe_available_block,
-            block_root: *block_root,
-            parent: None,
-            consensus_context,
-        });
+    for svb in &mut signature_verified_blocks {
+        signature_verifier
+            .include_all_signatures(svb.block.as_block(), &mut svb.consensus_context)?;
     }
 
     if signature_verifier.verify().is_err() {
@@ -1151,10 +1155,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
         let maybe_available = chain
             .data_availability_checker
-            .check_rpc_block_availability(RpcBlock::new_without_blobs(
-                Some(block_root),
-                self.clone(),
-            ))
+            .verify_kzg_for_rpc_block(RpcBlock::new_without_blobs(Some(block_root), self.clone()))
             .map_err(|e| {
                 BlockSlashInfo::SignatureNotChecked(
                     self.signed_block_header(),
@@ -1184,7 +1185,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
         let maybe_available = chain
             .data_availability_checker
-            .check_rpc_block_availability(self.clone())
+            .verify_kzg_for_rpc_block(self.clone())
             .map_err(|e| {
                 BlockSlashInfo::SignatureNotChecked(
                     self.signed_block_header(),

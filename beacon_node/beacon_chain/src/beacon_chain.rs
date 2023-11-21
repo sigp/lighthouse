@@ -18,7 +18,7 @@ use crate::block_verification::{
 use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RpcBlock,
 };
-pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
+pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
@@ -453,7 +453,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A cache of eth1 deposit data at epoch boundaries for deposit finalization
     pub eth1_finalization_cache: TimeoutRwLock<Eth1FinalizationCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
-    pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
+    pub beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
     /// A cache used when producing attestations.
