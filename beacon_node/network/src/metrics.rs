@@ -7,8 +7,8 @@ use beacon_chain::{
 use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
 use lighthouse_network::{
-    metrics::AggregatedBandwidthSinks, peer_manager::peerdb::client::ClientKind, types::GossipKind,
-    GossipTopic, Gossipsub, NetworkGlobals,
+    peer_manager::peerdb::client::ClientKind, types::GossipKind, GossipTopic, Gossipsub,
+    NetworkGlobals,
 };
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -327,6 +327,8 @@ lazy_static! {
     );
 }
 
+/*
+ * TODO(@divma): remap
 pub fn update_bandwidth_metrics(bandwidth: &AggregatedBandwidthSinks) {
     if let Some(tcp_in_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["inbound", "tcp"]) {
         tcp_in_bandwidth.reset();
@@ -345,6 +347,7 @@ pub fn update_bandwidth_metrics(bandwidth: &AggregatedBandwidthSinks) {
         quic_out_bandwidth.inc_by(bandwidth.total_quic_outbound());
     }
 }
+*/
 
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
     inc_counter_vec(&GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);

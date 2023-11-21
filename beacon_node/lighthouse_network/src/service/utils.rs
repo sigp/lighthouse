@@ -1,4 +1,3 @@
-use crate::metrics::AggregatedBandwidthSinks;
 use crate::multiaddr::Protocol;
 use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
 use crate::types::{
@@ -9,7 +8,7 @@ use futures::future::Either;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::gossipsub;
 use libp2p::identity::{secp256k1, Keypair};
-use libp2p::{core, noise, yamux, PeerId, Transport, TransportExt};
+use libp2p::{core, noise, yamux, PeerId, Transport};
 use libp2p_quic;
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
@@ -34,7 +33,7 @@ pub struct Context<'a> {
     pub enr_fork_id: EnrForkId,
     pub fork_context: Arc<ForkContext>,
     pub chain_spec: &'a ChainSpec,
-    pub gossipsub_registry: Option<&'a mut Registry>,
+    pub libp2p_registry: Option<&'a mut Registry>,
 }
 
 type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
