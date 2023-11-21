@@ -677,14 +677,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                         self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
                     }
-                    GossipBlobError::KzgNotInitialized => {
+                    GossipBlobError::KzgNotInitialized | GossipBlobError::PubkeyCacheTimeout => {
                         crit!(
                             self.log,
                             "Internal error when verifying blob sidecar";
                             "error" => ?err,
                         )
                     }
-                    GossipBlobError::ProposerSignatureInvalid
+                    GossipBlobError::ProposalSignatureInvalid
                     | GossipBlobError::UnknownValidator(_)
                     | GossipBlobError::ProposerIndexMismatch { .. }
                     | GossipBlobError::BlobIsNotLaterThanParent { .. }

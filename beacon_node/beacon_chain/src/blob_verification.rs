@@ -4,7 +4,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT};
-use crate::block_verification::cheap_state_advance_to_obtain_committees;
+use crate::block_verification::{
+    cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache,
+};
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
@@ -70,7 +72,7 @@ pub enum GossipBlobError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The blob is invalid and the peer is faulty.
-    ProposerSignatureInvalid,
+    ProposalSignatureInvalid,
 
     /// The proposal_index corresponding to blob.beacon_block_root is not known.
     ///
@@ -131,6 +133,13 @@ pub enum GossipBlobError<T: EthSpec> {
     ///
     /// The blob sidecar is invalid
     InclusionProof(MerkleTreeError),
+
+    /// The pubkey cache timed out.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob sidecar may be valis, this is an internal error.
+    PubkeyCacheTimeout,
 }
 
 impl<T: EthSpec> std::fmt::Display for GossipBlobError<T> {
@@ -307,6 +316,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     let blob_proposer_index = blob_sidecar.block_proposer_index();
     let block_root = blob_sidecar.block_root();
     let blob_epoch = blob_slot.epoch(T::EthSpec::slots_per_epoch());
+    let signed_block_header = blob_sidecar.signed_block_header.clone();
 
     // This condition is not possible if we have received the blob from the network
     // since we only subscribe to `MaxBlobsPerBlock` subnets over gossip network.
@@ -406,8 +416,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .lock()
         .get_slot::<T::EthSpec>(proposer_shuffling_root, blob_slot);
 
-    let proposer_index = if let Some(proposer) = proposer_opt {
-        proposer.index
+    let (proposer_index, fork) = if let Some(proposer) = proposer_opt {
+        (proposer.index, proposer.fork)
     } else {
         debug!(
             chain.log,
@@ -429,9 +439,12 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
                     "block_root" => %block_root,
                     "index" => %blob_index,
                 );
-                snapshot
-                    .beacon_state
-                    .get_beacon_proposer_index(blob_slot, &chain.spec)?
+                (
+                    snapshot
+                        .beacon_state
+                        .get_beacon_proposer_index(blob_slot, &chain.spec)?,
+                    snapshot.beacon_state.fork(),
+                )
             } else {
                 debug!(
                     chain.log,
@@ -446,7 +459,10 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
                         blob_slot,
                         &chain.spec,
                     )?;
-                state.get_beacon_proposer_index(blob_slot, &chain.spec)?
+                (
+                    state.get_beacon_proposer_index(blob_slot, &chain.spec)?,
+                    state.fork(),
+                )
             }
         }
         // Need to advance the state to get the proposer index
@@ -485,16 +501,36 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
                 .get(blob_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
                 .ok_or_else(|| BeaconChainError::NoProposerForSlot(blob_slot))?;
 
+            let fork = state.fork();
             // Prime the proposer shuffling cache with the newly-learned value.
             chain.beacon_proposer_cache.lock().insert(
                 blob_epoch,
                 proposer_shuffling_root,
                 proposers,
-                state.fork(),
+                fork,
             )?;
-            proposer_index
+            (proposer_index, fork)
         }
     };
+
+    // Signature verify the signed block header.
+    let signature_is_valid = {
+        let pubkey_cache =
+            get_validator_pubkey_cache(chain).map_err(|_| GossipBlobError::PubkeyCacheTimeout)?;
+        let pubkey = pubkey_cache
+            .get(proposer_index as usize)
+            .ok_or_else(|| GossipBlobError::UnknownValidator(proposer_index as u64))?;
+        signed_block_header.verify_signature::<T::EthSpec>(
+            pubkey,
+            &fork,
+            chain.genesis_validators_root,
+            &chain.spec,
+        )
+    };
+
+    if !signature_is_valid {
+        return Err(GossipBlobError::ProposalSignatureInvalid);
+    }
 
     if proposer_index != blob_proposer_index as usize {
         return Err(GossipBlobError::ProposerIndexMismatch {
