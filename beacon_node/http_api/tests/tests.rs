@@ -2651,28 +2651,26 @@ impl ApiTester {
                 .unwrap();
 
             if is_blinded_payload {
-                let block_contents = <BlockContents<E, BlindedPayload<E>>>::from_ssz_bytes(
+                let blinded_block = <BlindedBeaconBlock<E>>::from_ssz_bytes(
                     &fork_version_response_bytes.unwrap(),
                     &self.chain.spec,
                 )
                 .expect("block contents bytes can be decoded");
 
-                let signed_block_contents =
-                    block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+                let signed_blinded_block =
+                    blinded_block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
                 self.client
-                    .post_beacon_blocks_ssz(&signed_block_contents)
+                    .post_beacon_blinded_blocks_ssz(&signed_blinded_block)
                     .await
                     .unwrap();
 
-                // This converts the generic `Payload` to a concrete type for comparison.
-                let signed_block = signed_block_contents.deconstruct().0;
-                let head_block = SignedBeaconBlock::from(signed_block.clone());
-                assert_eq!(head_block, signed_block);
+                let head_block = self.chain.head_beacon_block().clone_as_blinded();
+                assert_eq!(head_block, signed_blinded_block);
 
                 self.chain.slot_clock.set_slot(slot.as_u64() + 1);
             } else {
-                let block_contents = <BlockContents<E, FullPayload<E>>>::from_ssz_bytes(
+                let block_contents = <BlockContents<E>>::from_ssz_bytes(
                     &fork_version_response_bytes.unwrap(),
                     &self.chain.spec,
                 )
@@ -3471,13 +3469,7 @@ impl ApiTester {
             .unwrap();
 
         let payload: BlindedPayload<E> = match payload_type {
-            Blinded(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+            Blinded(payload) => payload.data.body().execution_payload().unwrap().into(),
             Full(_) => panic!("Expecting a blinded payload"),
         };
 
@@ -3579,13 +3571,7 @@ impl ApiTester {
             .unwrap();
 
         let payload: BlindedPayload<E> = match payload_type {
-            Blinded(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+            Blinded(payload) => payload.data.body().execution_payload().unwrap().into(),
             Full(_) => panic!("Expecting a blinded payload"),
         };
 
@@ -3659,13 +3645,7 @@ impl ApiTester {
             .unwrap();
 
         let payload: BlindedPayload<E> = match payload_type {
-            Blinded(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+            Blinded(payload) => payload.data.body().execution_payload().unwrap().into(),
             Full(_) => panic!("Expecting a blinded payload"),
         };
 
@@ -4839,15 +4819,10 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let block_contents = match payload_type {
+        let _block_contents = match payload_type {
             Blinded(payload) => payload.data,
             Full(_) => panic!("Expecting a blinded payload"),
         };
-
-        let (_, maybe_sidecars) = block_contents.deconstruct();
-
-        // Response should contain blob sidecars
-        assert!(maybe_sidecars.is_some());
 
         self
     }
