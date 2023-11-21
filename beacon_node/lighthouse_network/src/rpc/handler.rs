@@ -346,11 +346,11 @@ where
         // Errors and events need to be reported back, so check those too.
         match self.state {
             HandlerState::ShuttingDown(_) => {
-                self.dial_queue.is_empty()
-                    && self.outbound_substreams.is_empty()
-                    && self.inbound_substreams.is_empty()
-                    && self.events_out.is_empty()
-                    && self.dial_negotiated == 0
+                !self.dial_queue.is_empty()
+                    || !self.outbound_substreams.is_empty()
+                    || !self.inbound_substreams.is_empty()
+                    || !self.events_out.is_empty()
+                    || !self.dial_negotiated != 0
             }
             HandlerState::Deactivated => {
                 // Regardless of events, the timeout has expired. Force the disconnect.
