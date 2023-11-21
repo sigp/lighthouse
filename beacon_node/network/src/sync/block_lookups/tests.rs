@@ -1635,7 +1635,7 @@ mod deneb_only {
             self
         }
         fn invalidate_blobs_too_many(mut self) -> Self {
-            let first_blob = self.blobs.get(0).expect("blob").clone();
+            let first_blob = self.blobs.first().expect("blob").clone();
             self.blobs.push(first_blob);
             self
         }
