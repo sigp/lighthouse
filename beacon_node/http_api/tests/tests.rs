@@ -4907,7 +4907,7 @@ impl ApiTester {
             .is_some());
         self
     }
-    
+
     pub async fn test_lighthouse_rejects_invalid_withdrawals_root_v3(self) -> Self {
         // Ensure builder payload *would be* chosen
         self.mock_builder
