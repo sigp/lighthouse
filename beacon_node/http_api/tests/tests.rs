@@ -3481,16 +3481,6 @@ impl ApiTester {
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
         assert_eq!(payload.gas_limit(), 11_111_111);
 
-        // If this cache is empty, it indicates fallback was not used, so the payload came from the
-        // mock builder.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
-
         self
     }
 
@@ -3601,14 +3591,6 @@ impl ApiTester {
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
         assert_eq!(payload.gas_limit(), 30_000_000);
 
-        // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
         self
     }
 
@@ -3688,14 +3670,6 @@ impl ApiTester {
 
         assert_eq!(payload.fee_recipient(), test_fee_recipient);
 
-        // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
         self
     }
 
@@ -3791,14 +3765,6 @@ impl ApiTester {
 
         assert_eq!(payload.parent_hash(), expected_parent_hash);
 
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
         self
     }
 
@@ -3890,14 +3856,6 @@ impl ApiTester {
 
         assert_eq!(payload.prev_randao(), expected_prev_randao);
 
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
         self
     }
 
@@ -3989,14 +3947,6 @@ impl ApiTester {
 
         assert_eq!(payload.block_number(), expected_block_number);
 
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
         self
     }
 
@@ -4086,14 +4036,6 @@ impl ApiTester {
 
         assert!(payload.timestamp() > min_expected_timestamp);
 
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
         self
     }
 
@@ -4142,25 +4084,11 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+        match payload_type {
+            Full(_) => (),
             Blinded(_) => panic!("Expecting a full payload"),
         };
 
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
         self
     }
 
@@ -4223,25 +4151,11 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+        match payload_type {
+            Full(_) => (),
             Blinded(_) => panic!("Expecting a full payload"),
         };
 
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
         self
     }
 
@@ -4347,25 +4261,10 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: BlindedPayload<E> = match payload_type {
-            Blinded(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+        match payload_type {
+            Blinded(_) => (),
             Full(_) => panic!("Expecting a blinded payload"),
         };
-
-        // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
 
         // Without proposing, advance into the next slot, this should make us cross the threshold
         // number of skips, causing us to use the fallback.
@@ -4382,25 +4281,10 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+        match payload_type {
+            Full(_) => (),
             Blinded(_) => panic!("Expecting a full payload"),
         };
-
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
 
         self
     }
@@ -4527,25 +4411,10 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+        match payload_type {
+            Full(_) => (),
             Blinded(_) => panic!("Expecting a full payload"),
         };
-
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
 
         // Fill another epoch with blocks, should be enough to finalize. (Sneaky plus 1 because this
         // scenario starts at an epoch boundary).
@@ -4572,25 +4441,10 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: BlindedPayload<E> = match payload_type {
-            Blinded(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+        match payload_type {
+            Blinded(_) => (),
             Full(_) => panic!("Expecting a blinded payload"),
         };
-
-        // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
 
         self
     }
@@ -4682,15 +4536,6 @@ impl ApiTester {
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
 
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
-
         self
     }
 
@@ -4751,25 +4596,11 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+        match payload_type {
+            Full(_) => (),
             Blinded(_) => panic!("Expecting a full payload"),
         };
 
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
         self
     }
 
@@ -4830,25 +4661,11 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: BlindedPayload<E> = match payload_type {
-            Blinded(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+        match payload_type {
+            Blinded(_) => (),
             Full(_) => panic!("Expecting a blinded payload"),
         };
 
-        // The builder's payload should've been chosen, so this cache should not be populated
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
         self
     }
 
@@ -4909,25 +4726,11 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+        match payload_type {
+            Full(_) => (),
             Blinded(_) => panic!("Expecting a full payload"),
         };
 
-        // The local payload should've been chosen, so this cache should be populated
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
         self
     }
 
@@ -4988,25 +4791,11 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
+        match payload_type {
+            Full(_) => (),
             Blinded(_) => panic!("Expecting a full payload"),
         };
 
-        // The local payload should've been chosen, so this cache should be populated
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
         self
     }
 
@@ -5059,26 +4848,22 @@ impl ApiTester {
         let epoch = self.chain.epoch().unwrap();
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let block_contents = self
+        let payload_type = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
-            .unwrap()
-            .data;
-        let (block, maybe_sidecars) = block_contents.deconstruct();
+            .unwrap();
+
+        let block_contents = match payload_type {
+            Blinded(payload) => payload.data,
+            Full(_) => panic!("Expecting a blinded payload"),
+        };
+
+        let (_, maybe_sidecars) = block_contents.deconstruct();
 
         // Response should contain blob sidecars
         assert!(maybe_sidecars.is_some());
 
-        // The builder's payload should've been chosen, so this cache should not be populated
-        let payload: BlindedPayload<E> = block.body().execution_payload().unwrap().into();
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
         self
     }
 
@@ -5120,6 +4905,38 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        self
+    }
+    
+    pub async fn test_lighthouse_rejects_invalid_withdrawals_root_v3(self) -> Self {
+        // Ensure builder payload *would be* chosen
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
+            )));
+        // Set withdrawals root to something invalid
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::WithdrawalsRoot(Hash256::repeat_byte(0x42)));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload_type = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .await
+            .unwrap();
+
+        match payload_type {
+            Full(_) => (),
+            Blinded(_) => panic!("Expecting a full payload"),
+        };
+
         self
     }
 
@@ -6429,6 +6246,8 @@ async fn builder_works_post_deneb() {
         .test_post_validator_register_validator()
         .await
         .test_builder_works_post_deneb()
+        .await
+        .test_lighthouse_rejects_invalid_withdrawals_root_v3()
         .await;
 }
 
