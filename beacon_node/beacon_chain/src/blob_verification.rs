@@ -352,7 +352,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    // Verify that this is the first blob sidecar received for the (sidecar.block_root, sidecar.index) tuple
+    // Verify that this is the first blob sidecar received for the tuple:
+    // (block_header.slot, block_header.proposer_index, blob_sidecar.index)
     if chain
         .observed_blob_sidecars
         .read()
