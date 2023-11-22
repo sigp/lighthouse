@@ -1,10 +1,11 @@
 use crate::BeaconBlockHeader;
-use crate::{test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, Hash256};
-use merkle_proof::verify_merkle_proof;
+use crate::{test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, SignedBeaconBlock, Hash256};
+use merkle_proof::{verify_merkle_proof, MerkleTree};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
+use ssz::Encode;
 
 const EXECUTION_PAYLOAD_INDEX: u32 = 25;
 const FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX: u32 = 4;
@@ -43,6 +44,38 @@ pub struct LightClientHeader<E: EthSpec> {
 
 impl<E: EthSpec> From<BeaconBlockHeader> for LightClientHeader<E> {
     fn from(beacon: BeaconBlockHeader) -> Self {
+        LightClientHeader {
+            beacon,
+            execution: None,
+            execution_branch: None,
+        }
+    }
+}
+
+impl<E: EthSpec> From<SignedBeaconBlock<E>> for LightClientHeader<E> {
+    fn from(block: SignedBeaconBlock<E>) -> Self {
+        let epoch = block.message().slot().epoch(E::slots_per_epoch());
+
+        // TODO epoch greater than or equal to capella
+        if epoch >= 0 {
+            let payload = block.message().body().execution_payload();
+
+            // TODO fix unwrap
+            let header = ExecutionPayloadHeader::<E>::from(payload.unwrap().into());
+
+            let leaves = block
+                .message()
+                .body_capella()
+                .unwrap()
+                .as_ssz_bytes()
+                .iter()
+                .map(|data| data.tree_hash_root())
+                .collect::<Vec<_>>();
+            let tree = MerkleTree::create(&leaves, EXECUTION_PAYLOAD_INDEX as usize);
+
+            let execution_branch = generate_proof(block.message().body_capella().unwrap().as_ssz_bytes(), EXECUTION_PAYLOAD_INDEX);
+        };
+
         LightClientHeader {
             beacon,
             execution: None,
