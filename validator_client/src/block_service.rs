@@ -346,7 +346,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             })
             .unwrap_or(false);
 
-        if !self.validator_store.produce_block_v3() || deneb_fork_activated {
+        if self.validator_store.produce_block_v3() || deneb_fork_activated {
             for validator_pubkey in proposers {
                 let service: BlockService<T, E> = self.clone();
                 let log = log.clone();
@@ -365,8 +365,22 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     "Error whilst producing block";
                                     "error" => ?e,
                                     "block_slot" => ?slot,
-                                    "info" => "blinded proposal failed, attempting full block"
+                                    "info" => "block v3 proposal failed, attempting full block v2"
                                 );
+                                if let Err(e) = service
+                                        .publish_block::<FullPayload<E>>(slot, validator_pubkey)
+                                        .await
+                                    {
+                                        // Log a `crit` since a full block v2
+                                        // (non-builder) proposal failed.
+                                        crit!(
+                                            log,
+                                            "Error whilst producing block";
+                                            "error" => ?e,
+                                            "block_slot" => ?slot,
+                                            "info" => "full block v2 attempted after a block v3 failure",
+                                        );
+                                    }
                             }
                             Err(BlockError::Irrecoverable(e)) => {
                                 error!(
@@ -459,9 +473,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn handle_block_response<Payload: AbstractExecPayload<E>>(
+    async fn sign_and_publish_block<Payload: AbstractExecPayload<E>>(
         &self,
-        log: &Logger,
         proposer_fallback: ProposerFallback<T, E>,
         slot: Slot,
         current_slot: Slot,
@@ -469,6 +482,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         validator_pubkey: &PublicKeyBytes,
         block_contents: BlockContents<E, Payload>,
     ) -> Result<(), BlockError> {
+        let log = self.context.log();
         let (block, maybe_blob_sidecars) = block_contents.deconstruct();
         let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
 
@@ -661,8 +675,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         match block_response {
             eth2::types::ForkVersionedBeaconBlockType::Full(block_contents) => {
-                self.handle_block_response::<FullPayload<E>>(
-                    log,
+                self.sign_and_publish_block::<FullPayload<E>>(
                     proposer_fallback,
                     slot,
                     current_slot,
@@ -673,8 +686,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 .await?;
             }
             eth2::types::ForkVersionedBeaconBlockType::Blinded(block_contents) => {
-                self.handle_block_response::<BlindedPayload<E>>(
-                    log,
+                self.sign_and_publish_block::<BlindedPayload<E>>(
                     proposer_fallback,
                     slot,
                     current_slot,
@@ -771,8 +783,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
             .await?;
 
-        self.handle_block_response(
-            log,
+        self.sign_and_publish_block(
             proposer_fallback,
             slot,
             current_slot,
