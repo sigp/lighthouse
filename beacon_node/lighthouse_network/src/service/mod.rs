@@ -388,7 +388,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             // NOTE: adding bandwidth metrics changes the generics of the swarm, so types diverge
             let swarm = if let Some(libp2p_registry) = ctx.libp2p_registry {
                 builder
-                    .with_bandwidth_metrics(libp2p_registry.sub_registry_with_prefix("libp2p"))
+                    .with_bandwidth_metrics(libp2p_registry)
                     .with_behaviour(|_| behaviour)
                     .expect("infalible")
                     .with_swarm_config(|_| {
