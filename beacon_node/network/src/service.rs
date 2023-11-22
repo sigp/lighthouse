@@ -497,9 +497,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         }
                     }
                 }
-                /* TODO(@divma): check if this needs to be done
-                metrics::update_bandwidth_metrics(&self.libp2p.bandwidth);
-                */
             }
         };
         executor.spawn(service_fut, "network");

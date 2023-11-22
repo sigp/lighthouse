@@ -224,12 +224,6 @@ lazy_static! {
 lazy_static! {
 
     /*
-     * Bandwidth metrics
-     */
-    pub static ref LIBP2P_BYTES: Result<IntCounterVec> =
-        try_create_int_counter_vec("libp2p_inbound_bytes", "The bandwidth over libp2p", &["direction", "transport"]);
-
-    /*
      * Sync related metrics
      */
     pub static ref PEERS_PER_SYNC_TYPE: Result<IntGaugeVec> = try_create_int_gauge_vec(
@@ -326,28 +320,6 @@ lazy_static! {
         "Number of queued light client optimistic updates where as matching block has been imported."
     );
 }
-
-/*
- * TODO(@divma): remap
-pub fn update_bandwidth_metrics(bandwidth: &AggregatedBandwidthSinks) {
-    if let Some(tcp_in_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["inbound", "tcp"]) {
-        tcp_in_bandwidth.reset();
-        tcp_in_bandwidth.inc_by(bandwidth.total_tcp_inbound());
-    }
-    if let Some(tcp_out_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["outbound", "tcp"]) {
-        tcp_out_bandwidth.reset();
-        tcp_out_bandwidth.inc_by(bandwidth.total_tcp_outbound());
-    }
-    if let Some(quic_in_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["inbound", "quic"]) {
-        quic_in_bandwidth.reset();
-        quic_in_bandwidth.inc_by(bandwidth.total_quic_inbound());
-    }
-    if let Some(quic_out_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["outbound", "quic"]) {
-        quic_out_bandwidth.reset();
-        quic_out_bandwidth.inc_by(bandwidth.total_quic_outbound());
-    }
-}
-*/
 
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
     inc_counter_vec(&GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);

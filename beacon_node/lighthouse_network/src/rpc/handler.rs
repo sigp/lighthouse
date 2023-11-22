@@ -419,11 +419,6 @@ where
                 Poll::Ready(Some(Err(e))) => {
                     warn!(self.log, "Inbound substream poll failed"; "error" => ?e);
                     // drops the peer if we cannot read the delay queue
-                    // TODO(@divma): the events out that we model occur over specific substreams so
-                    // adding this there does not really fit well. And changing the abstaction just
-                    // to deal with these errors (that i think we have never seen) seems like an
-                    // unnecessary complication.
-                    // Live with the log and that's it?
                     self.state = HandlerState::Deactivated
                 }
                 Poll::Pending | Poll::Ready(None) => break,
