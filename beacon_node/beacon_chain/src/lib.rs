@@ -84,6 +84,7 @@ pub use fork_choice::{ExecutionStatus, ForkchoiceUpdateParameters};
 pub use kzg::TrustedSetup;
 pub use metrics::scrape_for_metrics;
 pub use migrate::MigratorConfig;
+pub use observed_aggregates::Error as ObservedAggregatesError;
 pub use parking_lot;
 pub use slot_clock;
 pub use state_processing::per_block_processing::errors::{

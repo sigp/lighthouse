@@ -3287,7 +3287,14 @@ pub fn serve<T: BeaconChainTypes>(
                         match chain.verify_aggregated_attestation_for_gossip(aggregate) {
                             Ok(verified_aggregate) => {
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
-                                    verified_aggregate.aggregate().clone(),
+                                    aggregate.lazy().map_err(|e| {
+                                        warp_utils::reject::custom_bad_request(format!(
+                                            "unable to decode as LazySignedAggregateAndProof: \
+                                            {:?}",
+                                            e
+                                        ))
+                                    })?
+                                    ,
                                 )));
 
                                 // Notify the validator monitor.

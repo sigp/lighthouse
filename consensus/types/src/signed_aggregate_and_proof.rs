@@ -1,9 +1,11 @@
 use super::{
-    AggregateAndProof, Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, SecretKey,
-    SelectionProof, Signature, SignedRoot,
+    AggregateAndProof, Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256,
+    LazySignedAggregateAndProof, SecretKey, SelectionProof, Signature, SignedRoot,
 };
 use crate::test_utils::TestRandom;
+use bls::SignatureBytes;
 use serde::{Deserialize, Serialize};
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -70,5 +72,22 @@ impl<T: EthSpec> SignedAggregateAndProof<T> {
             message,
             signature: secret_key.sign(signing_message),
         }
+    }
+
+    pub fn lazy(&self) -> Result<LazySignedAggregateAndProof<T>, ssz::DecodeError> {
+        Ok(LazySignedAggregateAndProof {
+            message: crate::LazyAggregateAndProof {
+                aggregator_index: self.message.aggregator_index,
+                aggregate: crate::LazyAttestation {
+                    aggregation_bits: self.message.aggregate.aggregation_bits.clone(),
+                    data: self.message.aggregate.data.clone(),
+                    signature: SignatureBytes::from_ssz_bytes(
+                        &self.message.aggregate.signature.as_ssz_bytes(),
+                    )?,
+                },
+                selection_proof: self.message.selection_proof.clone(),
+            },
+            signature: self.signature.clone(),
+        })
     }
 }

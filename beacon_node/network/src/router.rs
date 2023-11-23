@@ -272,12 +272,12 @@ impl<T: BeaconChainTypes> Router<T> {
         should_process: bool,
     ) {
         match gossip_message {
-            PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => self
+            PubsubMessage::AggregateAndProofAttestation(lazy_aggregate_and_proof) => self
                 .handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_aggregated_attestation(
                         message_id,
                         peer_id,
-                        *aggregate_and_proof,
+                        *lazy_aggregate_and_proof,
                         timestamp_now(),
                     ),
                 ),

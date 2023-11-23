@@ -51,6 +51,8 @@ execution_layer = { workspace = true }
 beacon_processor = { workspace = true }
 parking_lot = { workspace = true }
 environment = { workspace = true }
+tree_hash = "0.5.0"
+
 
 [features]
 # NOTE: This can be run via cargo build --bin lighthouse --features network/disable-backfill

@@ -27,15 +27,16 @@ use lighthouse_network::{
 use lru::LruCache;
 use parking_lot::Mutex;
 use slot_clock::SlotClock;
+use ssz::{Decode, Encode};
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, Epoch, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot,
-    SubnetId,
+    Attestation, AttesterSlashing, Epoch, Hash256, LazySignedAggregateAndProof, MainnetEthSpec,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList,
+    SignedVoluntaryExit, Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -435,7 +436,7 @@ impl TestRig {
             .send_aggregated_attestation(
                 junk_message_id(),
                 junk_peer_id(),
-                aggregate,
+                LazySignedAggregateAndProof::from_ssz_bytes(&aggregate.as_ssz_bytes()).unwrap(),
                 Duration::from_secs(0),
             )
             .unwrap();

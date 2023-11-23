@@ -10,6 +10,7 @@ use types::consts::altair::{
     SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
 };
 use types::slot_data::SlotData;
+use types::LazyAttestation;
 use types::{Attestation, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 
 pub type ObservedSyncContributions<E> = ObservedAggregates<
@@ -22,6 +23,22 @@ pub type ObservedAggregateAttestations<E> = ObservedAggregates<
     E,
     BitList<<E as types::EthSpec>::MaxValidatorsPerCommittee>,
 >;
+
+impl<E: EthSpec> ObservedAggregateAttestations<E> {
+    pub fn is_lazy_att_known_subset(
+        &mut self,
+        lazy: &LazyAttestation<E>,
+        root: Hash256,
+    ) -> Result<Option<Hash256>, Error> {
+        let index = self.get_set_index(lazy.get_slot())?;
+
+        self.sets
+            .get(index)
+            .ok_or(Error::InvalidSetIndex(index))
+            .and_then(|set| set.is_known_subset(lazy, root))
+            .map(|b| if b { Some(root) } else { None })
+    }
+}
 
 /// A trait use to associate capacity constants with the type being stored in `ObservedAggregates`.
 pub trait Consts {
@@ -103,6 +120,27 @@ pub trait SubsetItem {
 }
 
 impl<T: EthSpec> SubsetItem for Attestation<T> {
+    type Item = BitList<T::MaxValidatorsPerCommittee>;
+    fn is_subset(&self, other: &Self::Item) -> bool {
+        self.aggregation_bits.is_subset(other)
+    }
+
+    fn is_superset(&self, other: &Self::Item) -> bool {
+        other.is_subset(&self.aggregation_bits)
+    }
+
+    /// Returns the sync contribution aggregation bits.
+    fn get_item(&self) -> Self::Item {
+        self.aggregation_bits.clone()
+    }
+
+    /// Returns the hash tree root of the attestation data.
+    fn root(&self) -> Hash256 {
+        self.data.tree_hash_root()
+    }
+}
+
+impl<T: EthSpec> SubsetItem for LazyAttestation<T> {
     type Item = BitList<T::MaxValidatorsPerCommittee>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         self.aggregation_bits.is_subset(other)

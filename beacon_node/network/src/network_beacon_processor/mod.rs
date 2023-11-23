@@ -131,7 +131,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        aggregate: SignedAggregateAndProof<T::EthSpec>,
+        aggregate: LazySignedAggregateAndProof<T::EthSpec>,
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         // Define a closure for processing individual attestations.
