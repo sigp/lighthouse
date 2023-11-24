@@ -385,8 +385,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 .with_tokio()
                 .with_other_transport(|_key| transport)
                 .expect("infalible");
+
             // NOTE: adding bandwidth metrics changes the generics of the swarm, so types diverge
-            let swarm = if let Some(libp2p_registry) = ctx.libp2p_registry {
+            if let Some(libp2p_registry) = ctx.libp2p_registry {
                 builder
                     .with_bandwidth_metrics(libp2p_registry)
                     .with_behaviour(|_| behaviour)
@@ -411,9 +412,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                             .with_per_connection_event_buffer_size(4)
                     })
                     .build()
-            };
-
-            swarm
+            }
         };
 
         let mut network = Network {
