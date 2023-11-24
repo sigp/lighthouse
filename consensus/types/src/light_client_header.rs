@@ -1,27 +1,27 @@
 use crate::BeaconBlockHeader;
-use crate::{test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, SignedBeaconBlock, Hash256};
+use crate::{test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, Hash256, SignedBeaconBlock};
 use merkle_proof::{verify_merkle_proof, MerkleTree};
 use serde::{Deserialize, Serialize};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use ssz::Encode;
 
 const EXECUTION_PAYLOAD_INDEX: u32 = 25;
 const FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX: u32 = 4;
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
-    arbitrary::Arbitrary,
-)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
+#[ssz(struct_behaviour = "transparent")]
 pub struct ExecutionBranch(pub [u8; FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize]);
+
+impl TestRandom for Option<ExecutionBranch> {
+    fn random_for_test(rng: &mut impl rand::RngCore) -> Self {
+        Some(ExecutionBranch(<[u8; FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX
+            as usize] as TestRandom>::random_for_test(
+            rng
+        )))
+    }
+}
 
 #[derive(
     Debug,
@@ -35,9 +35,10 @@ pub struct ExecutionBranch(pub [u8; FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize]
     arbitrary::Arbitrary,
 )]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientHeader<E: EthSpec> {
     pub beacon: BeaconBlockHeader,
+    #[test_random(default)]
     pub execution: Option<ExecutionPayloadHeader<E>>,
     pub execution_branch: Option<ExecutionBranch>,
 }
@@ -73,7 +74,10 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for LightClientHeader<E> {
                 .collect::<Vec<_>>();
             let tree = MerkleTree::create(&leaves, EXECUTION_PAYLOAD_INDEX as usize);
 
-            let execution_branch = generate_proof(block.message().body_capella().unwrap().as_ssz_bytes(), EXECUTION_PAYLOAD_INDEX);
+            let execution_branch = generate_proof(
+                block.message().body_capella().unwrap().as_ssz_bytes(),
+                EXECUTION_PAYLOAD_INDEX,
+            );
         };
 
         LightClientHeader {
@@ -107,18 +111,18 @@ impl<E: EthSpec> LightClientHeader<E> {
         }
 
         let Some(execution_root) = self.get_lc_execution_root() else {
-            return false
+            return false;
         };
 
         let Some(execution_branch) = self.execution_branch else {
-            return false
+            return false;
         };
 
         return verify_merkle_proof(
             execution_root,
             &execution_branch.into(),
-            FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX,
-            get_subtree_index(EXECUTION_PAYLOAD_INDEX),
+            FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize,
+            get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize,
             self.beacon.body_root,
         );
     }
