@@ -359,36 +359,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
                         match result {
                             Ok(_) => {}
-                            Err(BlockError::Recoverable(e)) => {
+                            Err(BlockError::Recoverable(e)) | Err(BlockError::Irrecoverable(e)) => {
                                 error!(
                                     log,
                                     "Error whilst producing block";
                                     "error" => ?e,
                                     "block_slot" => ?slot,
-                                    "info" => "block v3 proposal failed, attempting full block v2"
-                                );
-                                if let Err(e) = service
-                                        .publish_block::<FullPayload<E>>(slot, validator_pubkey)
-                                        .await
-                                    {
-                                        // Log a `crit` since a full block v2
-                                        // (non-builder) proposal failed.
-                                        crit!(
-                                            log,
-                                            "Error whilst producing block";
-                                            "error" => ?e,
-                                            "block_slot" => ?slot,
-                                            "info" => "full block v2 attempted after a block v3 failure",
-                                        );
-                                    }
-                            }
-                            Err(BlockError::Irrecoverable(e)) => {
-                                error!(
-                                    log,
-                                    "Error whilst producing block";
-                                    "error" => ?e,
-                                    "block_slot" => ?slot,
-                                    "info" => "this error may or may not result in a missed block",
+                                    "info" => "block v3 proposal failed, this error may or may not result in a missed block"
                                 );
                             }
                         }
