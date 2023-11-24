@@ -766,7 +766,7 @@ impl<E: EthSpec> Tester<E> {
         let fcu_params_result = self
             .harness
             .chain
-            .overridden_forkchoice_update_params_or_failure_reason(&canonical_fcu_params, true);
+            .overridden_forkchoice_update_params_or_failure_reason(&canonical_fcu_params);
 
         let should_override = match fcu_params_result {
             Ok(_) => true,

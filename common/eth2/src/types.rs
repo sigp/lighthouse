@@ -13,7 +13,6 @@ use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
 use types::beacon_block_body::KzgCommitments;
-// use types::blob_sidecar::build_sidecars;
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -888,7 +887,6 @@ pub struct SseBlock {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-// TODO(pawan): modify spec to maybe include proofs too?
 pub struct SseBlobSidecar {
     pub block_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1743,6 +1741,7 @@ impl<T: EthSpec> From<SignedBlockContentsTuple<T>> for SignedBlockContents<T> {
 pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec> {
     pub signed_block: SignedBeaconBlock<T>,
     pub kzg_proofs: KzgProofs<T>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<T>,
 }
 
@@ -1751,6 +1750,7 @@ pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec> {
 pub struct BeaconBlockAndBlobSidecars<T: EthSpec> {
     pub block: BeaconBlock<T>,
     pub kzg_proofs: KzgProofs<T>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<T>,
 }
 
@@ -1764,6 +1764,7 @@ impl<T: EthSpec> ForkVersionDeserialize for BeaconBlockAndBlobSidecars<T> {
         struct Helper<T: EthSpec> {
             block: serde_json::Value,
             kzg_proofs: KzgProofs<T>,
+            #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
             blobs: BlobsList<T>,
         }
         let helper: Helper<T> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;

@@ -186,6 +186,7 @@ pub type GossipVerifiedBlobList<T> = VariableList<
 /// the p2p network.
 #[derive(Debug)]
 pub struct GossipVerifiedBlob<T: BeaconChainTypes> {
+    block_root: Hash256,
     blob: KzgVerifiedBlob<T::EthSpec>,
 }
 
@@ -209,14 +210,18 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     /// This should ONLY be used for testing.
     pub fn __assumed_valid(blob: Arc<BlobSidecar<T::EthSpec>>) -> Self {
         Self {
+            block_root: blob.block_root(),
             blob: KzgVerifiedBlob { blob },
         }
     }
     pub fn id(&self) -> BlobIdentifier {
-        self.blob.blob.id()
+        BlobIdentifier {
+            block_root: self.block_root,
+            index: self.blob.blob_index(),
+        }
     }
     pub fn block_root(&self) -> Hash256 {
-        self.blob.block_root()
+        self.block_root
     }
     pub fn slot(&self) -> Slot {
         self.blob.blob.slot()
@@ -265,9 +270,6 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
     }
     pub fn clone_blob(&self) -> Arc<BlobSidecar<T>> {
         self.blob.clone()
-    }
-    pub fn block_root(&self) -> Hash256 {
-        self.blob.block_root()
     }
     pub fn blob_index(&self) -> u64 {
         self.blob.index
@@ -599,6 +601,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         verify_kzg_for_blob(blob_sidecar, kzg).map_err(GossipBlobError::KzgError)?;
 
     Ok(GossipVerifiedBlob {
+        block_root,
         blob: kzg_verified_blob,
     })
 }
