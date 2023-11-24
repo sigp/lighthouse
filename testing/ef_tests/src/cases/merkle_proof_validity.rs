@@ -92,9 +92,18 @@ pub struct KzgInclusionMerkleProofValidity<E: EthSpec> {
 }
 
 impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
-    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
-        //TODO(sean) make this work for all forks
-        let block = ssz_decode_file::<BeaconBlockBodyDeneb<E>>(&path.join("object.ssz_snappy"))?;
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        let block = match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                return Err(Error::InternalError(format!(
+                    "KZG inclusion merkle proof validity test skipped for {:?}",
+                    fork_name
+                )))
+            }
+            ForkName::Deneb => {
+                ssz_decode_file::<BeaconBlockBodyDeneb<E>>(&path.join("object.ssz_snappy"))?
+            }
+        };
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;
         // Metadata does not exist in these tests but it is left like this just in case.
         let meta_path = path.join("meta.yaml");

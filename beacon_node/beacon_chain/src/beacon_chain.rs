@@ -4410,27 +4410,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         canonical_forkchoice_params: ForkchoiceUpdateParameters,
     ) -> Result<ForkchoiceUpdateParameters, Error> {
-        self.overridden_forkchoice_update_params_or_failure_reason(
-            &canonical_forkchoice_params,
-            false,
-        )
-        .or_else(|e| match e {
-            ProposerHeadError::DoNotReOrg(reason) => {
-                trace!(
-                    self.log,
-                    "Not suppressing fork choice update";
-                    "reason" => %reason,
-                );
-                Ok(canonical_forkchoice_params)
-            }
-            ProposerHeadError::Error(e) => Err(e),
-        })
+        self.overridden_forkchoice_update_params_or_failure_reason(&canonical_forkchoice_params)
+            .or_else(|e| match e {
+                ProposerHeadError::DoNotReOrg(reason) => {
+                    trace!(
+                        self.log,
+                        "Not suppressing fork choice update";
+                        "reason" => %reason,
+                    );
+                    Ok(canonical_forkchoice_params)
+                }
+                ProposerHeadError::Error(e) => Err(e),
+            })
     }
 
     pub fn overridden_forkchoice_update_params_or_failure_reason(
         &self,
         canonical_forkchoice_params: &ForkchoiceUpdateParameters,
-        testing: bool,
     ) -> Result<ForkchoiceUpdateParameters, ProposerHeadError<Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_OVERRIDE_FCU_TIMES);
 
@@ -4481,8 +4477,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(DoNotReOrg::HeadDistance.into());
         }
 
+        let is_ef_test = cfg!(feature = "ef_tests");
+
         // Only attempt a re-org if we have a proposer registered for the re-org slot.
-        let proposing_at_re_org_slot = testing || {
+        let proposing_at_re_org_slot = is_ef_test || {
             // The proposer shuffling has the same decision root as the next epoch attestation
             // shuffling. We know our re-org block is not on the epoch boundary, so it has the
             // same proposer shuffling as the head (but not necessarily the parent which may lie
@@ -4537,7 +4535,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // current slot, which would be necessary for determining its weight.
         let head_block_late =
             self.block_observed_after_attestation_deadline(head_block_root, head_slot);
-        if !head_block_late && !testing {
+        if !head_block_late && !is_ef_test {
             return Err(DoNotReOrg::HeadNotLate.into());
         }
 

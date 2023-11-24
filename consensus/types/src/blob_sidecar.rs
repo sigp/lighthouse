@@ -166,7 +166,6 @@ impl<T: EthSpec> BlobSidecar<T> {
     }
 
     pub fn block_root(&self) -> Hash256 {
-        // TODO(pawan): cache the block root
         self.signed_block_header.message.tree_hash_root()
     }
 
@@ -184,15 +183,8 @@ impl<T: EthSpec> BlobSidecar<T> {
             blob: Blob::<T>::default(),
             kzg_commitment: KzgCommitment::empty_for_testing(),
             kzg_proof: KzgProof::empty(),
-            // TODO(pawan): make default impl
             signed_block_header: SignedBeaconBlockHeader {
-                message: BeaconBlockHeader {
-                    body_root: Default::default(),
-                    parent_root: Default::default(),
-                    proposer_index: Default::default(),
-                    slot: Default::default(),
-                    state_root: Default::default(),
-                },
+                message: BeaconBlockHeader::empty(),
                 signature: Signature::empty(),
             },
             kzg_commitment_inclusion_proof: Default::default(),
