@@ -1154,7 +1154,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 }
 
                 if self.inner.always_prefer_builder_payload {
-                    return Ok(ProvenancedPayload::try_from(relay.data.message)?);
+                    return ProvenancedPayload::try_from(relay.data.message);
                 }
 
                 let relay_value = *relay.data.message.value();
