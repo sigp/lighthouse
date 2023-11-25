@@ -1,40 +1,12 @@
-use crate::{test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, Hash256, SignedBeaconBlock};
+use crate::{test_utils::TestRandom, EthSpec, FixedVector, ExecutionPayloadHeader, Hash256, SignedBeaconBlock};
 use crate::{BeaconBlockHeader, ExecutionPayload};
-use ethereum_hashing::hash_fixed;
 use merkle_proof::{verify_merkle_proof, MerkleTree};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-
-const EXECUTION_PAYLOAD_INDEX: u32 = 25;
-const FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX: u32 = 4;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
-#[ssz(struct_behaviour = "transparent")]
-pub struct ExecutionBranch(pub [u8; FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize]);
-
-impl TestRandom for Option<ExecutionBranch> {
-    fn random_for_test(rng: &mut impl rand::RngCore) -> Self {
-        Some(ExecutionBranch(<[u8; FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX
-            as usize] as TestRandom>::random_for_test(
-            rng
-        )))
-    }
-}
-
-impl From<Vec<Hash256>> for ExecutionBranch {
-    fn from(proof: Vec<Hash256>) -> Self {
-        let mut result = [0u8; 4];
-
-        for (i, h256) in proof.iter().enumerate().take(4) {
-            result[i] = h256.as_bytes()[0];
-        }
-
-        ExecutionBranch(result)
-    }
-}
+use crate::light_client_update::*;
 
 #[derive(
     Debug,
@@ -55,7 +27,7 @@ pub struct LightClientHeader<E: EthSpec> {
     #[ssz(skip_serializing, skip_deserializing)]
     pub execution: Option<ExecutionPayloadHeader<E>>,
     #[test_random(default)]
-    pub execution_branch: Option<ExecutionBranch>,
+    pub execution_branch: Option<FixedVector<Hash256, ExecutionPayloadProofLen>>,
 }
 
 impl<E: EthSpec> From<BeaconBlockHeader> for LightClientHeader<E> {
@@ -110,12 +82,12 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for LightClientHeader<E> {
             .map(|data| data.tree_hash_root())
             .collect::<Vec<_>>();
 
-        let tree = MerkleTree::create(&leaves, FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize);
+        let tree = MerkleTree::create(&leaves, EXECUTION_PAYLOAD_PROOF_LEN);
 
         let (_, proof) = tree
             .generate_proof(
-                EXECUTION_PAYLOAD_INDEX as usize,
-                FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize,
+                EXECUTION_PAYLOAD_INDEX,
+                EXECUTION_PAYLOAD_PROOF_LEN,
             )
             .unwrap();
 
@@ -173,11 +145,9 @@ impl<E: EthSpec> LightClientHeader<E> {
 
         return verify_merkle_proof(
             execution_root,
-            &[Hash256::from_slice(
-                hash_fixed(&execution_branch.0).as_slice(),
-            )],
-            FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize,
-            get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize,
+            &execution_branch,
+            EXECUTION_PAYLOAD_PROOF_LEN,
+            get_subtree_index(EXECUTION_PAYLOAD_INDEX as u32) as usize,
             self.beacon.body_root,
         );
     }

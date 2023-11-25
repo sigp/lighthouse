@@ -7,7 +7,7 @@ use safe_arith::ArithError;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::{Decode, Encode};
-use ssz_types::typenum::{U5, U6};
+use ssz_types::typenum::{U4, U5, U6};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -15,14 +15,18 @@ use tree_hash::TreeHash;
 pub const FINALIZED_ROOT_INDEX: usize = 105;
 pub const CURRENT_SYNC_COMMITTEE_INDEX: usize = 54;
 pub const NEXT_SYNC_COMMITTEE_INDEX: usize = 55;
+pub const EXECUTION_PAYLOAD_INDEX: usize = 25;
 
 pub type FinalizedRootProofLen = U6;
 pub type CurrentSyncCommitteeProofLen = U5;
+pub type ExecutionPayloadProofLen = U4;
+
 pub type NextSyncCommitteeProofLen = U5;
 
 pub const FINALIZED_ROOT_PROOF_LEN: usize = 6;
 pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 pub const NEXT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
+pub const EXECUTION_PAYLOAD_PROOF_LEN: usize = 4;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
