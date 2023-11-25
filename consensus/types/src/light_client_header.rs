@@ -1,5 +1,5 @@
-use crate::BeaconBlockHeader;
 use crate::{test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, Hash256, SignedBeaconBlock};
+use crate::{BeaconBlockHeader, ExecutionPayload};
 use merkle_proof::{verify_merkle_proof, MerkleTree};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
@@ -36,10 +36,13 @@ impl TestRandom for Option<ExecutionBranch> {
 )]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
+#[ssz(struct_behaviour = "container")]
 pub struct LightClientHeader<E: EthSpec> {
     pub beacon: BeaconBlockHeader,
     #[test_random(default)]
+    #[ssz(skip_serializing, skip_deserializing)]
     pub execution: Option<ExecutionPayloadHeader<E>>,
+    #[test_random(default)]
     pub execution_branch: Option<ExecutionBranch>,
 }
 
@@ -59,11 +62,17 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for LightClientHeader<E> {
 
         // TODO epoch greater than or equal to capella
         if epoch >= 0 {
-            let payload = block.message().body().execution_payload();
+            let payload: ExecutionPayload<E> = block
+                .message()
+                .execution_payload()
+                .unwrap()
+                .execution_payload_capella()
+                .unwrap()
+                .to_owned()
+                .into();
 
             // TODO fix unwrap
-            let header = ExecutionPayloadHeader::<E>::from(payload.unwrap().into());
-
+            let header = ExecutionPayloadHeader::from(payload.to_ref());
             let leaves = block
                 .message()
                 .body_capella()
@@ -72,16 +81,25 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for LightClientHeader<E> {
                 .iter()
                 .map(|data| data.tree_hash_root())
                 .collect::<Vec<_>>();
-            let tree = MerkleTree::create(&leaves, EXECUTION_PAYLOAD_INDEX as usize);
 
-            let execution_branch = generate_proof(
-                block.message().body_capella().unwrap().as_ssz_bytes(),
-                EXECUTION_PAYLOAD_INDEX,
-            );
+            let tree = MerkleTree::create(&leaves, FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize);
+
+            let _ = tree
+                .generate_proof(
+                    EXECUTION_PAYLOAD_INDEX as usize,
+                    FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize,
+                )
+                .unwrap();
+
+            return LightClientHeader {
+                beacon: block.message().block_header(),
+                execution: Some(header),
+                execution_branch: None, // Some(execution_branch),
+            };
         };
 
         LightClientHeader {
-            beacon,
+            beacon: block.message().block_header(),
             execution: None,
             execution_branch: None,
         }
@@ -94,7 +112,7 @@ impl<E: EthSpec> LightClientHeader<E> {
 
         // TODO greater than or equal to CAPELLA
         if epoch >= 0 {
-            if let Some(execution) = self.execution {
+            if let Some(execution) = &self.execution {
                 return Some(execution.tree_hash_root());
             }
         }
@@ -114,13 +132,13 @@ impl<E: EthSpec> LightClientHeader<E> {
             return false;
         };
 
-        let Some(execution_branch) = self.execution_branch else {
+        let Some(execution_branch) = &self.execution_branch else {
             return false;
         };
 
         return verify_merkle_proof(
             execution_root,
-            &execution_branch.into(),
+            &[Hash256::from_slice(&execution_branch.0)],
             FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize,
             get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize,
             self.beacon.body_root,
