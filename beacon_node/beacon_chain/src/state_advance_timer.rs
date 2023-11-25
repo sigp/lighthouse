@@ -250,6 +250,18 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                         // If we're proposing, clone the head state preemptively so that it isn't on
                         // the hot path of proposing. We can delete this once we have tree-states.
                         if let Some(proposer_head) = proposer_head {
+                            let mut cache = beacon_chain.block_production_state.lock();
+
+                            // Avoid holding two states in memory. It's OK to hold the lock because
+                            // we always lock the block production cache before the snapshot cache
+                            // and we prefer for block production to wait for the block production
+                            // cache if a clone is in-progress.
+                            if cache
+                                .as_ref()
+                                .map_or(false, |(cached_head, _)| *cached_head != proposer_head)
+                            {
+                                drop(cache.take());
+                            }
                             if let Some(proposer_state) = beacon_chain
                                 .snapshot_cache
                                 .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
@@ -257,8 +269,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                                     snapshot_cache.get_state_for_block_production(proposer_head)
                                 })
                             {
-                                *beacon_chain.block_production_state.lock() =
-                                    Some((proposer_head, proposer_state));
+                                *cache = Some((proposer_head, proposer_state));
                                 debug!(
                                     log,
                                     "Cloned state ready for block production";
