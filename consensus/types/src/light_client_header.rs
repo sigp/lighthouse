@@ -29,12 +29,11 @@ impl From<Vec<Hash256>> for ExecutionBranch {
         let mut result = [0u8; 4];
 
         for (i, h256) in proof.iter().enumerate().take(4) {
-            result[i] = h256.as_bytes()[0]; 
+            result[i] = h256.as_bytes()[0];
         }
 
         ExecutionBranch(result)
     }
-
 }
 
 #[derive(
@@ -74,47 +73,56 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for LightClientHeader<E> {
         let epoch = block.message().slot().epoch(E::slots_per_epoch());
 
         // TODO epoch greater than or equal to capella
-        if epoch >= 0 {
-            let payload: ExecutionPayload<E> = block
+        let payload: ExecutionPayload<E> = if epoch >= 0 {
+            block
                 .message()
                 .execution_payload()
                 .unwrap()
                 .execution_payload_capella()
                 .unwrap()
                 .to_owned()
-                .into();
-
-            // TODO fix unwrap
-            let header = ExecutionPayloadHeader::from(payload.to_ref());
-            let leaves = block
+                .into()
+        } else if epoch >= 1 {
+            block
                 .message()
-                .body_capella()
+                .execution_payload()
                 .unwrap()
-                .as_ssz_bytes()
-                .iter()
-                .map(|data| data.tree_hash_root())
-                .collect::<Vec<_>>();
-
-            let tree = MerkleTree::create(&leaves, FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize);
-
-            let (_, proof) = tree
-                .generate_proof(
-                    EXECUTION_PAYLOAD_INDEX as usize,
-                    FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize,
-                )
-                .unwrap();
-
+                .execution_payload_deneb()
+                .unwrap()
+                .to_owned()
+                .into()
+        } else {
             return LightClientHeader {
                 beacon: block.message().block_header(),
-                execution: Some(header),
-                execution_branch: Some(proof.into()),
+                execution: None,
+                execution_branch: None,
             };
         };
 
+        // TODO fix unwrap
+        let header = ExecutionPayloadHeader::from(payload.to_ref());
+        let leaves = block
+            .message()
+            .body_capella()
+            .unwrap()
+            .as_ssz_bytes()
+            .iter()
+            .map(|data| data.tree_hash_root())
+            .collect::<Vec<_>>();
+
+        let tree = MerkleTree::create(&leaves, FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize);
+
+        let (_, proof) = tree
+            .generate_proof(
+                EXECUTION_PAYLOAD_INDEX as usize,
+                FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize,
+            )
+            .unwrap();
+
         LightClientHeader {
             beacon: block.message().block_header(),
-            execution: None,
-            execution_branch: None,
+            execution: Some(header),
+            execution_branch: Some(proof.into()),
         }
     }
 }
@@ -136,7 +144,21 @@ impl<E: EthSpec> LightClientHeader<E> {
     fn is_valid_light_client_header(&self) -> bool {
         let epoch = self.beacon.slot.epoch(E::slots_per_epoch());
 
-        // TODO LESS THAN CAPELLA
+        // TODO LESS THAN DENEB
+        if epoch < 1 {
+            let Some(execution) = &self.execution else {
+                return false;
+            };
+
+            // TODO unwrap
+            if execution.blob_gas_used().unwrap().to_owned() != 0 as u64
+                || execution.excess_blob_gas().unwrap().to_owned() != 0 as u64
+            {
+                return false;
+            }
+        }
+
+        // TODO LESS THAN DENEB
         if epoch < 0 {
             return self.execution == None && self.execution_branch == None;
         }
