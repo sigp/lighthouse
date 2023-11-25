@@ -1,11 +1,14 @@
 mod api_secret;
 mod create_signed_voluntary_exit;
 mod create_validator;
+mod graffiti;
 mod keystores;
 mod remotekeys;
 mod tests;
 
 pub mod test_utils;
+
+use crate::http_api::graffiti::get_graffiti;
 
 use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
@@ -19,7 +22,10 @@ use create_validator::{
 };
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
-    types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
+    types::{
+        self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, PublicKey,
+        PublicKeyBytes,
+    },
 };
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
@@ -1028,6 +1034,78 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         );
 
+    // GET /eth/v1/validator/{pubkey}/graffiti
+    let get_graffiti = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("graffiti"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(log_filter.clone())
+        .and(signer.clone())
+        .and(task_executor_filter.clone())
+        .and_then(
+            |pubkey: PublicKey,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             log,
+             signer,
+             task_executor: TaskExecutor| {
+                blocking_signed_json_task(signer, move || {
+                    if let Some(handle) = task_executor.handle() {
+                        let graffiti =
+                            handle.block_on(get_graffiti(pubkey.clone(), validator_store, log))?;
+                        Ok(GenericResponse::from(GetGraffitiResponse {
+                            pubkey: pubkey.into(),
+                            graffiti,
+                        }))
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "Lighthouse shutting down".into(),
+                        ))
+                    }
+                })
+            },
+        );
+
+    // GET /eth/v1/validator/{pubkey}/feerecipient
+    let get_fee_recipient = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("feerecipient"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(signer.clone())
+        .and_then(
+            |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
+                blocking_signed_json_task(signer, move || {
+                    if validator_store
+                        .initialized_validators()
+                        .read()
+                        .is_enabled(&validator_pubkey)
+                        .is_none()
+                    {
+                        return Err(warp_utils::reject::custom_not_found(format!(
+                            "no validator found with pubkey {:?}",
+                            validator_pubkey
+                        )));
+                    }
+                    validator_store
+                        .get_fee_recipient(&PublicKeyBytes::from(&validator_pubkey))
+                        .map(|fee_recipient| {
+                            GenericResponse::from(GetFeeRecipientResponse {
+                                pubkey: PublicKeyBytes::from(validator_pubkey.clone()),
+                                ethaddress: fee_recipient,
+                            })
+                        })
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_server_error(
+                                "no fee recipient set".to_string(),
+                            )
+                        })
+                })
+            },
+        );
+
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores
         .and(signer.clone())
@@ -1175,6 +1253,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_ui_graffiti)
                         .or(get_fee_recipient)
                         .or(get_gas_limit)
+                        .or(get_graffiti)
                         .or(get_std_keystores)
                         .or(get_std_remotekeys)
                         .recover(warp_utils::reject::handle_rejection),

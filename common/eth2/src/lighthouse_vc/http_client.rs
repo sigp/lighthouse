@@ -537,6 +537,18 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
+    fn make_get_graffiti_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
+        let mut url = self.server.full.clone();
+        url.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push(&pubkey.to_string())
+            .push("graffiti");
+        Ok(url)
+    }
+
     fn make_gas_limit_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
         let mut url = self.server.full.clone();
         url.path_segments_mut()
@@ -683,6 +695,17 @@ impl ValidatorClientHttpClient {
         }
 
         self.post(path, &()).await
+    }
+
+    /// `GET /eth/v1/validator/{pubkey}/graffiti`
+    pub async fn get_graffiti(
+        &self,
+        pubkey: &PublicKeyBytes,
+    ) -> Result<GetGraffitiResponse, Error> {
+        let url = self.make_get_graffiti_url(pubkey)?;
+        self.get(url)
+            .await
+            .map(|generic: GenericResponse<GetGraffitiResponse>| generic.data)
     }
 }
 
