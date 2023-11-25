@@ -1,5 +1,6 @@
 use crate::{test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, Hash256, SignedBeaconBlock};
 use crate::{BeaconBlockHeader, ExecutionPayload};
+use ethereum_hashing::hash_fixed;
 use merkle_proof::{verify_merkle_proof, MerkleTree};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
@@ -23,6 +24,19 @@ impl TestRandom for Option<ExecutionBranch> {
     }
 }
 
+impl From<Vec<Hash256>> for ExecutionBranch {
+    fn from(proof: Vec<Hash256>) -> Self {
+        let mut result = [0u8; 4];
+
+        for (i, h256) in proof.iter().enumerate().take(4) {
+            result[i] = h256.as_bytes()[0]; 
+        }
+
+        ExecutionBranch(result)
+    }
+
+}
+
 #[derive(
     Debug,
     Clone,
@@ -36,7 +50,6 @@ impl TestRandom for Option<ExecutionBranch> {
 )]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
-#[ssz(struct_behaviour = "container")]
 pub struct LightClientHeader<E: EthSpec> {
     pub beacon: BeaconBlockHeader,
     #[test_random(default)]
@@ -84,7 +97,7 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for LightClientHeader<E> {
 
             let tree = MerkleTree::create(&leaves, FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize);
 
-            let _ = tree
+            let (_, proof) = tree
                 .generate_proof(
                     EXECUTION_PAYLOAD_INDEX as usize,
                     FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize,
@@ -94,7 +107,7 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for LightClientHeader<E> {
             return LightClientHeader {
                 beacon: block.message().block_header(),
                 execution: Some(header),
-                execution_branch: None, // Some(execution_branch),
+                execution_branch: Some(proof.into()),
             };
         };
 
@@ -138,7 +151,9 @@ impl<E: EthSpec> LightClientHeader<E> {
 
         return verify_merkle_proof(
             execution_root,
-            &[Hash256::from_slice(&execution_branch.0)],
+            &[Hash256::from_slice(
+                hash_fixed(&execution_branch.0).as_slice(),
+            )],
             FLOOR_LOG2_EXECUTION_PAYLOAD_INDEX as usize,
             get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize,
             self.beacon.body_root,
