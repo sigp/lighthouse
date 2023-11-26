@@ -8,7 +8,7 @@ mod tests;
 
 pub mod test_utils;
 
-use crate::http_api::graffiti::{get_graffiti, set_graffiti, delete_graffiti};
+use crate::http_api::graffiti::{delete_graffiti, get_graffiti, set_graffiti};
 
 use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
@@ -24,7 +24,7 @@ use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{
         self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, PublicKey,
-        PublicKeyBytes, SetGraffitiQuery
+        PublicKeyBytes, SetGraffitiQuery,
     },
 };
 use lighthouse_version::version_with_platform;
@@ -1090,9 +1090,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         let Some(graffiti) = query.graffiti else {
                             return Err(warp_utils::reject::custom_server_error(
                                 "Lighthouse shutting down".into(),
-                            ))
+                            ));
                         };
-                        handle.block_on(set_graffiti(pubkey.clone(), graffiti, validator_store, log))?;
+                        handle.block_on(set_graffiti(
+                            pubkey.clone(),
+                            graffiti,
+                            validator_store,
+                            log,
+                        ))?;
                         Ok(())
                     } else {
                         Err(warp_utils::reject::custom_server_error(
@@ -1101,8 +1106,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     }
                 })
             },
-        ).map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::ACCEPTED));
-    
+        )
+        .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::ACCEPTED));
+
     // DELETE /eth/v1/validator/{pubkey}/graffiti
     let delete_graffiti = eth_v1
         .and(warp::path("validator"))
@@ -1130,8 +1136,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     }
                 })
             },
-        ).map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::ACCEPTED));
-
+        )
+        .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::ACCEPTED));
 
     // GET /eth/v1/validator/{pubkey}/feerecipient
     let get_fee_recipient = eth_v1
