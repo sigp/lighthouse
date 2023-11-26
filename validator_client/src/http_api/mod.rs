@@ -8,7 +8,7 @@ mod tests;
 
 pub mod test_utils;
 
-use crate::http_api::graffiti::get_graffiti;
+use crate::http_api::graffiti::{get_graffiti, set_graffiti, delete_graffiti};
 
 use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
@@ -24,7 +24,7 @@ use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{
         self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, PublicKey,
-        PublicKeyBytes,
+        PublicKeyBytes, SetGraffitiQuery
     },
 };
 use lighthouse_version::version_with_platform;
@@ -1066,6 +1066,72 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 })
             },
         );
+
+    // POST /eth/v1/validator/{pubkey}/graffiti
+    let set_graffiti = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("graffiti"))
+        .and(warp::query::<api_types::SetGraffitiQuery>())
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(log_filter.clone())
+        .and(signer.clone())
+        .and(task_executor_filter.clone())
+        .and_then(
+            |pubkey: PublicKey,
+             query: SetGraffitiQuery,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             log,
+             signer,
+             task_executor: TaskExecutor| {
+                blocking_signed_json_task(signer, move || {
+                    if let Some(handle) = task_executor.handle() {
+                        let Some(graffiti) = query.graffiti else {
+                            return Err(warp_utils::reject::custom_server_error(
+                                "Lighthouse shutting down".into(),
+                            ))
+                        };
+                        handle.block_on(set_graffiti(pubkey.clone(), graffiti, validator_store, log))?;
+                        Ok(())
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "Lighthouse shutting down".into(),
+                        ))
+                    }
+                })
+            },
+        ).map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::ACCEPTED));
+    
+    // DELETE /eth/v1/validator/{pubkey}/graffiti
+    let delete_graffiti = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("graffiti"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(log_filter.clone())
+        .and(signer.clone())
+        .and(task_executor_filter.clone())
+        .and_then(
+            |pubkey: PublicKey,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             log,
+             signer,
+             task_executor: TaskExecutor| {
+                blocking_signed_json_task(signer, move || {
+                    if let Some(handle) = task_executor.handle() {
+                        handle.block_on(delete_graffiti(pubkey.clone(), validator_store, log))?;
+                        Ok(())
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "Lighthouse shutting down".into(),
+                        ))
+                    }
+                })
+            },
+        ).map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::ACCEPTED));
+
 
     // GET /eth/v1/validator/{pubkey}/feerecipient
     let get_fee_recipient = eth_v1

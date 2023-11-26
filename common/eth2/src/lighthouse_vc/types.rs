@@ -168,3 +168,8 @@ pub struct SingleExportKeystoresResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validating_keystore_password: Option<ZeroizeString>,
 }
+
+#[derive(Deserialize)]
+pub struct SetGraffitiQuery {
+    pub graffiti: Option<Graffiti>,
+}
