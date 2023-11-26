@@ -226,8 +226,25 @@ impl ValidatorClientHttpClient {
         ok_or_error(response).await
     }
 
+    /// Perform a HTTP DELETE request, returning the `Response` for further processing.
+    async fn delete_response<U: IntoUrl>(&self, url: U) -> Result<Response, Error> {
+        let response = self
+            .client
+            .delete(url)
+            .headers(self.headers()?)
+            .send()
+            .await
+            .map_err(Error::from)?;
+        ok_or_error(response).await
+    }
+
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
         let response = self.get_response(url).await?;
+        self.signed_json(response).await
+    }
+
+    async fn delete<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
+        let response = self.delete_response(url).await?;
         self.signed_json(response).await
     }
 
@@ -537,7 +554,7 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
-    fn make_get_graffiti_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
+    fn make_graffiti_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
         let mut url = self.server.full.clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -702,10 +719,28 @@ impl ValidatorClientHttpClient {
         &self,
         pubkey: &PublicKeyBytes,
     ) -> Result<GetGraffitiResponse, Error> {
-        let url = self.make_get_graffiti_url(pubkey)?;
+        let url = self.make_graffiti_url(pubkey)?;
         self.get(url)
             .await
             .map(|generic: GenericResponse<GetGraffitiResponse>| generic.data)
+    }
+
+    /// `POST /eth/v1/validator/{pubkey}/graffiti`
+    pub async fn set_graffiti(
+        &self,
+        pubkey: &PublicKeyBytes,
+        graffiti: Graffiti,
+    ) -> Result<(), Error> {
+        let url = self.make_graffiti_url(pubkey)?;
+        self.post(url, &graffiti).await?;
+        Ok(())
+    }
+
+    /// `DELETE /eth/v1/validator/{pubkey}/graffiti`
+    pub async fn delete_graffiti(&self, pubkey: &PublicKeyBytes) -> Result<(), Error> {
+        let url = self.make_graffiti_url(pubkey)?;
+        self.delete(url).await?;
+        Ok(())
     }
 }
 
