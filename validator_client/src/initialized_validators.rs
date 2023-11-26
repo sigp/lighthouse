@@ -21,12 +21,15 @@ use lockfile::{Lockfile, LockfileError};
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
 use slog::{debug, error, info, warn, Logger};
-use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 use types::graffiti::GraffitiString;
 use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use url::{ParseError, Url};
@@ -116,6 +119,8 @@ pub enum Error {
     UnableToSaveKeyCache(key_cache::Error),
     UnableToDecryptKeyCache(key_cache::Error),
     UnableToDeletePasswordFile(PathBuf, io::Error),
+    /// Invalid graffiti, could not be converted to GraffitiString
+    InvalidGraffiti,
 }
 
 impl From<LockfileError> for Error {
@@ -714,6 +719,77 @@ impl InitializedValidators {
     /// Returns the `graffiti` for a given public key specified in the `ValidatorDefinitions`.
     pub fn graffiti(&self, public_key: &PublicKeyBytes) -> Option<Graffiti> {
         self.validators.get(public_key).and_then(|v| v.graffiti)
+    }
+
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `graffiti` values.
+    ///
+    /// ## Notes
+    ///
+    /// Setting a validator `graffiti` will cause `self.definitions` to be updated and saved to
+    /// disk.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn set_graffiti(
+        &mut self,
+        voting_public_key: &PublicKey,
+        graffiti: Graffiti,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            let graffiti_string = GraffitiString::from_str(&graffiti.to_string())
+                .map_err(|_| Error::InvalidGraffiti)?;
+            def.graffiti = Some(graffiti_string);
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.graffiti = Some(graffiti);
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
+    /// Removes the `InitializedValidator` and `ValidatorDefinition` `graffiti` values.
+    ///
+    /// ## Notes
+    ///
+    /// Removing a validator `graffiti` will cause `self.definitions` to be updated and saved to
+    /// disk. The graffiti for the validator will then fall back to the process level default if
+    /// it is set.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn delete_graffiti(&mut self, voting_public_key: &PublicKey) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.graffiti = None;
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.graffiti = None;
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
     }
 
     /// Returns a `HashMap` of `public_key` -> `graffiti` for all initialized validators.
