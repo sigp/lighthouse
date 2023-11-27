@@ -640,6 +640,49 @@ impl ApiTester {
 
         self
     }
+
+    pub async fn test_set_graffiti(self, index: usize, graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let graffiti_str = GraffitiString::from_str(graffiti).unwrap();
+        let resp = self
+            .client
+            .set_graffiti(&validator.voting_pubkey, graffiti_str)
+            .await;
+
+        assert!(resp.is_ok());
+
+        self
+    }
+
+    pub async fn test_delete_graffiti(self, index: usize) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let resp = self.client.get_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+        let old_graffiti = resp.unwrap().graffiti;
+
+        let resp = self.client.delete_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+
+        let resp = self.client.get_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+        assert_ne!(old_graffiti, resp.unwrap().graffiti);
+
+        self
+    }
+
+    pub async fn test_get_graffiti(self, index: usize, expected_graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let expected_graffiti_str = GraffitiString::from_str(expected_graffiti).unwrap();
+        let resp = self.client.get_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+        assert_eq!(&resp.unwrap().graffiti, &expected_graffiti_str.into());
+
+        self
+    }
 }
 
 struct HdValidatorScenario {
@@ -951,6 +994,31 @@ async fn validator_graffiti() {
         .await
         .assert_enabled_validators_count(2)
         .assert_graffiti(0, "Mr F was here again")
+        .await;
+}
+
+#[tokio::test]
+async fn validator_graffiti_api() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_graffiti(0, "Mr F was here")
+        .await
+        .test_get_graffiti(0, "Mr F was here")
+        .await
+        .test_set_graffiti(0, "Uncle Bill was here")
+        .await
+        .test_get_graffiti(0, "Uncle Bill was here")
+        .await
+        .test_delete_graffiti(0)
         .await;
 }
 

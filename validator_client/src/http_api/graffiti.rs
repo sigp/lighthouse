@@ -1,42 +1,72 @@
 use crate::validator_store::ValidatorStore;
 use bls::PublicKey;
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{EthSpec, Graffiti};
+use types::{graffiti::GraffitiString, EthSpec, Graffiti};
 
 pub async fn get_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
-    pubkey: PublicKey,
+    validator_pubkey: PublicKey,
     validator_store: Arc<ValidatorStore<T, E>>,
-    log: Logger,
 ) -> Result<Graffiti, warp::Rejection> {
-    let Some(graffiti) = validator_store.graffiti(&pubkey.into()) else {
-        return Err(warp_utils::reject::custom_server_error(
-            "Lighthouse shutting down".into(),
-        ));
+    let Some(graffiti) = validator_store.graffiti(&validator_pubkey.into()) else {
+        return Ok(Graffiti::default());
     };
     Ok(graffiti)
 }
 
 pub async fn set_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
-    pubkey: PublicKey,
-    graffiti: Graffiti,
+    validator_pubkey: PublicKey,
+    graffiti: GraffitiString,
     validator_store: Arc<ValidatorStore<T, E>>,
-    log: Logger,
 ) -> Result<(), warp::Rejection> {
-    let validators_rw_lock = validator_store.initialized_validators();
-    let mut validators = validators_rw_lock.write();
-    validators.set_graffiti(&pubkey, graffiti).unwrap();
-    Ok(())
+    let initialized_validators_rw_lock = validator_store.initialized_validators();
+    let mut initialized_validators = initialized_validators_rw_lock.write();
+    match initialized_validators.validator(&validator_pubkey.compress()) {
+        None => Err(warp_utils::reject::custom_not_found(
+            "The key was not found on the server, nothing to update".to_string(),
+        )),
+        Some(initialized_validator) => {
+            if initialized_validator.get_graffiti() == Some(graffiti.clone().into()) {
+                Ok(())
+            } else {
+                initialized_validators
+                    .set_graffiti(&validator_pubkey, graffiti)
+                    .map_err(|_| {
+                        warp_utils::reject::custom_server_error(
+                            "failed to update graffiti".to_string(),
+                        )
+                    })?;
+
+                Ok(())
+            }
+        }
+    }
 }
 
 pub async fn delete_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
-    pubkey: PublicKey,
+    validator_pubkey: PublicKey,
     validator_store: Arc<ValidatorStore<T, E>>,
-    log: Logger,
 ) -> Result<(), warp::Rejection> {
-    let validators_rw_lock = validator_store.initialized_validators();
-    let mut validators = validators_rw_lock.write();
-    validators.delete_graffiti(&pubkey).unwrap();
-    Ok(())
+    let initialized_validators_rw_lock = validator_store.initialized_validators();
+    let mut initialized_validators = initialized_validators_rw_lock.write();
+    match initialized_validators.validator(&validator_pubkey.compress()) {
+        None => Err(warp_utils::reject::custom_not_found(
+            "The key was not found on the server, nothing to delete".to_string(),
+        )),
+        Some(initialized_validator) => {
+            if initialized_validator.get_graffiti() == Some(Graffiti::default()) {
+                Ok(())
+            } else {
+                initialized_validators
+                    .delete_graffiti(&validator_pubkey)
+                    .map_err(|_| {
+                        warp_utils::reject::InvalidAuthorization(
+                            "A graffiti was found, but cannot be removed. This may be because the graffiti was in configuration files that cannot be updated.".to_string()
+                        )
+                    })?;
+
+                Ok(())
+            }
+        }
+    }
 }

@@ -169,7 +169,7 @@ pub struct SingleExportKeystoresResponse {
     pub validating_keystore_password: Option<ZeroizeString>,
 }
 
-#[derive(Deserialize)]
-pub struct SetGraffitiQuery {
-    pub graffiti: Option<Graffiti>,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SetGraffitiRequest {
+    pub graffiti: Option<GraffitiString>,
 }

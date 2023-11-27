@@ -21,15 +21,12 @@ use lockfile::{Lockfile, LockfileError};
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
 use slog::{debug, error, info, warn, Logger};
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{
-    collections::{HashMap, HashSet},
-    str::FromStr,
-};
 use types::graffiti::GraffitiString;
 use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use url::{ParseError, Url};
@@ -732,7 +729,7 @@ impl InitializedValidators {
     pub fn set_graffiti(
         &mut self,
         voting_public_key: &PublicKey,
-        graffiti: Graffiti,
+        graffiti: GraffitiString,
     ) -> Result<(), Error> {
         if let Some(def) = self
             .definitions
@@ -740,22 +737,19 @@ impl InitializedValidators {
             .iter_mut()
             .find(|def| def.voting_public_key == *voting_public_key)
         {
-            let graffiti_string = GraffitiString::from_str(&graffiti.to_string())
-                .map_err(|_| Error::InvalidGraffiti)?;
-            def.graffiti = Some(graffiti_string);
+            def.graffiti = Some(graffiti.clone());
         }
 
         if let Some(val) = self
             .validators
             .get_mut(&PublicKeyBytes::from(voting_public_key))
         {
-            val.graffiti = Some(graffiti);
+            val.graffiti = Some(graffiti.into());
         }
 
         self.definitions
             .save(&self.validators_dir)
             .map_err(Error::UnableToSaveDefinitions)?;
-
         Ok(())
     }
 

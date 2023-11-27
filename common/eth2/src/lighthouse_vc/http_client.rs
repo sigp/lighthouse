@@ -729,10 +729,13 @@ impl ValidatorClientHttpClient {
     pub async fn set_graffiti(
         &self,
         pubkey: &PublicKeyBytes,
-        graffiti: Graffiti,
+        graffiti: GraffitiString,
     ) -> Result<(), Error> {
         let url = self.make_graffiti_url(pubkey)?;
-        self.post(url, &graffiti).await?;
+        let set_graffiti_request = SetGraffitiRequest {
+            graffiti: Some(graffiti),
+        };
+        self.post(url, &set_graffiti_request).await?;
         Ok(())
     }
 
