@@ -659,7 +659,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_store_filter.clone())
-        .and(graffiti_file_filter)
+        .and(graffiti_file_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
@@ -1073,15 +1073,23 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(warp::path::end())
         .and(validator_store_filter.clone())
+        .and(graffiti_file_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
             |pubkey: PublicKey,
              query: SetGraffitiRequest,
              validator_store: Arc<ValidatorStore<T, E>>,
+             graffiti_file: Option<GraffitiFile>,
              signer,
              task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
+                    if graffiti_file.is_some() {
+                        return Err(warp_utils::reject::invalid_auth(
+                            "Unable to update graffiti as the \"--graffiti-file\" flag is set"
+                                .to_string(),
+                        ));
+                    }
                     if let Some(handle) = task_executor.handle() {
                         let Some(graffiti) = query.graffiti else {
                             return Err(warp_utils::reject::custom_bad_request(
@@ -1107,14 +1115,22 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("graffiti"))
         .and(warp::path::end())
         .and(validator_store_filter.clone())
+        .and(graffiti_file_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
             |pubkey: PublicKey,
              validator_store: Arc<ValidatorStore<T, E>>,
+             graffiti_file: Option<GraffitiFile>,
              signer,
              task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
+                    if graffiti_file.is_some() {
+                        return Err(warp_utils::reject::invalid_auth(
+                            "Unable to update graffiti as the \"--graffiti-file\" flag is set"
+                                .to_string(),
+                        ));
+                    }
                     if let Some(handle) = task_executor.handle() {
                         handle.block_on(delete_graffiti(pubkey.clone(), validator_store))?;
                         Ok(())

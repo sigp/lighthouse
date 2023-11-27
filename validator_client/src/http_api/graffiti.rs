@@ -32,8 +32,8 @@ pub async fn set_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
                 initialized_validators
                     .set_graffiti(&validator_pubkey, graffiti)
                     .map_err(|_| {
-                        warp_utils::reject::custom_server_error(
-                            "failed to update graffiti".to_string(),
+                        warp_utils::reject::invalid_auth(
+                            "A graffiti was found, but cannot be updated. This may be because the graffiti was in configuration files that cannot be updated.".to_string(),
                         )
                     })?;
 
@@ -60,7 +60,7 @@ pub async fn delete_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
                 initialized_validators
                     .delete_graffiti(&validator_pubkey)
                     .map_err(|_| {
-                        warp_utils::reject::InvalidAuthorization(
+                        warp_utils::reject::invalid_auth(
                             "A graffiti was found, but cannot be removed. This may be because the graffiti was in configuration files that cannot be updated.".to_string()
                         )
                     })?;
