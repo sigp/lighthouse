@@ -116,8 +116,6 @@ pub enum Error {
     UnableToSaveKeyCache(key_cache::Error),
     UnableToDecryptKeyCache(key_cache::Error),
     UnableToDeletePasswordFile(PathBuf, io::Error),
-    /// Invalid graffiti, could not be converted to GraffitiString
-    InvalidGraffiti,
 }
 
 impl From<LockfileError> for Error {
