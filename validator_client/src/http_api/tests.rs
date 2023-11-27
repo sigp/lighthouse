@@ -663,8 +663,6 @@ impl ApiTester {
 
         let resp = self.client.delete_graffiti(&validator.voting_pubkey).await;
 
-        println!("{:?}", resp);
-
         assert!(resp.is_ok());
 
         let resp = self.client.get_graffiti(&validator.voting_pubkey).await;

@@ -1142,7 +1142,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 })
             },
         )
-        .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::NO_CONTENT));
+        .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::ACCEPTED));
 
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores
