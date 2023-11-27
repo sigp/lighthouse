@@ -463,7 +463,11 @@ impl<E: EthSpec> Tester<E> {
                     kzg_commitment,
                     kzg_proof,
                     signed_block_header: block.signed_block_header(),
-                    kzg_commitment_inclusion_proof: block.kzg_commitment_merkle_proof(i).unwrap(),
+                    kzg_commitment_inclusion_proof: block
+                        .message()
+                        .body()
+                        .kzg_commitment_merkle_proof(i)
+                        .unwrap(),
                 });
 
                 let chain = self.harness.chain.clone();

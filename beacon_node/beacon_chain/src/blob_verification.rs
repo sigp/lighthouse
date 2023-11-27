@@ -388,12 +388,14 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     }
 
     // Verify the inclusion proof in the sidecar
+    let _timer = metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_VERIFICATION);
     if !blob_sidecar
         .verify_blob_sidecar_inclusion_proof()
         .map_err(GossipBlobError::InclusionProof)?
     {
         return Err(GossipBlobError::InvalidInclusionProof);
     }
+    drop(_timer);
 
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
 

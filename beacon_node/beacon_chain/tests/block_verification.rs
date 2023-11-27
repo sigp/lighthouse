@@ -215,6 +215,8 @@ fn update_blob_signed_header<E: EthSpec>(
             kzg_proof: old_blob_sidecar.kzg_proof,
             signed_block_header: signed_block.signed_block_header(),
             kzg_commitment_inclusion_proof: signed_block
+                .message()
+                .body()
                 .kzg_commitment_merkle_proof(old_blob_sidecar.index as usize)
                 .unwrap(),
         });

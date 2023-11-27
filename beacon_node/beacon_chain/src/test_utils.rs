@@ -2507,7 +2507,11 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 kzg_commitment,
                 kzg_proof,
                 signed_block_header: block.signed_block_header(),
-                kzg_commitment_inclusion_proof: block.kzg_commitment_merkle_proof(index).unwrap(),
+                kzg_commitment_inclusion_proof: block
+                    .message()
+                    .body()
+                    .kzg_commitment_merkle_proof(index)
+                    .unwrap(),
             });
         }
     }

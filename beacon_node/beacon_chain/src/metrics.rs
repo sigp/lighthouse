@@ -1004,6 +1004,14 @@ lazy_static! {
         "beacon_blobs_sidecar_gossip_verification_seconds",
         "Full runtime of blob sidecars gossip verification"
     );
+    pub static ref BLOB_SIDECAR_INCLUSION_PROOF_VERIFICATION: Result<Histogram> = try_create_histogram(
+        "blob_sidecar_inclusion_proof_verification_seconds",
+        "Time taken to verify blob sidecar inclusion proof"
+    );
+    pub static ref BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: Result<Histogram> = try_create_histogram(
+        "blob_sidecar_inclusion_proof_computation_seconds",
+        "Time taken to verify blob sidecar inclusion proof"
+    );
 }
 
 // Fifth lazy-static block is used to account for macro recursion limit.

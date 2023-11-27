@@ -127,7 +127,6 @@ impl<T: EthSpec> BlobSidecar<T> {
     pub fn new(
         index: usize,
         blob: Blob<T>,
-        signed_block_header: SignedBeaconBlockHeader,
         signed_block: &SignedBeaconBlock<T>,
         kzg_proof: KzgProof,
     ) -> Result<Self, BlobSidecarError> {
@@ -149,7 +148,7 @@ impl<T: EthSpec> BlobSidecar<T> {
             blob,
             kzg_commitment,
             kzg_proof,
-            signed_block_header,
+            signed_block_header: signed_block.signed_block_header(),
             kzg_commitment_inclusion_proof,
         })
     }
@@ -267,11 +266,9 @@ impl<T: EthSpec> BlobSidecar<T> {
         block: &SignedBeaconBlock<T>,
         kzg_proofs: KzgProofs<T>,
     ) -> Result<BlobSidecarList<T>, BlobSidecarError> {
-        let signed_block_header = block.signed_block_header();
         let mut blob_sidecars = vec![];
         for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
-            let blob_sidecar =
-                BlobSidecar::new(i, blob, signed_block_header.clone(), block, *kzg_proof)?;
+            let blob_sidecar = BlobSidecar::new(i, blob, block, *kzg_proof)?;
             blob_sidecars.push(Arc::new(blob_sidecar));
         }
         Ok(VariableList::from(blob_sidecars))

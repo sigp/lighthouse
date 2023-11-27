@@ -696,12 +696,13 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
 
         let gossip_verified_blobs = blobs
             .map(|(kzg_proofs, blobs)| {
-                let signed_block_header = block.signed_block_header();
                 let mut gossip_verified_blobs = vec![];
                 for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
-                    let blob =
-                        BlobSidecar::new(i, blob, signed_block_header.clone(), &block, *kzg_proof)
-                            .map_err(BlockContentsError::SidecarError)?;
+                    let _timer =
+                        metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
+                    let blob = BlobSidecar::new(i, blob, &block, *kzg_proof)
+                        .map_err(BlockContentsError::SidecarError)?;
+                    drop(_timer);
                     let gossip_verified_blob = GossipVerifiedBlob::new(Arc::new(blob), chain)?;
                     gossip_verified_blobs.push(gossip_verified_blob);
                 }
