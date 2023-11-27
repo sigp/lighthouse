@@ -243,9 +243,13 @@ impl ValidatorClientHttpClient {
         self.signed_json(response).await
     }
 
-    async fn delete<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
+    async fn delete<U: IntoUrl>(&self, url: U) -> Result<(), Error> {
         let response = self.delete_response(url).await?;
-        self.signed_json(response).await
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(Error::StatusCode(response.status()))
+        }
     }
 
     async fn get_unsigned<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {

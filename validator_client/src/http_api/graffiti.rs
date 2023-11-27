@@ -19,7 +19,7 @@ pub async fn get_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
                 return Ok(Graffiti::default());
             };
             Ok(graffiti)
-        },
+        }
     }
 }
 
@@ -70,7 +70,7 @@ pub async fn delete_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
                     .delete_graffiti(&validator_pubkey)
                     .map_err(|_| {
                         warp_utils::reject::custom_server_error(
-                            "A graffiti was found, but failed to be removed.".to_string()
+                            "A graffiti was found, but failed to be removed.".to_string(),
                         )
                     })?;
 
