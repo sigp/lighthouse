@@ -930,7 +930,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Fetches local and builder paylaods concurrently, Logs and returns results.
-    async fn fetch_local_and_builder_payloads(
+    async fn fetch_builder_and_local_payloads(
         &self,
         builder: &BuilderHttpClient,
         parent_hash: ExecutionBlockHash,
