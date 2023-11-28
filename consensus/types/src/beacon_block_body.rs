@@ -527,7 +527,9 @@ impl<T: EthSpec> BeaconBlockBody<T> {
         let field_index = match generalized_index {
             light_client_update::EXECUTION_PAYLOAD_INDEX => {
                 // Execution payload is a top-level field, subtract off the generalized indices
-                // for the internal nodes. Result should be 9.
+                // for the internal nodes. Result should be 9, the field offset of the execution
+                // payload in the `BeaconBlockBody`:
+                // https://github.com/ethereum/consensus-specs/blob/dev/specs/deneb/beacon-chain.md#beaconblockbody
                 generalized_index
                     .checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
                     .ok_or(Error::IndexNotSupported(generalized_index))?
