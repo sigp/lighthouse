@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use libp2p::swarm::ConnectionId;
-use types::light_client_bootstrap::LightClientBootstrap;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, LightClientBootstrap, SignedBeaconBlock};
 
 use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use crate::rpc::{

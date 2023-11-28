@@ -71,7 +71,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         chain: &BeaconChain<T>,
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {
-        let gossiped_optimistic_slot = light_client_optimistic_update.attested_header.slot;
+        let gossiped_optimistic_slot = light_client_optimistic_update.attested_header.beacon.slot;
         let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
         let signature_slot = light_client_optimistic_update.signature_slot;
         let start_time = chain.slot_clock.start_of(signature_slot);
@@ -88,7 +88,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             .get_state(&attested_block.state_root(), Some(attested_block.slot()))?
             .ok_or(Error::FailedConstructingUpdate)?;
         let latest_seen_optimistic_update_slot = match latest_seen_optimistic_update.as_ref() {
-            Some(update) => update.attested_header.slot,
+            Some(update) => update.attested_header.beacon.slot,
             None => Slot::new(0),
         };
 
@@ -114,6 +114,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         // otherwise queue
         let canonical_root = light_client_optimistic_update
             .attested_header
+            .beacon
             .canonical_root();
 
         if canonical_root != head_block.message().parent_root() {

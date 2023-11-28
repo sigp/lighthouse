@@ -8454,6 +8454,7 @@ dependencies = [
  "slashing_protection",
  "slog",
  "slot_clock",
+ "strum",
  "sysinfo",
  "system_health",
  "task_executor",

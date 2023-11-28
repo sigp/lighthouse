@@ -67,7 +67,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         chain: &BeaconChain<T>,
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {
-        let gossiped_finality_slot = light_client_finality_update.finalized_header.slot;
+        let gossiped_finality_slot = light_client_finality_update.finalized_header.beacon.slot;
         let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
         let signature_slot = light_client_finality_update.signature_slot;
         let start_time = chain.slot_clock.start_of(signature_slot);
@@ -88,7 +88,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
             .get_blinded_block(&finalized_block_root)?
             .ok_or(Error::FailedConstructingUpdate)?;
         let latest_seen_finality_update_slot = match latest_seen_finality_update.as_ref() {
-            Some(update) => update.finalized_header.slot,
+            Some(update) => update.finalized_header.beacon.slot,
             None => Slot::new(0),
         };
 
