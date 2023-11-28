@@ -9,23 +9,20 @@ following configuration screen.
 
 ## Connecting to the Clients
 
-This allows you to enter the address and ports of the associated Lighthouse
+Both the Beacon node and the Validator client need to have their HTTP APIs enabled. These ports should be accessible from the computer running Siren. This allows you to enter the address and ports of the associated Lighthouse
 Beacon node and Lighthouse Validator client.
 
-> The Beacon Node must be run with the `--gui` flag set. 
+To enable the HTTP API for the beacon node, utilize the `--gui` CLI flag. This action ensures that the HTTP API can be accessed by other software on the same machine.
 
-If you run Siren in the browser (by entering `localhost` in the browser), you will need to allow CORS in the HTTP API. This can be done by adding the flag `--http-allow-origin "*"` for both beacon node and validator client. If you would like to access Siren beyond the local computer, we recommend using an SSH tunnel. This requires a tunnel for 3 ports: `80` (assuming the port is unchanged as per the [installation guide](./ui-installation.md#docker-recommended), `5052` (for beacon node) and `5062` (for validator client). You can use the command below to perform SSH tunneling:
-```bash
-ssh -N -L 80:127.0.0.1:80 -L 5052:127.0.0.1:5052 -L 5062:127.0.0.1:5062 username@local_ip
-```  
+> The Beacon Node must be run with the `--gui` flag set.
 
-where `username` is the username of the server and `local_ip` is the local IP address of the server. Note that with the `-N` option in an SSH session, you will not be able to execute commands in the CLI to avoid confusion with ordinary shell sessions. The connection will appear to be "hung" upon a successful connection, but that is normal. Once you have successfully connected to the server via SSH tunneling, you should be able to access Siren by entering `localhost` in a web browser. 
+If you require accessibility from another machine within the network, configure the `--http-address` to match the local LAN IP of the system running the Beacon Node and Validator Client.
 
-You can also access Siren using the app downloaded in the [Siren release page](https://github.com/sigp/siren/releases). To access Siren beyond the local computer, you can use SSH tunneling for ports `5052` and `5062` using the command:
+> To access from another machine on the same network (192.168.0.200) set the Beacon Node and Validator Client `--http-address` as `192.168.0.200`.
 
-```bash
-ssh -N -L 5052:127.0.0.1:5052 -L 5062:127.0.0.1:5062 username@local_ip
-```  
+In a similar manner, the validator client requires activation of the `--http` flag, along with the optional consideration of configuring the `--http-address` flag. If `--http-address` flag is set on the Validator Client, then the `--unencrypted-http-transport` flag is required as well. These settings will ensure compatibility with Siren's connectivity requirements.
+
+If you run Siren in the browser (by entering `localhost` in the browser), you will need to allow CORS in the HTTP API. This can be done by adding the flag `--http-allow-origin "*"` for both beacon node and validator client.
 
 A green tick will appear once Siren is able to connect to both clients. You
 can specify different ports for each client by clicking on the advanced tab.
@@ -37,7 +34,7 @@ The API Token is a secret key that allows you to connect to the validator
 client. The validator client's HTTP API is guarded by this key because it
 contains sensitive validator information and the ability to modify
 validators. Please see [`Validator Authorization`](./api-vc-auth-header.md)
-for further details. 
+for further details.
 
 Siren requires this token in order to connect to the Validator client.
 The token is located in the default data directory of the validator
@@ -49,7 +46,7 @@ entered.
 
 ## Name
 
-This is your name, it can be modified and is solely used for aesthetics. 
+This is your name, it can be modified and is solely used for aesthetics.
 
 ## Device
 

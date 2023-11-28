@@ -197,7 +197,8 @@ impl<T> From<proto_array::Error> for Error<T> {
 /// Indicates if a block has been verified by an execution payload.
 ///
 /// There is no variant for "invalid", since such a block should never be added to fork choice.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Encode, Decode)]
+#[ssz(enum_behaviour = "tag")]
 pub enum PayloadVerificationStatus {
     /// An EL has declared the execution payload to be valid.
     Verified,
@@ -289,9 +290,10 @@ pub enum AttestationFromBlock {
     False,
 }
 
-/// Parameters which are cached between calls to `Self::get_head`.
+/// Parameters which are cached between calls to `ForkChoice::get_head`.
 #[derive(Clone, Copy)]
 pub struct ForkchoiceUpdateParameters {
+    /// The most recent result of running `ForkChoice::get_head`.
     pub head_root: Hash256,
     pub head_hash: Option<ExecutionBlockHash>,
     pub justified_hash: Option<ExecutionBlockHash>,
@@ -324,8 +326,6 @@ pub struct ForkChoice<T, E> {
     queued_attestations: Vec<QueuedAttestation>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
-    /// The most recent result of running `Self::get_head`.
-    head_block_root: Hash256,
     _phantom: PhantomData<E>,
 }
 
@@ -356,7 +356,7 @@ where
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         // Sanity check: the anchor must lie on an epoch boundary.
-        if anchor_block.slot() % E::slots_per_epoch() != 0 {
+        if anchor_state.slot() % E::slots_per_epoch() != 0 {
             return Err(Error::InvalidAnchor {
                 block_slot: anchor_block.slot(),
                 state_slot: anchor_state.slot(),
@@ -392,6 +392,7 @@ where
         let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
 
         let proto_array = ProtoArrayForkChoice::new::<E>(
+            current_slot,
             finalized_block_slot,
             finalized_block_state_root,
             *fc_store.justified_checkpoint(),
@@ -410,14 +411,13 @@ where
                 head_hash: None,
                 justified_hash: None,
                 finalized_hash: None,
+                // This will be updated during the next call to `Self::get_head`.
                 head_root: Hash256::zero(),
             },
-            // This will be updated during the next call to `Self::get_head`.
-            head_block_root: Hash256::zero(),
             _phantom: PhantomData,
         };
 
-        // Ensure that `fork_choice.head_block_root` is updated.
+        // Ensure that `fork_choice.forkchoice_update_parameters.head_root` is updated.
         fork_choice.get_head(current_slot, spec)?;
 
         Ok(fork_choice)
@@ -466,13 +466,10 @@ where
                 // for lower slots to account for skip slots.
                 .find(|(_, slot)| *slot <= ancestor_slot)
                 .map(|(root, _)| root)),
-            Ordering::Less => Ok(Some(block_root)),
-            Ordering::Equal =>
             // Root is older than queried slot, thus a skip slot. Return most recent root prior
             // to slot.
-            {
-                Ok(Some(block_root))
-            }
+            Ordering::Less => Ok(Some(block_root)),
+            Ordering::Equal => Ok(Some(block_root)),
         }
     }
 
@@ -504,8 +501,6 @@ where
             current_slot,
             spec,
         )?;
-
-        self.head_block_root = head_root;
 
         // Cache some values for the next forkchoiceUpdate call to the execution layer.
         let head_hash = self
@@ -610,7 +605,7 @@ where
     /// have *differing* finalized and justified information.
     pub fn cached_fork_choice_view(&self) -> ForkChoiceView {
         ForkChoiceView {
-            head_block_root: self.head_block_root,
+            head_block_root: self.forkchoice_update_parameters.head_root,
             justified_checkpoint: self.justified_checkpoint(),
             finalized_checkpoint: self.finalized_checkpoint(),
         }
@@ -686,7 +681,7 @@ where
             .ok_or_else(|| Error::InvalidBlock(InvalidBlock::UnknownParent(block.parent_root())))?;
 
         // Blocks cannot be in the future. If they are, their consideration must be delayed until
-        // the are in the past.
+        // they are in the past.
         //
         // Note: presently, we do not delay consideration. We just drop the block.
         if block.slot() > current_slot {
@@ -728,7 +723,8 @@ where
         // Add proposer score boost if the block is timely.
         let is_before_attesting_interval =
             block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);
-        if current_slot == block.slot() && is_before_attesting_interval {
+        let is_first_block = self.fc_store.proposer_boost_root().is_zero();
+        if current_slot == block.slot() && is_before_attesting_interval && is_first_block {
             self.fc_store.set_proposer_boost_root(block_root);
         }
 
@@ -756,7 +752,7 @@ where
             .unrealized_justified_checkpoint
             .zip(parent_block.unrealized_finalized_checkpoint)
             .filter(|(parent_justified, parent_finalized)| {
-                parent_justified.epoch == block_epoch && parent_finalized.epoch + 1 >= block_epoch
+                parent_justified.epoch == block_epoch && parent_finalized.epoch + 1 == block_epoch
             });
 
         let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = if let Some((
@@ -768,7 +764,8 @@ where
             (parent_justified, parent_finalized)
         } else {
             let justification_and_finalization_state = match block {
-                BeaconBlockRef::Capella(_)
+                BeaconBlockRef::Deneb(_)
+                | BeaconBlockRef::Capella(_)
                 | BeaconBlockRef::Merge(_)
                 | BeaconBlockRef::Altair(_) => match progressive_balances_mode {
                     ProgressiveBalancesMode::Disabled => {
@@ -1521,10 +1518,9 @@ where
                 head_hash: None,
                 justified_hash: None,
                 finalized_hash: None,
+                // Will be updated in the following call to `Self::get_head`.
                 head_root: Hash256::zero(),
             },
-            // Will be updated in the following call to `Self::get_head`.
-            head_block_root: Hash256::zero(),
             _phantom: PhantomData,
         };
 

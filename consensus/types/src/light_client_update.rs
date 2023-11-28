@@ -1,7 +1,11 @@
 use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
-use crate::{beacon_state, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec};
+use crate::{
+    beacon_state, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec, ForkName,
+    ForkVersionDeserialize, LightClientHeader,
+};
 use safe_arith::ArithError;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 use ssz_derive::{Decode, Encode};
 use ssz_types::typenum::{U5, U6};
 use std::sync::Arc;
@@ -67,13 +71,13 @@ impl From<ArithError> for Error {
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
-    pub attested_header: BeaconBlockHeader,
+    pub attested_header: LightClientHeader,
     /// The `SyncCommittee` used in the next period.
     pub next_sync_committee: Arc<SyncCommittee<T>>,
     /// Merkle proof for next sync committee
     pub next_sync_committee_branch: FixedVector<Hash256, NextSyncCommitteeProofLen>,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
-    pub finalized_header: BeaconBlockHeader,
+    pub finalized_header: LightClientHeader,
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate
@@ -128,14 +132,34 @@ impl<T: EthSpec> LightClientUpdate<T> {
             attested_state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?;
         let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
         Ok(Self {
-            attested_header,
+            attested_header: attested_header.into(),
             next_sync_committee: attested_state.next_sync_committee()?.clone(),
             next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
-            finalized_header,
+            finalized_header: finalized_header.into(),
             finality_branch: FixedVector::new(finality_branch)?,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
         })
+    }
+}
+
+impl<T: EthSpec> ForkVersionDeserialize for LightClientUpdate<T> {
+    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
+        value: Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        match fork_name {
+            ForkName::Altair | ForkName::Merge => {
+                Ok(serde_json::from_value::<LightClientUpdate<T>>(value)
+                    .map_err(serde::de::Error::custom))?
+            }
+            ForkName::Base | ForkName::Capella | ForkName::Deneb => {
+                Err(serde::de::Error::custom(format!(
+                    "LightClientUpdate failed to deserialize: unsupported fork '{}'",
+                    fork_name
+                )))
+            }
+        }
     }
 }
 

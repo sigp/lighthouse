@@ -17,9 +17,7 @@ where
     Cold: ItemStore<E>,
 {
     pub fn reconstruct_historic_states(self: &Arc<Self>) -> Result<(), Error> {
-        let mut anchor = if let Some(anchor) = self.get_anchor_info() {
-            anchor
-        } else {
+        let Some(mut anchor) = self.get_anchor_info() else {
             // Nothing to do, history is complete.
             return Ok(());
         };

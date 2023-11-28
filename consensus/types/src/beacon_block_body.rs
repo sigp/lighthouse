@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use std::marker::PhantomData;
@@ -9,11 +9,16 @@ use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+pub type KzgCommitments<T> =
+    VariableList<KzgCommitment, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type KzgCommitmentOpts<T> =
+    FixedVector<Option<KzgCommitment>, <T as EthSpec>::MaxBlobsPerBlock>;
+
 /// The body of a `BeaconChain` block, containing operations.
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella),
+    variants(Base, Altair, Merge, Capella, Deneb),
     variant_attributes(
         derive(
             Debug,
@@ -51,7 +56,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub sync_aggregate: SyncAggregate<T>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
@@ -62,9 +67,14 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     #[serde(flatten)]
     pub execution_payload: Payload::Capella,
-    #[superstruct(only(Capella))]
+    #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
+    #[serde(flatten)]
+    pub execution_payload: Payload::Deneb,
+    #[superstruct(only(Capella, Deneb))]
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
+    #[superstruct(only(Deneb))]
+    pub blob_kzg_commitments: KzgCommitments<T>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -85,6 +95,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
             Self::Base(_) | Self::Altair(_) => Err(Error::IncorrectStateVariant),
             Self::Merge(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Capella(body) => Ok(Payload::Ref::from(&body.execution_payload)),
+            Self::Deneb(body) => Ok(Payload::Ref::from(&body.execution_payload)),
         }
     }
 }
@@ -97,6 +108,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
             BeaconBlockBodyRef::Altair { .. } => ForkName::Altair,
             BeaconBlockBodyRef::Merge { .. } => ForkName::Merge,
             BeaconBlockBodyRef::Capella { .. } => ForkName::Capella,
+            BeaconBlockBodyRef::Deneb { .. } => ForkName::Deneb,
         }
     }
 }
@@ -321,6 +333,50 @@ impl<E: EthSpec> From<BeaconBlockBodyCapella<E, FullPayload<E>>>
     }
 }
 
+impl<E: EthSpec> From<BeaconBlockBodyDeneb<E, FullPayload<E>>>
+    for (
+        BeaconBlockBodyDeneb<E, BlindedPayload<E>>,
+        Option<ExecutionPayloadDeneb<E>>,
+    )
+{
+    fn from(body: BeaconBlockBodyDeneb<E, FullPayload<E>>) -> Self {
+        let BeaconBlockBodyDeneb {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            execution_payload: FullPayloadDeneb { execution_payload },
+            bls_to_execution_changes,
+            blob_kzg_commitments,
+        } = body;
+
+        (
+            BeaconBlockBodyDeneb {
+                randao_reveal,
+                eth1_data,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                deposits,
+                voluntary_exits,
+                sync_aggregate,
+                execution_payload: BlindedPayloadDeneb {
+                    execution_payload_header: From::from(&execution_payload),
+                },
+                bls_to_execution_changes,
+                blob_kzg_commitments,
+            },
+            Some(execution_payload),
+        )
+    }
+}
+
 // We can clone a full block into a blinded block, without cloning the payload.
 impl<E: EthSpec> BeaconBlockBodyBase<E, FullPayload<E>> {
     pub fn clone_as_blinded(&self) -> BeaconBlockBodyBase<E, BlindedPayload<E>> {
@@ -402,6 +458,42 @@ impl<E: EthSpec> BeaconBlockBodyCapella<E, FullPayload<E>> {
     }
 }
 
+impl<E: EthSpec> BeaconBlockBodyDeneb<E, FullPayload<E>> {
+    pub fn clone_as_blinded(&self) -> BeaconBlockBodyDeneb<E, BlindedPayload<E>> {
+        let BeaconBlockBodyDeneb {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            execution_payload: FullPayloadDeneb { execution_payload },
+            bls_to_execution_changes,
+            blob_kzg_commitments,
+        } = self;
+
+        BeaconBlockBodyDeneb {
+            randao_reveal: randao_reveal.clone(),
+            eth1_data: eth1_data.clone(),
+            graffiti: *graffiti,
+            proposer_slashings: proposer_slashings.clone(),
+            attester_slashings: attester_slashings.clone(),
+            attestations: attestations.clone(),
+            deposits: deposits.clone(),
+            voluntary_exits: voluntary_exits.clone(),
+            sync_aggregate: sync_aggregate.clone(),
+            execution_payload: BlindedPayloadDeneb {
+                execution_payload_header: execution_payload.into(),
+            },
+            bls_to_execution_changes: bls_to_execution_changes.clone(),
+            blob_kzg_commitments: blob_kzg_commitments.clone(),
+        }
+    }
+}
+
 impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
     for (
         BeaconBlockBody<E, BlindedPayload<E>>,
@@ -414,6 +506,14 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
             (cons(block), payload.map(Into::into))
         })
     }
+}
+
+/// Util method helpful for logging.
+pub fn format_kzg_commitments(commitments: &[KzgCommitment]) -> String {
+    let commitment_strings: Vec<String> = commitments.iter().map(|x| x.to_string()).collect();
+    let commitments_joined = commitment_strings.join(", ");
+    let surrounded_commitments = format!("[{}]", commitments_joined);
+    surrounded_commitments
 }
 
 #[cfg(test)]

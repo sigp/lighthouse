@@ -24,9 +24,12 @@ use metastruct::metastruct;
 ///
 /// Credit to Reth for the type definition.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[metastruct(mappings(map_execution_block_header_fields_except_withdrawals(exclude(
-    withdrawals_root
-))))]
+#[metastruct(mappings(map_execution_block_header_fields_base(exclude(
+    withdrawals_root,
+    blob_gas_used,
+    excess_blob_gas,
+    parent_beacon_block_root
+)),))]
 pub struct ExecutionBlockHeader {
     pub parent_hash: Hash256,
     pub ommers_hash: Hash256,
@@ -45,6 +48,9 @@ pub struct ExecutionBlockHeader {
     pub nonce: Hash64,
     pub base_fee_per_gas: Uint256,
     pub withdrawals_root: Option<Hash256>,
+    pub blob_gas_used: Option<u64>,
+    pub excess_blob_gas: Option<u64>,
+    pub parent_beacon_block_root: Option<Hash256>,
 }
 
 impl ExecutionBlockHeader {
@@ -53,6 +59,9 @@ impl ExecutionBlockHeader {
         rlp_empty_list_root: Hash256,
         rlp_transactions_root: Hash256,
         rlp_withdrawals_root: Option<Hash256>,
+        rlp_blob_gas_used: Option<u64>,
+        rlp_excess_blob_gas: Option<u64>,
+        rlp_parent_beacon_block_root: Option<Hash256>,
     ) -> Self {
         // Most of these field mappings are defined in EIP-3675 except for `mixHash`, which is
         // defined in EIP-4399.
@@ -74,6 +83,9 @@ impl ExecutionBlockHeader {
             nonce: Hash64::zero(),
             base_fee_per_gas: payload.base_fee_per_gas(),
             withdrawals_root: rlp_withdrawals_root,
+            blob_gas_used: rlp_blob_gas_used,
+            excess_blob_gas: rlp_excess_blob_gas,
+            parent_beacon_block_root: rlp_parent_beacon_block_root,
         }
     }
 }

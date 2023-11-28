@@ -1,6 +1,6 @@
 use crate::error::InvalidBestNodeInfo;
 use crate::{error::Error, Block, ExecutionStatus, JustifiedBalances};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -884,7 +884,7 @@ impl ProtoArray {
                         }
                     } else {
                         // Choose the winner by weight.
-                        if child.weight >= best_child.weight {
+                        if child.weight > best_child.weight {
                             change_to_child
                         } else {
                             no_change
@@ -910,7 +910,7 @@ impl ProtoArray {
         Ok(())
     }
 
-    /// Indicates if the node itself is viable for the head, or if it's best descendant is viable
+    /// Indicates if the node itself is viable for the head, or if its best descendant is viable
     /// for the head.
     fn node_leads_to_viable_head<E: EthSpec>(
         &self,
@@ -1035,13 +1035,11 @@ impl ProtoArray {
             .epoch
             .start_slot(E::slots_per_epoch());
 
-        let mut node = if let Some(node) = self
+        let Some(mut node) = self
             .indices
             .get(&root)
             .and_then(|index| self.nodes.get(*index))
-        {
-            node
-        } else {
+        else {
             // An unknown root is not a finalized descendant. This line can only
             // be reached if the user supplies a root that is not known to fork
             // choice.

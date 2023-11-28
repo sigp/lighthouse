@@ -324,8 +324,10 @@ where
                     Err(RateLimitedErr::TooLarge) => {
                         // we set the batch sizes, so this is a coding/config err for most protocols
                         let protocol = req.versioned_protocol().protocol();
-                        if matches!(protocol, Protocol::BlocksByRange) {
-                            debug!(self.log, "Blocks by range request will never be processed"; "request" => %req);
+                        if matches!(protocol, Protocol::BlocksByRange)
+                            || matches!(protocol, Protocol::BlobsByRange)
+                        {
+                            debug!(self.log, "By range request will never be processed"; "request" => %req, "protocol" => %protocol);
                         } else {
                             crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
                         }
@@ -416,6 +418,8 @@ where
                     match end {
                         ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
                         ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
+                        ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
+                        ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
                     },
                 ),
             },

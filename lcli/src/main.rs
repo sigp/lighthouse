@@ -433,7 +433,7 @@ fn main() {
                     .takes_value(true)
                     .default_value("bellatrix")
                     .help("The fork for which the execution payload header should be created.")
-                    .possible_values(&["merge", "bellatrix", "capella"])
+                    .possible_values(&["merge", "bellatrix", "capella", "deneb"])
             )
         )
         .subcommand(
@@ -607,6 +607,15 @@ fn main() {
                         .takes_value(true)
                         .help(
                             "The epoch at which to enable the Capella hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("deneb-fork-epoch")
+                        .long("deneb-fork-epoch")
+                        .value_name("EPOCH")
+                        .takes_value(true)
+                        .help(
+                            "The epoch at which to enable the deneb hard fork",
                         ),
                 )
                 .arg(
@@ -928,6 +937,14 @@ fn main() {
                         .takes_value(true)
                         .help("The payload timestamp that enables Shanghai. Defaults to the mainnet value.")
                         .default_value("1681338479")
+                )
+                .arg(
+                    Arg::with_name("cancun-time")
+                        .long("cancun-time")
+                        .value_name("UNIX_TIMESTAMP")
+                        .takes_value(true)
+                        .help("The payload timestamp that enables Cancun. No default is provided \
+                                until Cancun is triggered on mainnet.")
                 )
         )
         .get_matches();

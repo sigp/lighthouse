@@ -46,6 +46,11 @@ lazy_static::lazy_static! {
         "beacon_processor_gossip_block_queue_total",
         "Count of blocks from gossip waiting to be verified."
     );
+    // Gossip blobs.
+    pub static ref BEACON_PROCESSOR_GOSSIP_BLOB_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_gossip_blob_queue_total",
+        "Count of blocks from gossip waiting to be verified."
+    );
     // Gossip Exits.
     pub static ref BEACON_PROCESSOR_EXIT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_exit_queue_total",
@@ -70,6 +75,11 @@ lazy_static::lazy_static! {
     pub static ref BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_rpc_block_queue_total",
         "Count of blocks from the rpc waiting to be verified."
+    );
+    // Rpc blobs.
+    pub static ref BEACON_PROCESSOR_RPC_BLOB_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_rpc_blob_queue_total",
+        "Count of blobs from the rpc waiting to be verified."
     );
     // Chain segments.
     pub static ref BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
@@ -99,6 +109,15 @@ lazy_static::lazy_static! {
     pub static ref BEACON_PROCESSOR_SYNC_CONTRIBUTION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_sync_contribution_queue_total",
         "Count of sync committee contributions waiting to be processed."
+    );
+    // HTTP API requests.
+    pub static ref BEACON_PROCESSOR_API_REQUEST_P0_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_api_request_p0_queue_total",
+        "Count of P0 HTTP requesets waiting to be processed."
+    );
+    pub static ref BEACON_PROCESSOR_API_REQUEST_P1_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_api_request_p1_queue_total",
+        "Count of P1 HTTP requesets waiting to be processed."
     );
 
     /*

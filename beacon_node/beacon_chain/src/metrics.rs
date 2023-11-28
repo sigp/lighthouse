@@ -40,6 +40,10 @@ lazy_static! {
         "beacon_block_processing_block_root_seconds",
         "Time spent calculating the block root when processing a block."
     );
+    pub static ref BLOCK_PROCESSING_BLOB_ROOT: Result<Histogram> = try_create_histogram(
+        "beacon_block_processing_blob_root_seconds",
+        "Time spent calculating the blob root when processing a block."
+    );
     pub static ref BLOCK_PROCESSING_DB_READ: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_db_read_seconds",
         "Time spent loading block and state from DB for block processing"
@@ -282,6 +286,11 @@ lazy_static! {
         "Count of times the early attester cache returns an attestation"
     );
 
+}
+
+// Second lazy-static block is used to account for macro recursion limit.
+lazy_static! {
+
     /*
      * Attestation Production
      */
@@ -301,10 +310,7 @@ lazy_static! {
         "attestation_production_cache_prime_seconds",
         "Time spent loading a new state from the disk due to a cache miss"
     );
-}
 
-// Second lazy-static block is used to account for macro recursion limit.
-lazy_static! {
     /*
      * Fork Choice
      */
@@ -380,6 +386,8 @@ lazy_static! {
         try_create_histogram("beacon_persist_eth1_cache", "Time taken to persist the eth1 caches");
     pub static ref PERSIST_FORK_CHOICE: Result<Histogram> =
         try_create_histogram("beacon_persist_fork_choice", "Time taken to persist the fork choice struct");
+    pub static ref PERSIST_DATA_AVAILABILITY_CHECKER: Result<Histogram> =
+        try_create_histogram("beacon_persist_data_availability_checker", "Time taken to persist the data availability checker");
 
     /*
      * Eth1
@@ -980,6 +988,22 @@ lazy_static! {
             "beacon_pre_finalization_block_lookup_count",
             "Number of block roots subject to single block lookups"
         );
+
+    /*
+     * Blob sidecar Verification
+     */
+    pub static ref BLOBS_SIDECAR_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "beacon_blobs_sidecar_processing_requests_total",
+        "Count of all blob sidecars submitted for processing"
+    );
+    pub static ref BLOBS_SIDECAR_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "beacon_blobs_sidecar_processing_successes_total",
+        "Number of blob sidecars verified for gossip"
+    );
+    pub static ref BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_blobs_sidecar_gossip_verification_seconds",
+        "Full runtime of blob sidecars gossip verification"
+    );
 }
 
 // Fifth lazy-static block is used to account for macro recursion limit.
@@ -1008,6 +1032,33 @@ lazy_static! {
     pub static ref AGGREGATED_ATTESTATION_SUBSETS: Result<IntCounter> = try_create_int_counter(
         "beacon_aggregated_attestation_subsets_total",
         "Count of new aggregated attestations that are subsets of already known aggregates"
+    );
+    pub static ref VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_missed_blocks_total",
+        "Number of non-finalized blocks missed",
+        &["validator"]
+    );
+
+    /*
+    * Kzg related metrics
+    */
+    pub static ref KZG_VERIFICATION_SINGLE_TIMES: Result<Histogram> =
+        try_create_histogram("kzg_verification_single_seconds", "Runtime of single kzg verification");
+    pub static ref KZG_VERIFICATION_BATCH_TIMES: Result<Histogram> =
+        try_create_histogram("kzg_verification_batch_seconds", "Runtime of batched kzg verification");
+
+    pub static ref BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+            "beacon_block_production_blobs_verification_seconds",
+            "Time taken to verify blobs against commitments and creating BlobSidecar objects in block production"
+    );
+    /*
+    * Availability related metrics
+    */
+    pub static ref BLOCK_AVAILABILITY_DELAY: Result<Histogram> = try_create_histogram_with_buckets(
+        "block_availability_delay",
+        "Duration between start of the slot and the time at which all components of the block are available.",
+        // Create a custom bucket list for greater granularity in block delay
+        Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
     );
 }
 
