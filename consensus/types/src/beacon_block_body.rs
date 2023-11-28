@@ -523,7 +523,6 @@ impl<T: EthSpec> BeaconBlockBody<T> {
         &mut self,
         generalized_index: usize,
     ) -> Result<Vec<Hash256>, Error> {
-
         let field_index = match generalized_index {
             light_client_update::EXECUTION_PAYLOAD_INDEX => {
                 // Execution payload is a top-level field, subtract off the generalized indices
@@ -534,7 +533,7 @@ impl<T: EthSpec> BeaconBlockBody<T> {
                     .checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
-            _ => return Err(Error::IndexNotSupported(generalized_index))
+            _ => return Err(Error::IndexNotSupported(generalized_index)),
         };
 
         let mut leaves = vec![

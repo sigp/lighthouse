@@ -1,3 +1,4 @@
+use crate::beacon_block_body::NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES;
 use crate::{light_client_update::*, BeaconBlockBody, ChainSpec};
 use crate::{
     test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, FixedVector, Hash256,
@@ -66,7 +67,6 @@ impl<E: EthSpec> LightClientHeader<E> {
                 let execution_branch =
                     beacon_block_body.compute_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
-                // TODO calculate execution branch, i.e. the merkle proof of the execution payload header
                 return Ok(LightClientHeader {
                     beacon: block.message().block_header(),
                     execution: Some(header),
@@ -95,7 +95,6 @@ impl<E: EthSpec> LightClientHeader<E> {
                 let execution_branch =
                     beacon_block_body.compute_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
-                // TODO calculate execution branch, i.e. the merkle proof of the execution payload header
                 return Ok(LightClientHeader {
                     beacon: block.message().block_header(),
                     execution: Some(header),
@@ -130,7 +129,7 @@ impl<E: EthSpec> LightClientHeader<E> {
 
         if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
             if current_epoch < capella_fork_epoch {
-                return Ok(self.execution == None && self.execution_branch == None);
+                return Ok(self.execution.is_none() && self.execution_branch.is_none());
             }
         }
 
@@ -140,9 +139,7 @@ impl<E: EthSpec> LightClientHeader<E> {
                     return Ok(false);
                 };
 
-                if execution.blob_gas_used()?.to_owned() != 0 as u64
-                    || execution.excess_blob_gas()?.to_owned() != 0 as u64
-                {
+                if *execution.blob_gas_used()? != 0_u64 || *execution.excess_blob_gas()? != 0_u64 {
                     return Ok(false);
                 }
             }
@@ -156,25 +153,18 @@ impl<E: EthSpec> LightClientHeader<E> {
             return Ok(false);
         };
 
+        let Some(field_index) =
+            EXECUTION_PAYLOAD_INDEX.checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
+        else {
+            return Ok(false);
+        };
+
         Ok(verify_merkle_proof(
             execution_root,
-            &execution_branch,
+            execution_branch,
             EXECUTION_PAYLOAD_PROOF_LEN,
-            get_subtree_index(EXECUTION_PAYLOAD_INDEX as u32) as usize,
+            field_index,
             self.beacon.body_root,
         ))
     }
-}
-
-// TODO move to the relevant place
-fn get_subtree_index(generalized_index: u32) -> u32 {
-    return generalized_index % 2 * (log2_int(generalized_index));
-}
-
-// TODO move to the relevant place
-fn log2_int(x: u32) -> u32 {
-    if x == 0 {
-        return 0;
-    }
-    31 - x.leading_zeros()
 }
