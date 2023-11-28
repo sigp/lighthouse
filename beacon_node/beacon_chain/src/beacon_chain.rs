@@ -3154,6 +3154,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let delay =
                     get_slot_delay_ms(timestamp_now(), block.block.slot(), &self.slot_clock);
                 metrics::observe_duration(&metrics::BLOCK_AVAILABILITY_DELAY, delay);
+                if let Some(slasher) = self.slasher.as_ref() {
+                    if let Some(blobs) = block.block.blobs() {
+                        let block_header = block.block.block().signed_block_header();
+                        for blob_sidecar in blobs {
+                            let blob_header = blob_sidecar.signed_block_header.clone();
+                            // block has already been added to slasher, so only add if header in blob
+                            // sidecar is different to block header
+                            if blob_header != block_header {
+                                slasher.accept_block_header(blob_header);
+                            }
+                        }
+                    }
+                }
                 // Block is fully available, import into fork choice
                 self.import_available_block(block).await
             }

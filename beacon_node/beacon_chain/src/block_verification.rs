@@ -507,9 +507,20 @@ pub enum BlockSlashInfo<TErr> {
 }
 
 impl<E: EthSpec> BlockSlashInfo<BlockError<E>> {
-    pub fn from_early_error(header: SignedBeaconBlockHeader, e: BlockError<E>) -> Self {
+    pub fn from_early_error_block(header: SignedBeaconBlockHeader, e: BlockError<E>) -> Self {
         match e {
             BlockError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
+            // `InvalidSignature` could indicate any signature in the block, so we want
+            // to recheck the proposer signature alone.
+            _ => BlockSlashInfo::SignatureNotChecked(header, e),
+        }
+    }
+}
+
+impl<E: EthSpec> BlockSlashInfo<GossipBlobError<E>> {
+    pub fn from_early_error_blob(header: SignedBeaconBlockHeader, e: GossipBlobError<E>) -> Self {
+        match e {
+            GossipBlobError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
             // `InvalidSignature` could indicate any signature in the block, so we want
             // to recheck the proposer signature alone.
             _ => BlockSlashInfo::SignatureNotChecked(header, e),
@@ -520,14 +531,14 @@ impl<E: EthSpec> BlockSlashInfo<BlockError<E>> {
 /// Process invalid blocks to see if they are suitable for the slasher.
 ///
 /// If no slasher is configured, this is a no-op.
-fn process_block_slash_info<T: BeaconChainTypes>(
+pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError>(
     chain: &BeaconChain<T>,
-    slash_info: BlockSlashInfo<BlockError<T::EthSpec>>,
-) -> BlockError<T::EthSpec> {
+    slash_info: BlockSlashInfo<TErr>,
+) -> TErr {
     if let Some(slasher) = chain.slasher.as_ref() {
         let (verified_header, error) = match slash_info {
             BlockSlashInfo::SignatureNotChecked(header, e) => {
-                if verify_header_signature(chain, &header).is_ok() {
+                if verify_header_signature::<_, TErr>(chain, &header).is_ok() {
                     (header, e)
                 } else {
                     return e;
@@ -605,7 +616,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         .collect::<Vec<_>>();
 
     // verify signatures
-    let pubkey_cache = get_validator_pubkey_cache(chain)?;
+    let pubkey_cache = get_validator_pubkey_cache(chain).map_err(BlockError::from)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
     for svb in &mut signature_verified_blocks {
         signature_verifier
@@ -738,7 +749,9 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
                 }
                 execution_pending
             })
-            .map_err(|slash_info| process_block_slash_info(chain, slash_info))
+            .map_err(|slash_info| {
+                process_block_slash_info::<_, BlockError<T::EthSpec>>(chain, slash_info)
+            })
     }
 
     /// Convert the block to fully-verified form while producing data to aid checking slashability.
@@ -767,7 +780,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // and it could be a repeat proposal (a likely cause for slashing!).
         let header = block.signed_block_header();
         Self::new_without_slasher_checks(block, chain).map_err(|e| {
-            process_block_slash_info(chain, BlockSlashInfo::from_early_error(header, e))
+            process_block_slash_info::<_, BlockError<T::EthSpec>>(
+                chain,
+                BlockSlashInfo::from_early_error_block(header, e),
+            )
         })
     }
 
@@ -907,7 +923,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         };
 
         let signature_is_valid = {
-            let pubkey_cache = get_validator_pubkey_cache(chain)?;
+            let pubkey_cache = get_validator_pubkey_cache(chain).map_err(BlockError::from)?;
             let pubkey = pubkey_cache
                 .get(block.message().proposer_index() as usize)
                 .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
@@ -1020,7 +1036,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let pubkey_cache = get_validator_pubkey_cache(chain)?;
+        let pubkey_cache = get_validator_pubkey_cache(chain).map_err(BlockError::from)?;
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
@@ -1048,7 +1064,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockSlashInfo<BlockError<T::EthSpec>>> {
         let header = block.signed_block_header();
-        Self::new(block, block_root, chain).map_err(|e| BlockSlashInfo::from_early_error(header, e))
+        Self::new(block, block_root, chain).map_err(|e| BlockSlashInfo::from_early_error_block(header, e))
     }
 
     /// Finishes signature verification on the provided `GossipVerifedBlock`. Does not re-verify
@@ -1070,7 +1086,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let pubkey_cache = get_validator_pubkey_cache(chain)?;
+        let pubkey_cache = get_validator_pubkey_cache(chain).map_err(BlockError::from)?;
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
@@ -1102,7 +1118,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
     ) -> Result<Self, BlockSlashInfo<BlockError<T::EthSpec>>> {
         let header = from.block.signed_block_header();
         Self::from_gossip_verified_block(from, chain)
-            .map_err(|e| BlockSlashInfo::from_early_error(header, e))
+            .map_err(|e| BlockSlashInfo::from_early_error_block(header, e))
     }
 
     pub fn block_root(&self) -> Hash256 {
@@ -1901,27 +1917,44 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
     result
 }
 
-/// This trait is used to unify `BlockError` and `BlobError` so
-/// `cheap_state_advance_to_obtain_committees` can be re-used in gossip blob validation.
-pub trait CheapStateAdvanceError: From<BeaconStateError> + From<BeaconChainError> + Debug {
+/// This trait is used to unify `BlockError` and `BlobError`.
+pub trait BlockBlobError: From<BeaconStateError> + From<BeaconChainError> + Debug {
     fn not_later_than_parent_error(block_slot: Slot, state_slot: Slot) -> Self;
+    fn unknown_validator_error(validator_index: u64) -> Self;
+    fn proposer_signature_invalid() -> Self;
 }
 
-impl<E: EthSpec> CheapStateAdvanceError for BlockError<E> {
+impl<E: EthSpec> BlockBlobError for BlockError<E> {
     fn not_later_than_parent_error(block_slot: Slot, parent_slot: Slot) -> Self {
         BlockError::BlockIsNotLaterThanParent {
             block_slot,
             parent_slot,
         }
     }
+
+    fn unknown_validator_error(validator_index: u64) -> Self {
+        BlockError::UnknownValidator(validator_index)
+    }
+
+    fn proposer_signature_invalid() -> Self {
+        BlockError::ProposalSignatureInvalid
+    }
 }
 
-impl<E: EthSpec> CheapStateAdvanceError for GossipBlobError<E> {
+impl<E: EthSpec> BlockBlobError for GossipBlobError<E> {
     fn not_later_than_parent_error(blob_slot: Slot, parent_slot: Slot) -> Self {
         GossipBlobError::BlobIsNotLaterThanParent {
             blob_slot,
             parent_slot,
         }
+    }
+
+    fn unknown_validator_error(validator_index: u64) -> Self {
+        GossipBlobError::UnknownValidator(validator_index)
+    }
+
+    fn proposer_signature_invalid() -> Self {
+        GossipBlobError::ProposalSignatureInvalid
     }
 }
 
@@ -1936,7 +1969,7 @@ impl<E: EthSpec> CheapStateAdvanceError for GossipBlobError<E> {
 /// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
 /// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
 /// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
-pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: CheapStateAdvanceError>(
+pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobError>(
     state: &'a mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
     block_slot: Slot,
@@ -1972,12 +2005,11 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: CheapStateA
 /// Obtains a read-locked `ValidatorPubkeyCache` from the `chain`.
 pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BlockError<T::EthSpec>> {
+) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BeaconChainError> {
     chain
         .validator_pubkey_cache
         .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
         .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)
-        .map_err(BlockError::BeaconChainError)
 }
 
 /// Produces an _empty_ `BlockSignatureVerifier`.
@@ -2018,14 +2050,15 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
 /// Verify that `header` was signed with a valid signature from its proposer.
 ///
 /// Return `Ok(())` if the signature is valid, and an `Err` otherwise.
-fn verify_header_signature<T: BeaconChainTypes>(
+fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     chain: &BeaconChain<T>,
     header: &SignedBeaconBlockHeader,
-) -> Result<(), BlockError<T::EthSpec>> {
-    let proposer_pubkey = get_validator_pubkey_cache(chain)?
+) -> Result<(), Err> {
+    let proposer_pubkey = get_validator_pubkey_cache(chain)
+        .map_err(BeaconChainError::from)?
         .get(header.message.proposer_index as usize)
         .cloned()
-        .ok_or(BlockError::UnknownValidator(header.message.proposer_index))?;
+        .ok_or(Err::unknown_validator_error(header.message.proposer_index))?;
     let head_fork = chain.canonical_head.cached_head().head_fork();
 
     if header.verify_signature::<T::EthSpec>(
@@ -2036,7 +2069,7 @@ fn verify_header_signature<T: BeaconChainTypes>(
     ) {
         Ok(())
     } else {
-        Err(BlockError::ProposalSignatureInvalid)
+        Err(Err::proposer_signature_invalid())
     }
 }
 

@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT};
 use crate::block_verification::{
-    cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache,
+    cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
+    BlockSlashInfo,
 };
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::{metrics, BeaconChainError};
@@ -16,7 +17,10 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
-use types::{BeaconStateError, BlobSidecar, BlobSidecarList, CloneConfig, EthSpec, Hash256, Slot};
+use types::{
+    BeaconStateError, BlobSidecar, BlobSidecarList, CloneConfig, EthSpec, Hash256,
+    SignedBeaconBlockHeader, Slot,
+};
 
 /// An error occurred while validating a gossip blob.
 #[derive(Debug)]
@@ -203,7 +207,15 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipBlobError<T::EthSpec>> {
         let blob_index = blob.index;
-        validate_blob_sidecar_for_gossip(blob, blob_index, chain)
+        let header = blob.signed_block_header.clone();
+        // We only process slashing info if the gossip verification failed
+        // since we do not process the blob any further in that case.
+        validate_blob_sidecar_for_gossip(blob, blob_index, chain).map_err(|e| {
+            process_block_slash_info::<_, GossipBlobError<T::EthSpec>>(
+                chain,
+                BlockSlashInfo::from_early_error_blob(header, e),
+            )
+        })
     }
     /// Construct a `GossipVerifiedBlob` that is assumed to be valid.
     ///
@@ -234,6 +246,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     }
     pub fn cloned(&self) -> Arc<BlobSidecar<T::EthSpec>> {
         self.blob.blob.clone()
+    }
+    pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
+        self.signed_block_header.clone()
     }
     pub fn into_inner(self) -> KzgVerifiedBlob<T::EthSpec> {
         self.blob
