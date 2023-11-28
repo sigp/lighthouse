@@ -736,9 +736,7 @@ impl ValidatorClientHttpClient {
         graffiti: GraffitiString,
     ) -> Result<(), Error> {
         let url = self.make_graffiti_url(pubkey)?;
-        let set_graffiti_request = SetGraffitiRequest {
-            graffiti,
-        };
+        let set_graffiti_request = SetGraffitiRequest { graffiti };
         self.post(url, &set_graffiti_request).await
     }
 

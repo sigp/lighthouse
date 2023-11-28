@@ -1096,7 +1096,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         ));
                     }
                     if let Some(handle) = task_executor.handle() {
-                        handle.block_on(set_graffiti(pubkey.clone(), query.graffiti, validator_store))
+                        handle.block_on(set_graffiti(
+                            pubkey.clone(),
+                            query.graffiti,
+                            validator_store,
+                        ))
                     } else {
                         Err(warp_utils::reject::custom_server_error(
                             "An error occurred while attempting to set graffiti".into(),
