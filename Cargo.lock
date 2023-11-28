@@ -4580,7 +4580,6 @@ dependencies = [
  "lazy_static",
  "libp2p",
  "libp2p-mplex",
- "libp2p-quic",
  "lighthouse_metrics",
  "lighthouse_version",
  "lru 0.7.8",
