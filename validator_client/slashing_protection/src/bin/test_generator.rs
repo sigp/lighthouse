@@ -206,15 +206,15 @@ fn main() {
                 TestCase::new(interchange(vec![(0, vec![40], vec![(2, 30)])])),
                 TestCase::new(interchange(vec![(0, vec![50], vec![(10, 50)])]))
                     .with_blocks(vec![
-                        (0, 41, false, false),
-                        (0, 45, false, false),
-                        (0, 49, false, false),
+                        (0, 41, false, true),
+                        (0, 45, false, true),
+                        (0, 49, false, true),
                         (0, 50, false, false),
                         (0, 51, true, true),
                     ])
                     .with_attestations(vec![
-                        (0, 3, 31, false, false),
-                        (0, 9, 49, false, false),
+                        (0, 3, 31, false, true),
+                        (0, 9, 49, false, true),
                         (0, 10, 51, true, true),
                     ]),
             ],
@@ -238,7 +238,7 @@ fn main() {
                 ]),
                 TestCase::new(interchange(vec![(0, vec![20], vec![])]))
                     .contains_slashable_data()
-                    .with_blocks(vec![(0, 29, false, false)]),
+                    .with_blocks(vec![(0, 29, false, true)]),
             ],
         ),
         MultiTestCase::new(
