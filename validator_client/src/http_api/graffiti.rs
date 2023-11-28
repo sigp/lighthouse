@@ -7,6 +7,7 @@ use types::{graffiti::GraffitiString, EthSpec, Graffiti};
 pub async fn get_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
     validator_pubkey: PublicKey,
     validator_store: Arc<ValidatorStore<T, E>>,
+    graffiti_flag: Option<Graffiti>,
 ) -> Result<Graffiti, warp::Rejection> {
     let initialized_validators_rw_lock = validator_store.initialized_validators();
     let initialized_validators = initialized_validators_rw_lock.read();
@@ -16,7 +17,9 @@ pub async fn get_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
         )),
         Some(_) => {
             let Some(graffiti) = initialized_validators.graffiti(&validator_pubkey.into()) else {
-                return Ok(Graffiti::default());
+                return graffiti_flag.ok_or(warp_utils::reject::custom_server_error(
+                    "No graffiti found, unable to return the process-wide default".to_string(),
+                ));
             };
             Ok(graffiti)
         }
@@ -44,9 +47,7 @@ pub async fn set_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
                         warp_utils::reject::custom_server_error(
                             "A graffiti was found, but failed to be updated.".to_string(),
                         )
-                    })?;
-
-                Ok(())
+                    })
             }
         }
     }
@@ -63,7 +64,7 @@ pub async fn delete_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
             "The key was not found on the server, nothing to delete".to_string(),
         )),
         Some(initialized_validator) => {
-            if initialized_validator.get_graffiti() == Some(Graffiti::default()) {
+            if initialized_validator.get_graffiti() == None {
                 Ok(())
             } else {
                 initialized_validators
@@ -72,9 +73,7 @@ pub async fn delete_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
                         warp_utils::reject::custom_server_error(
                             "A graffiti was found, but failed to be removed.".to_string(),
                         )
-                    })?;
-
-                Ok(())
+                    })
             }
         }
     }

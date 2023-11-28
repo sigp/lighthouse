@@ -737,17 +737,15 @@ impl ValidatorClientHttpClient {
     ) -> Result<(), Error> {
         let url = self.make_graffiti_url(pubkey)?;
         let set_graffiti_request = SetGraffitiRequest {
-            graffiti: Some(graffiti),
+            graffiti,
         };
-        self.post(url, &set_graffiti_request).await?;
-        Ok(())
+        self.post(url, &set_graffiti_request).await
     }
 
     /// `DELETE /eth/v1/validator/{pubkey}/graffiti`
     pub async fn delete_graffiti(&self, pubkey: &PublicKeyBytes) -> Result<(), Error> {
         let url = self.make_graffiti_url(pubkey)?;
-        self.delete(url).await?;
-        Ok(())
+        self.delete(url).await
     }
 }
 

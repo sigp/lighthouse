@@ -171,5 +171,5 @@ pub struct SingleExportKeystoresResponse {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SetGraffitiRequest {
-    pub graffiti: Option<GraffitiString>,
+    pub graffiti: GraffitiString,
 }
