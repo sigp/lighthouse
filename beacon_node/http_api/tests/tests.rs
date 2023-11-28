@@ -1646,6 +1646,59 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_beacon_light_client_bootstrap(self) -> Self {
+        let block_id = BlockId(CoreBlockId::Finalized);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+
+        let result = match self
+            .client
+            .get_light_client_bootstrap::<E>(block_root)
+            .await
+        {
+            Ok(result) => result.unwrap().data,
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        let expected = block.slot();
+        assert_eq!(result.header.beacon.slot, expected);
+
+        self
+    }
+
+    pub async fn test_get_beacon_light_client_optimistic_update(self) -> Self {
+        // get_beacon_light_client_optimistic_update returns Ok(None) on 404 NOT FOUND
+        let result = match self
+            .client
+            .get_beacon_light_client_optimistic_update::<E>()
+            .await
+        {
+            Ok(result) => result.map(|res| res.data),
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        let expected = self.chain.latest_seen_optimistic_update.lock().clone();
+        assert_eq!(result, expected);
+
+        self
+    }
+
+    pub async fn test_get_beacon_light_client_finality_update(self) -> Self {
+        let result = match self
+            .client
+            .get_beacon_light_client_finality_update::<E>()
+            .await
+        {
+            Ok(result) => result.map(|res| res.data),
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        let expected = self.chain.latest_seen_finality_update.lock().clone();
+        assert_eq!(result, expected);
+
+        self
+    }
+
     pub async fn test_get_beacon_pool_attestations(self) -> Self {
         let result = self
             .client
@@ -5698,6 +5751,42 @@ async fn node_get() {
         .test_get_node_peers()
         .await
         .test_get_node_peer_count()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_light_client_bootstrap() {
+    let config = ApiTesterConfig {
+        spec: ForkName::Altair.make_genesis_spec(E::default_spec()),
+        ..<_>::default()
+    };
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_beacon_light_client_bootstrap()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_light_client_optimistic_update() {
+    let config = ApiTesterConfig {
+        spec: ForkName::Altair.make_genesis_spec(E::default_spec()),
+        ..<_>::default()
+    };
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_beacon_light_client_optimistic_update()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_light_client_finality_update() {
+    let config = ApiTesterConfig {
+        spec: ForkName::Altair.make_genesis_spec(E::default_spec()),
+        ..<_>::default()
+    };
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_beacon_light_client_finality_update()
         .await;
 }
 
