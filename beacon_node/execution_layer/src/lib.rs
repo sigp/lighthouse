@@ -1055,7 +1055,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
 
         let (relay_result, local_result) = self
-            .fetch_local_and_builder_payloads(
+            .fetch_builder_and_local_payloads(
                 builder.as_ref(),
                 parent_hash,
                 &builder_params,
