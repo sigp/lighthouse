@@ -1,5 +1,6 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
 use lazy_static::lazy_static;
@@ -67,6 +68,7 @@ async fn produces_attestations() {
             .store
             .make_full_block(&block_root, blinded_block)
             .unwrap();
+        let blobs = chain.get_blobs(&block_root).unwrap();
 
         let epoch_boundary_slot = state
             .current_epoch()
@@ -131,6 +133,19 @@ async fn produces_attestations() {
             assert_eq!(data.target.epoch, state.current_epoch(), "bad target epoch");
             assert_eq!(data.target.root, target_root, "bad target root");
 
+            let rpc_block =
+                RpcBlock::<MainnetEthSpec>::new(None, Arc::new(block.clone()), Some(blobs.clone()))
+                    .unwrap();
+            let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(
+                available_block,
+            ) = chain
+                .data_availability_checker
+                .verify_kzg_for_rpc_block(rpc_block)
+                .unwrap()
+            else {
+                panic!("block should be available")
+            };
+
             let early_attestation = {
                 let proto_block = chain
                     .canonical_head
@@ -141,7 +156,7 @@ async fn produces_attestations() {
                     .early_attester_cache
                     .add_head_block(
                         block_root,
-                        Arc::new(block.clone()),
+                        available_block,
                         proto_block,
                         &state,
                         &chain.spec,
@@ -192,12 +207,29 @@ async fn early_attester_cache_old_request() {
         .get_block(&head.beacon_block_root)
         .unwrap();
 
+    let head_blobs = harness
+        .chain
+        .get_blobs(&head.beacon_block_root)
+        .expect("should get blobs");
+
+    let rpc_block =
+        RpcBlock::<MainnetEthSpec>::new(None, head.beacon_block.clone(), Some(head_blobs)).unwrap();
+    let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(available_block) =
+        harness
+            .chain
+            .data_availability_checker
+            .verify_kzg_for_rpc_block(rpc_block)
+            .unwrap()
+    else {
+        panic!("block should be available")
+    };
+
     harness
         .chain
         .early_attester_cache
         .add_head_block(
             head.beacon_block_root,
-            head.beacon_block.clone(),
+            available_block,
             head_proto_block,
             &head.beacon_state,
             &harness.chain.spec,

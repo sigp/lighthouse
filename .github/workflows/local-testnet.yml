@@ -20,6 +20,9 @@ jobs:
           - ubuntu-22.04
           - macos-12
     runs-on: ${{ matrix.os }}
+    env:
+      # Enable portable to prevent issues with caching `blst` for the wrong CPU type
+      FEATURES: portable,jemalloc
     steps:
       - uses: actions/checkout@v3
 

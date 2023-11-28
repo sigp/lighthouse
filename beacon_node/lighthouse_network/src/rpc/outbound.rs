@@ -35,6 +35,8 @@ pub enum OutboundRequest<TSpec: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
+    BlobsByRange(BlobsByRangeRequest),
+    BlobsByRoot(BlobsByRootRequest),
     Ping(Ping),
     MetaData(MetadataRequest<TSpec>),
 }
@@ -70,6 +72,14 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 ProtocolId::new(SupportedProtocol::BlocksByRootV2, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::BlocksByRootV1, Encoding::SSZSnappy),
             ],
+            OutboundRequest::BlobsByRange(_) => vec![ProtocolId::new(
+                SupportedProtocol::BlobsByRangeV1,
+                Encoding::SSZSnappy,
+            )],
+            OutboundRequest::BlobsByRoot(_) => vec![ProtocolId::new(
+                SupportedProtocol::BlobsByRootV1,
+                Encoding::SSZSnappy,
+            )],
             OutboundRequest::Ping(_) => vec![ProtocolId::new(
                 SupportedProtocol::PingV1,
                 Encoding::SSZSnappy,
@@ -89,6 +99,8 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Goodbye(_) => 0,
             OutboundRequest::BlocksByRange(req) => *req.count(),
             OutboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
+            OutboundRequest::BlobsByRange(req) => req.max_blobs_requested::<TSpec>(),
+            OutboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
         }
@@ -107,6 +119,8 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,
                 BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
             },
+            OutboundRequest::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
+            OutboundRequest::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
             OutboundRequest::Ping(_) => SupportedProtocol::PingV1,
             OutboundRequest::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
@@ -123,6 +137,8 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             // variants that have `multiple_responses()` can have values.
             OutboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             OutboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            OutboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
+            OutboundRequest::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             OutboundRequest::Status(_) => unreachable!(),
             OutboundRequest::Goodbye(_) => unreachable!(),
             OutboundRequest::Ping(_) => unreachable!(),
@@ -178,6 +194,8 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             OutboundRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             OutboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            OutboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
+            OutboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
             OutboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),
         }

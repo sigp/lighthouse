@@ -1,49 +1,30 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes};
-use async_trait::async_trait;
-use eth2::types::{BlockId, StateId, ValidatorId};
+use eth2::types::{BlobsBundle, BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts};
-pub use ethereum_consensus::state_transition::Context;
-use ethereum_consensus::{
-    crypto::{SecretKey, Signature},
-    primitives::{BlsPublicKey, BlsSignature, ExecutionAddress, Hash32, Root, U256},
-    state_transition::Error,
-};
 use fork_choice::ForkchoiceUpdateParameters;
-use mev_rs::{
-    blinded_block_provider::Server as BlindedBlockProviderServer,
-    signing::{sign_builder_message, verify_signed_builder_message},
-    types::{
-        bellatrix::{
-            BuilderBid as BuilderBidBellatrix, SignedBuilderBid as SignedBuilderBidBellatrix,
-        },
-        capella::{BuilderBid as BuilderBidCapella, SignedBuilderBid as SignedBuilderBidCapella},
-        BidRequest, BuilderBid, ExecutionPayload as ServerPayload, SignedBlindedBeaconBlock,
-        SignedBuilderBid, SignedValidatorRegistration,
-    },
-    Error as MevError,
-};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
-use ssz::{Decode, Encode};
-use ssz_rs::{Merkleized, SimpleSerialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::net::Ipv4Addr;
+use std::future::Future;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
+use types::builder_bid::{
+    BuilderBid, BuilderBidCapella, BuilderBidDeneb, BuilderBidMerge, SignedBuilderBid,
+};
 use types::{
-    Address, BeaconState, BlindedPayload, ChainSpec, EthSpec, ExecPayload, ForkName, Hash256, Slot,
+    Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
+    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionedResponse, Hash256, PublicKeyBytes,
+    Signature, SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot,
     Uint256,
 };
-
-pub type MockBuilderServer = axum::Server<
-    hyper::server::conn::AddrIncoming,
-    axum::routing::IntoMakeService<axum::routing::Router>,
->;
+use types::{ExecutionBlockHash, SecretKey};
+use warp::{Filter, Rejection};
 
 #[derive(Clone)]
 pub enum Operation {
@@ -58,119 +39,154 @@ pub enum Operation {
 }
 
 impl Operation {
-    fn apply<B: BidStuff>(self, bid: &mut B) -> Result<(), MevError> {
+    fn apply<E: EthSpec, B: BidStuff<E>>(self, bid: &mut B) {
         match self {
-            Operation::FeeRecipient(fee_recipient) => {
-                *bid.fee_recipient_mut() = to_ssz_rs(&fee_recipient)?
-            }
-            Operation::GasLimit(gas_limit) => *bid.gas_limit_mut() = gas_limit as u64,
-            Operation::Value(value) => *bid.value_mut() = to_ssz_rs(&value)?,
-            Operation::ParentHash(parent_hash) => *bid.parent_hash_mut() = to_ssz_rs(&parent_hash)?,
-            Operation::PrevRandao(prev_randao) => *bid.prev_randao_mut() = to_ssz_rs(&prev_randao)?,
-            Operation::BlockNumber(block_number) => *bid.block_number_mut() = block_number as u64,
-            Operation::Timestamp(timestamp) => *bid.timestamp_mut() = timestamp as u64,
-            Operation::WithdrawalsRoot(root) => *bid.withdrawals_root_mut()? = to_ssz_rs(&root)?,
+            Operation::FeeRecipient(fee_recipient) => bid.set_fee_recipient(fee_recipient),
+            Operation::GasLimit(gas_limit) => bid.set_gas_limit(gas_limit as u64),
+            Operation::Value(value) => bid.set_value(value),
+            Operation::ParentHash(parent_hash) => bid.set_parent_hash(parent_hash),
+            Operation::PrevRandao(prev_randao) => bid.set_prev_randao(prev_randao),
+            Operation::BlockNumber(block_number) => bid.set_block_number(block_number as u64),
+            Operation::Timestamp(timestamp) => bid.set_timestamp(timestamp as u64),
+            Operation::WithdrawalsRoot(root) => bid.set_withdrawals_root(root),
         }
-        Ok(())
     }
 }
+
+#[derive(Debug)]
+struct Custom(String);
+
+impl warp::reject::Reject for Custom {}
 
 // contains functions we need for BuilderBids.. not sure what to call this
-pub trait BidStuff {
-    fn fee_recipient_mut(&mut self) -> &mut ExecutionAddress;
-    fn gas_limit_mut(&mut self) -> &mut u64;
-    fn value_mut(&mut self) -> &mut U256;
-    fn parent_hash_mut(&mut self) -> &mut Hash32;
-    fn prev_randao_mut(&mut self) -> &mut Hash32;
-    fn block_number_mut(&mut self) -> &mut u64;
-    fn timestamp_mut(&mut self) -> &mut u64;
-    fn withdrawals_root_mut(&mut self) -> Result<&mut Root, MevError>;
+pub trait BidStuff<E: EthSpec> {
+    fn set_fee_recipient(&mut self, fee_recipient_address: Address);
+    fn set_gas_limit(&mut self, gas_limit: u64);
+    fn set_value(&mut self, value: Uint256);
+    fn set_parent_hash(&mut self, parent_hash: Hash256);
+    fn set_prev_randao(&mut self, randao: Hash256);
+    fn set_block_number(&mut self, block_number: u64);
+    fn set_timestamp(&mut self, timestamp: u64);
+    fn set_withdrawals_root(&mut self, withdrawals_root: Hash256);
 
-    fn sign_builder_message(
-        &mut self,
-        signing_key: &SecretKey,
-        context: &Context,
-    ) -> Result<BlsSignature, Error>;
+    fn sign_builder_message(&mut self, sk: &SecretKey, spec: &ChainSpec) -> Signature;
 
-    fn to_signed_bid(self, signature: BlsSignature) -> SignedBuilderBid;
+    fn to_signed_bid(self, signature: Signature) -> SignedBuilderBid<E>;
 }
 
-impl BidStuff for BuilderBid {
-    fn fee_recipient_mut(&mut self) -> &mut ExecutionAddress {
-        match self {
-            Self::Bellatrix(bid) => &mut bid.header.fee_recipient,
-            Self::Capella(bid) => &mut bid.header.fee_recipient,
-        }
-    }
-
-    fn gas_limit_mut(&mut self) -> &mut u64 {
-        match self {
-            Self::Bellatrix(bid) => &mut bid.header.gas_limit,
-            Self::Capella(bid) => &mut bid.header.gas_limit,
-        }
-    }
-
-    fn value_mut(&mut self) -> &mut U256 {
-        match self {
-            Self::Bellatrix(bid) => &mut bid.value,
-            Self::Capella(bid) => &mut bid.value,
-        }
-    }
-
-    fn parent_hash_mut(&mut self) -> &mut Hash32 {
-        match self {
-            Self::Bellatrix(bid) => &mut bid.header.parent_hash,
-            Self::Capella(bid) => &mut bid.header.parent_hash,
-        }
-    }
-
-    fn prev_randao_mut(&mut self) -> &mut Hash32 {
-        match self {
-            Self::Bellatrix(bid) => &mut bid.header.prev_randao,
-            Self::Capella(bid) => &mut bid.header.prev_randao,
-        }
-    }
-
-    fn block_number_mut(&mut self) -> &mut u64 {
-        match self {
-            Self::Bellatrix(bid) => &mut bid.header.block_number,
-            Self::Capella(bid) => &mut bid.header.block_number,
-        }
-    }
-
-    fn timestamp_mut(&mut self) -> &mut u64 {
-        match self {
-            Self::Bellatrix(bid) => &mut bid.header.timestamp,
-            Self::Capella(bid) => &mut bid.header.timestamp,
-        }
-    }
-
-    fn withdrawals_root_mut(&mut self) -> Result<&mut Root, MevError> {
-        match self {
-            Self::Bellatrix(_) => Err(MevError::InvalidFork),
-            Self::Capella(bid) => Ok(&mut bid.header.withdrawals_root),
-        }
-    }
-
-    fn sign_builder_message(
-        &mut self,
-        signing_key: &SecretKey,
-        context: &Context,
-    ) -> Result<Signature, Error> {
-        match self {
-            Self::Bellatrix(message) => sign_builder_message(message, signing_key, context),
-            Self::Capella(message) => sign_builder_message(message, signing_key, context),
-        }
-    }
-
-    fn to_signed_bid(self, signature: Signature) -> SignedBuilderBid {
-        match self {
-            Self::Bellatrix(message) => {
-                SignedBuilderBid::Bellatrix(SignedBuilderBidBellatrix { message, signature })
+impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
+    fn set_fee_recipient(&mut self, fee_recipient: Address) {
+        match self.to_mut().header_mut() {
+            ExecutionPayloadHeaderRefMut::Merge(header) => {
+                header.fee_recipient = fee_recipient;
             }
-            Self::Capella(message) => {
-                SignedBuilderBid::Capella(SignedBuilderBidCapella { message, signature })
+            ExecutionPayloadHeaderRefMut::Capella(header) => {
+                header.fee_recipient = fee_recipient;
             }
+            ExecutionPayloadHeaderRefMut::Deneb(header) => {
+                header.fee_recipient = fee_recipient;
+            }
+        }
+    }
+
+    fn set_gas_limit(&mut self, gas_limit: u64) {
+        match self.to_mut().header_mut() {
+            ExecutionPayloadHeaderRefMut::Merge(header) => {
+                header.gas_limit = gas_limit;
+            }
+            ExecutionPayloadHeaderRefMut::Capella(header) => {
+                header.gas_limit = gas_limit;
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(header) => {
+                header.gas_limit = gas_limit;
+            }
+        }
+    }
+
+    fn set_value(&mut self, value: Uint256) {
+        *self.value_mut() = value;
+    }
+
+    fn set_parent_hash(&mut self, parent_hash: Hash256) {
+        match self.to_mut().header_mut() {
+            ExecutionPayloadHeaderRefMut::Merge(header) => {
+                header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
+            }
+            ExecutionPayloadHeaderRefMut::Capella(header) => {
+                header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(header) => {
+                header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
+            }
+        }
+    }
+
+    fn set_prev_randao(&mut self, prev_randao: Hash256) {
+        match self.to_mut().header_mut() {
+            ExecutionPayloadHeaderRefMut::Merge(header) => {
+                header.prev_randao = prev_randao;
+            }
+            ExecutionPayloadHeaderRefMut::Capella(header) => {
+                header.prev_randao = prev_randao;
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(header) => {
+                header.prev_randao = prev_randao;
+            }
+        }
+    }
+
+    fn set_block_number(&mut self, block_number: u64) {
+        match self.to_mut().header_mut() {
+            ExecutionPayloadHeaderRefMut::Merge(header) => {
+                header.block_number = block_number;
+            }
+            ExecutionPayloadHeaderRefMut::Capella(header) => {
+                header.block_number = block_number;
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(header) => {
+                header.block_number = block_number;
+            }
+        }
+    }
+
+    fn set_timestamp(&mut self, timestamp: u64) {
+        match self.to_mut().header_mut() {
+            ExecutionPayloadHeaderRefMut::Merge(header) => {
+                header.timestamp = timestamp;
+            }
+            ExecutionPayloadHeaderRefMut::Capella(header) => {
+                header.timestamp = timestamp;
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(header) => {
+                header.timestamp = timestamp;
+            }
+        }
+    }
+
+    fn set_withdrawals_root(&mut self, withdrawals_root: Hash256) {
+        match self.to_mut().header_mut() {
+            ExecutionPayloadHeaderRefMut::Merge(_) => {
+                panic!("no withdrawals before capella")
+            }
+            ExecutionPayloadHeaderRefMut::Capella(header) => {
+                header.withdrawals_root = withdrawals_root;
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(header) => {
+                header.withdrawals_root = withdrawals_root;
+            }
+        }
+    }
+
+    fn sign_builder_message(&mut self, sk: &SecretKey, spec: &ChainSpec) -> Signature {
+        let domain = spec.get_builder_domain();
+        let message = self.signing_root(domain);
+        sk.sign(message)
+    }
+
+    fn to_signed_bid(self, signature: Signature) -> SignedBuilderBid<E> {
+        SignedBuilderBid {
+            message: self,
+            signature,
         }
     }
 }
@@ -180,8 +196,7 @@ pub struct MockBuilder<E: EthSpec> {
     el: ExecutionLayer<E>,
     beacon_client: BeaconNodeHttpClient,
     spec: ChainSpec,
-    context: Arc<Context>,
-    val_registration_cache: Arc<RwLock<HashMap<BlsPublicKey, SignedValidatorRegistration>>>,
+    val_registration_cache: Arc<RwLock<HashMap<PublicKeyBytes, SignedValidatorRegistrationData>>>,
     builder_sk: SecretKey,
     operations: Arc<RwLock<Vec<Operation>>>,
     invalidate_signatures: Arc<RwLock<bool>>,
@@ -193,7 +208,7 @@ impl<E: EthSpec> MockBuilder<E> {
         beacon_url: SensitiveUrl,
         spec: ChainSpec,
         executor: TaskExecutor,
-    ) -> (Self, MockBuilderServer) {
+    ) -> (Self, (SocketAddr, impl Future<Output = ()>)) {
         let file = NamedTempFile::new().unwrap();
         let path = file.path().into();
         std::fs::write(&path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
@@ -209,23 +224,14 @@ impl<E: EthSpec> MockBuilder<E> {
         let el =
             ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
 
-        // This should probably be done for all fields, we only update ones we are testing with so far.
-        let mut context = Context::for_mainnet();
-        context.terminal_total_difficulty = to_ssz_rs(&spec.terminal_total_difficulty).unwrap();
-        context.terminal_block_hash = to_ssz_rs(&spec.terminal_block_hash).unwrap();
-        context.terminal_block_hash_activation_epoch =
-            to_ssz_rs(&spec.terminal_block_hash_activation_epoch).unwrap();
-
         let builder = MockBuilder::new(
             el,
             BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(Duration::from_secs(1))),
             spec,
-            context,
         );
         let host: Ipv4Addr = Ipv4Addr::LOCALHOST;
         let port = 0;
-        let provider = BlindedBlockProviderServer::new(host, port, builder.clone());
-        let server = provider.serve();
+        let server = serve(host, port, builder.clone()).expect("mock builder server should start");
         (builder, server)
     }
 
@@ -233,15 +239,13 @@ impl<E: EthSpec> MockBuilder<E> {
         el: ExecutionLayer<E>,
         beacon_client: BeaconNodeHttpClient,
         spec: ChainSpec,
-        context: Context,
     ) -> Self {
-        let sk = SecretKey::random(&mut rand::thread_rng()).unwrap();
+        let sk = SecretKey::random();
         Self {
             el,
             beacon_client,
             // Should keep spec and context consistent somehow
             spec,
-            context: Arc::new(context),
             val_registration_cache: Arc::new(RwLock::new(HashMap::new())),
             builder_sk: sk,
             operations: Arc::new(RwLock::new(vec![])),
@@ -263,237 +267,381 @@ impl<E: EthSpec> MockBuilder<E> {
         *self.invalidate_signatures.write() = false;
     }
 
-    fn apply_operations<B: BidStuff>(&self, bid: &mut B) -> Result<(), MevError> {
+    fn apply_operations<B: BidStuff<E>>(&self, bid: &mut B) {
         let mut guard = self.operations.write();
         while let Some(op) = guard.pop() {
-            op.apply(bid)?;
+            op.apply(bid);
         }
-        Ok(())
     }
 }
 
-#[async_trait]
-impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
-    async fn register_validators(
-        &self,
-        registrations: &mut [SignedValidatorRegistration],
-    ) -> Result<(), MevError> {
-        for registration in registrations {
-            let pubkey = registration.message.public_key.clone();
-            let message = &mut registration.message;
-            verify_signed_builder_message(
-                message,
-                &registration.signature,
-                &pubkey,
-                &self.context,
-            )?;
-            self.val_registration_cache.write().insert(
-                registration.message.public_key.clone(),
-                registration.clone(),
-            );
-        }
+pub fn serve<E: EthSpec>(
+    listen_addr: Ipv4Addr,
+    listen_port: u16,
+    builder: MockBuilder<E>,
+) -> Result<(SocketAddr, impl Future<Output = ()>), crate::test_utils::Error> {
+    let inner_ctx = builder.clone();
+    let ctx_filter = warp::any().map(move || inner_ctx.clone());
 
-        Ok(())
-    }
+    let prefix = warp::path("eth")
+        .and(warp::path("v1"))
+        .and(warp::path("builder"));
 
-    async fn fetch_best_bid(&self, bid_request: &BidRequest) -> Result<SignedBuilderBid, MevError> {
-        let slot = Slot::new(bid_request.slot);
-        let fork = self.spec.fork_name_at_slot::<E>(slot);
-        let signed_cached_data = self
-            .val_registration_cache
-            .read()
-            .get(&bid_request.public_key)
-            .ok_or_else(|| convert_err("missing registration"))?
-            .clone();
-        let cached_data = signed_cached_data.message;
+    let validators = prefix
+        .and(warp::path("validators"))
+        .and(warp::body::json())
+        .and(warp::path::end())
+        .and(ctx_filter.clone())
+        .and_then(
+            |registrations: Vec<SignedValidatorRegistrationData>, builder: MockBuilder<E>| async move {
+                for registration in registrations {
+                    if !registration.verify_signature(&builder.spec) {
+                        return Err(reject("invalid signature"));
+                    }
+                    builder
+                        .val_registration_cache
+                        .write()
+                        .insert(registration.message.pubkey, registration);
+                }
+                Ok(warp::reply())
+            },
+        );
 
-        let head = self
-            .beacon_client
-            .get_beacon_blocks::<E>(BlockId::Head)
-            .await
-            .map_err(convert_err)?
-            .ok_or_else(|| convert_err("missing head block"))?;
+    let blinded_block = prefix
+        .and(warp::path("blinded_blocks"))
+        .and(warp::body::json())
+        .and(warp::path::end())
+        .and(ctx_filter.clone())
+        .and_then(
+            |block: SignedBlindedBeaconBlock<E>, builder: MockBuilder<E>| async move {
+                let slot = block.slot();
+                let root = match block {
+                    SignedBlindedBeaconBlock::Base(_) | types::SignedBeaconBlock::Altair(_) => {
+                        return Err(reject("invalid fork"));
+                    }
+                    SignedBlindedBeaconBlock::Merge(block) => {
+                        block.message.body.execution_payload.tree_hash_root()
+                    }
+                    SignedBlindedBeaconBlock::Capella(block) => {
+                        block.message.body.execution_payload.tree_hash_root()
+                    }
+                    SignedBlindedBeaconBlock::Deneb(block) => {
+                        block.message.body.execution_payload.tree_hash_root()
+                    }
+                };
 
-        let block = head.data.message();
-        let head_block_root = block.tree_hash_root();
-        let head_execution_hash = block
-            .body()
-            .execution_payload()
-            .map_err(convert_err)?
-            .block_hash();
-        if head_execution_hash != from_ssz_rs(&bid_request.parent_hash)? {
-            return Err(custom_err(format!(
-                "head mismatch: {} {}",
-                head_execution_hash, bid_request.parent_hash
-            )));
-        }
+                let fork_name = builder.spec.fork_name_at_slot::<E>(slot);
+                let payload = builder
+                    .el
+                    .get_payload_by_root(&root)
+                    .ok_or_else(|| reject("missing payload for tx root"))?;
+                let resp = ForkVersionedResponse {
+                    version: Some(fork_name),
+                    data: payload,
+                };
 
-        let finalized_execution_hash = self
-            .beacon_client
-            .get_beacon_blocks::<E>(BlockId::Finalized)
-            .await
-            .map_err(convert_err)?
-            .ok_or_else(|| convert_err("missing finalized block"))?
-            .data
-            .message()
-            .body()
-            .execution_payload()
-            .map_err(convert_err)?
-            .block_hash();
+                let json_payload = serde_json::to_string(&resp)
+                    .map_err(|_| reject("coudn't serialize response"))?;
+                Ok::<_, warp::reject::Rejection>(
+                    warp::http::Response::builder()
+                        .status(200)
+                        .body(
+                            serde_json::to_string(&json_payload)
+                                .map_err(|_| reject("nvalid JSON"))?,
+                        )
+                        .unwrap(),
+                )
+            },
+        );
 
-        let justified_execution_hash = self
-            .beacon_client
-            .get_beacon_blocks::<E>(BlockId::Justified)
-            .await
-            .map_err(convert_err)?
-            .ok_or_else(|| convert_err("missing finalized block"))?
-            .data
-            .message()
-            .body()
-            .execution_payload()
-            .map_err(convert_err)?
-            .block_hash();
+    let status = prefix
+        .and(warp::path("status"))
+        .then(|| async { warp::reply() });
 
-        let val_index = self
-            .beacon_client
-            .get_beacon_states_validator_id(
-                StateId::Head,
-                &ValidatorId::PublicKey(from_ssz_rs(&cached_data.public_key)?),
-            )
-            .await
-            .map_err(convert_err)?
-            .ok_or_else(|| convert_err("missing validator from state"))?
-            .data
-            .index;
-        let fee_recipient = from_ssz_rs(&cached_data.fee_recipient)?;
-        let slots_since_genesis = slot.as_u64() - self.spec.genesis_slot.as_u64();
+    let header = prefix
+        .and(warp::path("header"))
+        .and(warp::path::param::<Slot>().or_else(|_| async { Err(reject("Invalid slot")) }))
+        .and(
+            warp::path::param::<ExecutionBlockHash>()
+                .or_else(|_| async { Err(reject("Invalid parent hash")) }),
+        )
+        .and(
+            warp::path::param::<PublicKeyBytes>()
+                .or_else(|_| async { Err(reject("Invalid pubkey")) }),
+        )
+        .and(warp::path::end())
+        .and(ctx_filter.clone())
+        .and_then(
+            |slot: Slot,
+             parent_hash: ExecutionBlockHash,
+             pubkey: PublicKeyBytes,
+             builder: MockBuilder<E>| async move {
+                let fork = builder.spec.fork_name_at_slot::<E>(slot);
+                let signed_cached_data = builder
+                    .val_registration_cache
+                    .read()
+                    .get(&pubkey)
+                    .ok_or_else(|| reject("missing registration"))?
+                    .clone();
+                let cached_data = signed_cached_data.message;
 
-        let genesis_time = self
-            .beacon_client
-            .get_beacon_genesis()
-            .await
-            .map_err(convert_err)?
-            .data
-            .genesis_time;
-        let timestamp = (slots_since_genesis * self.spec.seconds_per_slot) + genesis_time;
+                let head = builder
+                    .beacon_client
+                    .get_beacon_blocks::<E>(BlockId::Head)
+                    .await
+                    .map_err(|_| reject("couldn't get head"))?
+                    .ok_or_else(|| reject("missing head block"))?;
 
-        let head_state: BeaconState<E> = self
-            .beacon_client
-            .get_debug_beacon_states(StateId::Head)
-            .await
-            .map_err(convert_err)?
-            .ok_or_else(|| custom_err("missing head state".to_string()))?
-            .data;
-        let prev_randao = head_state
-            .get_randao_mix(head_state.current_epoch())
-            .map_err(convert_err)?;
+                let block = head.data.message();
+                let head_block_root = block.tree_hash_root();
+                let head_execution_hash = block
+                    .body()
+                    .execution_payload()
+                    .map_err(|_| reject("pre-merge block"))?
+                    .block_hash();
+                if head_execution_hash != parent_hash {
+                    return Err(reject("head mismatch"));
+                }
 
-        let payload_attributes = match fork {
-            ForkName::Merge => PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None),
-            // the withdrawals root is filled in by operations
-            ForkName::Capella => {
-                PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]))
-            }
-            ForkName::Base | ForkName::Altair => {
-                return Err(MevError::InvalidFork);
-            }
-        };
+                let finalized_execution_hash = builder
+                    .beacon_client
+                    .get_beacon_blocks::<E>(BlockId::Finalized)
+                    .await
+                    .map_err(|_| reject("couldn't get finalized block"))?
+                    .ok_or_else(|| reject("missing finalized block"))?
+                    .data
+                    .message()
+                    .body()
+                    .execution_payload()
+                    .map_err(|_| reject("pre-merge block"))?
+                    .block_hash();
 
-        self.el
-            .insert_proposer(slot, head_block_root, val_index, payload_attributes.clone())
-            .await;
+                let justified_execution_hash = builder
+                    .beacon_client
+                    .get_beacon_blocks::<E>(BlockId::Justified)
+                    .await
+                    .map_err(|_| reject("couldn't get justified block"))?
+                    .ok_or_else(|| reject("missing justified block"))?
+                    .data
+                    .message()
+                    .body()
+                    .execution_payload()
+                    .map_err(|_| reject("pre-merge block"))?
+                    .block_hash();
 
-        let forkchoice_update_params = ForkchoiceUpdateParameters {
-            head_root: Hash256::zero(),
-            head_hash: None,
-            justified_hash: Some(justified_execution_hash),
-            finalized_hash: Some(finalized_execution_hash),
-        };
+                let val_index = builder
+                    .beacon_client
+                    .get_beacon_states_validator_id(StateId::Head, &ValidatorId::PublicKey(pubkey))
+                    .await
+                    .map_err(|_| reject("couldn't get validator"))?
+                    .ok_or_else(|| reject("missing validator"))?
+                    .data
+                    .index;
+                let fee_recipient = cached_data.fee_recipient;
+                let slots_since_genesis = slot.as_u64() - builder.spec.genesis_slot.as_u64();
 
-        let payload = self
-            .el
-            .get_full_payload_caching::<BlindedPayload<E>>(
-                head_execution_hash,
-                &payload_attributes,
-                forkchoice_update_params,
-                fork,
-            )
-            .await
-            .map_err(convert_err)?
-            .to_payload()
-            .to_execution_payload_header();
+                let genesis_data = builder
+                    .beacon_client
+                    .get_beacon_genesis()
+                    .await
+                    .map_err(|_| reject("couldn't get beacon genesis"))?
+                    .data;
+                let genesis_time = genesis_data.genesis_time;
+                let timestamp =
+                    (slots_since_genesis * builder.spec.seconds_per_slot) + genesis_time;
 
-        let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
-        let mut message = match fork {
-            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
-                header: serde_json::from_str(json_payload.as_str()).map_err(convert_err)?,
-                value: to_ssz_rs(&Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI))?,
-                public_key: self.builder_sk.public_key(),
-            }),
-            ForkName::Merge => BuilderBid::Bellatrix(BuilderBidBellatrix {
-                header: serde_json::from_str(json_payload.as_str()).map_err(convert_err)?,
-                value: to_ssz_rs(&Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI))?,
-                public_key: self.builder_sk.public_key(),
-            }),
-            ForkName::Base | ForkName::Altair => return Err(MevError::InvalidFork),
-        };
-        *message.gas_limit_mut() = cached_data.gas_limit;
+                let head_state: BeaconState<E> = builder
+                    .beacon_client
+                    .get_debug_beacon_states(StateId::Head)
+                    .await
+                    .map_err(|_| reject("couldn't get state"))?
+                    .ok_or_else(|| reject("missing state"))?
+                    .data;
+                let prev_randao = head_state
+                    .get_randao_mix(head_state.current_epoch())
+                    .map_err(|_| reject("couldn't get prev randao"))?;
+                let expected_withdrawals = match fork {
+                    ForkName::Base | ForkName::Altair | ForkName::Merge => None,
+                    ForkName::Capella | ForkName::Deneb => Some(
+                        builder
+                            .beacon_client
+                            .get_expected_withdrawals(&StateId::Head)
+                            .await
+                            .unwrap()
+                            .data,
+                    ),
+                };
 
-        self.apply_operations(&mut message)?;
-        let mut signature =
-            message.sign_builder_message(&self.builder_sk, self.context.as_ref())?;
+                let payload_attributes = match fork {
+                    // the withdrawals root is filled in by operations, but we supply the valid withdrawals
+                    // first to avoid polluting the execution block generator with invalid payload attributes
+                    // NOTE: this was part of an effort to add payload attribute uniqueness checks,
+                    // which was abandoned because it broke too many tests in subtle ways.
+                    ForkName::Merge | ForkName::Capella => PayloadAttributes::new(
+                        timestamp,
+                        *prev_randao,
+                        fee_recipient,
+                        expected_withdrawals,
+                        None,
+                    ),
+                    ForkName::Deneb => PayloadAttributes::new(
+                        timestamp,
+                        *prev_randao,
+                        fee_recipient,
+                        expected_withdrawals,
+                        Some(head_block_root),
+                    ),
+                    ForkName::Base | ForkName::Altair => {
+                        return Err(reject("invalid fork"));
+                    }
+                };
 
-        if *self.invalidate_signatures.read() {
-            signature = Signature::default();
-        }
+                builder
+                    .el
+                    .insert_proposer(slot, head_block_root, val_index, payload_attributes.clone())
+                    .await;
 
-        Ok(message.to_signed_bid(signature))
-    }
+                let forkchoice_update_params = ForkchoiceUpdateParameters {
+                    head_root: Hash256::zero(),
+                    head_hash: None,
+                    justified_hash: Some(justified_execution_hash),
+                    finalized_hash: Some(finalized_execution_hash),
+                };
 
-    async fn open_bid(
-        &self,
-        signed_block: &mut SignedBlindedBeaconBlock,
-    ) -> Result<ServerPayload, MevError> {
-        let node = match signed_block {
-            SignedBlindedBeaconBlock::Bellatrix(block) => {
-                block.message.body.execution_payload_header.hash_tree_root()
-            }
-            SignedBlindedBeaconBlock::Capella(block) => {
-                block.message.body.execution_payload_header.hash_tree_root()
-            }
-        }
-        .map_err(convert_err)?;
+                let payload_response_type = builder
+                    .el
+                    .get_full_payload_caching(
+                        head_execution_hash,
+                        &payload_attributes,
+                        forkchoice_update_params,
+                        fork,
+                    )
+                    .await
+                    .map_err(|_| reject("couldn't get payload"))?;
 
-        let payload = self
-            .el
-            .get_payload_by_root(&from_ssz_rs(&node)?)
-            .ok_or_else(|| convert_err("missing payload for tx root"))?;
+                let mut message = match payload_response_type {
+                    crate::GetPayloadResponseType::Full(payload_response) => {
+                        let (payload, _block_value, maybe_blobs_bundle): (
+                            ExecutionPayload<E>,
+                            Uint256,
+                            Option<BlobsBundle<E>>,
+                        ) = payload_response.into();
 
-        let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
-        serde_json::from_str(json_payload.as_str()).map_err(convert_err)
-    }
+                        match fork {
+                            ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
+                                header: payload
+                                    .as_deneb()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blinded_blobs_bundle: maybe_blobs_bundle
+                                    .map(Into::into)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
+                                header: payload
+                                    .as_capella()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Merge => BuilderBid::Merge(BuilderBidMerge {
+                                header: payload
+                                    .as_merge()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Base | ForkName::Altair => {
+                                return Err(reject("invalid fork"))
+                            }
+                        }
+                    }
+                    crate::GetPayloadResponseType::Blinded(payload_response) => {
+                        let (payload, _block_value, maybe_blobs_bundle): (
+                            ExecutionPayload<E>,
+                            Uint256,
+                            Option<BlobsBundle<E>>,
+                        ) = payload_response.into();
+                        match fork {
+                            ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
+                                header: payload
+                                    .as_deneb()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blinded_blobs_bundle: maybe_blobs_bundle
+                                    .map(Into::into)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
+                                header: payload
+                                    .as_capella()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Merge => BuilderBid::Merge(BuilderBidMerge {
+                                header: payload
+                                    .as_merge()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Base | ForkName::Altair => {
+                                return Err(reject("invalid fork"))
+                            }
+                        }
+                    }
+                };
+
+                message.set_gas_limit(cached_data.gas_limit);
+
+                builder.apply_operations(&mut message);
+
+                let mut signature =
+                    message.sign_builder_message(&builder.builder_sk, &builder.spec);
+
+                if *builder.invalidate_signatures.read() {
+                    signature = Signature::empty();
+                }
+
+                let fork_name = builder
+                    .spec
+                    .fork_name_at_epoch(slot.epoch(E::slots_per_epoch()));
+                let signed_bid = SignedBuilderBid { message, signature };
+                let resp = ForkVersionedResponse {
+                    version: Some(fork_name),
+                    data: signed_bid,
+                };
+                let json_bid = serde_json::to_string(&resp)
+                    .map_err(|_| reject("coudn't serialize signed bid"))?;
+                Ok::<_, Rejection>(
+                    warp::http::Response::builder()
+                        .status(200)
+                        .body(json_bid)
+                        .unwrap(),
+                )
+            },
+        );
+
+    let routes = warp::post()
+        .and(validators.or(blinded_block))
+        .or(warp::get().and(status).or(header))
+        .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-builder-server"));
+
+    let (listening_socket, server) = warp::serve(routes)
+        .try_bind_ephemeral(SocketAddrV4::new(listen_addr, listen_port))
+        .expect("mock builder server should start");
+    Ok((listening_socket, server))
 }
 
-pub fn from_ssz_rs<T: SimpleSerialize, U: Decode>(ssz_rs_data: &T) -> Result<U, MevError> {
-    U::from_ssz_bytes(
-        ssz_rs::serialize(ssz_rs_data)
-            .map_err(convert_err)?
-            .as_ref(),
-    )
-    .map_err(convert_err)
-}
-
-pub fn to_ssz_rs<T: Encode, U: SimpleSerialize>(ssz_data: &T) -> Result<U, MevError> {
-    ssz_rs::deserialize::<U>(&ssz_data.as_ssz_bytes()).map_err(convert_err)
-}
-
-fn convert_err<E: Debug>(e: E) -> MevError {
-    custom_err(format!("{e:?}"))
-}
-
-// This is a bit of a hack since the `Custom` variant was removed from `mev_rs::Error`.
-fn custom_err(s: String) -> MevError {
-    MevError::Consensus(ethereum_consensus::state_transition::Error::Io(
-        std::io::Error::new(std::io::ErrorKind::Other, s),
-    ))
+fn reject(msg: &'static str) -> Rejection {
+    warp::reject::custom(Custom(msg.to_string()))
 }

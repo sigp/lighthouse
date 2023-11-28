@@ -2,6 +2,7 @@ use crate::{
     service::NetworkMessage,
     sync::{manager::BlockProcessType, SyncMessage},
 };
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, test_utils::BeaconChainHarness, BeaconChain,
 };
@@ -12,12 +13,16 @@ use beacon_processor::{
     WorkEvent as BeaconWorkEvent,
 };
 use environment::null_logger;
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
-use slog::{debug, Logger};
-use slot_clock::ManualSlotClock;
+use lru::LruCache;
+use parking_lot::Mutex;
+use slog::{crit, debug, error, trace, Logger};
+use slot_clock::{ManualSlotClock, SlotClock};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,9 +30,11 @@ use store::MemoryStore;
 use task_executor::test_utils::TestRuntime;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
+use tokio::time::{interval_at, Instant};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
+use types::blob_sidecar::FixedBlobSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
@@ -37,6 +44,7 @@ mod sync_methods;
 mod tests;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
+pub const DELAYED_PEER_CACHE_SIZE: usize = 16;
 
 /// Defines if and where we will store the SSZ files of invalid blocks.
 #[derive(Clone)]
@@ -57,6 +65,7 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub invalid_block_storage: InvalidBlockStorage,
+    pub delayed_lookup_peers: Mutex<LruCache<Hash256, HashSet<PeerId>>>,
     pub executor: TaskExecutor,
     pub log: Logger,
 }
@@ -193,6 +202,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::GossipBlock(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some blob sidecar.
+    pub fn send_gossip_blob_sidecar(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        blob_index: u64,
+        blob: SignedBlobSidecar<T::EthSpec>,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_blob(
+                    message_id,
+                    peer_id,
+                    peer_client,
+                    blob_index,
+                    blob,
+                    seen_timestamp,
+                )
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipSignedBlobSidecar(Box::pin(process_fn)),
         })
     }
 
@@ -376,7 +415,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_rpc_beacon_block(
         self: &Arc<Self>,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: RpcBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
@@ -392,11 +431,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some blobs, where the result from computation (if any) is
+    /// sent to the other side of `result_tx`.
+    pub fn send_rpc_blobs(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let blob_count = blobs.iter().filter(|b| b.is_some()).count();
+        if blob_count == 0 {
+            return Ok(());
+        }
+        let process_fn = self.clone().generate_rpc_blobs_process_fn(
+            block_root,
+            blobs,
+            seen_timestamp,
+            process_type,
+        );
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcBlobs { process_fn },
+        })
+    }
+
     /// Create a new work event to import `blocks` as a beacon chain segment.
     pub fn send_chain_segment(
         self: &Arc<Self>,
         process_id: ChainSegmentProcessId,
-        blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
         let processor = self.clone();
@@ -496,6 +560,40 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new work event to process `BlobsByRangeRequest`s from the RPC network.
+    pub fn send_blobs_by_range_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRangeRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_blobs_by_range_request(peer_id, request_id, request);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::BlobsByRangeRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `BlobsByRootRequest`s from the RPC network.
+    pub fn send_blobs_by_roots_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRootRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_blobs_by_root_request(peer_id, request_id, request);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::BlobsByRootsRequest(Box::new(process_fn)),
+        })
+    }
+
     /// Create a new work event to process `LightClientBootstrap`s from the RPC network.
     pub fn send_lightclient_bootstrap_request(
         self: &Arc<Self>,
@@ -531,6 +629,68 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             debug!(self.log, "Could not send message to the network service. Likely shutdown";
                 "error" => %e)
         });
+    }
+
+    /// This service is responsible for collecting lookup messages and sending them back to sync
+    /// for processing after a short delay.
+    ///
+    /// We want to delay lookups triggered from gossip for the following reasons:
+    ///
+    /// - We only want to make one request for components we are unlikely to see on gossip. This means
+    ///   we don't have to repeatedly update our RPC request's state as we receive gossip components.
+    ///
+    /// - We are likely to receive blocks/blobs over gossip more quickly than we could via an RPC request.
+    ///
+    /// - Delaying a lookup means we are less likely to simultaneously download the same blocks/blobs
+    ///   over gossip and RPC.
+    ///
+    /// - We would prefer to request peers based on whether we've seen them attest, because this gives
+    ///   us an idea about whether they *should* have the block/blobs we're missing. This is because a
+    ///   node should not attest to a block unless it has all the blobs for that block. This gives us a
+    ///   stronger basis for peer scoring.
+    pub fn spawn_delayed_lookup_service(self: &Arc<Self>) {
+        let processor_clone = self.clone();
+        let executor = self.executor.clone();
+        let log = self.log.clone();
+        let beacon_chain = self.chain.clone();
+        executor.spawn(
+            async move {
+                let slot_duration = beacon_chain.slot_clock.slot_duration();
+                let delay = beacon_chain.slot_clock.single_lookup_delay();
+                let interval_start = match (
+                    beacon_chain.slot_clock.duration_to_next_slot(),
+                    beacon_chain.slot_clock.seconds_from_current_slot_start(),
+                ) {
+                    (Some(duration_to_next_slot), Some(seconds_from_current_slot_start)) => {
+                        let duration_until_start = if seconds_from_current_slot_start > delay {
+                            duration_to_next_slot + delay
+                        } else {
+                            delay - seconds_from_current_slot_start
+                        };
+                        Instant::now() + duration_until_start
+                    }
+                    _ => {
+                        crit!(log,
+                        "Failed to read slot clock, delayed lookup service timing will be inaccurate.\
+                         This may degrade performance"
+                    );
+                        Instant::now()
+                    }
+                };
+
+                let mut interval = interval_at(interval_start, slot_duration);
+                loop {
+                    interval.tick().await;
+                    let Some(slot) = beacon_chain.slot_clock.now_or_genesis() else {
+                        error!(log, "Skipping delayed lookup poll, unable to read slot clock");
+                        continue
+                    };
+                    trace!(log, "Polling delayed lookups for slot: {slot}");
+                    processor_clone.poll_delayed_lookups(slot)
+                }
+            },
+            "delayed_lookups",
+        );
     }
 }
 
@@ -574,6 +734,7 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             reprocess_tx: work_reprocessing_tx,
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
+            delayed_lookup_peers: Mutex::new(LruCache::new(DELAYED_PEER_CACHE_SIZE)),
             executor: runtime.task_executor.clone(),
             log,
         };

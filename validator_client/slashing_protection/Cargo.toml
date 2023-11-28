@@ -16,7 +16,6 @@ rusqlite = { workspace = true }
 r2d2 = { workspace = true }
 r2d2_sqlite = "0.21.0"
 serde = { workspace = true }
-serde_derive = "1.0.116"
 serde_json = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 filesystem = { workspace = true }
@@ -28,3 +27,4 @@ rayon = { workspace = true }
 
 [features]
 arbitrary-fuzz = ["types/arbitrary-fuzz"]
+portable = ["types/portable"]

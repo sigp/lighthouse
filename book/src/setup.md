@@ -25,7 +25,8 @@ Commands to run the test suite are available via the `Makefile` in the
 project root for the benefit of CI/CD. We list some of these commands below so
 you can run them locally and avoid CI failures:
 
-- `$ make cargo-fmt`: (fast) runs a Rust code linter.
+- `$ make cargo-fmt`: (fast) runs a Rust code formatting check.
+- `$ make lint`: (fast) runs a Rust code linter.
 - `$ make test`: (medium) runs unit tests across the whole project.
 - `$ make test-ef`: (medium) runs the Ethereum Foundation test vectors.
 - `$ make test-full`: (slow) runs the full test suite (including all previous

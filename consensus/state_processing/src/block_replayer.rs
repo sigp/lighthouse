@@ -3,6 +3,8 @@ use crate::{
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
     VerifyBlockRoot,
 };
+use itertools::Itertools;
+use std::iter::Peekable;
 use std::marker::PhantomData;
 use types::{BeaconState, BlindedPayload, ChainSpec, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -25,7 +27,7 @@ pub struct BlockReplayer<
     'a,
     Spec: EthSpec,
     Error = BlockReplayError,
-    StateRootIter = StateRootIterDefault<Error>,
+    StateRootIter: Iterator<Item = Result<(Hash256, Slot), Error>> = StateRootIterDefault<Error>,
 > {
     state: BeaconState<Spec>,
     spec: &'a ChainSpec,
@@ -36,7 +38,7 @@ pub struct BlockReplayer<
     post_block_hook: Option<PostBlockHook<'a, Spec, Error>>,
     pre_slot_hook: Option<PreSlotHook<'a, Spec, Error>>,
     post_slot_hook: Option<PostSlotHook<'a, Spec, Error>>,
-    state_root_iter: Option<StateRootIter>,
+    pub(crate) state_root_iter: Option<Peekable<StateRootIter>>,
     state_root_miss: bool,
     _phantom: PhantomData<Error>,
 }
@@ -138,7 +140,7 @@ where
     /// `self.state.slot` to the `target_slot` supplied to `apply_blocks` (inclusive of both
     /// endpoints).
     pub fn state_root_iter(mut self, iter: StateRootIter) -> Self {
-        self.state_root_iter = Some(iter);
+        self.state_root_iter = Some(iter.peekable());
         self
     }
 
@@ -192,7 +194,7 @@ where
         // If a state root iterator is configured, use it to find the root.
         if let Some(ref mut state_root_iter) = self.state_root_iter {
             let opt_root = state_root_iter
-                .take_while(|res| res.as_ref().map_or(true, |(_, s)| *s <= slot))
+                .peeking_take_while(|res| res.as_ref().map_or(true, |(_, s)| *s <= slot))
                 .find(|res| res.as_ref().map_or(true, |(_, s)| *s == slot))
                 .transpose()?;
 

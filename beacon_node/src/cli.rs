@@ -29,6 +29,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Data directory for the freezer database.")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("blobs-dir")
+                .long("blobs-dir")
+                .value_name("DIR")
+                .help("Data directory for the blobs database.")
+                .takes_value(true)
+        )
         /*
          * Network parameters.
          */
@@ -382,12 +389,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("http-disable-legacy-spec")
-                .long("http-disable-legacy-spec")
-                .requires("enable_http")
-                .hidden(true)
-        )
-        .arg(
             Arg::with_name("http-spec-fork")
                 .long("http-spec-fork")
                 .requires("enable_http")
@@ -563,24 +564,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       Identical to the method used at the 2019 Canada interop.")
         )
         .arg(
-            Arg::with_name("eth1-endpoint")
-                .long("eth1-endpoint")
-                .value_name("HTTP-ENDPOINT")
-                .help("Deprecated. Use --eth1-endpoints.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("eth1-endpoints")
-                .long("eth1-endpoints")
-                .value_name("HTTP-ENDPOINTS")
-                .conflicts_with("eth1-endpoint")
-                .help("One http endpoint for a web3 connection to an execution node. \
-                       Note: This flag is now only useful for testing, use `--execution-endpoint` \
-                       flag to connect to an execution node on mainnet and testnets.
-                       Defaults to http://127.0.0.1:8545.")
-                .takes_value(true)
-        )
-        .arg(
             Arg::with_name("eth1-purge-cache")
                 .long("eth1-purge-cache")
                 .value_name("PURGE-CACHE")
@@ -642,14 +625,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         /*
          * Execution Layer Integration
          */
-        .arg(
-            Arg::with_name("merge")
-                .long("merge")
-                .help("Deprecated. The feature activates automatically when --execution-endpoint \
-                    is supplied.")
-                .takes_value(false)
-                .hidden(true)
-        )
         .arg(
             Arg::with_name("execution-endpoint")
                 .long("execution-endpoint")
@@ -730,6 +705,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("1")
                 .takes_value(true)
         )
+        /* Deneb settings */
+        .arg(
+            Arg::with_name("trusted-setup-file-override")
+                .long("trusted-setup-file-override")
+                .value_name("FILE")
+                .help("Path to a json file containing the trusted setup params. \
+                      NOTE: This will override the trusted setup that is generated \
+                      from the mainnet kzg ceremony. Use with caution")
+                .takes_value(true)
+        )
         /*
          * Database purging and compaction.
          */
@@ -759,6 +744,34 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        reconstructed and sent to syncing peers.")
                 .takes_value(true)
                 .default_value("true")
+        )
+        .arg(
+            Arg::with_name("prune-blobs")
+                .long("prune-blobs")
+                .value_name("BOOLEAN")
+                .help("Prune blobs from Lighthouse's database when they are older than the data \
+                       data availability boundary relative to the current epoch.")
+                .takes_value(true)
+                .default_value("true")
+        )
+        .arg(
+            Arg::with_name("epochs-per-blob-prune")
+                .long("epochs-per-blob-prune")
+                .value_name("EPOCHS")
+                .help("The epoch interval with which to prune blobs from Lighthouse's \
+                       database when they are older than the data availability boundary \
+                       relative to the current epoch.")
+                .takes_value(true)
+                .default_value("1")
+        )
+        .arg(
+            Arg::with_name("blob-prune-margin-epochs")
+                .long("blob-prune-margin-epochs")
+                .value_name("EPOCHS")
+                .help("The margin for blob pruning in epochs. The oldest blobs are pruned \
+                       up until data_availability_boundary - blob_prune_margin_epochs.")
+                .takes_value(true)
+                .default_value("0")
         )
 
         /*
@@ -1130,6 +1143,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("ignore-builder-override-suggestion-threshold")
+                .long("ignore-builder-override-suggestion-threshold")
+                .value_name("PERCENTAGE")
+                .help("When the EE advises Lighthouse to ignore the builder payload, this flag \
+                    specifies a percentage threshold for the difference between the reward from \
+                    the builder payload and the local EE's payload. This threshold must be met \
+                    for Lighthouse to consider ignoring the EE's suggestion. If the reward from \
+                    the builder's payload doesn't exceed the local payload by at least this \
+                    percentage, the local payload will be used. The conditions under which the \
+                    EE may make this suggestion depend on the EE's implementation, with the \
+                    primary intent being to safeguard against potential censorship attacks \
+                    from builders. Setting this flag to 0 will cause Lighthouse to always \
+                    ignore the EE's suggestion. Default: 10.0 (equivalent to 10%).")
+                .default_value("10.0")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("builder-user-agent")
                 .long("builder-user-agent")
                 .value_name("STRING")
@@ -1137,22 +1167,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        default is Lighthouse's version string.")
                 .requires("builder")
                 .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("count-unrealized")
-                .long("count-unrealized")
-                .hidden(true)
-                .help("This flag is deprecated and has no effect.")
-                .takes_value(true)
-                .default_value("true")
-        )
-        .arg(
-            Arg::with_name("count-unrealized-full")
-                .long("count-unrealized-full")
-                .hidden(true)
-                .help("This flag is deprecated and has no effect.")
-                .takes_value(true)
-                .default_value("false")
         )
         .arg(
             Arg::with_name("reset-payload-statuses")
@@ -1199,6 +1213,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             // to local payloads, therefore it fundamentally conflicts with
             // always using the builder.
             .conflicts_with("builder-profit-threshold")
+            .conflicts_with("ignore-builder-override-suggestion-threshold")
         )
         .arg(
             Arg::with_name("invalid-gossip-verified-blocks-path")

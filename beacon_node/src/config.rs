@@ -2,6 +2,7 @@ use beacon_chain::chain_config::{
     DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
 };
+use beacon_chain::TrustedSetup;
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::parse_required;
@@ -21,6 +22,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
+use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
@@ -116,13 +118,6 @@ pub fn get_config<E: EthSpec>(
                 .map_err(|_| "Invalid allow-origin value")?;
 
             client_config.http_api.allow_origin = Some(allow_origin.to_string());
-        }
-
-        if cli_args.is_present("http-disable-legacy-spec") {
-            warn!(
-                log,
-                "The flag --http-disable-legacy-spec is deprecated and will be removed"
-            );
         }
 
         if let Some(fork_name) = clap_utils::parse_optional(cli_args, "http-spec-fork")? {
@@ -238,25 +233,6 @@ pub fn get_config<E: EthSpec>(
         client_config.sync_eth1_chain = true;
     }
 
-    // Defines the URL to reach the eth1 node.
-    if let Some(endpoint) = cli_args.value_of("eth1-endpoint") {
-        warn!(
-            log,
-            "The --eth1-endpoint flag is deprecated";
-            "msg" => "please use --eth1-endpoints instead"
-        );
-        client_config.sync_eth1_chain = true;
-
-        let endpoint = SensitiveUrl::parse(endpoint)
-            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?;
-        client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
-    } else if let Some(endpoint) = cli_args.value_of("eth1-endpoints") {
-        client_config.sync_eth1_chain = true;
-        let endpoint = SensitiveUrl::parse(endpoint)
-            .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
-        client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
-    }
-
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
         client_config.eth1.blocks_per_log_query = val
             .parse()
@@ -271,20 +247,6 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_optional(cli_args, "eth1-cache-follow-distance")?
     {
         client_config.eth1.cache_follow_distance = Some(follow_distance);
-    }
-
-    if cli_args.is_present("merge") {
-        if cli_args.is_present("execution-endpoint") {
-            warn!(
-                log,
-                "The --merge flag is deprecated";
-                "info" => "the --execution-endpoint flag automatically enables this feature"
-            )
-        } else {
-            return Err("The --merge flag is deprecated. \
-                Supply a value to --execution-endpoint instead."
-                .into());
-        }
     }
 
     if let Some(endpoints) = cli_args.value_of("execution-endpoint") {
@@ -326,7 +288,7 @@ pub fn get_config<E: EthSpec>(
                 .write_all(jwt_secret_key.as_bytes())
                 .map_err(|e| {
                     format!(
-                        "Error occured while writing to jwt_secret_key file: {:?}",
+                        "Error occurred while writing to jwt_secret_key file: {:?}",
                         e
                     )
                 })?;
@@ -356,21 +318,12 @@ pub fn get_config<E: EthSpec>(
             clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
         el_config.always_prefer_builder_payload =
             cli_args.is_present("always-prefer-builder-payload");
-
+        el_config.ignore_builder_override_suggestion_threshold =
+            clap_utils::parse_required(cli_args, "ignore-builder-override-suggestion-threshold")?;
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
 
-        // If `--execution-endpoint` is provided, we should ignore any `--eth1-endpoints` values and
-        // use `--execution-endpoint` instead. Also, log a deprecation warning.
-        if cli_args.is_present("eth1-endpoints") || cli_args.is_present("eth1-endpoint") {
-            warn!(
-                log,
-                "Ignoring --eth1-endpoints flag";
-                "info" => "the value for --execution-endpoint will be used instead. \
-                    --eth1-endpoints has been deprecated for post-merge configurations"
-            );
-        }
         client_config.eth1.endpoint = Eth1Endpoint::Auth {
             endpoint: execution_endpoint,
             jwt_path: secret_file,
@@ -382,8 +335,30 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_layer = Some(el_config);
     }
 
+    // 4844 params
+    client_config.trusted_setup = context
+        .eth2_network_config
+        .as_ref()
+        .and_then(|config| config.kzg_trusted_setup.as_ref())
+        .map(|trusted_setup_bytes| serde_json::from_slice(trusted_setup_bytes))
+        .transpose()
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
+
+    // Override default trusted setup file if required
+    if let Some(trusted_setup_file_path) = cli_args.value_of("trusted-setup-file-override") {
+        let file = std::fs::File::open(trusted_setup_file_path)
+            .map_err(|e| format!("Failed to open trusted setup file: {}", e))?;
+        let trusted_setup: TrustedSetup = serde_json::from_reader(file)
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
+        client_config.trusted_setup = Some(trusted_setup);
+    }
+
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
+    }
+
+    if let Some(blobs_db_dir) = cli_args.value_of("blobs-dir") {
+        client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
     }
 
     let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
@@ -417,6 +392,22 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_optional(cli_args, "epochs-per-migration")?
     {
         client_config.chain.epochs_per_migration = epochs_per_migration;
+    }
+
+    if let Some(prune_blobs) = clap_utils::parse_optional(cli_args, "prune-blobs")? {
+        client_config.store.prune_blobs = prune_blobs;
+    }
+
+    if let Some(epochs_per_blob_prune) =
+        clap_utils::parse_optional(cli_args, "epochs-per-blob-prune")?
+    {
+        client_config.store.epochs_per_blob_prune = epochs_per_blob_prune;
+    }
+
+    if let Some(blob_prune_margin_epochs) =
+        clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
+    {
+        client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
     }
 
     /*
@@ -678,7 +669,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.is_present("validator-monitor-auto") {
-        client_config.validator_monitor_auto = true;
+        client_config.validator_monitor.auto_register = true;
     }
 
     if let Some(pubkeys) = cli_args.value_of("validator-monitor-pubkeys") {
@@ -688,7 +679,8 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Invalid --validator-monitor-pubkeys value: {:?}", e))?;
         client_config
-            .validator_monitor_pubkeys
+            .validator_monitor
+            .validators
             .extend_from_slice(&pubkeys);
     }
 
@@ -706,14 +698,17 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Invalid --validator-monitor-file contents: {:?}", e))?;
         client_config
-            .validator_monitor_pubkeys
+            .validator_monitor
+            .validators
             .extend_from_slice(&pubkeys);
     }
 
     if let Some(count) =
         clap_utils::parse_optional(cli_args, "validator-monitor-individual-tracking-threshold")?
     {
-        client_config.validator_monitor_individual_tracking_threshold = count;
+        client_config
+            .validator_monitor
+            .individual_tracking_threshold = count;
     }
 
     if cli_args.is_present("disable-lock-timeouts") {
@@ -771,22 +766,6 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
     }
 
-    if !clap_utils::parse_required::<bool>(cli_args, "count-unrealized")? {
-        warn!(
-            log,
-            "The flag --count-unrealized is deprecated and will be removed";
-            "info" => "any use of the flag will have no effect"
-        );
-    }
-
-    if clap_utils::parse_required::<bool>(cli_args, "count-unrealized-full")? {
-        warn!(
-            log,
-            "The flag --count-unrealized-full is deprecated and will be removed";
-            "info" => "setting it to `true` has no effect"
-        );
-    }
-
     client_config.chain.always_reset_payload_statuses =
         cli_args.is_present("reset-payload-statuses");
 
@@ -809,7 +788,7 @@ pub fn get_config<E: EthSpec>(
     // Graphical user interface config.
     if cli_args.is_present("gui") {
         client_config.http_api.enabled = true;
-        client_config.validator_monitor_auto = true;
+        client_config.validator_monitor.auto_register = true;
     }
 
     // Optimistic finalized sync.
@@ -1178,23 +1157,23 @@ pub fn set_network_config(
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
         config.enr_udp4_port = Some(
             enr_udp_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR discovery port: {}", enr_udp_port_str))?,
         );
     }
 
     if let Some(enr_quic_port_str) = cli_args.value_of("enr-quic-port") {
         config.enr_quic4_port = Some(
             enr_quic_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid quic port: {}", enr_quic_port_str))?,
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR quic port: {}", enr_quic_port_str))?,
         );
     }
 
     if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
         config.enr_tcp4_port = Some(
             enr_tcp_port_str
-                .parse::<u16>()
+                .parse::<NonZeroU16>()
                 .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
         );
     }
@@ -1202,23 +1181,23 @@ pub fn set_network_config(
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp6-port") {
         config.enr_udp6_port = Some(
             enr_udp_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR discovery port: {}", enr_udp_port_str))?,
         );
     }
 
     if let Some(enr_quic_port_str) = cli_args.value_of("enr-quic6-port") {
         config.enr_quic6_port = Some(
             enr_quic_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid quic port: {}", enr_quic_port_str))?,
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR quic port: {}", enr_quic_port_str))?,
         );
     }
 
     if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp6-port") {
         config.enr_tcp6_port = Some(
             enr_tcp_port_str
-                .parse::<u16>()
+                .parse::<NonZeroU16>()
                 .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
         );
     }
@@ -1226,25 +1205,38 @@ pub fn set_network_config(
     if cli_args.is_present("enr-match") {
         // Match the IP and UDP port in the ENR.
 
-        // Set the ENR address to localhost if the address is unspecified.
         if let Some(ipv4_addr) = config.listen_addrs().v4().cloned() {
+            // ensure the port is valid to be advertised
+            let disc_port = ipv4_addr
+                .disc_port
+                .try_into()
+                .map_err(|_| "enr-match can only be used with non-zero listening ports")?;
+
+            // Set the ENR address to localhost if the address is unspecified.
             let ipv4_enr_addr = if ipv4_addr.addr == Ipv4Addr::UNSPECIFIED {
                 Ipv4Addr::LOCALHOST
             } else {
                 ipv4_addr.addr
             };
             config.enr_address.0 = Some(ipv4_enr_addr);
-            config.enr_udp4_port = Some(ipv4_addr.disc_port);
+            config.enr_udp4_port = Some(disc_port);
         }
 
         if let Some(ipv6_addr) = config.listen_addrs().v6().cloned() {
+            // ensure the port is valid to be advertised
+            let disc_port = ipv6_addr
+                .disc_port
+                .try_into()
+                .map_err(|_| "enr-match can only be used with non-zero listening ports")?;
+
+            // Set the ENR address to localhost if the address is unspecified.
             let ipv6_enr_addr = if ipv6_addr.addr == Ipv6Addr::UNSPECIFIED {
                 Ipv6Addr::LOCALHOST
             } else {
                 ipv6_addr.addr
             };
             config.enr_address.1 = Some(ipv6_enr_addr);
-            config.enr_udp6_port = Some(ipv6_addr.disc_port);
+            config.enr_udp6_port = Some(disc_port);
         }
     }
 

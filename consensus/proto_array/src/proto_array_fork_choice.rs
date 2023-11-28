@@ -7,7 +7,7 @@ use crate::{
     ssz_container::SszContainer,
     JustifiedBalances,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::{

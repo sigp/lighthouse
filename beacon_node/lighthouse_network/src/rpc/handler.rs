@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode, ResponseTermination};
+use super::methods::{GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode};
 use super::outbound::OutboundRequestContainer;
 use super::protocol::{InboundOutput, InboundRequest, Protocol, RPCError, RPCProtocol};
 use super::{RPCReceived, RPCSend, ReqId};
@@ -41,6 +41,12 @@ const MAX_INBOUND_SUBSTREAMS: usize = 32;
 /// Identifier of inbound and outbound substreams from the handler's perspective.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SubstreamId(usize);
+
+impl SubstreamId {
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
+}
 
 type InboundSubstream<TSpec> = InboundFramed<Stream, TSpec>;
 
@@ -280,9 +286,7 @@ where
     // wrong state a response will fail silently.
     fn send_response(&mut self, inbound_id: SubstreamId, response: RPCCodedResponse<TSpec>) {
         // check if the stream matching the response still exists
-        let inbound_info = if let Some(info) = self.inbound_substreams.get_mut(&inbound_id) {
-            info
-        } else {
+        let Some(inbound_info) = self.inbound_substreams.get_mut(&inbound_id) else {
             if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
                 // the stream is closed after sending the expected number of responses
                 trace!(self.log, "Inbound stream has expired. Response not sent";
@@ -290,7 +294,6 @@ where
             }
             return;
         };
-
         // If the response we are sending is an error, report back for handling
         if let RPCCodedResponse::Error(ref code, ref reason) = response {
             self.events_out.push(Err(HandlerErr::Inbound {
@@ -593,6 +596,9 @@ where
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
                                     debug!(self.log, "BlocksByRange Response sent"; "duration" => Instant::now().duration_since(info.request_start_time).as_secs());
                                 }
+                                if matches!(info.protocol, Protocol::BlobsByRange) {
+                                    debug!(self.log, "BlobsByRange Response sent"; "duration" => Instant::now().duration_since(info.request_start_time).as_secs());
+                                }
 
                                 // There is nothing more to process on this substream as it has
                                 // been closed. Move on to the next one.
@@ -615,6 +621,9 @@ where
 
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
                                     debug!(self.log, "BlocksByRange Response failed"; "duration" => info.request_start_time.elapsed().as_secs());
+                                }
+                                if matches!(info.protocol, Protocol::BlobsByRange) {
+                                    debug!(self.log, "BlobsByRange Response failed"; "duration" => info.request_start_time.elapsed().as_secs());
                                 }
                                 break;
                             }
@@ -777,13 +786,8 @@ where
                             // continue sending responses beyond what we would expect. Here
                             // we simply terminate the stream and report a stream
                             // termination to the application
-                            let termination = match protocol {
-                                Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
-                                Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
-                                _ => None, // all other protocols are do not have multiple responses and we do not inform the user, we simply drop the stream.
-                            };
 
-                            if let Some(termination) = termination {
+                            if let Some(termination) = protocol.terminator() {
                                 return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Ok(
                                     RPCReceived::EndOfStream(request_id, termination),
                                 )));

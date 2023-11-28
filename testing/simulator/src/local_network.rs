@@ -66,8 +66,8 @@ impl<E: EthSpec> LocalNetwork<E> {
             BOOTNODE_PORT,
             QUIC_PORT,
         );
-        beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT);
-        beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT);
+        beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
+        beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
         beacon_config.network.discv5_config.table_filter = |_| true;
 
         let execution_node = if let Some(el_config) = &mut beacon_config.execution_layer {
@@ -152,14 +152,16 @@ impl<E: EthSpec> LocalNetwork<E> {
                     .expect("bootnode must have a network"),
             );
             let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
+            let libp2p_tcp_port = BOOTNODE_PORT + count;
+            let discv5_port = BOOTNODE_PORT + count;
             beacon_config.network.set_ipv4_listening_address(
                 std::net::Ipv4Addr::UNSPECIFIED,
-                BOOTNODE_PORT + count,
-                BOOTNODE_PORT + count,
+                libp2p_tcp_port,
+                discv5_port,
                 QUIC_PORT + count,
             );
-            beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT + count);
-            beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT + count);
+            beacon_config.network.enr_udp4_port = Some(discv5_port.try_into().unwrap());
+            beacon_config.network.enr_tcp4_port = Some(libp2p_tcp_port.try_into().unwrap());
             beacon_config.network.discv5_config.table_filter = |_| true;
             beacon_config.network.proposer_only = is_proposer;
         }
@@ -257,6 +259,48 @@ impl<E: EthSpec> LocalNetwork<E> {
             .unwrap();
             validator_config.proposer_nodes = vec![url];
         }
+
+        let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
+            context,
+            validator_config,
+            validator_files,
+        )
+        .await?;
+        self_1.validator_clients.write().push(validator_client);
+        Ok(())
+    }
+
+    pub async fn add_validator_client_with_fallbacks(
+        &self,
+        mut validator_config: ValidatorConfig,
+        validator_index: usize,
+        beacon_nodes: Vec<usize>,
+        validator_files: ValidatorFiles,
+    ) -> Result<(), String> {
+        let context = self
+            .context
+            .service_context(format!("validator_{}", validator_index));
+        let self_1 = self.clone();
+        let mut beacon_node_urls = vec![];
+        for beacon_node in beacon_nodes {
+            let socket_addr = {
+                let read_lock = self.beacon_nodes.read();
+                let beacon_node = read_lock
+                    .get(beacon_node)
+                    .ok_or_else(|| format!("No beacon node for index {}", beacon_node))?;
+                beacon_node
+                    .client
+                    .http_api_listen_addr()
+                    .expect("Must have http started")
+            };
+            let beacon_node = SensitiveUrl::parse(
+                format!("http://{}:{}", socket_addr.ip(), socket_addr.port()).as_str(),
+            )
+            .unwrap();
+            beacon_node_urls.push(beacon_node);
+        }
+
+        validator_config.beacon_nodes = beacon_node_urls;
 
         let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
             context,

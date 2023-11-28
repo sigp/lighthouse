@@ -21,6 +21,8 @@ use types::{
     MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
+use eth2::types::ForkVersionedBeaconBlockType::{Blinded, Full};
+
 type E = MainnetEthSpec;
 
 // Test that the deposit_contract endpoint returns the correct chain_id and address.
@@ -391,8 +393,8 @@ pub async fn proposer_boost_re_org_test(
 ) {
     assert!(head_slot > 0);
 
-    // Test using Capella so that we simulate conditions as similar to mainnet as possible.
-    let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
+    // Test using the latest fork so that we simulate conditions as similar to mainnet as possible.
+    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = 1.into();
 
     // Ensure there are enough validators to have `attesters_per_slot`.
@@ -551,7 +553,7 @@ pub async fn proposer_boost_re_org_test(
 
     // Produce block B and process it halfway through the slot.
     let (block_b, mut state_b) = harness.make_block(state_a.clone(), slot_b).await;
-    let block_b_root = block_b.canonical_root();
+    let block_b_root = block_b.0.canonical_root();
 
     let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.slot_duration() / 2;
     slot_clock.set_current_time(obs_time);
@@ -617,12 +619,18 @@ pub async fn proposer_boost_re_org_test(
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_c)
         .into();
-    let unsigned_block_c = tester
+    let unsigned_block_type = tester
         .client
-        .get_validator_blocks(slot_c, &randao_reveal, None)
+        .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None)
         .await
-        .unwrap()
-        .data;
+        .unwrap();
+
+    let (unsigned_block_c, block_c_blobs) = match unsigned_block_type {
+        Full(unsigned_block_contents_c) => unsigned_block_contents_c.data.deconstruct(),
+        Blinded(_) => {
+            panic!("Should not be a blinded block");
+        }
+    };
     let block_c = harness.sign_beacon_block(unsigned_block_c, &state_b);
 
     if should_re_org {
@@ -633,9 +641,13 @@ pub async fn proposer_boost_re_org_test(
         assert_eq!(block_c.parent_root(), block_b_root);
     }
 
+    // Sign blobs.
+    let block_c_signed_blobs =
+        block_c_blobs.map(|blobs| harness.sign_blobs(blobs, &state_b, proposer_index));
+
     // Applying block C should cause it to become head regardless (re-org or continuation).
     let block_root_c = harness
-        .process_block_result(block_c.clone())
+        .process_block_result((block_c.clone(), block_c_signed_blobs))
         .await
         .unwrap()
         .into();
@@ -643,8 +655,18 @@ pub async fn proposer_boost_re_org_test(
 
     // Check the fork choice updates that were sent.
     let forkchoice_updates = forkchoice_updates.lock();
-    let block_a_exec_hash = block_a.message().execution_payload().unwrap().block_hash();
-    let block_b_exec_hash = block_b.message().execution_payload().unwrap().block_hash();
+    let block_a_exec_hash = block_a
+        .0
+        .message()
+        .execution_payload()
+        .unwrap()
+        .block_hash();
+    let block_b_exec_hash = block_b
+        .0
+        .message()
+        .execution_payload()
+        .unwrap()
+        .block_hash();
 
     let block_c_timestamp = block_c.message().execution_payload().unwrap().timestamp();
 
@@ -686,6 +708,11 @@ pub async fn proposer_boost_re_org_test(
             && slot_c.epoch(E::slots_per_epoch()) != slot_b.epoch(E::slots_per_epoch())
     {
         assert_ne!(expected_withdrawals, pre_advance_withdrawals);
+    }
+
+    // Check that the `parent_beacon_block_root` of the payload attributes are correct.
+    if let Ok(parent_beacon_block_root) = payload_attribs.parent_beacon_block_root() {
+        assert_eq!(parent_beacon_block_root, block_c.parent_root());
     }
 
     let lookahead = slot_clock
@@ -749,7 +776,7 @@ pub async fn fork_choice_before_proposal() {
     let state_a = harness.get_current_state();
     let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b).await;
     let block_root_b = harness
-        .process_block(slot_b, block_b.canonical_root(), block_b)
+        .process_block(slot_b, block_b.0.canonical_root(), block_b)
         .await
         .unwrap();
 
@@ -764,7 +791,7 @@ pub async fn fork_choice_before_proposal() {
 
     let (block_c, state_c) = harness.make_block(state_a, slot_c).await;
     let block_root_c = harness
-        .process_block(slot_c, block_c.canonical_root(), block_c.clone())
+        .process_block(slot_c, block_c.0.canonical_root(), block_c.clone())
         .await
         .unwrap();
 
@@ -804,7 +831,9 @@ pub async fn fork_choice_before_proposal() {
         .get_validator_blocks::<E, FullPayload<E>>(slot_d, &randao_reveal, None)
         .await
         .unwrap()
-        .data;
+        .data
+        .deconstruct()
+        .0;
 
     // Head is now B.
     assert_eq!(
