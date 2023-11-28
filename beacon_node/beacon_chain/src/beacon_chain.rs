@@ -6455,14 +6455,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, Error> {
-        let Some(state_root) = self
+        let Some((state_root, slot)) = self
             .get_blinded_block(block_root)?
-            .map(|block| block.state_root())
+            .map(|block| (block.state_root(), block.slot()))
         else {
             return Ok(None);
         };
 
-        let Some(mut state) = self.get_state(&state_root, None)? else {
+        let Some(mut state) = self.get_state(&state_root, Some(slot))? else {
             return Ok(None);
         };
 

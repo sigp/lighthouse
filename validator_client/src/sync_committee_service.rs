@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced};
 use crate::{
     duties_service::DutiesService,
     validator_store::{Error as ValidatorStoreError, ValidatorStore},
@@ -299,9 +299,10 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .collect::<Vec<_>>();
 
         self.beacon_nodes
-            .first_success(
+            .request(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
+                ApiTopic::SyncCommittee,
                 |beacon_node| async move {
                     beacon_node
                         .post_beacon_pool_sync_committee_signatures(committee_signatures)
@@ -594,9 +595,10 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         if let Err(e) = self
             .beacon_nodes
-            .run(
+            .request(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
+                ApiTopic::Subscriptions,
                 |beacon_node| async move {
                     beacon_node
                         .post_validator_sync_committee_subscriptions(subscriptions_slice)

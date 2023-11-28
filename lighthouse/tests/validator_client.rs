@@ -1,4 +1,4 @@
-use validator_client::Config;
+use validator_client::{ApiTopic, Config};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
@@ -422,24 +422,6 @@ fn no_doppelganger_protection_flag() {
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
 #[test]
-fn block_delay_ms() {
-    CommandLineTest::new()
-        .flag("block-delay-ms", Some("2000"))
-        .run()
-        .with_config(|config| {
-            assert_eq!(
-                config.block_delay,
-                Some(std::time::Duration::from_millis(2000))
-            )
-        });
-}
-#[test]
-fn no_block_delay_ms() {
-    CommandLineTest::new()
-        .run()
-        .with_config(|config| assert_eq!(config.block_delay, None));
-}
-#[test]
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
@@ -493,20 +475,78 @@ fn monitoring_endpoint() {
             assert_eq!(api_conf.update_period_secs, Some(30));
         });
 }
-#[test]
-fn disable_run_on_all_default() {
-    CommandLineTest::new().run().with_config(|config| {
-        assert!(!config.disable_run_on_all);
-    });
-}
 
 #[test]
-fn disable_run_on_all() {
+fn disable_run_on_all_flag() {
     CommandLineTest::new()
         .flag("disable-run-on-all", None)
         .run()
         .with_config(|config| {
-            assert!(config.disable_run_on_all);
+            assert_eq!(config.broadcast_topics, vec![]);
+        });
+    // --broadcast flag takes precedence
+    CommandLineTest::new()
+        .flag("disable-run-on-all", None)
+        .flag("broadcast", Some("attestations"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
+        });
+}
+
+#[test]
+fn no_broadcast_flag() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.broadcast_topics, vec![ApiTopic::Subscriptions]);
+    });
+}
+
+#[test]
+fn broadcast_flag() {
+    // "none" variant
+    CommandLineTest::new()
+        .flag("broadcast", Some("none"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![]);
+        });
+    // "none" with other values is ignored
+    CommandLineTest::new()
+        .flag("broadcast", Some("none,sync-committee"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::SyncCommittee]);
+        });
+    // Other valid variants
+    CommandLineTest::new()
+        .flag("broadcast", Some("blocks, subscriptions"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.broadcast_topics,
+                vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
+            );
+        });
+    // Omitted "subscription" overrides default
+    CommandLineTest::new()
+        .flag("broadcast", Some("attestations"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
+        });
+}
+
+#[test]
+#[should_panic(expected = "Unknown API topic")]
+fn wrong_broadcast_flag() {
+    CommandLineTest::new()
+        .flag("broadcast", Some("foo, subscriptions"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.broadcast_topics,
+                vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
+            );
         });
 }
 
