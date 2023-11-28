@@ -1,4 +1,4 @@
-use crate::{light_client_update::*, ChainSpec};
+use crate::{light_client_update::*, BeaconBlockBody, ChainSpec};
 use crate::{
     test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, FixedVector, Hash256,
     SignedBeaconBlock,
@@ -54,13 +54,23 @@ impl<E: EthSpec> LightClientHeader<E> {
                     .execution_payload_deneb()?
                     .to_owned()
                     .into();
+
                 let header = ExecutionPayloadHeader::from(payload.to_ref());
+                let mut beacon_block_body = BeaconBlockBody::from(
+                    block
+                        .message()
+                        .body_deneb()
+                        .map_err(|_| Error::BeaconBlockBodyError)?
+                        .to_owned(),
+                );
+                let execution_branch =
+                    beacon_block_body.compute_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
                 // TODO calculate execution branch, i.e. the merkle proof of the execution payload header
                 return Ok(LightClientHeader {
                     beacon: block.message().block_header(),
                     execution: Some(header),
-                    execution_branch: None,
+                    execution_branch: Some(FixedVector::new(execution_branch)?),
                 });
             }
         };
@@ -73,13 +83,23 @@ impl<E: EthSpec> LightClientHeader<E> {
                     .execution_payload_capella()?
                     .to_owned()
                     .into();
+
                 let header = ExecutionPayloadHeader::from(payload.to_ref());
+                let mut beacon_block_body = BeaconBlockBody::from(
+                    block
+                        .message()
+                        .body_capella()
+                        .map_err(|_| Error::BeaconBlockBodyError)?
+                        .to_owned(),
+                );
+                let execution_branch =
+                    beacon_block_body.compute_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
                 // TODO calculate execution branch, i.e. the merkle proof of the execution payload header
                 return Ok(LightClientHeader {
                     beacon: block.message().block_header(),
                     execution: Some(header),
-                    execution_branch: None,
+                    execution_branch: Some(FixedVector::new(execution_branch)?),
                 });
             }
         };

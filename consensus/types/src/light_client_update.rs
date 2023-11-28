@@ -37,6 +37,7 @@ pub enum Error {
     NotEnoughSyncCommitteeParticipants,
     MismatchingPeriods,
     InvalidFinalizedBlock,
+    BeaconBlockBodyError,
 }
 
 impl From<ssz_types::Error> for Error {

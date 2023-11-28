@@ -7,6 +7,7 @@ use ssz_types::VariableList;
 use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 pub type KzgCommitments<T> =
@@ -42,11 +43,12 @@ pub type KzgCommitmentOpts<T> =
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Derivative, arbitrary::Arbitrary)]
+#[derive(Debug, Clone, Serialize, Deserialize, Derivative, TreeHash, arbitrary::Arbitrary)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
 #[arbitrary(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
+#[tree_hash(enum_behaviour = "transparent")]
 pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
@@ -505,6 +507,46 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
             let (block, payload) = inner.into();
             (cons(block), payload.map(Into::into))
         })
+    }
+}
+
+impl<T: EthSpec> BeaconBlockBody<T> {
+    pub fn compute_merkle_proof(
+        &mut self,
+        generalized_index: usize,
+    ) -> Result<Vec<Hash256>, Error> {
+        let mut leaves = vec![
+            self.randao_reveal().tree_hash_root(),
+            self.eth1_data().tree_hash_root(),
+            self.graffiti().tree_hash_root(),
+            self.proposer_slashings().tree_hash_root(),
+            self.attester_slashings().tree_hash_root(),
+            self.attestations().tree_hash_root(),
+            self.deposits().tree_hash_root(),
+            self.voluntary_exits().tree_hash_root(),
+        ];
+
+        if let Ok(sync_aggregate) = self.sync_aggregate() {
+            leaves.push(sync_aggregate.tree_hash_root())
+        };
+
+        if let Ok(execution_payload) = self.execution_payload() {
+            leaves.push(execution_payload.tree_hash_root())
+        };
+
+        if let Ok(bls_to_execution_changes) = self.bls_to_execution_changes() {
+            leaves.push(bls_to_execution_changes.tree_hash_root())
+        }
+
+        if let Ok(blob_kzg_commitments) = self.blob_kzg_commitments() {
+            leaves.push(blob_kzg_commitments.tree_hash_root())
+        }
+
+        let depth = light_client_update::EXECUTION_PAYLOAD_PROOF_LEN;
+        let tree = merkle_proof::MerkleTree::create(&leaves, depth);
+        let (_, proof) = tree.generate_proof(generalized_index, depth)?;
+
+        Ok(proof)
     }
 }
 
