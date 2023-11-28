@@ -33,6 +33,7 @@ pub struct TestBlock {
     pub slot: Slot,
     pub signing_root: Hash256,
     pub should_succeed: bool,
+    pub should_succeed_complete: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -43,6 +44,7 @@ pub struct TestAttestation {
     pub target_epoch: Epoch,
     pub signing_root: Hash256,
     pub should_succeed: bool,
+    pub should_succeed_complete: bool,
 }
 
 impl MultiTestCase {
@@ -181,53 +183,55 @@ impl TestCase {
         self
     }
 
-    pub fn with_blocks(self, blocks: impl IntoIterator<Item = (usize, u64, bool)>) -> Self {
-        self.with_signing_root_blocks(
-            blocks
-                .into_iter()
-                .map(|(index, slot, should_succeed)| (index, slot, 0, should_succeed)),
-        )
+    pub fn with_blocks(self, blocks: impl IntoIterator<Item = (usize, u64, bool, bool)>) -> Self {
+        self.with_signing_root_blocks(blocks.into_iter().map(
+            |(index, slot, should_succeed, should_succeed_complete)| {
+                (index, slot, 0, should_succeed, should_succeed_complete)
+            },
+        ))
     }
 
     pub fn with_signing_root_blocks(
         mut self,
-        blocks: impl IntoIterator<Item = (usize, u64, u64, bool)>,
+        blocks: impl IntoIterator<Item = (usize, u64, u64, bool, bool)>,
     ) -> Self {
-        self.blocks.extend(
-            blocks
-                .into_iter()
-                .map(|(pk, slot, signing_root, should_succeed)| TestBlock {
-                    pubkey: pubkey(pk),
-                    slot: Slot::new(slot),
-                    signing_root: Hash256::from_low_u64_be(signing_root),
-                    should_succeed,
-                }),
-        );
+        self.blocks.extend(blocks.into_iter().map(
+            |(pk, slot, signing_root, should_succeed, should_succeed_complete)| TestBlock {
+                pubkey: pubkey(pk),
+                slot: Slot::new(slot),
+                signing_root: Hash256::from_low_u64_be(signing_root),
+                should_succeed,
+                should_succeed_complete,
+            },
+        ));
         self
     }
 
     pub fn with_attestations(
         self,
-        attestations: impl IntoIterator<Item = (usize, u64, u64, bool)>,
+        attestations: impl IntoIterator<Item = (usize, u64, u64, bool, bool)>,
     ) -> Self {
-        self.with_signing_root_attestations(
-            attestations
-                .into_iter()
-                .map(|(id, source, target, succeed)| (id, source, target, 0, succeed)),
-        )
+        self.with_signing_root_attestations(attestations.into_iter().map(
+            |(id, source, target, succeed, succeed_complete)| {
+                (id, source, target, 0, succeed, succeed_complete)
+            },
+        ))
     }
 
     pub fn with_signing_root_attestations(
         mut self,
-        attestations: impl IntoIterator<Item = (usize, u64, u64, u64, bool)>,
+        attestations: impl IntoIterator<Item = (usize, u64, u64, u64, bool, bool)>,
     ) -> Self {
         self.attestations.extend(attestations.into_iter().map(
-            |(pk, source, target, signing_root, should_succeed)| TestAttestation {
-                pubkey: pubkey(pk),
-                source_epoch: Epoch::new(source),
-                target_epoch: Epoch::new(target),
-                signing_root: Hash256::from_low_u64_be(signing_root),
-                should_succeed,
+            |(pk, source, target, signing_root, should_succeed, should_succeed_complete)| {
+                TestAttestation {
+                    pubkey: pubkey(pk),
+                    source_epoch: Epoch::new(source),
+                    target_epoch: Epoch::new(target),
+                    signing_root: Hash256::from_low_u64_be(signing_root),
+                    should_succeed,
+                    should_succeed_complete,
+                }
             },
         ));
         self
