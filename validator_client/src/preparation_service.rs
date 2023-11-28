@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced};
 use crate::validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
 use crate::OfflineOnFailure;
 use bls::PublicKeyBytes;
@@ -342,9 +342,10 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let preparation_entries = preparation_data.as_slice();
         match self
             .beacon_nodes
-            .run(
+            .request(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
+                ApiTopic::Subscriptions,
                 |beacon_node| async move {
                     beacon_node
                         .post_validator_prepare_beacon_proposer(preparation_entries)
