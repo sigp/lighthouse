@@ -340,16 +340,4 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("500")
                 .takes_value(true),
         )
-        /*
-         * Experimental/development options.
-         */
-        .arg(
-            Arg::with_name("block-delay-ms")
-                .long("block-delay-ms")
-                .value_name("MILLIS")
-                .hidden(true)
-                .help("Time to delay block production from the start of the slot. Should only be \
-                       used for testing.")
-                .takes_value(true),
-        )
 }
