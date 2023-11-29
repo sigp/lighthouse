@@ -455,12 +455,6 @@ pub fn gossipsub_config(
     fork_context: Arc<ForkContext>,
     gossipsub_config_params: GossipsubConfigParams,
 ) -> gossipsub::Config {
-    // The function used to generate a gossipsub message id
-    // We use the first 8 bytes of SHA256(topic, data) for content addressing
-    let fast_gossip_message_id = |message: &gossipsub::Message| {
-        let data = [message.topic.as_str().as_bytes(), &message.data].concat();
-        gossipsub::MessageId::from(&Sha256::digest(&data)[..8])
-    };
     fn prefix(
         prefix: [u8; 4],
         message: &gossipsub::Message,
@@ -518,7 +512,6 @@ pub fn gossipsub_config(
         .validation_mode(gossipsub::ValidationMode::Anonymous)
         .duplicate_cache_time(DUPLICATE_CACHE_TIME)
         .message_id_fn(gossip_message_id)
-        .message_id_fn(fast_gossip_message_id)
         .allow_self_origin(true)
         .build()
         .expect("valid gossipsub configuration")
