@@ -4,8 +4,6 @@ use lighthouse_metrics::TextEncoder;
 use lighthouse_network::prometheus_client::encoding::text::encode;
 use malloc_utils::scrape_allocator_metrics;
 
-pub use lighthouse_metrics::*;
-
 pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
     ctx: &Context<T>,
 ) -> std::result::Result<String, String> {

@@ -21,9 +21,7 @@ The beacon node and validator client each require a new flag for lighthouse to b
 ```
 lighthouse bn --builder https://mainnet-builder.test
 ```
-The `--builder` flag will cause the beacon node to query the provided URL during block production for a block
-payload with stubbed-out transactions. If this request fails, Lighthouse will fall back to the local
-execution engine and produce a block using transactions gathered and verified locally.
+The `--builder` flag will cause the beacon node to simultaneously query the provided URL and the local execution engine during block production for a block payload with stubbed-out transactions. If either fails, the successful result will be used; If both succeed, the more profitable result will be used.
 
 The beacon node will *only* query for this type of block (a "blinded" block) when a validator specifically requests it.
 Otherwise, it will continue to serve full blocks as normal. In order to configure the validator client to query for

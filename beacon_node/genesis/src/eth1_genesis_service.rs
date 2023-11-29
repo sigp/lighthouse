@@ -1,4 +1,4 @@
-pub use crate::{common::genesis_deposits, interop::interop_genesis_state};
+pub use crate::common::genesis_deposits;
 pub use eth1::Config as Eth1Config;
 
 use eth1::{DepositLog, Eth1Block, Service as Eth1Service};

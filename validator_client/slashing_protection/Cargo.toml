@@ -27,3 +27,4 @@ rayon = { workspace = true }
 
 [features]
 arbitrary-fuzz = ["types/arbitrary-fuzz"]
+portable = ["types/portable"]

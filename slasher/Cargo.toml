@@ -8,6 +8,7 @@ edition = { workspace = true }
 default = ["lmdb"]
 mdbx = ["dep:mdbx"]
 lmdb = ["lmdb-rkv", "lmdb-rkv-sys"]
+portable = ["types/portable"]
 
 [dependencies]
 bincode = { workspace = true }

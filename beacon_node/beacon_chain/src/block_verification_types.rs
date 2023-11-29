@@ -38,6 +38,20 @@ impl<E: EthSpec> RpcBlock<E> {
     pub fn block_root(&self) -> Hash256 {
         self.block_root
     }
+
+    pub fn as_block(&self) -> &SignedBeaconBlock<E> {
+        match &self.block {
+            RpcBlockInner::Block(block) => block,
+            RpcBlockInner::BlockAndBlobs(block, _) => block,
+        }
+    }
+
+    pub fn blobs(&self) -> Option<&BlobSidecarList<E>> {
+        match &self.block {
+            RpcBlockInner::Block(_) => None,
+            RpcBlockInner::BlockAndBlobs(_, blobs) => Some(blobs),
+        }
+    }
 }
 
 /// Note: This variant is intentionally private because we want to safely construct the
