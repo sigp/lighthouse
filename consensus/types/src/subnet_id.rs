@@ -188,30 +188,25 @@ mod tests {
             "60930578857433095740782970114409273483106482059893286066493409689627770333527",
             "103822458477361691467064888613019442068586830412598673713899771287914656699997",
         ]
-        .into_iter()
-        .map(|v| ethereum_types::U256::from_dec_str(v).unwrap())
-        .collect::<Vec<_>>();
+        .map(|v| ethereum_types::U256::from_dec_str(v).unwrap());
 
         let epochs = [
             54321u64, 1017090249, 1827566880, 846255942, 766597383, 1204990115, 1616209495,
             1774367616, 1484598751, 3525502229,
         ]
-        .into_iter()
-        .map(Epoch::from)
-        .collect::<Vec<_>>();
+        .map(Epoch::from);
 
         // Test mainnet
         let spec = ChainSpec::mainnet();
 
         // Calculated by hand
-        let expected_valid_time: Vec<u64> = [
-            54528, 1017090371, 1827567108, 846256076, 766597570, 1204990135, 1616209582,
-            1774367723, 1484598953, 3525502371,
-        ]
-        .into();
+        let expected_valid_time = [
+            54528u64, 1017090255, 1827567030, 846256049, 766597387, 1204990287, 1616209536,
+            1774367857, 1484598847, 3525502311,
+        ];
 
         // Calculated from pyspec
-        let expected_subnets = vec![
+        let expected_subnets = [
             vec![4u64, 5u64],
             vec![31, 32],
             vec![39, 40],
@@ -240,7 +235,7 @@ mod tests {
                 expected_subnets[x],
                 computed_subnets.map(SubnetId::into).collect::<Vec<u64>>()
             );
-            // assert_eq!(Epoch::from(expected_valid_time[x]), valid_time);
+            assert_eq!(Epoch::from(expected_valid_time[x]), valid_time);
         }
     }
 }
