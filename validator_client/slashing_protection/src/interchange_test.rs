@@ -195,7 +195,7 @@ impl TestCase {
             |(pk, slot, signing_root, should_succeed, should_succeed_complete)| {
                 assert!(
                     !should_succeed || should_succeed_complete,
-                    "if should_succeed is true then should_suceed_complete must also be true"
+                    "if should_succeed is true then should_succeed_complete must also be true"
                 );
                 TestBlock {
                     pubkey: pubkey(pk),
@@ -228,7 +228,7 @@ impl TestCase {
             |(pk, source, target, signing_root, should_succeed, should_succeed_complete)| {
                 assert!(
                     !should_succeed || should_succeed_complete,
-                    "if should_succeed is true then should_suceed_complete must also be true"
+                    "if should_succeed is true then should_succeed_complete must also be true"
                 );
                 TestAttestation {
                     pubkey: pubkey(pk),
