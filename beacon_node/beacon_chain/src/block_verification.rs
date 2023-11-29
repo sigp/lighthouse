@@ -1064,7 +1064,8 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockSlashInfo<BlockError<T::EthSpec>>> {
         let header = block.signed_block_header();
-        Self::new(block, block_root, chain).map_err(|e| BlockSlashInfo::from_early_error_block(header, e))
+        Self::new(block, block_root, chain)
+            .map_err(|e| BlockSlashInfo::from_early_error_block(header, e))
     }
 
     /// Finishes signature verification on the provided `GossipVerifedBlock`. Does not re-verify

@@ -137,7 +137,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 let tree = MerkleTree::create(&leaves, depth as usize);
                 let (_, mut proof) = tree
                     .generate_proof(index, depth as usize)
-                    .expect("Merkle tree consists of just leaf nodes");
+                    .map_err(Error::MerkleTreeError)?;
 
                 // Add the branch corresponding to the length mix-in.
                 let length = body.blob_kzg_commitments.len();
@@ -169,7 +169,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 let tree = MerkleTree::create(&leaves, BEACON_BLOCK_BODY_TREE_DEPTH);
                 let (_, mut proof_body) = tree
                     .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, BEACON_BLOCK_BODY_TREE_DEPTH)
-                    .expect("Merkle tree consists of just leaf nodes");
+                    .map_err(Error::MerkleTreeError)?;
                 // Join the proofs for the subtree and the main tree
                 proof.append(&mut proof_body);
 
