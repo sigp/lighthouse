@@ -70,10 +70,6 @@ impl MultiTestCase {
         let slashing_db_file = dir.path().join("slashing_protection.sqlite");
         let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
 
-        // Now that we are using implicit minification on import, we must always allow
-        // false positives.
-        let allow_false_positives = true;
-
         for test_case in &self.steps {
             // If the test case is marked as containing slashable data, then the spec allows us to
             // fail to import the file. However, we minify on import and ignore slashable data, so
@@ -126,7 +122,7 @@ impl MultiTestCase {
                             i, self.name, safe
                         );
                     }
-                    Err(e) if block.should_succeed && !allow_false_positives => {
+                    Err(e) if block.should_succeed => {
                         panic!(
                             "block {} from `{}` failed when it should have succeeded: {:?}",
                             i, self.name, e
@@ -149,7 +145,7 @@ impl MultiTestCase {
                             i, self.name, safe
                         );
                     }
-                    Err(e) if att.should_succeed && !allow_false_positives => {
+                    Err(e) if att.should_succeed => {
                         panic!(
                             "attestation {} from `{}` failed when it should have succeeded: {:?}",
                             i, self.name, e
@@ -196,12 +192,18 @@ impl TestCase {
         blocks: impl IntoIterator<Item = (usize, u64, u64, bool, bool)>,
     ) -> Self {
         self.blocks.extend(blocks.into_iter().map(
-            |(pk, slot, signing_root, should_succeed, should_succeed_complete)| TestBlock {
-                pubkey: pubkey(pk),
-                slot: Slot::new(slot),
-                signing_root: Hash256::from_low_u64_be(signing_root),
-                should_succeed,
-                should_succeed_complete,
+            |(pk, slot, signing_root, should_succeed, should_succeed_complete)| {
+                assert!(
+                    !should_succeed || should_succeed_complete,
+                    "if should_succeed is true then should_suceed_complete must also be true"
+                );
+                TestBlock {
+                    pubkey: pubkey(pk),
+                    slot: Slot::new(slot),
+                    signing_root: Hash256::from_low_u64_be(signing_root),
+                    should_succeed,
+                    should_succeed_complete,
+                }
             },
         ));
         self
@@ -224,6 +226,10 @@ impl TestCase {
     ) -> Self {
         self.attestations.extend(attestations.into_iter().map(
             |(pk, source, target, signing_root, should_succeed, should_succeed_complete)| {
+                assert!(
+                    !should_succeed || should_succeed_complete,
+                    "if should_succeed is true then should_suceed_complete must also be true"
+                );
                 TestAttestation {
                     pubkey: pubkey(pk),
                     source_epoch: Epoch::new(source),

@@ -123,8 +123,8 @@ fn main() {
                 (0, 3, false, false),
                 (0, 10, false, false),
                 (0, 1200, false, false),
-                (0, 4, true, true),
-                (0, 256, true, true),
+                (0, 4, false, true),
+                (0, 256, false, true),
                 (0, 1201, true, true),
             ])
             .with_attestations(vec![
@@ -133,7 +133,7 @@ fn main() {
                 (0, 11, 14, false, false),
                 (0, 21, 22, false, false),
                 (0, 10, 24, false, false),
-                (0, 11, 12, true, true),
+                (0, 11, 12, false, true),
                 (0, 20, 25, true, true),
             ]),
         ),
@@ -164,7 +164,7 @@ fn main() {
                 (0, 9, false, false),
                 (0, 10, false, false),
                 (0, 21, true, true),
-                (0, 11, true, true),
+                (0, 11, false, true),
                 (1, 2, false, false),
                 (1, 3, false, false),
                 (1, 0, false, false),
@@ -180,7 +180,7 @@ fn main() {
                 (0, 5, 7, true, true),
                 (0, 6, 8, true, true),
                 (1, 1, 7, false, false),
-                (1, 1, 4, true, true),
+                (1, 1, 4, false, true),
                 (1, 5, 7, true, true),
                 (2, 0, 0, false, false),
                 (2, 0, 1, false, false),
@@ -308,9 +308,9 @@ fn main() {
                 .contains_slashable_data()
                 .with_blocks(vec![
                     (0, 0, false, false),
-                    (0, 3, true, true),
+                    (0, 3, false, true),
                     (0, 7, true, true),
-                    (0, 3, true, true),
+                    (0, 3, false, true),
                     (1, 0, false, false),
                 ])
                 .with_attestations(vec![(0, 0, 4, false, false), (1, 0, 4, true, true)]),
@@ -440,9 +440,9 @@ fn main() {
                 vec![],
             )]))
             .with_signing_root_blocks(vec![
-                (0, 15, 151, true, true),
-                (0, 16, 161, true, true),
-                (0, 17, 171, true, true),
+                (0, 15, 151, false, true),
+                (0, 16, 161, false, true),
+                (0, 17, 171, false, true),
                 (0, 15, 152, false, false),
                 (0, 15, 0, false, false),
                 (0, 16, 151, false, false),
@@ -461,7 +461,7 @@ fn main() {
             .with_signing_root_attestations(vec![
                 (0, 5, 15, 0, false, false),
                 (0, 5, 15, 1, false, false),
-                (0, 5, 15, 515, true, true),
+                (0, 5, 15, 515, false, true),
                 (0, 6, 15, 615, false, false),
                 (0, 5, 14, 515, false, false),
             ]),
