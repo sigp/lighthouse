@@ -11,7 +11,6 @@ write_ssz_files = []  # Writes debugging .ssz files to /tmp during block process
 participation_metrics = []  # Exposes validator participation metrics to Prometheus.
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
 portable = ["bls/supranational-portable"]
-ef_tests = []
 
 [dev-dependencies]
 maplit = { workspace = true }

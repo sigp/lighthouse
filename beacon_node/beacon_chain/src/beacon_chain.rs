@@ -2964,6 +2964,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Increment the Prometheus counter for block processing requests.
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
 
+        // Set observed time if not already set. Usually this should be set by gossip or RPC,
+        // but just in case we set it again here (useful for tests).
+        if let (Some(seen_timestamp), Some(current_slot)) =
+            (self.slot_clock.now_duration(), self.slot_clock.now())
+        {
+            self.block_times_cache.write().set_time_observed(
+                block_root,
+                current_slot,
+                seen_timestamp,
+                None,
+                None,
+            );
+        }
+
         let block_slot = unverified_block.block().slot();
 
         // A small closure to group the verification and import errors.
@@ -4406,7 +4420,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This function uses heuristics that align quite closely but not exactly with the re-org
     /// conditions set out in `get_state_for_re_org` and `get_proposer_head`. The differences are
     /// documented below.
-    fn overridden_forkchoice_update_params(
+    pub fn overridden_forkchoice_update_params(
         &self,
         canonical_forkchoice_params: ForkchoiceUpdateParameters,
     ) -> Result<ForkchoiceUpdateParameters, Error> {
@@ -4477,10 +4491,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(DoNotReOrg::HeadDistance.into());
         }
 
-        let is_ef_test = cfg!(feature = "ef_tests");
-
         // Only attempt a re-org if we have a proposer registered for the re-org slot.
-        let proposing_at_re_org_slot = is_ef_test || {
+        let proposing_at_re_org_slot = {
             // The proposer shuffling has the same decision root as the next epoch attestation
             // shuffling. We know our re-org block is not on the epoch boundary, so it has the
             // same proposer shuffling as the head (but not necessarily the parent which may lie
@@ -4535,7 +4547,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // current slot, which would be necessary for determining its weight.
         let head_block_late =
             self.block_observed_after_attestation_deadline(head_block_root, head_slot);
-        if !head_block_late && !is_ef_test {
+        if !head_block_late {
             return Err(DoNotReOrg::HeadNotLate.into());
         }
 
@@ -4567,7 +4579,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .unwrap_or_else(|| Duration::from_secs(0)),
         );
         block_delays.observed.map_or(false, |delay| {
-            delay > self.slot_clock.unagg_attestation_production_delay()
+            delay >= self.slot_clock.unagg_attestation_production_delay()
         })
     }
 

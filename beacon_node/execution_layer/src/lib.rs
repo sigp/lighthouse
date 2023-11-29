@@ -726,6 +726,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
     }
 
+    /// Delete proposer preparation data for `proposer_index`. This is only useful in tests.
+    pub async fn clear_proposer_preparation(&self, proposer_index: u64) {
+        self.proposer_preparation_data()
+            .await
+            .remove(&proposer_index);
+    }
+
     /// Removes expired entries from proposer_preparation_data and proposers caches
     async fn clean_proposer_caches(&self, current_epoch: Epoch) -> Result<(), Error> {
         let mut proposer_preparation_data = self.proposer_preparation_data().await;

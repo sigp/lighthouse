@@ -1,6 +1,7 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
+use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
 use beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
@@ -24,7 +25,7 @@ use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
     EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
-    ProgressiveBalancesMode, SignedBeaconBlock, Slot, Uint256,
+    ProgressiveBalancesMode, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -310,12 +311,12 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         tester.check_expected_proposer_boost_root(*expected_proposer_boost_root)?;
                     }
 
-                    if let Some(expected_proposer_head) = get_proposer_head {
-                        tester.check_expected_proposer_head(*expected_proposer_head)?;
-                    }
-
                     if let Some(should_override_fcu) = should_override_fcu {
                         tester.check_should_override_fcu(*should_override_fcu)?;
+                    }
+
+                    if let Some(expected_proposer_head) = get_proposer_head {
+                        tester.check_expected_proposer_head(*expected_proposer_head)?;
                     }
                 }
             }
@@ -348,6 +349,7 @@ impl<E: EthSpec> Tester<E> {
         }
 
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+            .logger(logging::test_logger())
             .spec(spec.clone())
             .keypairs(vec![])
             .chain_config(ChainConfig {
@@ -761,34 +763,52 @@ impl<E: EthSpec> Tester<E> {
         &self,
         expected_should_override_fcu: ShouldOverrideFcu,
     ) -> Result<(), Error> {
-        let canonical_fcu_params = self
+        // Determine proposer.
+        let cached_head = self.harness.chain.canonical_head.cached_head();
+        let next_slot = cached_head.snapshot.beacon_block.slot() + 1;
+        let next_slot_epoch = next_slot.epoch(E::slots_per_epoch());
+        let (proposer_indices, decision_root, _, fork) =
+            compute_proposer_duties_from_head(next_slot_epoch, &self.harness.chain).unwrap();
+        let proposer_index = proposer_indices[next_slot.as_usize() % E::slots_per_epoch() as usize];
+
+        // Ensure the proposer index cache is primed.
+        self.harness
+            .chain
+            .beacon_proposer_cache
+            .lock()
+            .insert(next_slot_epoch, decision_root, proposer_indices, fork)
+            .unwrap();
+
+        // Update the execution layer proposer preparation to match the test config.
+        let el = self.harness.chain.execution_layer.clone().unwrap();
+        self.block_on_dangerous(async {
+            if expected_should_override_fcu.validator_is_connected {
+                el.update_proposer_preparation(
+                    next_slot_epoch,
+                    &[ProposerPreparationData {
+                        validator_index: dbg!(proposer_index) as u64,
+                        fee_recipient: Default::default(),
+                    }],
+                )
+                .await;
+            } else {
+                el.clear_proposer_preparation(proposer_index as u64).await;
+            }
+        })
+        .unwrap();
+
+        // Check forkchoice override.
+        let canonical_fcu_params = cached_head.forkchoice_update_parameters();
+        let fcu_params = self
             .harness
             .chain
-            .canonical_head
-            .cached_head()
-            .forkchoice_update_parameters();
-        let fcu_params_result = self
-            .harness
-            .chain
-            .overridden_forkchoice_update_params_or_failure_reason(&canonical_fcu_params);
-
-        let should_override = match fcu_params_result {
-            Ok(_) => true,
-            Err(ProposerHeadError::DoNotReOrg(_)) => false,
-            _ => panic!("Unexpected error in fcu override"),
-        };
-
-        let should_override_fcu = ShouldOverrideFcu {
-            // Testing this doesn't really make sense because we don't call `override_forkchoice_update_params`
-            // unless a validator is connected.
-            validator_is_connected: expected_should_override_fcu.validator_is_connected,
-            result: should_override,
-        };
+            .overridden_forkchoice_update_params(canonical_fcu_params)
+            .unwrap();
 
         check_equal(
-            "proposer_head",
-            should_override_fcu,
-            expected_should_override_fcu,
+            "should_override_forkchoice_update",
+            fcu_params != canonical_fcu_params,
+            expected_should_override_fcu.result,
         )
     }
 }
