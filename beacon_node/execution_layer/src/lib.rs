@@ -294,6 +294,7 @@ pub struct BuilderParams {
     pub chain_health: ChainHealth,
 }
 
+#[derive(PartialEq)]
 pub enum ChainHealth {
     Healthy,
     Unhealthy(FailedCondition),
@@ -301,7 +302,7 @@ pub enum ChainHealth {
     PreMerge,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum FailedCondition {
     Skips,
     SkipsPerEpoch,
@@ -902,6 +903,72 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
     }
 
+    /// Fetches local and builder paylaods concurrently, Logs and returns results.
+    async fn fetch_builder_and_local_payloads(
+        &self,
+        builder: &BuilderHttpClient,
+        parent_hash: ExecutionBlockHash,
+        builder_params: &BuilderParams,
+        payload_attributes: &PayloadAttributes,
+        forkchoice_update_params: ForkchoiceUpdateParameters,
+        current_fork: ForkName,
+    ) -> (
+        Result<Option<ForkVersionedResponse<SignedBuilderBid<T>>>, builder_client::Error>,
+        Result<GetPayloadResponse<T>, Error>,
+    ) {
+        let slot = builder_params.slot;
+        let pubkey = &builder_params.pubkey;
+
+        info!(
+            self.log(),
+            "Requesting blinded header from connected builder";
+            "slot" => ?slot,
+            "pubkey" => ?pubkey,
+            "parent_hash" => ?parent_hash,
+        );
+
+        // Wait for the builder *and* local EL to produce a payload (or return an error).
+        let ((relay_result, relay_duration), (local_result, local_duration)) = tokio::join!(
+            timed_future(metrics::GET_BLINDED_PAYLOAD_BUILDER, async {
+                builder
+                    .get_builder_header::<T>(slot, parent_hash, pubkey)
+                    .await
+            }),
+            timed_future(metrics::GET_BLINDED_PAYLOAD_LOCAL, async {
+                self.get_full_payload_caching(
+                    parent_hash,
+                    payload_attributes,
+                    forkchoice_update_params,
+                    current_fork,
+                )
+                .await
+                .and_then(|local_result_type| match local_result_type {
+                    GetPayloadResponseType::Full(payload) => Ok(payload),
+                    GetPayloadResponseType::Blinded(_) => Err(Error::PayloadTypeMismatch),
+                })
+            })
+        );
+
+        info!(
+            self.log(),
+            "Requested blinded execution payload";
+            "relay_fee_recipient" => match &relay_result {
+                Ok(Some(r)) => format!("{:?}", r.data.message.header().fee_recipient()),
+                Ok(None) => "empty response".to_string(),
+                Err(_) => "request failed".to_string(),
+            },
+            "relay_response_ms" => relay_duration.as_millis(),
+            "local_fee_recipient" => match &local_result {
+                Ok(get_payload_response) => format!("{:?}", get_payload_response.fee_recipient()),
+                Err(_) => "request failed".to_string()
+            },
+            "local_response_ms" => local_duration.as_millis(),
+            "parent_hash" => ?parent_hash,
+        );
+
+        (relay_result, local_result)
+    }
+
     async fn determine_and_fetch_payload(
         &self,
         parent_hash: ExecutionBlockHash,
@@ -911,250 +978,24 @@ impl<T: EthSpec> ExecutionLayer<T> {
         current_fork: ForkName,
         spec: &ChainSpec,
     ) -> Result<ProvenancedPayload<BlockProposalContentsType<T>>, Error> {
-        if let Some(builder) = self.builder() {
-            let slot = builder_params.slot;
-            let pubkey = builder_params.pubkey;
+        let Some(builder) = self.builder() else {
+            // no builder.. return local payload
+            return self
+                .get_full_payload_caching(
+                    parent_hash,
+                    payload_attributes,
+                    forkchoice_update_params,
+                    current_fork,
+                )
+                .await
+                .and_then(GetPayloadResponseType::try_into)
+                .map(ProvenancedPayload::Local);
+        };
+
+        // check chain health
+        if builder_params.chain_health != ChainHealth::Healthy {
+            // chain is unhealthy, gotta use local payload
             match builder_params.chain_health {
-                ChainHealth::Healthy => {
-                    info!(
-                        self.log(),
-                        "Requesting blinded header from connected builder";
-                        "slot" => ?slot,
-                        "pubkey" => ?pubkey,
-                        "parent_hash" => ?parent_hash,
-                    );
-
-                    // Wait for the builder *and* local EL to produce a payload (or return an error).
-                    let ((relay_result, relay_duration), (local_result_type, local_duration)) = tokio::join!(
-                        timed_future(metrics::GET_BLINDED_PAYLOAD_BUILDER, async {
-                            builder
-                                .get_builder_header::<T>(slot, parent_hash, &pubkey)
-                                .await
-                        }),
-                        timed_future(metrics::GET_BLINDED_PAYLOAD_LOCAL, async {
-                            self.get_full_payload_caching(
-                                parent_hash,
-                                payload_attributes,
-                                forkchoice_update_params,
-                                current_fork,
-                            )
-                            .await
-                        })
-                    );
-
-                    let local_result = match local_result_type? {
-                        GetPayloadResponseType::Full(payload) => Ok(payload),
-                        GetPayloadResponseType::Blinded(_) => Err(Error::PayloadTypeMismatch),
-                    };
-
-                    info!(
-                        self.log(),
-                        "Requested blinded execution payload";
-                        "relay_fee_recipient" => match &relay_result {
-                            Ok(Some(r)) => format!("{:?}", r.data.message.header().fee_recipient()),
-                            Ok(None) => "empty response".to_string(),
-                            Err(_) => "request failed".to_string(),
-                        },
-                        "relay_response_ms" => relay_duration.as_millis(),
-                        "local_fee_recipient" => match &local_result {
-                            Ok(get_payload_response) => format!("{:?}", get_payload_response.fee_recipient()),
-                            Err(_) => "request failed".to_string()
-                        },
-                        "local_response_ms" => local_duration.as_millis(),
-                        "parent_hash" => ?parent_hash,
-                    );
-
-                    return match (relay_result, local_result) {
-                        (Err(e), Ok(local)) => {
-                            warn!(
-                                self.log(),
-                                "Builder error when requesting payload";
-                                "info" => "falling back to local execution client",
-                                "relay_error" => ?e,
-                                "local_block_hash" => ?local.block_hash(),
-                                "parent_hash" => ?parent_hash,
-                            );
-                            Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
-                                local.try_into()?,
-                            )))
-                        }
-                        (Ok(None), Ok(local)) => {
-                            info!(
-                                self.log(),
-                                "Builder did not return a payload";
-                                "info" => "falling back to local execution client",
-                                "local_block_hash" => ?local.block_hash(),
-                                "parent_hash" => ?parent_hash,
-                            );
-                            Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
-                                local.try_into()?,
-                            )))
-                        }
-                        (Ok(Some(relay)), Ok(local)) => {
-                            let header = &relay.data.message.header();
-
-                            info!(
-                                self.log(),
-                                "Received local and builder payloads";
-                                "relay_block_hash" => ?header.block_hash(),
-                                "local_block_hash" => ?local.block_hash(),
-                                "parent_hash" => ?parent_hash,
-                            );
-
-                            let relay_value = relay.data.message.value();
-                            let local_value = *local.block_value();
-
-                            if !self.inner.always_prefer_builder_payload {
-                                if local_value >= *relay_value {
-                                    info!(
-                                        self.log(),
-                                        "Local block is more profitable than relay block";
-                                        "local_block_value" => %local_value,
-                                        "relay_value" => %relay_value
-                                    );
-                                    return Ok(ProvenancedPayload::Local(
-                                        BlockProposalContentsType::Full(local.try_into()?),
-                                    ));
-                                } else if local.should_override_builder().unwrap_or(false) {
-                                    let percentage_difference =
-                                        percentage_difference_u256(local_value, *relay_value);
-                                    if percentage_difference.map_or(false, |percentage| {
-                                        percentage
-                                            < self
-                                                .inner
-                                                .ignore_builder_override_suggestion_threshold
-                                    }) {
-                                        info!(
-                                            self.log(),
-                                            "Using local payload because execution engine suggested we ignore builder payload";
-                                            "local_block_value" => %local_value,
-                                            "relay_value" => %relay_value
-                                        );
-                                        return Ok(ProvenancedPayload::Local(
-                                            BlockProposalContentsType::Full(local.try_into()?),
-                                        ));
-                                    }
-                                } else {
-                                    info!(
-                                        self.log(),
-                                        "Relay block is more profitable than local block";
-                                        "local_block_value" => %local_value,
-                                        "relay_value" => %relay_value
-                                    );
-                                }
-                            }
-
-                            match verify_builder_bid(
-                                &relay,
-                                parent_hash,
-                                payload_attributes,
-                                Some(local.block_number()),
-                                self.inner.builder_profit_threshold,
-                                current_fork,
-                                spec,
-                            ) {
-                                Ok(()) => Ok(ProvenancedPayload::try_from(relay.data.message)?),
-                                Err(reason) if !reason.payload_invalid() => {
-                                    info!(
-                                        self.log(),
-                                        "Builder payload ignored";
-                                        "info" => "using local payload",
-                                        "reason" => %reason,
-                                        "relay_block_hash" => ?header.block_hash(),
-                                        "parent_hash" => ?parent_hash,
-                                    );
-                                    Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
-                                        local.try_into()?,
-                                    )))
-                                }
-                                Err(reason) => {
-                                    metrics::inc_counter_vec(
-                                        &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,
-                                        &[reason.as_ref().as_ref()],
-                                    );
-                                    warn!(
-                                        self.log(),
-                                        "Builder returned invalid payload";
-                                        "info" => "using local payload",
-                                        "reason" => %reason,
-                                        "relay_block_hash" => ?header.block_hash(),
-                                        "parent_hash" => ?parent_hash,
-                                    );
-                                    Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
-                                        local.try_into()?,
-                                    )))
-                                }
-                            }
-                        }
-                        (Ok(Some(relay)), Err(local_error)) => {
-                            let header = &relay.data.message.header();
-
-                            info!(
-                                self.log(),
-                                "Received builder payload with local error";
-                                "relay_block_hash" => ?header.block_hash(),
-                                "local_error" => ?local_error,
-                                "parent_hash" => ?parent_hash,
-                            );
-
-                            match verify_builder_bid(
-                                &relay,
-                                parent_hash,
-                                payload_attributes,
-                                None,
-                                self.inner.builder_profit_threshold,
-                                current_fork,
-                                spec,
-                            ) {
-                                Ok(()) => Ok(ProvenancedPayload::try_from(relay.data.message)?),
-                                // If the payload is valid then use it. The local EE failed
-                                // to produce a payload so we have no alternative.
-                                Err(e) if !e.payload_invalid() => {
-                                    Ok(ProvenancedPayload::try_from(relay.data.message)?)
-                                }
-                                Err(reason) => {
-                                    metrics::inc_counter_vec(
-                                        &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,
-                                        &[reason.as_ref().as_ref()],
-                                    );
-                                    crit!(
-                                        self.log(),
-                                        "Builder returned invalid payload";
-                                        "info" => "no local payload either - unable to propose block",
-                                        "reason" => %reason,
-                                        "relay_block_hash" => ?header.block_hash(),
-                                        "parent_hash" => ?parent_hash,
-                                    );
-                                    Err(Error::CannotProduceHeader)
-                                }
-                            }
-                        }
-                        (Err(relay_error), Err(local_error)) => {
-                            crit!(
-                                self.log(),
-                                "Unable to produce execution payload";
-                                "info" => "the local EL and builder both failed - unable to propose block",
-                                "relay_error" => ?relay_error,
-                                "local_error" => ?local_error,
-                                "parent_hash" => ?parent_hash,
-                            );
-
-                            Err(Error::CannotProduceHeader)
-                        }
-                        (Ok(None), Err(local_error)) => {
-                            crit!(
-                                self.log(),
-                                "Unable to produce execution payload";
-                                "info" => "the local EL failed and the builder returned nothing - \
-                                    the block proposal will be missed",
-                                "local_error" => ?local_error,
-                                "parent_hash" => ?parent_hash,
-                            );
-
-                            Err(Error::CannotProduceHeader)
-                        }
-                    };
-                }
                 ChainHealth::Unhealthy(condition) => info!(
                     self.log(),
                     "Chain is unhealthy, using local payload";
@@ -1170,17 +1011,220 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     "info" => "the local execution engine is syncing and the builder network \
                         cannot safely be used - unable to propose block"
                 ),
+                ChainHealth::Healthy => crit!(
+                    self.log(),
+                    "got healthy but also not healthy.. this shouldn't happen!"
+                ),
+            }
+            return self
+                .get_full_payload_caching(
+                    parent_hash,
+                    payload_attributes,
+                    forkchoice_update_params,
+                    current_fork,
+                )
+                .await
+                .and_then(GetPayloadResponseType::try_into)
+                .map(ProvenancedPayload::Local);
+        }
+
+        let (relay_result, local_result) = self
+            .fetch_builder_and_local_payloads(
+                builder.as_ref(),
+                parent_hash,
+                &builder_params,
+                payload_attributes,
+                forkchoice_update_params,
+                current_fork,
+            )
+            .await;
+
+        match (relay_result, local_result) {
+            (Err(e), Ok(local)) => {
+                warn!(
+                    self.log(),
+                    "Builder error when requesting payload";
+                    "info" => "falling back to local execution client",
+                    "relay_error" => ?e,
+                    "local_block_hash" => ?local.block_hash(),
+                    "parent_hash" => ?parent_hash,
+                );
+                Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
+                    local.try_into()?,
+                )))
+            }
+            (Ok(None), Ok(local)) => {
+                info!(
+                    self.log(),
+                    "Builder did not return a payload";
+                    "info" => "falling back to local execution client",
+                    "local_block_hash" => ?local.block_hash(),
+                    "parent_hash" => ?parent_hash,
+                );
+                Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
+                    local.try_into()?,
+                )))
+            }
+            (Err(relay_error), Err(local_error)) => {
+                crit!(
+                    self.log(),
+                    "Unable to produce execution payload";
+                    "info" => "the local EL and builder both failed - unable to propose block",
+                    "relay_error" => ?relay_error,
+                    "local_error" => ?local_error,
+                    "parent_hash" => ?parent_hash,
+                );
+
+                Err(Error::CannotProduceHeader)
+            }
+            (Ok(None), Err(local_error)) => {
+                crit!(
+                    self.log(),
+                    "Unable to produce execution payload";
+                    "info" => "the local EL failed and the builder returned nothing - \
+                        the block proposal will be missed",
+                    "local_error" => ?local_error,
+                    "parent_hash" => ?parent_hash,
+                );
+
+                Err(Error::CannotProduceHeader)
+            }
+            (Ok(Some(relay)), Ok(local)) => {
+                let header = &relay.data.message.header();
+
+                info!(
+                    self.log(),
+                    "Received local and builder payloads";
+                    "relay_block_hash" => ?header.block_hash(),
+                    "local_block_hash" => ?local.block_hash(),
+                    "parent_hash" => ?parent_hash,
+                );
+
+                // check relay payload validity
+                if let Err(reason) = verify_builder_bid(
+                    &relay,
+                    parent_hash,
+                    payload_attributes,
+                    Some(local.block_number()),
+                    current_fork,
+                    spec,
+                ) {
+                    // relay payload invalid -> return local
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,
+                        &[reason.as_ref().as_ref()],
+                    );
+                    warn!(
+                        self.log(),
+                        "Builder returned invalid payload";
+                        "info" => "using local payload",
+                        "reason" => %reason,
+                        "relay_block_hash" => ?header.block_hash(),
+                        "parent_hash" => ?parent_hash,
+                    );
+                    return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
+                        local.try_into()?,
+                    )));
+                }
+
+                if self.inner.always_prefer_builder_payload {
+                    return ProvenancedPayload::try_from(relay.data.message);
+                }
+
+                let relay_value = *relay.data.message.value();
+                let local_value = *local.block_value();
+
+                if local_value >= relay_value {
+                    info!(
+                        self.log(),
+                        "Local block is more profitable than relay block";
+                        "local_block_value" => %local_value,
+                        "relay_value" => %relay_value
+                    );
+                    return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
+                        local.try_into()?,
+                    )));
+                }
+
+                if relay_value < self.inner.builder_profit_threshold {
+                    info!(
+                        self.log(),
+                        "Builder payload ignored";
+                        "info" => "using local payload",
+                        "reason" => format!("payload value of {} does not meet user-configured profit-threshold of {}", relay_value, self.inner.builder_profit_threshold),
+                        "relay_block_hash" => ?header.block_hash(),
+                        "parent_hash" => ?parent_hash,
+                    );
+                    return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
+                        local.try_into()?,
+                    )));
+                }
+
+                if local.should_override_builder().unwrap_or(false) {
+                    let percentage_difference =
+                        percentage_difference_u256(local_value, relay_value);
+                    if percentage_difference.map_or(false, |percentage| {
+                        percentage < self.inner.ignore_builder_override_suggestion_threshold
+                    }) {
+                        info!(
+                            self.log(),
+                            "Using local payload because execution engine suggested we ignore builder payload";
+                            "local_block_value" => %local_value,
+                            "relay_value" => %relay_value
+                        );
+                        return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
+                            local.try_into()?,
+                        )));
+                    }
+                }
+
+                info!(
+                    self.log(),
+                    "Relay block is more profitable than local block";
+                    "local_block_value" => %local_value,
+                    "relay_value" => %relay_value
+                );
+
+                Ok(ProvenancedPayload::try_from(relay.data.message)?)
+            }
+            (Ok(Some(relay)), Err(local_error)) => {
+                let header = &relay.data.message.header();
+
+                info!(
+                    self.log(),
+                    "Received builder payload with local error";
+                    "relay_block_hash" => ?header.block_hash(),
+                    "local_error" => ?local_error,
+                    "parent_hash" => ?parent_hash,
+                );
+
+                match verify_builder_bid(
+                    &relay,
+                    parent_hash,
+                    payload_attributes,
+                    None,
+                    current_fork,
+                    spec,
+                ) {
+                    Ok(()) => Ok(ProvenancedPayload::try_from(relay.data.message)?),
+                    Err(reason) => {
+                        metrics::inc_counter_vec(
+                            &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,
+                            &[reason.as_ref().as_ref()],
+                        );
+                        crit!(
+                            self.log(),
+                            "Builder returned invalid payload";
+                            "info" => "no local payload either - unable to propose block",
+                            "reason" => %reason,
+                            "relay_block_hash" => ?header.block_hash(),
+                            "parent_hash" => ?parent_hash,
+                        );
+                        Err(Error::CannotProduceHeader)
+                    }
+                }
             }
         }
-        self.get_full_payload_caching(
-            parent_hash,
-            payload_attributes,
-            forkchoice_update_params,
-            current_fork,
-        )
-        .await
-        .and_then(GetPayloadResponseType::try_into)
-        .map(ProvenancedPayload::Local)
     }
 
     /// Get a full payload and cache its result in the execution layer's payload cache.
@@ -2000,10 +2044,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
 #[derive(AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 enum InvalidBuilderPayload {
-    LowValue {
-        profit_threshold: Uint256,
-        payload_value: Uint256,
-    },
     ParentHash {
         payload: ExecutionBlockHash,
         expected: ExecutionBlockHash,
@@ -2034,34 +2074,9 @@ enum InvalidBuilderPayload {
     },
 }
 
-impl InvalidBuilderPayload {
-    /// Returns `true` if a payload is objectively invalid and should never be included on chain.
-    fn payload_invalid(&self) -> bool {
-        match self {
-            // A low-value payload isn't invalid, it should just be avoided if possible.
-            InvalidBuilderPayload::LowValue { .. } => false,
-            InvalidBuilderPayload::ParentHash { .. } => true,
-            InvalidBuilderPayload::PrevRandao { .. } => true,
-            InvalidBuilderPayload::Timestamp { .. } => true,
-            InvalidBuilderPayload::BlockNumber { .. } => true,
-            InvalidBuilderPayload::Fork { .. } => true,
-            InvalidBuilderPayload::Signature { .. } => true,
-            InvalidBuilderPayload::WithdrawalsRoot { .. } => true,
-        }
-    }
-}
-
 impl fmt::Display for InvalidBuilderPayload {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InvalidBuilderPayload::LowValue {
-                profit_threshold,
-                payload_value,
-            } => write!(
-                f,
-                "payload value of {} does not meet user-configured profit-threshold of {}",
-                payload_value, profit_threshold
-            ),
             InvalidBuilderPayload::ParentHash { payload, expected } => {
                 write!(f, "payload block hash was {} not {}", payload, expected)
             }
@@ -2105,13 +2120,11 @@ fn verify_builder_bid<T: EthSpec>(
     parent_hash: ExecutionBlockHash,
     payload_attributes: &PayloadAttributes,
     block_number: Option<u64>,
-    profit_threshold: Uint256,
     current_fork: ForkName,
     spec: &ChainSpec,
 ) -> Result<(), Box<InvalidBuilderPayload>> {
     let is_signature_valid = bid.data.verify_signature(spec);
     let header = &bid.data.message.header();
-    let payload_value = bid.data.message.value();
 
     // Avoid logging values that we can't represent with our Prometheus library.
     let payload_value_gwei = bid.data.message.value() / 1_000_000_000;
@@ -2130,12 +2143,7 @@ fn verify_builder_bid<T: EthSpec>(
         .map(|withdrawals| Withdrawals::<T>::from(withdrawals).tree_hash_root());
     let payload_withdrawals_root = header.withdrawals_root().ok().copied();
 
-    if *payload_value < profit_threshold {
-        Err(Box::new(InvalidBuilderPayload::LowValue {
-            profit_threshold,
-            payload_value: *payload_value,
-        }))
-    } else if header.parent_hash() != parent_hash {
+    if header.parent_hash() != parent_hash {
         Err(Box::new(InvalidBuilderPayload::ParentHash {
             payload: header.parent_hash(),
             expected: parent_hash,

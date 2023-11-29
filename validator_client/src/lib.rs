@@ -472,8 +472,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
-            .graffiti_file(config.graffiti_file.clone())
-            .block_delay(config.block_delay);
+            .graffiti_file(config.graffiti_file.clone());
 
         // If we have proposer nodes, add them to the block service builder.
         if proposer_nodes_num > 0 {
