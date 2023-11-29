@@ -72,15 +72,15 @@ impl SubnetId {
             .into())
     }
 
-    #[allow(clippy::arithmetic_side_effects)]
     /// Computes the set of subnets the node should be subscribed to during the current epoch,
     /// along with the first epoch in which these subscriptions are no longer valid.
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn compute_subnets_for_epoch<T: EthSpec>(
         node_id: ethereum_types::U256,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(impl Iterator<Item = SubnetId>, Epoch), &'static str> {
-        // Simplify the variable name
+        // simplify variable naming
         let subscription_duration = spec.epochs_per_subnet_subscription;
         let prefix_bits = spec.attestation_subnet_prefix_bits as u64;
         let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u64;
@@ -96,7 +96,6 @@ impl SubnetId {
         let epoch_transition = (node_id_prefix
             + (shuffling_bits * (subscription_duration >> shuffling_prefix_bits)))
             % subscription_duration;
-        let epoch_transition = epoch_transition as u64;
 
         // Calculate at which epoch this node needs to re-evaluate
         let valid_until_epoch = epoch.as_u64()
