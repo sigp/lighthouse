@@ -64,7 +64,7 @@ pub async fn delete_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
             "The key was not found on the server, nothing to delete".to_string(),
         )),
         Some(initialized_validator) => {
-            if initialized_validator.get_graffiti() == None {
+            if initialized_validator.get_graffiti().is_none() {
                 Ok(())
             } else {
                 initialized_validators

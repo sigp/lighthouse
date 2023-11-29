@@ -814,6 +814,31 @@ async fn routes_with_invalid_auth() {
                 })
                 .await
         })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .delete_graffiti(
+                    &PublicKeyBytes::empty()
+                )
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .get_graffiti(
+                    &PublicKeyBytes::empty()
+                )
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .set_graffiti(
+                    &PublicKeyBytes::empty(),
+                    GraffitiString::default()
+                )
+                .await
+        })
         .await;
 }
 
