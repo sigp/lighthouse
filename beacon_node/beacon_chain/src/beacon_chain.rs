@@ -515,11 +515,17 @@ impl<E: EthSpec> BeaconBlockResponseType<E> {
     }
 }
 
+/// The components produced when the local beacon node creates a new block to extend the chain
 pub struct BeaconBlockResponse<T: EthSpec, Payload: AbstractExecPayload<T>> {
+    /// The newly produced beacon block
     pub block: BeaconBlock<T, Payload>,
+    /// The post-state after applying the new block
     pub state: BeaconState<T>,
+    /// The Blobs / Proofs associated with the new block
     pub blob_items: Option<(KzgProofs<T>, BlobsList<T>)>,
+    /// The execution layer reward for the block
     pub execution_payload_value: Option<Uint256>,
+    /// The consensus layer reward to the proposer
     pub consensus_block_value: Option<u64>,
 }
 
@@ -2847,7 +2853,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_blob_sidecar_subscribers() {
                 event_handler.register(EventKind::BlobSidecar(SseBlobSidecar::from_blob_sidecar(
-                    &blob.cloned(),
+                    blob.as_blob(),
                 )));
             }
         }

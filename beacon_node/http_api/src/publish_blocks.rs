@@ -142,7 +142,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     let blobs_opt = gossip_verified_blobs.as_ref().map(|gossip_verified_blobs| {
         let blobs = gossip_verified_blobs
             .into_iter()
-            .map(|b| b.cloned())
+            .map(|b| b.clone_blob())
             .collect::<Vec<_>>();
         VariableList::from(blobs)
     });

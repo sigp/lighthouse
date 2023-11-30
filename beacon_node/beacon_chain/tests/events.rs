@@ -9,7 +9,7 @@ use types::{BlobSidecar, EthSpec, ForkName, MinimalEthSpec};
 
 type E = MinimalEthSpec;
 
-/// Verifies that a blob event is emitted when a gossip verified blob is received via gossip or the publish block API.  
+/// Verifies that a blob event is emitted when a gossip verified blob is received via gossip or the publish block API.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_gossip_blob() {
     let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
@@ -31,7 +31,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
         .map(Arc::new)
         .unwrap();
     let gossip_verified_blob = GossipVerifiedBlob::__assumed_valid(sidecar);
-    let expected_sse_blobs = SseBlobSidecar::from_blob_sidecar(&gossip_verified_blob.cloned());
+    let expected_sse_blobs = SseBlobSidecar::from_blob_sidecar(gossip_verified_blob.as_blob());
 
     let _ = harness
         .chain
@@ -43,7 +43,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
     assert_eq!(sidecar_event, EventKind::BlobSidecar(expected_sse_blobs));
 }
 
-/// Verifies that a blob event is emitted when blobs are received via RPC.  
+/// Verifies that a blob event is emitted when blobs are received via RPC.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_rpc_blobs() {
     let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());

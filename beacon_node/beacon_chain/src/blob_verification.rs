@@ -236,9 +236,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     pub fn kzg_commitment(&self) -> KzgCommitment {
         self.blob.blob.kzg_commitment
     }
-    pub fn cloned(&self) -> Arc<BlobSidecar<T::EthSpec>> {
-        self.blob.blob.clone()
-    }
     pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.blob.blob.signed_block_header.clone()
     }
@@ -247,6 +244,13 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     }
     pub fn into_inner(self) -> KzgVerifiedBlob<T::EthSpec> {
         self.blob
+    }
+    pub fn as_blob(&self) -> &BlobSidecar<T::EthSpec> {
+        self.blob.as_blob()
+    }
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_blob(&self) -> Arc<BlobSidecar<T::EthSpec>> {
+        self.blob.clone_blob()
     }
 }
 
@@ -278,6 +282,7 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
     pub fn as_blob(&self) -> &BlobSidecar<T> {
         &self.blob
     }
+    /// This is cheap as we're calling clone on an Arc
     pub fn clone_blob(&self) -> Arc<BlobSidecar<T>> {
         self.blob.clone()
     }
