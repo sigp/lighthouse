@@ -22,7 +22,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    BlindedBeaconBlock, EthSpec, Graffiti, PublicKeyBytes, SignedBlindedBeaconBlock, Slot,
+    BlindedBeaconBlock, BlockType, EthSpec, Graffiti, PublicKeyBytes, SignedBlindedBeaconBlock,
+    Slot,
 };
 
 #[derive(Debug)]
@@ -328,10 +329,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             self.inner.context.executor.spawn(
                 async move {
                     if builder_proposals {
-                        let result = service
-                            .clone()
-                            .publish_block(slot, validator_pubkey, true)
-                            .await;
+                        let result = service.publish_block(slot, validator_pubkey, true).await;
                         match result {
                             Err(BlockError::Recoverable(e)) => {
                                 error!(
@@ -392,7 +390,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
     /// Produce a block at the given slot for validator_pubkey
     async fn publish_block(
-        self,
+        &self,
         slot: Slot,
         validator_pubkey: PublicKeyBytes,
         builder_proposal: bool,
@@ -545,7 +543,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         info!(
             log,
             "Successfully published block";
-            "builder_proposal" => builder_proposal,
+            "block_type" => ?signed_block.block_type(),
             "deposits" => signed_block.num_deposits(),
             "attestations" => signed_block.num_attestations(),
             "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
@@ -667,6 +665,12 @@ pub enum SignedBlock<E: EthSpec> {
 }
 
 impl<E: EthSpec> SignedBlock<E> {
+    pub fn block_type(&self) -> BlockType {
+        match self {
+            SignedBlock::Full(_) => BlockType::Full,
+            SignedBlock::Blinded(_) => BlockType::Blinded,
+        }
+    }
     pub fn slot(&self) -> Slot {
         match self {
             SignedBlock::Full(block) => block.signed_block().message().slot(),

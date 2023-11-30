@@ -16,11 +16,8 @@ pub type KzgCommitments<T> =
 pub type KzgCommitmentOpts<T> =
     FixedVector<Option<KzgCommitment>, <T as EthSpec>::MaxBlobsPerBlock>;
 
-/// Index of the `blob_kzg_commitments` leaf in the `BeaconBlockBody` tree post-deneb.
-pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
-
-/// Depth of the `BeaconBlockBody` merkle tree.
-pub const BEACON_BLOCK_BODY_TREE_DEPTH: usize = 4;
+/// Generalized index of the `blob_kzg_commitments` leaf in the `BeaconBlockBody` tree post-deneb.
+pub const BLOB_KZG_COMMITMENTS_GINDEX: usize = 11;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
@@ -166,9 +163,10 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                     body.bls_to_execution_changes.tree_hash_root(),
                     body.blob_kzg_commitments.tree_hash_root(),
                 ];
-                let tree = MerkleTree::create(&leaves, BEACON_BLOCK_BODY_TREE_DEPTH);
+                let beacon_block_body_depth = leaves.len().next_power_of_two().ilog2() as usize;
+                let tree = MerkleTree::create(&leaves, beacon_block_body_depth);
                 let (_, mut proof_body) = tree
-                    .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, BEACON_BLOCK_BODY_TREE_DEPTH)
+                    .generate_proof(BLOB_KZG_COMMITMENTS_GINDEX, beacon_block_body_depth)
                     .map_err(Error::MerkleTreeError)?;
                 // Join the proofs for the subtree and the main tree
                 proof.append(&mut proof_body);
