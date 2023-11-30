@@ -1010,7 +1010,7 @@ lazy_static! {
     );
     pub static ref BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: Result<Histogram> = try_create_histogram(
         "blob_sidecar_inclusion_proof_computation_seconds",
-        "Time taken to verify blob sidecar inclusion proof"
+        "Time taken to compute blob sidecar inclusion proof"
     );
 }
 
