@@ -1271,7 +1271,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let handler_id = event.conn_id;
         // The METADATA and PING RPC responses are handled within the behaviour and not propagated
         match event.event {
-            Err(handler_err) => {
+            HandlerEvent::Err(handler_err) => {
                 match handler_err {
                     HandlerErr::Inbound {
                         id: _,
@@ -1306,7 +1306,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                 }
             }
-            Ok(RPCReceived::Request(id, request)) => {
+            HandlerEvent::Ok(RPCReceived::Request(id, request)) => {
                 let peer_request_id = (handler_id, id);
                 match request {
                     /* Behaviour managed protocols: Ping and Metadata */
@@ -1405,7 +1405,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                 }
             }
-            Ok(RPCReceived::Response(id, resp)) => {
+            HandlerEvent::Ok(RPCReceived::Response(id, resp)) => {
                 match resp {
                     /* Behaviour managed protocols */
                     RPCResponse::Pong(ping) => {
@@ -1442,7 +1442,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                 }
             }
-            Ok(RPCReceived::EndOfStream(id, termination)) => {
+            HandlerEvent::Ok(RPCReceived::EndOfStream(id, termination)) => {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
@@ -1450,6 +1450,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                 };
                 self.build_response(id, peer_id, response)
+            }
+            HandlerEvent::Close(_) => {
+                let _ = self.swarm.disconnect_peer_id(peer_id);
+                // NOTE: we wait for the swarm to report the connection as actually closed
+                None
             }
         }
     }
