@@ -1,4 +1,4 @@
-// #![cfg(not(debug_assertions))] // Tests are too slow in debug.
+#![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
 use crate::network_beacon_processor::DELAYED_PEER_CACHE_SIZE;
