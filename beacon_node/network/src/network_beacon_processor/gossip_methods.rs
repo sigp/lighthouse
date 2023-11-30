@@ -677,7 +677,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                         self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
                     }
-                    GossipBlobError::KzgNotInitialized | GossipBlobError::PubkeyCacheTimeout => {
+                    GossipBlobError::KzgNotInitialized
+                    | GossipBlobError::PubkeyCacheTimeout
+                    | GossipBlobError::BeaconChainError(_) => {
                         crit!(
                             self.log,
                             "Internal error when verifying blob sidecar";
@@ -715,7 +717,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                     GossipBlobError::FutureSlot { .. }
-                    | GossipBlobError::BeaconChainError(_)
                     | GossipBlobError::RepeatBlob { .. }
                     | GossipBlobError::PastFinalizedSlot { .. } => {
                         warn!(

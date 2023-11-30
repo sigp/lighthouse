@@ -109,7 +109,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::prelude::*;
 use std::marker::PhantomData;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
@@ -2848,7 +2847,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_blob_sidecar_subscribers() {
                 event_handler.register(EventKind::BlobSidecar(SseBlobSidecar::from_blob_sidecar(
-                    blob.deref(),
+                    &blob.cloned(),
                 )));
             }
         }

@@ -1,6 +1,5 @@
 use derivative::Derivative;
 use slot_clock::SlotClock;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT};
@@ -142,7 +141,7 @@ pub enum GossipBlobError<T: EthSpec> {
     ///
     /// ## Peer scoring
     ///
-    /// The blob sidecar may be valis, this is an internal error.
+    /// The blob sidecar may be valid, this is an internal error.
     PubkeyCacheTimeout,
 
     /// The block conflicts with finalization, no need to propagate.
@@ -194,13 +193,6 @@ pub struct GossipVerifiedBlob<T: BeaconChainTypes> {
     blob: KzgVerifiedBlob<T::EthSpec>,
 }
 
-impl<T: BeaconChainTypes> Deref for GossipVerifiedBlob<T> {
-    type Target = BlobSidecar<T::EthSpec>;
-    fn deref(&self) -> &Self::Target {
-        self.blob.as_blob()
-    }
-}
-
 impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     pub fn new(
         blob: Arc<BlobSidecar<T::EthSpec>>,
@@ -248,7 +240,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
         self.blob.blob.clone()
     }
     pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
-        self.signed_block_header.clone()
+        self.blob.blob.signed_block_header.clone()
+    }
+    pub fn block_proposer_index(&self) -> u64 {
+        self.blob.blob.block_proposer_index()
     }
     pub fn into_inner(self) -> KzgVerifiedBlob<T::EthSpec> {
         self.blob
@@ -341,7 +336,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     let blob_proposer_index = blob_sidecar.block_proposer_index();
     let block_root = blob_sidecar.block_root();
     let blob_epoch = blob_slot.epoch(T::EthSpec::slots_per_epoch());
-    let signed_block_header = blob_sidecar.signed_block_header.clone();
+    let signed_block_header = &blob_sidecar.signed_block_header;
 
     // This condition is not possible if we have received the blob from the network
     // since we only subscribe to `MaxBlobsPerBlock` subnets over gossip network.

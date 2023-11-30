@@ -3,7 +3,6 @@ use beacon_chain::test_utils::BeaconChainHarness;
 use eth2::types::{EventKind, SseBlobSidecar};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use std::ops::Deref;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlobSidecar, EthSpec, ForkName, MinimalEthSpec};
@@ -32,7 +31,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
         .map(Arc::new)
         .unwrap();
     let gossip_verified_blob = GossipVerifiedBlob::__assumed_valid(sidecar);
-    let expected_sse_blobs = SseBlobSidecar::from_blob_sidecar(gossip_verified_blob.deref());
+    let expected_sse_blobs = SseBlobSidecar::from_blob_sidecar(&gossip_verified_blob.cloned());
 
     let _ = harness
         .chain
