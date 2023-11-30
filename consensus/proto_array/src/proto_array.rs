@@ -1035,13 +1035,11 @@ impl ProtoArray {
             .epoch
             .start_slot(E::slots_per_epoch());
 
-        let mut node = if let Some(node) = self
+        let Some(mut node) = self
             .indices
             .get(&root)
             .and_then(|index| self.nodes.get(*index))
-        {
-            node
-        } else {
+        else {
             // An unknown root is not a finalized descendant. This line can only
             // be reached if the user supplies a root that is not known to fork
             // choice.

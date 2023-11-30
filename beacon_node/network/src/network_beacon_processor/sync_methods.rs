@@ -24,7 +24,9 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
+use store::KzgCommitment;
 use tokio::sync::mpsc;
+use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{Epoch, Hash256, Slot};
 
@@ -113,34 +115,31 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         duplicate_cache: DuplicateCache,
     ) {
         // Check if the block is already being imported through another source
-        let handle = match duplicate_cache.check_and_insert(block_root) {
-            Some(handle) => handle,
-            None => {
-                debug!(
-                    self.log,
-                    "Gossip block is being processed";
-                    "action" => "sending rpc block to reprocessing queue",
-                    "block_root" => %block_root,
-                );
+        let Some(handle) = duplicate_cache.check_and_insert(block_root) else {
+            debug!(
+                self.log,
+                "Gossip block is being processed";
+                "action" => "sending rpc block to reprocessing queue",
+                "block_root" => %block_root,
+            );
 
-                // Send message to work reprocess queue to retry the block
-                let (process_fn, ignore_fn) = self.clone().generate_rpc_beacon_block_fns(
-                    block_root,
-                    block,
-                    seen_timestamp,
-                    process_type,
-                );
-                let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
-                    beacon_block_root: block_root,
-                    process_fn,
-                    ignore_fn,
-                });
+            // Send message to work reprocess queue to retry the block
+            let (process_fn, ignore_fn) = self.clone().generate_rpc_beacon_block_fns(
+                block_root,
+                block,
+                seen_timestamp,
+                process_type,
+            );
+            let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+                beacon_block_root: block_root,
+                process_fn,
+                ignore_fn,
+            });
 
-                if reprocess_tx.try_send(reprocess_msg).is_err() {
-                    error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %block_root)
-                };
-                return;
-            }
+            if reprocess_tx.try_send(reprocess_msg).is_err() {
+                error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %block_root)
+            };
+            return;
         };
 
         // Returns `true` if the time now is after the 4s attestation deadline.
@@ -212,6 +211,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let slot = block.slot();
         let parent_root = block.message().parent_root();
+        let commitments_formatted = block.as_block().commitments_formatted();
+
+        debug!(
+            self.log,
+            "Processing RPC block";
+            "block_root" => ?block_root,
+            "proposer" => block.message().proposer_index(),
+            "slot" => block.slot(),
+            "commitments" => commitments_formatted,
+        );
 
         let result = self
             .chain
@@ -288,10 +297,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         };
 
-        let indices: Vec<_> = blobs
+        let (indices, commitments): (Vec<u64>, Vec<KzgCommitment>) = blobs
             .iter()
-            .filter_map(|blob_opt| blob_opt.as_ref().map(|blob| blob.index))
-            .collect();
+            .filter_map(|blob_opt| {
+                blob_opt
+                    .as_ref()
+                    .map(|blob| (blob.index, blob.kzg_commitment))
+            })
+            .unzip();
+        let commitments = format_kzg_commitments(&commitments);
 
         debug!(
             self.log,
@@ -299,6 +313,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "indices" => ?indices,
             "block_root" => %block_root,
             "slot" => %slot,
+            "commitments" => commitments,
         );
 
         if let Ok(current_slot) = self.chain.slot() {
@@ -325,9 +340,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                warn!(
+                debug!(
                     self.log,
                     "Missing components over rpc";
+                    "block_hash" => %block_root,
+                    "slot" => %slot,
+                );
+            }
+            Err(BlockError::BlockIsAlreadyKnown) => {
+                debug!(
+                    self.log,
+                    "Blobs have already been imported";
                     "block_hash" => %block_root,
                     "slot" => %slot,
                 );
@@ -537,14 +560,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let available_blocks = match downloaded_blocks
-            .into_iter()
-            .map(|block| {
-                self.chain
-                    .data_availability_checker
-                    .check_rpc_block_availability(block)
-            })
-            .collect::<Result<Vec<_>, _>>()
+        let available_blocks = match self
+            .chain
+            .data_availability_checker
+            .verify_kzg_for_rpc_blocks(downloaded_blocks)
         {
             Ok(blocks) => blocks
                 .into_iter()

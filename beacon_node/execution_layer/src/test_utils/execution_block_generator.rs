@@ -426,9 +426,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn new_payload(&mut self, payload: ExecutionPayload<T>) -> PayloadStatusV1 {
-        let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash()) {
-            parent
-        } else {
+        let Some(parent) = self.blocks.get(&payload.parent_hash()) else {
             return PayloadStatusV1 {
                 status: PayloadStatusV1Status::Syncing,
                 latest_valid_hash: None,
@@ -657,14 +655,17 @@ pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, 
 
     Ok((
         commitments
-            .get(0)
+            .first()
             .cloned()
             .ok_or("commitment missing in test bundle")?,
         proofs
-            .get(0)
+            .first()
             .cloned()
             .ok_or("proof missing in test bundle")?,
-        blobs.get(0).cloned().ok_or("blob missing in test bundle")?,
+        blobs
+            .first()
+            .cloned()
+            .ok_or("blob missing in test bundle")?,
     ))
 }
 

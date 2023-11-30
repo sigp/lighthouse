@@ -158,3 +158,38 @@ lighthouse db version --network mainnet
 ```
 
 [run-correctly]: #how-to-run-lighthouse-db-correctly
+
+## How to prune historic states
+
+Pruning historic states helps in managing the disk space used by the Lighthouse beacon node by removing old beacon 
+states from the freezer database. This can be especially useful when the database has accumulated a significant amount 
+of historic data. This command is intended for nodes synced before 4.4.1, as newly synced node no longer store 
+historic states by default.
+
+Here are the steps to prune historic states:
+
+1. Before running the prune command, make sure that the Lighthouse beacon node is not running. If you are using systemd, you might stop the Lighthouse beacon node with a command like:
+    
+   ```bash
+    sudo systemctl stop lighthousebeacon
+    ```
+
+2. Use the `prune-states` command to prune the historic states. You can do a test run without the `--confirm` flag to check that the database can be pruned:
+    
+   ```bash
+    sudo -u "$LH_USER" lighthouse db prune-states --datadir "$LH_DATADIR" --network "$NET"
+    ```
+
+3. If you are ready to prune the states irreversibly, add the `--confirm` flag to commit the changes:
+    
+   ```bash
+    sudo -u "$LH_USER" lighthouse db prune-states --confirm --datadir "$LH_DATADIR" --network "$NET"
+    ```
+
+   The `--confirm` flag ensures that you are aware the action is irreversible, and historic states will be permanently removed.
+
+4. After successfully pruning the historic states, you can restart the Lighthouse beacon node:
+   
+   ```bash
+    sudo systemctl start lighthousebeacon
+    ```

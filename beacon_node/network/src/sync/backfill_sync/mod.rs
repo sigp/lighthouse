@@ -509,16 +509,13 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             return Ok(ProcessResult::Successful);
         }
 
-        let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => batch,
-            None => {
-                return self
-                    .fail_sync(BackFillError::InvalidSyncState(format!(
-                        "Trying to process a batch that does not exist: {}",
-                        batch_id
-                    )))
-                    .map(|_| ProcessResult::Successful);
-            }
+        let Some(batch) = self.batches.get_mut(&batch_id) else {
+            return self
+                .fail_sync(BackFillError::InvalidSyncState(format!(
+                    "Trying to process a batch that does not exist: {}",
+                    batch_id
+                )))
+                .map(|_| ProcessResult::Successful);
         };
 
         // NOTE: We send empty batches to the processor in order to trigger the block processor
@@ -909,9 +906,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<(), BackFillError> {
-        let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => batch,
-            None => return Ok(()),
+        let Some(batch) = self.batches.get_mut(&batch_id) else {
+            return Ok(());
         };
 
         // Find a peer to request the batch
@@ -933,7 +929,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .collect::<Vec<_>>();
             // Sort peers prioritizing unrelated peers with less active requests.
             priorized_peers.sort_unstable();
-            priorized_peers.get(0).map(|&(_, _, peer)| peer)
+            priorized_peers.first().map(|&(_, _, peer)| peer)
         };
 
         if let Some(peer) = new_peer {

@@ -10,7 +10,8 @@ use futures::prelude::*;
 use node_test_rig::environment::RuntimeContext;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_client_config, testing_validator_config, ClientConfig, ClientGenesis, ValidatorFiles,
+    testing_client_config, testing_validator_config, ApiTopic, ClientConfig, ClientGenesis,
+    ValidatorFiles,
 };
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
@@ -159,10 +160,25 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                         validator_config.fee_recipient = Some(SUGGESTED_FEE_RECIPIENT.into());
                     }
                     println!("Adding validator client {}", i);
-                    network_1
-                        .add_validator_client(validator_config, i, files, i % 2 == 0)
-                        .await
-                        .expect("should add validator");
+
+                    // Enable broadcast on every 4th node.
+                    if i % 4 == 0 {
+                        validator_config.broadcast_topics = ApiTopic::all();
+                        let beacon_nodes = vec![i, (i + 1) % node_count];
+                        network_1
+                            .add_validator_client_with_fallbacks(
+                                validator_config,
+                                i,
+                                beacon_nodes,
+                                files,
+                            )
+                            .await
+                    } else {
+                        network_1
+                            .add_validator_client(validator_config, i, files, i % 2 == 0)
+                            .await
+                    }
+                    .expect("should add validator");
                 },
                 "vc",
             );

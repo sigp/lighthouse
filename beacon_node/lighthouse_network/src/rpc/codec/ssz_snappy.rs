@@ -15,11 +15,10 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar};
 use types::{
-    EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
-    SignedBeaconBlockMerge,
+    BlobSidecar, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -135,9 +134,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV2 {
             return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v2())));
         }
-        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
-            Some(len) => len,
-            None => return Ok(None),
+        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
+            return Ok(None);
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
@@ -277,9 +275,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 return Ok(None);
             }
         }
-        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
-            Some(len) => len,
-            None => return Ok(None),
+        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
+            return Ok(None);
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
@@ -324,9 +321,8 @@ impl<TSpec: EthSpec> OutboundCodec<OutboundRequest<TSpec>> for SSZSnappyOutbound
         &mut self,
         src: &mut BytesMut,
     ) -> Result<Option<Self::CodecErrorType>, RPCError> {
-        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
-            Some(len) => len,
-            None => return Ok(None),
+        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
+            return Ok(None);
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
@@ -381,7 +377,7 @@ fn handle_error<T>(
                 Ok(None)
             }
         }
-        _ => Err(err).map_err(RPCError::from),
+        _ => Err(RPCError::from(err)),
     }
 }
 
