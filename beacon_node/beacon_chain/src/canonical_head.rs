@@ -991,6 +991,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
 
+        self.proposer_signature_cache.write().prune(
+            new_view
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()),
+        );
+
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .map(|mut snapshot_cache| {

@@ -7,7 +7,7 @@ use crate::block_verification::BlockBlobError;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
-use types::{EthSpec, Fork, Hash256, Signature, SignedBeaconBlockHeader};
+use types::{EthSpec, Fork, Hash256, Signature, SignedBeaconBlockHeader, Slot};
 
 #[derive(Debug)]
 pub enum Error<Err: BlockBlobError> {
@@ -17,13 +17,15 @@ pub enum Error<Err: BlockBlobError> {
 
 /// Caches a valid proposal signature for a given `block_root`.
 pub struct ProposerSignatureCache<E: EthSpec> {
-    items: HashMap<Hash256, Signature>,
+    finalized_slot: Slot,
+    items: HashMap<(Slot, Hash256), Signature>,
     _phantom: PhantomData<E>,
 }
 
 impl<E: EthSpec> Default for ProposerSignatureCache<E> {
     fn default() -> Self {
         Self {
+            finalized_slot: Slot::new(0),
             items: Default::default(),
             _phantom: PhantomData,
         }
@@ -53,7 +55,8 @@ impl<E: EthSpec> ProposerSignatureCache<E> {
         F: Fn(&SignedBeaconBlockHeader, &Fork) -> Result<(), Err>,
     {
         let signature = signed_block_header.signature.clone();
-        if let Some(cached_signature) = self.items.get(&block_root) {
+        let slot = signed_block_header.message.slot;
+        if let Some(cached_signature) = self.items.get(&(slot, block_root)) {
             if *cached_signature == signature {
                 Ok(SeenSignature::Seen)
             } else {
@@ -66,7 +69,7 @@ impl<E: EthSpec> ProposerSignatureCache<E> {
             // (block_root, signature) tuple does not exist in cache, run the verification
             // and add to cache if verification passes
             verification_fn(signed_block_header, fork).map_err(Error::VerificationError)?;
-            self.items.insert(block_root, signature);
+            self.items.insert((slot, block_root), signature);
             Ok(SeenSignature::New)
         }
     }
@@ -82,7 +85,8 @@ impl<E: EthSpec> ProposerSignatureCache<E> {
         signed_block_header: &SignedBeaconBlockHeader,
     ) -> Result<bool, Error<Err>> {
         let signature = signed_block_header.signature.clone();
-        if let Some(cached_signature) = self.items.get(&block_root) {
+        let slot = signed_block_header.message.slot;
+        if let Some(cached_signature) = self.items.get(&(slot, block_root)) {
             if *cached_signature == signature {
                 Ok(true)
             } else {
@@ -94,5 +98,15 @@ impl<E: EthSpec> ProposerSignatureCache<E> {
         } else {
             Ok(false)
         }
+    }
+
+    /// Prune the cache for slots less than or equal to the given slot.
+    pub fn prune(&mut self, finalized_slot: Slot) {
+        if finalized_slot == 0 {
+            return;
+        }
+
+        self.finalized_slot = finalized_slot;
+        self.items.retain(|k, _| k.0 > finalized_slot);
     }
 }
