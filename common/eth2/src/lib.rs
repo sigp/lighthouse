@@ -771,7 +771,7 @@ impl BeaconNodeHttpClient {
     /// Returns `Ok(None)` on a 404 error.
     pub async fn post_beacon_blocks<T: EthSpec>(
         &self,
-        block_contents: &SignedBlockContentsWrapper<T>,
+        block_contents: &FullSignedBlockContents<T>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -791,7 +791,7 @@ impl BeaconNodeHttpClient {
     /// Returns `Ok(None)` on a 404 error.
     pub async fn post_beacon_blocks_ssz<T: EthSpec>(
         &self,
-        block_contents: &SignedBlockContentsWrapper<T>,
+        block_contents: &FullSignedBlockContents<T>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -889,7 +889,7 @@ impl BeaconNodeHttpClient {
     /// `POST v2/beacon/blocks`
     pub async fn post_beacon_blocks_v2<T: EthSpec>(
         &self,
-        block_contents: &SignedBlockContentsWrapper<T>,
+        block_contents: &FullSignedBlockContents<T>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
         self.post_generic_with_consensus_version(
@@ -906,7 +906,7 @@ impl BeaconNodeHttpClient {
     /// `POST v2/beacon/blocks`
     pub async fn post_beacon_blocks_v2_ssz<T: EthSpec>(
         &self,
-        block_contents: &SignedBlockContentsWrapper<T>,
+        block_contents: &FullSignedBlockContents<T>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
         self.post_generic_with_consensus_version_and_ssz_body(

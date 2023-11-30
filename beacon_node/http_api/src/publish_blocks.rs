@@ -7,7 +7,7 @@ use beacon_chain::{
     IntoGossipVerifiedBlockContents, NotifyExecutionLayer,
 };
 use eth2::types::{into_full_block_and_blobs, BroadcastValidation, ErrorMessage};
-use eth2::types::{FullPayloadContents, SignedBlockContentsWrapper};
+use eth2::types::{FullPayloadContents, FullSignedBlockContents};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -304,7 +304,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     duplicate_status_code: StatusCode,
 ) -> Result<Response, Rejection> {
     let block_root = blinded_block.canonical_root();
-    let full_block: ProvenancedBlock<T, SignedBlockContentsWrapper<T::EthSpec>> =
+    let full_block: ProvenancedBlock<T, FullSignedBlockContents<T::EthSpec>> =
         reconstruct_block(chain.clone(), block_root, blinded_block, log.clone()).await?;
     publish_block::<T, _>(
         Some(block_root),
@@ -326,7 +326,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
     block_root: Hash256,
     block: SignedBlindedBeaconBlock<T::EthSpec>,
     log: Logger,
-) -> Result<ProvenancedBlock<T, SignedBlockContentsWrapper<T::EthSpec>>, Rejection> {
+) -> Result<ProvenancedBlock<T, FullSignedBlockContents<T::EthSpec>>, Rejection> {
     let full_payload_opt = if let Ok(payload_header) = block.message().body().execution_payload() {
         let el = chain.execution_layer.as_ref().ok_or_else(|| {
             warp_utils::reject::custom_server_error("Missing execution layer".to_string())

@@ -70,7 +70,7 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
-use eth2::types::{EventKind, SignedBlockContentsWrapper};
+use eth2::types::{EventKind, FullSignedBlockContents};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
@@ -699,7 +699,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedB
 }
 
 impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T>
-    for SignedBlockContentsWrapper<T::EthSpec>
+    for FullSignedBlockContents<T::EthSpec>
 {
     fn into_gossip_verified_block(
         self,
