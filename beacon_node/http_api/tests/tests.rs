@@ -3429,7 +3429,7 @@ impl ApiTester {
 
         let result = self
             .client
-            .post_validator_liveness_epoch(epoch, indices.clone())
+            .post_validator_liveness_epoch(epoch, &indices)
             .await
             .unwrap()
             .data;
@@ -3444,7 +3444,7 @@ impl ApiTester {
 
         let result = self
             .client
-            .post_validator_liveness_epoch(epoch, indices.clone())
+            .post_validator_liveness_epoch(epoch, &indices)
             .await
             .unwrap()
             .data;
