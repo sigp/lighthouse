@@ -273,10 +273,13 @@ async fn test_verify_attestation_rewards_base_inactivity_leak_justification_epoc
     );
 
     // compute reward deltas for all validators in epoch N
-    let StandardAttestationRewards {
-        ideal_rewards,
-        total_rewards,
-    } = harness
+    let (
+        StandardAttestationRewards {
+            ideal_rewards,
+            total_rewards,
+        },
+        _,
+    ) = harness
         .chain
         .compute_attestation_rewards(Epoch::new(target_epoch), vec![])
         .unwrap();
@@ -350,10 +353,13 @@ async fn test_verify_attestation_rewards_altair() {
     }
 
     // compute reward deltas for all validators in epoch N
-    let StandardAttestationRewards {
-        ideal_rewards,
-        total_rewards,
-    } = harness
+    let (
+        StandardAttestationRewards {
+            ideal_rewards,
+            total_rewards,
+        },
+        _,
+    ) = harness
         .chain
         .compute_attestation_rewards(Epoch::new(target_epoch), vec![])
         .unwrap();
@@ -557,10 +563,13 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak_justification_ep
     );
 
     // compute reward deltas for all validators in epoch N
-    let StandardAttestationRewards {
-        ideal_rewards,
-        total_rewards,
-    } = harness
+    let (
+        StandardAttestationRewards {
+            ideal_rewards,
+            total_rewards,
+        },
+        _,
+    ) = harness
         .chain
         .compute_attestation_rewards(Epoch::new(target_epoch), vec![])
         .unwrap();
