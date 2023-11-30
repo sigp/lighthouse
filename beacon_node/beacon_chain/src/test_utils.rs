@@ -1,7 +1,7 @@
 use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::BeaconBlockResponseType;
+use crate::BeaconBlockResponseWrapper;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
@@ -851,7 +851,7 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-        let BeaconBlockResponseType::Full(block_response) = self
+        let BeaconBlockResponseWrapper::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -912,7 +912,7 @@ where
 
         let pre_state = state.clone();
 
-        let BeaconBlockResponseType::Full(block_response) = self
+        let BeaconBlockResponseWrapper::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,

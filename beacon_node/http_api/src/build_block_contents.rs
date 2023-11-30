@@ -1,17 +1,19 @@
-use beacon_chain::{BeaconBlockResponse, BeaconBlockResponseType, BlockProductionError};
-use eth2::types::{BeaconBlockAndBlobSidecars, BlockContents, BlockContentsWrapper};
+use beacon_chain::{BeaconBlockResponse, BeaconBlockResponseWrapper, BlockProductionError};
+use eth2::types::{BlockContents, BlockContentsWrapper, FullBlockContents};
 use types::{EthSpec, ForkName};
 type Error = warp::reject::Rejection;
 
 pub fn build_block_contents<E: EthSpec>(
     fork_name: ForkName,
-    block_response: BeaconBlockResponseType<E>,
+    block_response: BeaconBlockResponseWrapper<E>,
 ) -> Result<BlockContentsWrapper<E>, Error> {
     match block_response {
-        BeaconBlockResponseType::Blinded(block) => Ok(BlockContentsWrapper::Blinded(block.block)),
-        BeaconBlockResponseType::Full(block) => match fork_name {
+        BeaconBlockResponseWrapper::Blinded(block) => {
+            Ok(BlockContentsWrapper::Blinded(block.block))
+        }
+        BeaconBlockResponseWrapper::Full(block) => match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => Ok(
-                BlockContentsWrapper::Full(BlockContents::Block(block.block)),
+                BlockContentsWrapper::Full(FullBlockContents::Block(block.block)),
             ),
             ForkName::Deneb => {
                 let BeaconBlockResponse {
@@ -29,7 +31,7 @@ pub fn build_block_contents<E: EthSpec>(
                 };
 
                 Ok(BlockContentsWrapper::Full(
-                    BlockContents::BlockAndBlobSidecars(BeaconBlockAndBlobSidecars {
+                    FullBlockContents::BlockContents(BlockContents {
                         block,
                         kzg_proofs,
                         blobs,

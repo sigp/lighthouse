@@ -3,7 +3,7 @@ use std::sync::Arc;
 use types::{payload::BlockProductionVersion, *};
 
 use beacon_chain::{
-    BeaconBlockResponseType, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
+    BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
 };
 use eth2::types::{self as api_types, EndpointVersion, SkipRandaoVerification};
 use ssz::Encode;
@@ -73,7 +73,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
 
 pub fn build_response_v3<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    block_response: BeaconBlockResponseType<T::EthSpec>,
+    block_response: BeaconBlockResponseWrapper<T::EthSpec>,
     endpoint_version: EndpointVersion,
     accept_header: Option<api_types::Accept>,
 ) -> Result<Response<Body>, warp::Rejection> {
@@ -170,7 +170,7 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
 
 pub fn build_response_v2<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    block_response: BeaconBlockResponseType<T::EthSpec>,
+    block_response: BeaconBlockResponseWrapper<T::EthSpec>,
     endpoint_version: EndpointVersion,
     accept_header: Option<api_types::Accept>,
 ) -> Result<Response<Body>, warp::Rejection> {

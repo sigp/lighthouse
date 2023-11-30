@@ -483,35 +483,35 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub kzg: Option<Arc<Kzg>>,
 }
 
-pub enum BeaconBlockResponseType<T: EthSpec> {
+pub enum BeaconBlockResponseWrapper<T: EthSpec> {
     Full(BeaconBlockResponse<T, FullPayload<T>>),
     Blinded(BeaconBlockResponse<T, BlindedPayload<T>>),
 }
 
-impl<E: EthSpec> BeaconBlockResponseType<E> {
+impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
         Ok(match self {
-            BeaconBlockResponseType::Full(resp) => resp.block.to_ref().fork_name(spec)?,
-            BeaconBlockResponseType::Blinded(resp) => resp.block.to_ref().fork_name(spec)?,
+            BeaconBlockResponseWrapper::Full(resp) => resp.block.to_ref().fork_name(spec)?,
+            BeaconBlockResponseWrapper::Blinded(resp) => resp.block.to_ref().fork_name(spec)?,
         })
     }
 
     pub fn execution_payload_value(&self) -> Option<Uint256> {
         match self {
-            BeaconBlockResponseType::Full(resp) => resp.execution_payload_value,
-            BeaconBlockResponseType::Blinded(resp) => resp.execution_payload_value,
+            BeaconBlockResponseWrapper::Full(resp) => resp.execution_payload_value,
+            BeaconBlockResponseWrapper::Blinded(resp) => resp.execution_payload_value,
         }
     }
 
     pub fn consensus_block_value(&self) -> Option<u64> {
         match self {
-            BeaconBlockResponseType::Full(resp) => resp.consensus_block_value,
-            BeaconBlockResponseType::Blinded(resp) => resp.consensus_block_value,
+            BeaconBlockResponseWrapper::Full(resp) => resp.consensus_block_value,
+            BeaconBlockResponseWrapper::Blinded(resp) => resp.consensus_block_value,
         }
     }
 
     pub fn is_blinded(&self) -> bool {
-        matches!(self, BeaconBlockResponseType::Blinded(_))
+        matches!(self, BeaconBlockResponseWrapper::Blinded(_))
     }
 }
 
@@ -4022,7 +4022,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
         block_production_version: BlockProductionVersion,
-    ) -> Result<BeaconBlockResponseType<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockResponseWrapper<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
         // Part 1/2 (blocking)
@@ -4623,7 +4623,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
         block_production_version: BlockProductionVersion,
-    ) -> Result<BeaconBlockResponseType<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockResponseWrapper<T::EthSpec>, BlockProductionError> {
         // Part 1/3 (blocking)
         //
         // Perform the state advance and block-packing functions.
@@ -4682,7 +4682,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .await
                         .map_err(BlockProductionError::TokioJoin)??;
 
-                    Ok(BeaconBlockResponseType::Full(beacon_block_response))
+                    Ok(BeaconBlockResponseWrapper::Full(beacon_block_response))
                 }
                 BlockProposalContentsType::Blinded(block_contents) => {
                     let chain = self.clone();
@@ -4702,7 +4702,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .await
                         .map_err(BlockProductionError::TokioJoin)??;
 
-                    Ok(BeaconBlockResponseType::Blinded(beacon_block_response))
+                    Ok(BeaconBlockResponseWrapper::Blinded(beacon_block_response))
                 }
             }
         } else {
@@ -4723,7 +4723,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .await
                 .map_err(BlockProductionError::TokioJoin)??;
 
-            Ok(BeaconBlockResponseType::Full(beacon_block_response))
+            Ok(BeaconBlockResponseWrapper::Full(beacon_block_response))
         }
     }
 
