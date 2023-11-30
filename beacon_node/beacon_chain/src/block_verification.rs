@@ -927,21 +927,33 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             (proposer_index, state.fork(), Some(parent), block)
         };
 
-        match chain.proposer_signature_cache.write().observe_signature(
-            block_root,
-            block.signed_block_header(),
-            fork,
-            |header, fork| {
-                verify_header_signature::<_, BlockError<T::EthSpec>>(chain, &header, &fork)
-            },
-        ) {
-            Ok(proposer_signature_cache::SeenSignature::New)
-            | Ok(proposer_signature_cache::SeenSignature::Seen) => {}
-            Err(proposer_signature_cache::Error::InvalidSignature) => {
-                return Err(BlockError::ProposalSignatureInvalid);
+        let header = block.signed_block_header();
+
+        // First check if a signature exists by obtaining the read lock.
+        // Only obtain the write lock if signature doesn't exist in the cache.
+        if !chain
+            .proposer_signature_cache
+            .read()
+            .signature_exists::<BlockError<T::EthSpec>>(block_root, &header)
+            .map_err(|_| BlockError::ProposalSignatureInvalid)?
+        {
+            match chain.proposer_signature_cache.write().observe_signature(
+                block_root,
+                &block.signed_block_header(),
+                &fork,
+                |header, fork| {
+                    verify_header_signature::<_, BlockError<T::EthSpec>>(chain, header, fork)
+                },
+            ) {
+                Ok(proposer_signature_cache::SeenSignature::New)
+                | Ok(proposer_signature_cache::SeenSignature::Seen) => {}
+                Err(proposer_signature_cache::Error::InvalidSignature) => {
+                    return Err(BlockError::ProposalSignatureInvalid);
+                }
+                Err(proposer_signature_cache::Error::VerificationError(err)) => return Err(err),
             }
-            Err(proposer_signature_cache::Error::VerificationError(err)) => return Err(err),
         }
+
         // verify_header_signature(chain, &block.signed_block_header(), &fork)?;
 
         // Now the signature is valid, store the proposal so we don't accept another from this
@@ -2067,7 +2079,7 @@ pub(crate) fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
 
     if header.verify_signature::<T::EthSpec>(
         &proposer_pubkey,
-        &fork,
+        fork,
         chain.genesis_validators_root,
         &chain.spec,
     ) {

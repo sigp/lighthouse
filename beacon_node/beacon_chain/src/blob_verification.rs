@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT};
 use crate::block_verification::{
-    cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
-    verify_header_signature, BlockSlashInfo,
+    cheap_state_advance_to_obtain_committees, process_block_slash_info, verify_header_signature,
+    BlockSlashInfo,
 };
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::proposer_signature_cache;
@@ -559,20 +559,29 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     };
 
     // Signature verify the signed block header.
-    match chain.proposer_signature_cache.write().observe_signature(
-        block_root,
-        signed_block_header,
-        fork,
-        |header, fork| {
-            verify_header_signature::<_, GossipBlobError<T::EthSpec>>(chain, &header, &fork)
-        },
-    ) {
-        Ok(proposer_signature_cache::SeenSignature::New)
-        | Ok(proposer_signature_cache::SeenSignature::Seen) => {}
-        Err(proposer_signature_cache::Error::InvalidSignature) => {
-            return Err(GossipBlobError::ProposalSignatureInvalid);
+    // First check if a signature exists by obtaining the read lock.
+    // Only obtain the write lock if signature doesn't exist in the cache.
+    if !chain
+        .proposer_signature_cache
+        .read()
+        .signature_exists::<GossipBlobError<T::EthSpec>>(block_root, signed_block_header)
+        .map_err(|_| GossipBlobError::ProposalSignatureInvalid)?
+    {
+        match chain.proposer_signature_cache.write().observe_signature(
+            block_root,
+            signed_block_header,
+            &fork,
+            |header, fork| {
+                verify_header_signature::<_, GossipBlobError<T::EthSpec>>(chain, header, fork)
+            },
+        ) {
+            Ok(proposer_signature_cache::SeenSignature::New)
+            | Ok(proposer_signature_cache::SeenSignature::Seen) => {}
+            Err(proposer_signature_cache::Error::InvalidSignature) => {
+                return Err(GossipBlobError::ProposalSignatureInvalid);
+            }
+            Err(proposer_signature_cache::Error::VerificationError(err)) => return Err(err),
         }
-        Err(proposer_signature_cache::Error::VerificationError(err)) => return Err(err),
     }
 
     if proposer_index != blob_proposer_index as usize {
