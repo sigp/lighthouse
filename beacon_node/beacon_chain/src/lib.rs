@@ -38,6 +38,7 @@ mod observed_aggregates;
 mod observed_attesters;
 mod observed_blob_sidecars;
 pub mod observed_block_producers;
+pub mod proposer_signature_cache;
 pub mod observed_operations;
 pub mod otb_verification_service;
 mod persisted_beacon_chain;

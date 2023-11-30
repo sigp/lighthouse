@@ -55,6 +55,7 @@ use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
+use crate::proposer_signature_cache::ProposerSignatureCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{BlockProductionPreState, SnapshotCache};
 use crate::sync_committee_verification::{
@@ -407,6 +408,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of blob sidecars seen over the gossip network.
     pub(crate) observed_blob_sidecars: RwLock<ObservedBlobSidecars<T::EthSpec>>,
+    pub(crate) proposer_signature_cache: RwLock<ProposerSignatureCache<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
     pub(crate) observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
     /// Maintains a record of which validators we've seen proposer slashings for.

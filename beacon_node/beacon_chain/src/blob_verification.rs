@@ -5,9 +5,10 @@ use std::sync::Arc;
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT};
 use crate::block_verification::{
     cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
-    BlockSlashInfo,
+    verify_header_signature, BlockSlashInfo,
 };
 use crate::kzg_utils::{validate_blob, validate_blobs};
+use crate::proposer_signature_cache;
 use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use merkle_proof::MerkleTreeError;
@@ -558,22 +559,20 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     };
 
     // Signature verify the signed block header.
-    let signature_is_valid = {
-        let pubkey_cache =
-            get_validator_pubkey_cache(chain).map_err(|_| GossipBlobError::PubkeyCacheTimeout)?;
-        let pubkey = pubkey_cache
-            .get(proposer_index)
-            .ok_or_else(|| GossipBlobError::UnknownValidator(proposer_index as u64))?;
-        signed_block_header.verify_signature::<T::EthSpec>(
-            pubkey,
-            &fork,
-            chain.genesis_validators_root,
-            &chain.spec,
-        )
-    };
-
-    if !signature_is_valid {
-        return Err(GossipBlobError::ProposalSignatureInvalid);
+    match chain.proposer_signature_cache.write().observe_signature(
+        block_root,
+        signed_block_header,
+        fork,
+        |header, fork| {
+            verify_header_signature::<_, GossipBlobError<T::EthSpec>>(chain, &header, &fork)
+        },
+    ) {
+        Ok(proposer_signature_cache::SeenSignature::New)
+        | Ok(proposer_signature_cache::SeenSignature::Seen) => {}
+        Err(proposer_signature_cache::Error::InvalidSignature) => {
+            return Err(GossipBlobError::ProposalSignatureInvalid);
+        }
+        Err(proposer_signature_cache::Error::VerificationError(err)) => return Err(err),
     }
 
     if proposer_index != blob_proposer_index as usize {

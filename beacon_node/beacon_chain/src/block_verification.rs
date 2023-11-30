@@ -59,6 +59,7 @@ use crate::execution_payload::{
     AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
 };
 use crate::observed_block_producers::SeenBlock;
+use crate::proposer_signature_cache;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -100,7 +101,7 @@ use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
-    ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
+    ExecutionBlockHash, Fork, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 use types::{BlobSidecar, ExecPayload};
@@ -538,7 +539,8 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
     if let Some(slasher) = chain.slasher.as_ref() {
         let (verified_header, error) = match slash_info {
             BlockSlashInfo::SignatureNotChecked(header, e) => {
-                if verify_header_signature::<_, TErr>(chain, &header).is_ok() {
+                let head_fork = chain.canonical_head.cached_head().head_fork();
+                if verify_header_signature::<_, TErr>(chain, &header, &head_fork).is_ok() {
                     (header, e)
                 } else {
                     return e;
@@ -925,23 +927,22 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             (proposer_index, state.fork(), Some(parent), block)
         };
 
-        let signature_is_valid = {
-            let pubkey_cache = get_validator_pubkey_cache(chain)?;
-            let pubkey = pubkey_cache
-                .get(block.message().proposer_index() as usize)
-                .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
-            block.verify_signature(
-                Some(block_root),
-                pubkey,
-                &fork,
-                chain.genesis_validators_root,
-                &chain.spec,
-            )
-        };
-
-        if !signature_is_valid {
-            return Err(BlockError::ProposalSignatureInvalid);
+        match chain.proposer_signature_cache.write().observe_signature(
+            block_root,
+            block.signed_block_header(),
+            fork,
+            |header, fork| {
+                verify_header_signature::<_, BlockError<T::EthSpec>>(chain, &header, &fork)
+            },
+        ) {
+            Ok(proposer_signature_cache::SeenSignature::New)
+            | Ok(proposer_signature_cache::SeenSignature::Seen) => {}
+            Err(proposer_signature_cache::Error::InvalidSignature) => {
+                return Err(BlockError::ProposalSignatureInvalid);
+            }
+            Err(proposer_signature_cache::Error::VerificationError(err)) => return Err(err),
         }
+        // verify_header_signature(chain, &block.signed_block_header(), &fork)?;
 
         // Now the signature is valid, store the proposal so we don't accept another from this
         // validator and slot.
@@ -2054,19 +2055,19 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
 /// Verify that `header` was signed with a valid signature from its proposer.
 ///
 /// Return `Ok(())` if the signature is valid, and an `Err` otherwise.
-fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
+pub(crate) fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     chain: &BeaconChain<T>,
     header: &SignedBeaconBlockHeader,
+    fork: &Fork,
 ) -> Result<(), Err> {
     let proposer_pubkey = get_validator_pubkey_cache(chain)?
         .get(header.message.proposer_index as usize)
         .cloned()
         .ok_or(Err::unknown_validator_error(header.message.proposer_index))?;
-    let head_fork = chain.canonical_head.cached_head().head_fork();
 
     if header.verify_signature::<T::EthSpec>(
         &proposer_pubkey,
-        &head_fork,
+        &fork,
         chain.genesis_validators_root,
         &chain.spec,
     ) {
