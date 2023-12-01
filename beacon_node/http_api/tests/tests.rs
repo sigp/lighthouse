@@ -64,8 +64,8 @@ struct ApiTester {
     harness: Arc<BeaconChainHarness<EphemeralHarnessType<E>>>,
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
-    next_block: SignedBlockContents<E>,
-    reorg_block: SignedBlockContents<E>,
+    next_block: FullSignedBlockContents<E>,
+    reorg_block: FullSignedBlockContents<E>,
     attestations: Vec<Attestation<E>>,
     contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
@@ -173,13 +173,13 @@ impl ApiTester {
         let (next_block, _next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
-        let next_block = SignedBlockContents::from(next_block);
+        let next_block = FullSignedBlockContents::from(next_block);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap() + 1)
             .await;
-        let reorg_block = SignedBlockContents::from(reorg_block);
+        let reorg_block = FullSignedBlockContents::from(reorg_block);
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -314,13 +314,13 @@ impl ApiTester {
         let (next_block, _next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
-        let next_block = SignedBlockContents::from(next_block);
+        let next_block = FullSignedBlockContents::from(next_block);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
-        let reorg_block = SignedBlockContents::from(reorg_block);
+        let reorg_block = FullSignedBlockContents::from(reorg_block);
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -1301,7 +1301,7 @@ impl ApiTester {
 
         assert!(self
             .client
-            .post_beacon_blocks(&SignedBlockContents::from(block))
+            .post_beacon_blocks(&FullSignedBlockContents::from(block))
             .await
             .is_err());
 
@@ -1328,7 +1328,7 @@ impl ApiTester {
 
         assert!(self
             .client
-            .post_beacon_blocks_ssz(&SignedBlockContents::from(block))
+            .post_beacon_blocks_ssz(&FullSignedBlockContents::from(block))
             .await
             .is_err());
 
@@ -2577,7 +2577,7 @@ impl ApiTester {
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_contents =
-                SignedBlockContents::try_from(signed_block.clone()).unwrap();
+                FullSignedBlockContents::try_from(signed_block.clone()).unwrap();
 
             self.client
                 .post_beacon_blocks(&signed_block_contents)
@@ -2637,8 +2637,9 @@ impl ApiTester {
                 .unwrap()
                 .expect("block bytes");
 
-            let block_contents = BlockContents::<E>::from_ssz_bytes(&block_bytes, &self.chain.spec)
-                .expect("block contents bytes can be decoded");
+            let block_contents =
+                FullBlockContents::<E>::from_ssz_bytes(&block_bytes, &self.chain.spec)
+                    .expect("block contents bytes can be decoded");
 
             let signed_block_contents =
                 block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
@@ -2723,7 +2724,7 @@ impl ApiTester {
 
                 self.chain.slot_clock.set_slot(slot.as_u64() + 1);
             } else {
-                let block_contents = <BlockContents<E>>::from_ssz_bytes(
+                let block_contents = <FullBlockContents<E>>::from_ssz_bytes(
                     &fork_version_response_bytes.unwrap(),
                     &self.chain.spec,
                 )
@@ -2946,7 +2947,7 @@ impl ApiTester {
                 .expect("block bytes");
 
             let block_contents =
-                BlockContents::<E>::from_ssz_bytes(&block_contents_bytes, &self.chain.spec)
+                FullBlockContents::<E>::from_ssz_bytes(&block_contents_bytes, &self.chain.spec)
                     .expect("block contents bytes can be decoded");
 
             let signed_block_contents =

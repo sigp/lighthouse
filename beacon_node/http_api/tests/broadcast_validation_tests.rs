@@ -2,7 +2,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
     GossipVerifiedBlock, IntoGossipVerifiedBlockContents,
 };
-use eth2::types::{BroadcastValidation, SignedBeaconBlock, SignedBlockContents};
+use eth2::types::{BroadcastValidation, FullSignedBlockContents, SignedBeaconBlock};
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use std::sync::Arc;
@@ -74,7 +74,10 @@ pub async fn gossip_invalid() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2(
+            &FullSignedBlockContents::new(block, blobs),
+            validation_level,
+        )
         .await;
     assert!(response.is_err());
 
@@ -125,7 +128,10 @@ pub async fn gossip_partial_pass() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2(
+            &FullSignedBlockContents::new(block, blobs),
+            validation_level,
+        )
         .await;
     assert!(response.is_err());
 
@@ -168,7 +174,7 @@ pub async fn gossip_full_pass() {
     let response: Result<(), eth2::Error> = tester
         .client
         .post_beacon_blocks_v2(
-            &SignedBlockContents::new(block.clone(), blobs),
+            &FullSignedBlockContents::new(block.clone(), blobs),
             validation_level,
         )
         .await;
@@ -260,7 +266,10 @@ pub async fn consensus_invalid() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2(
+            &FullSignedBlockContents::new(block, blobs),
+            validation_level,
+        )
         .await;
     assert!(response.is_err());
 
@@ -309,7 +318,10 @@ pub async fn consensus_gossip() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2(
+            &FullSignedBlockContents::new(block, blobs),
+            validation_level,
+        )
         .await;
     assert!(response.is_err());
 
@@ -361,7 +373,7 @@ pub async fn consensus_partial_pass_only_consensus() {
     assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let gossip_block_contents_b = SignedBlockContents::new(block_b, blobs_b)
+    let gossip_block_contents_b = FullSignedBlockContents::new(block_b, blobs_b)
         .into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_contents_b.is_ok());
     let gossip_block_a = GossipVerifiedBlock::new(block_a.clone().into(), &tester.harness.chain);
@@ -422,7 +434,7 @@ pub async fn consensus_full_pass() {
     let response: Result<(), eth2::Error> = tester
         .client
         .post_beacon_blocks_v2(
-            &SignedBlockContents::new(block.clone(), blobs),
+            &FullSignedBlockContents::new(block.clone(), blobs),
             validation_level,
         )
         .await;
@@ -473,7 +485,10 @@ pub async fn equivocation_invalid() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2(
+            &FullSignedBlockContents::new(block, blobs),
+            validation_level,
+        )
         .await;
     assert!(response.is_err());
 
@@ -530,7 +545,7 @@ pub async fn equivocation_consensus_early_equivocation() {
     assert!(tester
         .client
         .post_beacon_blocks_v2(
-            &SignedBlockContents::new(block_a.clone(), blobs_a),
+            &FullSignedBlockContents::new(block_a.clone(), blobs_a),
             validation_level
         )
         .await
@@ -544,7 +559,7 @@ pub async fn equivocation_consensus_early_equivocation() {
     let response: Result<(), eth2::Error> = tester
         .client
         .post_beacon_blocks_v2(
-            &SignedBlockContents::new(block_b.clone(), blobs_b),
+            &FullSignedBlockContents::new(block_b.clone(), blobs_b),
             validation_level,
         )
         .await;
@@ -595,7 +610,10 @@ pub async fn equivocation_gossip() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2(
+            &FullSignedBlockContents::new(block, blobs),
+            validation_level,
+        )
         .await;
     assert!(response.is_err());
 
@@ -653,10 +671,10 @@ pub async fn equivocation_consensus_late_equivocation() {
     assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let gossip_block_contents_b = SignedBlockContents::new(block_b, blobs_b)
+    let gossip_block_contents_b = FullSignedBlockContents::new(block_b, blobs_b)
         .into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_contents_b.is_ok());
-    let gossip_block_contents_a = SignedBlockContents::new(block_a, blobs_a)
+    let gossip_block_contents_a = FullSignedBlockContents::new(block_a, blobs_a)
         .into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_contents_a.is_err());
 
@@ -720,7 +738,7 @@ pub async fn equivocation_full_pass() {
     let response: Result<(), eth2::Error> = tester
         .client
         .post_beacon_blocks_v2(
-            &SignedBlockContents::new(block.clone(), blobs),
+            &FullSignedBlockContents::new(block.clone(), blobs),
             validation_level,
         )
         .await;

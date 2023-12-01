@@ -26,6 +26,7 @@ pub fn validate_blobs<T: EthSpec>(
     blobs: Vec<&Blob<T>>,
     kzg_proofs: &[KzgProof],
 ) -> Result<(), KzgError> {
+    let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_BATCH_TIMES);
     let blobs = blobs
         .into_iter()
         .map(|blob| ssz_blob_to_crypto_blob::<T>(blob))
