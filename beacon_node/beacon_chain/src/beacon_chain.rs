@@ -5001,7 +5001,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
-        let (inner_block, blobs_opt, proofs_opt, execution_payload_value) = match &state {
+        let (inner_block, maybe_blobs_and_proofs, execution_payload_value) = match &state {
             BeaconState::Base(_) => (
                 BeaconBlock::Base(BeaconBlockBase {
                     slot,
@@ -5020,7 +5020,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         _phantom: PhantomData,
                     },
                 }),
-                None,
                 None,
                 Uint256::zero(),
             ),
@@ -5044,7 +5043,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         _phantom: PhantomData,
                     },
                 }),
-                None,
                 None,
                 Uint256::zero(),
             ),
@@ -5075,7 +5073,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                         },
                     }),
-                    None,
                     None,
                     execution_payload_value,
                 )
@@ -5110,12 +5107,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         },
                     }),
                     None,
-                    None,
                     execution_payload_value,
                 )
             }
             BeaconState::Deneb(_) => {
-                let (payload, kzg_commitments, blobs, proofs, execution_payload_value) =
+                let (payload, kzg_commitments, maybe_blobs_and_proofs, execution_payload_value) =
                     block_contents
                         .ok_or(BlockProductionError::MissingExecutionPayload)?
                         .deconstruct();
@@ -5145,8 +5141,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                         },
                     }),
-                    blobs,
-                    proofs,
+                    maybe_blobs_and_proofs,
                     execution_payload_value,
                 )
             }
@@ -5205,8 +5200,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let blobs_verification_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
-        let blob_item = match (blobs_opt, proofs_opt) {
-            (Some(blobs), Some(proofs)) => {
+        let blob_items = match maybe_blobs_and_proofs {
+            Some((blobs, proofs)) => {
                 let expected_kzg_commitments =
                     block.body().blob_kzg_commitments().map_err(|_| {
                         BlockProductionError::InvalidBlockVariant(
@@ -5239,7 +5234,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 Some((kzg_proofs.into(), blobs))
             }
-            _ => None,
+            None => None,
         };
 
         drop(blobs_verification_timer);
@@ -5257,7 +5252,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(BeaconBlockResponse {
             block,
             state,
-            blob_items: blob_item,
+            blob_items,
             execution_payload_value: Some(execution_payload_value),
             consensus_block_value: Some(consensus_block_value),
         })

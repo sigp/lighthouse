@@ -616,7 +616,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         .collect::<Vec<_>>();
 
     // verify signatures
-    let pubkey_cache = get_validator_pubkey_cache(chain).map_err(BlockError::from)?;
+    let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
     for svb in &mut signature_verified_blocks {
         signature_verifier
@@ -923,7 +923,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         };
 
         let signature_is_valid = {
-            let pubkey_cache = get_validator_pubkey_cache(chain).map_err(BlockError::from)?;
+            let pubkey_cache = get_validator_pubkey_cache(chain)?;
             let pubkey = pubkey_cache
                 .get(block.message().proposer_index() as usize)
                 .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
@@ -1036,7 +1036,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let pubkey_cache = get_validator_pubkey_cache(chain).map_err(BlockError::from)?;
+        let pubkey_cache = get_validator_pubkey_cache(chain)?;
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
@@ -1087,7 +1087,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let pubkey_cache = get_validator_pubkey_cache(chain).map_err(BlockError::from)?;
+        let pubkey_cache = get_validator_pubkey_cache(chain)?;
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
@@ -1918,7 +1918,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
     result
 }
 
-/// This trait is used to unify `BlockError` and `BlobError`.
+/// This trait is used to unify `BlockError` and `GossipBlobError`.
 pub trait BlockBlobError: From<BeaconStateError> + From<BeaconChainError> + Debug {
     fn not_later_than_parent_error(block_slot: Slot, state_slot: Slot) -> Self;
     fn unknown_validator_error(validator_index: u64) -> Self;
@@ -2055,8 +2055,7 @@ fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     chain: &BeaconChain<T>,
     header: &SignedBeaconBlockHeader,
 ) -> Result<(), Err> {
-    let proposer_pubkey = get_validator_pubkey_cache(chain)
-        .map_err(BeaconChainError::from)?
+    let proposer_pubkey = get_validator_pubkey_cache(chain)?
         .get(header.message.proposer_index as usize)
         .cloned()
         .ok_or(Err::unknown_validator_error(header.message.proposer_index))?;
