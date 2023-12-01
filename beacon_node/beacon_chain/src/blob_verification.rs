@@ -196,13 +196,13 @@ pub struct GossipVerifiedBlob<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     pub fn new(
         blob: Arc<BlobSidecar<T::EthSpec>>,
+        subnet_id: u64,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipBlobError<T::EthSpec>> {
-        let blob_index = blob.index;
         let header = blob.signed_block_header.clone();
         // We only process slashing info if the gossip verification failed
         // since we do not process the blob any further in that case.
-        validate_blob_sidecar_for_gossip(blob, blob_index, chain).map_err(|e| {
+        validate_blob_sidecar_for_gossip(blob, subnet_id, chain).map_err(|e| {
             process_block_slash_info::<_, GossipBlobError<T::EthSpec>>(
                 chain,
                 BlockSlashInfo::from_early_error_blob(header, e),

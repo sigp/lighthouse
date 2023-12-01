@@ -714,7 +714,8 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
                     let blob = BlobSidecar::new(i, blob, &block, *kzg_proof)
                         .map_err(BlockContentsError::SidecarError)?;
                     drop(_timer);
-                    let gossip_verified_blob = GossipVerifiedBlob::new(Arc::new(blob), chain)?;
+                    let gossip_verified_blob =
+                        GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
                     gossip_verified_blobs.push(gossip_verified_blob);
                 }
                 let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
