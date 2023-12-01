@@ -5,6 +5,7 @@ use safe_arith::SafeArith;
 use slog::error;
 use state_processing::{
     common::{get_attestation_participation_flag_indices, get_attesting_indices_from_state},
+    epoch_cache::initialize_epoch_cache,
     per_block_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
     },
@@ -30,6 +31,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         state.build_committee_cache(RelativeEpoch::Previous, &self.spec)?;
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        initialize_epoch_cache(state, &self.spec)?;
 
         self.compute_beacon_block_reward_with_cache(block, block_root, state)
     }
@@ -229,12 +231,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         && !validator_participation.has_flag(flag_index)?
                     {
                         validator_participation.add_flag(flag_index)?;
-                        proposer_reward_numerator.safe_add_assign(
-                            state
-                                .get_base_reward(index)
-                                .map_err(|_| BeaconChainError::BlockRewardAttestationError)?
-                                .safe_mul(weight)?,
-                        )?;
+                        proposer_reward_numerator
+                            .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
                     }
                 }
             }
