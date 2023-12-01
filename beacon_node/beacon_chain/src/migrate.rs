@@ -572,6 +572,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             })
             .collect::<Result<_, _>>()?;
 
+        // Quick sanity check. If the canonical block & state roots are incorrect then we could
+        // incorrectly delete canonical states, which would corrupt the database.
+        let expected_canonical_block_roots = new_finalized_slot
+            .saturating_sub(old_finalized_slot)
+            .as_usize()
+            .saturating_add(1);
+        if newly_finalized_chain.len() != expected_canonical_block_roots {
+            return Err(BeaconChainError::DBInconsistent(format!(
+                "canonical chain iterator is corrupt; \
+                 expected {} but got {} block roots",
+                expected_canonical_block_roots,
+                newly_finalized_chain.len()
+            )));
+        }
+
         // We don't know which blocks are shared among abandoned chains, so we buffer and delete
         // everything in one fell swoop.
         let mut abandoned_blocks: HashSet<SignedBeaconBlockHash> = HashSet::new();
