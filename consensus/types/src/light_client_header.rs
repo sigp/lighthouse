@@ -1,7 +1,7 @@
 use crate::beacon_block_body::NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES;
 use crate::{light_client_update::*, BeaconBlockBody, ChainSpec};
 use crate::{
-    test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, FixedVector, Hash256,
+    test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, FixedVector, Hash256,
     SignedBeaconBlock,
 };
 use crate::{BeaconBlockHeader, ExecutionPayload};
@@ -10,35 +10,58 @@ use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
+use superstruct::superstruct;
+use std::marker::PhantomData;
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
-    arbitrary::Arbitrary,
+#[superstruct(
+    variants(Merge, Capella, Deneb),
+    variant_attributes(
+        derive(
+            Default,
+            Debug,
+            Clone,
+            PartialEq,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            TestRandom,
+            arbitrary::Arbitrary
+        ),
+        serde(bound = "E: EthSpec", deny_unknown_fields),
+        arbitrary(bound = "E: EthSpec"),
+    ),
 )]
-#[serde(bound = "E: EthSpec")]
+#[derive(
+    Debug, Clone, Serialize, PartialEq, Deserialize, Encode, Decode, arbitrary::Arbitrary,
+)]
 #[arbitrary(bound = "E: EthSpec")]
+#[serde(untagged)]
+#[serde(bound = "E: EthSpec")]
+#[ssz(enum_behaviour = "union")]
 pub struct LightClientHeader<E: EthSpec> {
     pub beacon: BeaconBlockHeader,
-    #[test_random(default)]
+    #[superstruct(only(Capella, Deneb))]
+    pub execution_branch: FixedVector<Hash256, ExecutionPayloadProofLen>,
+    #[superstruct(
+        only(Capella),
+        partial_getter(rename = "execution_payload_header_capella")
+    )]
+    pub execution: ExecutionPayloadHeaderCapella<E>,
+    #[superstruct(
+        only(Deneb),
+        partial_getter(rename = "execution_payload_header_deneb")
+    )]
+    pub execution: ExecutionPayloadHeaderDeneb<E>,
+   
     #[ssz(skip_serializing, skip_deserializing)]
-    pub execution: Option<ExecutionPayloadHeader<E>>,
-    #[test_random(default)]
-    pub execution_branch: Option<FixedVector<Hash256, ExecutionPayloadProofLen>>,
+    pub phantom_data: PhantomData<E>,
 }
 
-impl<E: EthSpec> From<BeaconBlockHeader> for LightClientHeader<E> {
+impl<E: EthSpec> From<BeaconBlockHeader> for LightClientHeaderMerge<E> {
     fn from(beacon: BeaconBlockHeader) -> Self {
-        LightClientHeader {
+        LightClientHeaderMerge {
             beacon,
-            execution: None,
-            execution_branch: None,
         }
     }
 }
