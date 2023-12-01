@@ -76,9 +76,10 @@ use tokio_stream::{
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
     BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
+    ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
+    SignedAggregateAndProof, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -142,6 +143,7 @@ pub struct Config {
     pub enable_beacon_processor: bool,
     #[serde(with = "eth2::types::serde_status_code")]
     pub duplicate_block_status_code: StatusCode,
+    pub enable_light_client_server: bool,
 }
 
 impl Default for Config {
@@ -158,6 +160,7 @@ impl Default for Config {
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
             duplicate_block_status_code: StatusCode::ACCEPTED,
+            enable_light_client_server: false,
         }
     }
 }
@@ -276,6 +279,18 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
         );
         metrics::observe_timer_vec(&metrics::HTTP_API_PATHS_TIMES, &[path], info.elapsed());
     })
+}
+
+fn enable(is_enabled: bool) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
+    warp::any()
+        .and_then(move || async move {
+            if is_enabled {
+                Ok(())
+            } else {
+                Err(warp::reject::not_found())
+            }
+        })
+        .untuple_one()
 }
 
 /// Creates a server that will serve requests using information from `ctx`.
@@ -568,12 +583,12 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     let (root, execution_optimistic, finalized) = state_id.root(&chain)?;
-                    Ok(root)
-                        .map(api_types::RootData::from)
-                        .map(api_types::GenericResponse::from)
-                        .map(|resp| {
-                            resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
-                        })
+                    Ok(api_types::GenericResponse::from(api_types::RootData::from(
+                        root,
+                    )))
+                    .map(|resp| {
+                        resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
+                    })
                 })
             },
         );
@@ -1938,8 +1953,8 @@ pub fn serve<T: BeaconChainTypes>(
                             .naive_aggregation_pool
                             .read()
                             .iter()
-                            .cloned()
-                            .filter(|att| query_filter(&att.data)),
+                            .filter(|&att| query_filter(&att.data))
+                            .cloned(),
                     );
                     Ok(api_types::GenericResponse::from(attestations))
                 })
@@ -2316,11 +2331,9 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     let (rewards, execution_optimistic, finalized) =
                         standard_block_rewards::compute_beacon_block_rewards(chain, block_id)?;
-                    Ok(rewards)
-                        .map(api_types::GenericResponse::from)
-                        .map(|resp| {
-                            resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
-                        })
+                    Ok(api_types::GenericResponse::from(rewards)).map(|resp| {
+                        resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
+                    })
                 })
             },
         );
@@ -2380,6 +2393,164 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     /*
+     * beacon/light_client
+     */
+
+    let beacon_light_client_path = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("light_client"))
+        .and(chain_filter.clone());
+
+    // GET beacon/light_client/bootstrap/{block_root}
+    let get_beacon_light_client_bootstrap = beacon_light_client_path
+        .clone()
+        .and(task_spawner_filter.clone())
+        .and(warp::path("bootstrap"))
+        .and(warp::path::param::<Hash256>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid block root value".to_string(),
+            ))
+        }))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |chain: Arc<BeaconChain<T>>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             block_root: Hash256,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (bootstrap, fork_name) = match chain.get_light_client_bootstrap(&block_root)
+                    {
+                        Ok(Some(res)) => res,
+                        Ok(None) => {
+                            return Err(warp_utils::reject::custom_not_found(
+                                "Light client bootstrap unavailable".to_string(),
+                            ));
+                        }
+                        Err(e) => {
+                            return Err(warp_utils::reject::custom_server_error(format!(
+                                "Unable to obtain LightClientBootstrap instance: {e:?}"
+                            )));
+                        }
+                    };
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(bootstrap.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
+                            version: Some(fork_name),
+                            data: bootstrap,
+                        })
+                        .into_response()),
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
+    // GET beacon/light_client/optimistic_update
+    let get_beacon_light_client_optimistic_update = beacon_light_client_path
+        .clone()
+        .and(task_spawner_filter.clone())
+        .and(warp::path("optimistic_update"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |chain: Arc<BeaconChain<T>>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let update = chain
+                        .latest_seen_optimistic_update
+                        .lock()
+                        .clone()
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(
+                                "No LightClientOptimisticUpdate is available".to_string(),
+                            )
+                        })?;
+
+                    let fork_name = chain
+                        .spec
+                        .fork_name_at_slot::<T::EthSpec>(update.signature_slot);
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(update.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
+                            version: Some(fork_name),
+                            data: update,
+                        })
+                        .into_response()),
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
+    // GET beacon/light_client/finality_update
+    let get_beacon_light_client_finality_update = beacon_light_client_path
+        .clone()
+        .and(task_spawner_filter.clone())
+        .and(warp::path("finality_update"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |chain: Arc<BeaconChain<T>>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let update = chain
+                        .latest_seen_finality_update
+                        .lock()
+                        .clone()
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(
+                                "No LightClientFinalityUpdate is available".to_string(),
+                            )
+                        })?;
+
+                    let fork_name = chain
+                        .spec
+                        .fork_name_at_slot::<T::EthSpec>(update.signature_slot);
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(update.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
+                            version: Some(fork_name),
+                            data: update,
+                        })
+                        .into_response()),
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
+    /*
      * beacon/rewards
      */
 
@@ -2433,8 +2604,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let execution_optimistic =
                         chain.is_optimistic_or_invalid_head().unwrap_or_default();
 
-                    Ok(attestation_rewards)
-                        .map(api_types::GenericResponse::from)
+                    Ok(api_types::GenericResponse::from(attestation_rewards))
                         .map(|resp| resp.add_execution_optimistic(execution_optimistic))
                 })
             },
@@ -2460,11 +2630,9 @@ pub fn serve<T: BeaconChainTypes>(
                             chain, block_id, validators, log,
                         )?;
 
-                    Ok(rewards)
-                        .map(api_types::GenericResponse::from)
-                        .map(|resp| {
-                            resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
-                        })
+                    Ok(api_types::GenericResponse::from(rewards)).map(|resp| {
+                        resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
+                    })
                 })
             },
         );
@@ -4342,6 +4510,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::LateHead => {
                                     event_handler.subscribe_late_head()
                                 }
+                                api_types::EventTopic::LightClientFinalityUpdate => {
+                                    event_handler.subscribe_light_client_finality_update()
+                                }
+                                api_types::EventTopic::LightClientOptimisticUpdate => {
+                                    event_handler.subscribe_light_client_optimistic_update()
+                                }
                                 api_types::EventTopic::BlockReward => {
                                     event_handler.subscribe_block_reward()
                                 }
@@ -4495,6 +4669,18 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_database_info)
                 .uor(get_lighthouse_block_rewards)
                 .uor(get_lighthouse_attestation_performance)
+                .uor(
+                    enable(ctx.config.enable_light_client_server)
+                        .and(get_beacon_light_client_optimistic_update),
+                )
+                .uor(
+                    enable(ctx.config.enable_light_client_server)
+                        .and(get_beacon_light_client_finality_update),
+                )
+                .uor(
+                    enable(ctx.config.enable_light_client_server)
+                        .and(get_beacon_light_client_bootstrap),
+                )
                 .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_lighthouse_merge_readiness)
                 .uor(get_events)

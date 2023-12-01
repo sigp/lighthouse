@@ -1048,6 +1048,8 @@ pub enum EventKind<T: EthSpec> {
     ChainReorg(SseChainReorg),
     ContributionAndProof(Box<SignedContributionAndProof<T>>),
     LateHead(SseLateHead),
+    LightClientFinalityUpdate(Box<LightClientFinalityUpdate<T>>),
+    LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate<T>>),
     #[cfg(feature = "lighthouse")]
     BlockReward(BlockReward),
     PayloadAttributes(VersionedSsePayloadAttributes),
@@ -1066,6 +1068,8 @@ impl<T: EthSpec> EventKind<T> {
             EventKind::ContributionAndProof(_) => "contribution_and_proof",
             EventKind::PayloadAttributes(_) => "payload_attributes",
             EventKind::LateHead(_) => "late_head",
+            EventKind::LightClientFinalityUpdate(_) => "light_client_finality_update",
+            EventKind::LightClientOptimisticUpdate(_) => "light_client_optimistic_update",
             #[cfg(feature = "lighthouse")]
             EventKind::BlockReward(_) => "block_reward",
         }
@@ -1128,6 +1132,22 @@ impl<T: EthSpec> EventKind<T> {
                     ServerError::InvalidServerSentEvent(format!("Payload Attributes: {:?}", e))
                 })?,
             )),
+            "light_client_finality_update" => Ok(EventKind::LightClientFinalityUpdate(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!(
+                        "Light Client Finality Update: {:?}",
+                        e
+                    ))
+                })?,
+            )),
+            "light_client_optimistic_update" => Ok(EventKind::LightClientOptimisticUpdate(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!(
+                        "Light Client Optimistic Update: {:?}",
+                        e
+                    ))
+                })?,
+            )),
             #[cfg(feature = "lighthouse")]
             "block_reward" => Ok(EventKind::BlockReward(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block Reward: {:?}", e)),
@@ -1159,6 +1179,8 @@ pub enum EventTopic {
     ContributionAndProof,
     LateHead,
     PayloadAttributes,
+    LightClientFinalityUpdate,
+    LightClientOptimisticUpdate,
     #[cfg(feature = "lighthouse")]
     BlockReward,
 }
@@ -1178,6 +1200,8 @@ impl FromStr for EventTopic {
             "contribution_and_proof" => Ok(EventTopic::ContributionAndProof),
             "payload_attributes" => Ok(EventTopic::PayloadAttributes),
             "late_head" => Ok(EventTopic::LateHead),
+            "light_client_finality_update" => Ok(EventTopic::LightClientFinalityUpdate),
+            "light_client_optimistic_update" => Ok(EventTopic::LightClientOptimisticUpdate),
             #[cfg(feature = "lighthouse")]
             "block_reward" => Ok(EventTopic::BlockReward),
             _ => Err("event topic cannot be parsed.".to_string()),
@@ -1198,6 +1222,8 @@ impl fmt::Display for EventTopic {
             EventTopic::ContributionAndProof => write!(f, "contribution_and_proof"),
             EventTopic::PayloadAttributes => write!(f, "payload_attributes"),
             EventTopic::LateHead => write!(f, "late_head"),
+            EventTopic::LightClientFinalityUpdate => write!(f, "light_client_finality_update"),
+            EventTopic::LightClientOptimisticUpdate => write!(f, "light_client_optimistic_update"),
             #[cfg(feature = "lighthouse")]
             EventTopic::BlockReward => write!(f, "block_reward"),
         }

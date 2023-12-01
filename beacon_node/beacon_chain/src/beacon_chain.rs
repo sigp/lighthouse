@@ -18,7 +18,7 @@ use crate::block_verification::{
 use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RpcBlock,
 };
-pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
+pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
@@ -5252,15 +5252,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// This function will result in a call to `forkchoiceUpdated` on the EL if we're in the
     /// tail-end of the slot (as defined by `self.config.prepare_payload_lookahead`).
+    ///
+    /// Return `Ok(Some(head_block_root))` if this node prepared to propose at the next slot on
+    /// top of `head_block_root`.
     pub async fn prepare_beacon_proposer(
         self: &Arc<Self>,
         current_slot: Slot,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Hash256>, Error> {
         let prepare_slot = current_slot + 1;
 
         // There's no need to run the proposer preparation routine before the bellatrix fork.
         if self.slot_is_prior_to_bellatrix(prepare_slot) {
-            return Ok(());
+            return Ok(None);
         }
 
         let execution_layer = self
@@ -5273,7 +5276,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if !self.config.always_prepare_payload
             && !execution_layer.has_any_proposer_preparation_data().await
         {
-            return Ok(());
+            return Ok(None);
         }
 
         // Load the cached head and its forkchoice update parameters.
@@ -5320,7 +5323,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let Some((forkchoice_update_params, Some(pre_payload_attributes))) = maybe_prep_data else {
             // Appropriate log messages have already been logged above and in
             // `get_pre_payload_attributes`.
-            return Ok(());
+            return Ok(None);
         };
 
         // If the execution layer doesn't have any proposer data for this validator then we assume
@@ -5331,7 +5334,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .has_proposer_preparation_data(proposer)
                 .await
         {
-            return Ok(());
+            return Ok(None);
         }
 
         // Fetch payload attributes from the execution layer's cache, or compute them from scratch
@@ -5426,7 +5429,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "prepare_slot" => prepare_slot,
                 "validator" => proposer,
             );
-            return Ok(());
+            return Ok(None);
         };
 
         // If we are close enough to the proposal slot, send an fcU, which will have payload
@@ -5449,7 +5452,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await?;
         }
 
-        Ok(())
+        Ok(Some(head_root))
     }
 
     pub async fn update_execution_engine_forkchoice(
@@ -6366,6 +6369,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
         self.data_availability_checker.data_availability_boundary()
+    }
+
+    /// Gets the `LightClientBootstrap` object for a requested block root.
+    ///
+    /// Returns `None` when the state or block is not found in the database.
+    #[allow(clippy::type_complexity)]
+    pub fn get_light_client_bootstrap(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, Error> {
+        let Some((state_root, slot)) = self
+            .get_blinded_block(block_root)?
+            .map(|block| (block.state_root(), block.slot()))
+        else {
+            return Ok(None);
+        };
+
+        let Some(mut state) = self.get_state(&state_root, Some(slot))? else {
+            return Ok(None);
+        };
+
+        let fork_name = state
+            .fork_name(&self.spec)
+            .map_err(Error::InconsistentFork)?;
+
+        match fork_name {
+            ForkName::Altair | ForkName::Merge => {
+                LightClientBootstrap::from_beacon_state(&mut state)
+                    .map(|bootstrap| Some((bootstrap, fork_name)))
+                    .map_err(Error::LightClientError)
+            }
+            ForkName::Base | ForkName::Capella | ForkName::Deneb => Err(Error::UnsupportedFork),
+        }
     }
 }
 

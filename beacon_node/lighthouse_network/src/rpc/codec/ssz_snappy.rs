@@ -15,11 +15,10 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar};
 use types::{
-    EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
-    SignedBeaconBlockMerge,
+    BlobSidecar, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -378,7 +377,7 @@ fn handle_error<T>(
                 Ok(None)
             }
         }
-        _ => Err(err).map_err(RPCError::from),
+        _ => Err(RPCError::from(err)),
     }
 }
 

@@ -1,16 +1,13 @@
 use crate::test_utils::TestRandom;
-use crate::typenum::Unsigned;
 use crate::{EthSpec, SyncSubnetId};
 use bls::PublicKeyBytes;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::FixedVector;
 use std::collections::HashMap;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-
-// Use flat `FixedVector` regardless of whether or not tree states are used.
-use ssz_types::FixedVector;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -49,14 +46,11 @@ pub struct SyncCommittee<T: EthSpec> {
 
 impl<T: EthSpec> SyncCommittee<T> {
     /// Create a temporary sync committee that should *never* be included in a legitimate consensus object.
-    pub fn temporary() -> Result<Self, ssz_types::Error> {
-        Ok(Self {
-            pubkeys: FixedVector::new(vec![
-                PublicKeyBytes::empty();
-                T::SyncCommitteeSize::to_usize()
-            ])?,
+    pub fn temporary() -> Self {
+        Self {
+            pubkeys: FixedVector::from_elem(PublicKeyBytes::empty()),
             aggregate_pubkey: PublicKeyBytes::empty(),
-        })
+        }
     }
 
     /// Return the pubkeys in this `SyncCommittee` for the given `subcommittee_index`.

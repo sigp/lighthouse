@@ -622,19 +622,19 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                             "parent block root" => ?prev_block_root,
                                         );
                                     }
-                                } else {
-                                    warn!(
-                                        self.log,
-                                        "Missing validator index";
-                                        "info" => "potentially inconsistency in the validator manager",
-                                        "index" => i,
-                                    )
                                 }
+                            } else {
+                                warn!(
+                                    self.log,
+                                    "Missing validator index";
+                                    "info" => "potentially inconsistency in the validator manager",
+                                    "index" => i,
+                                )
                             }
                         } else {
                             debug!(
                                 self.log,
-                                "Could not get proposers for from cache";
+                                "Could not get proposers from cache";
                                 "epoch" => ?slot_epoch
                             );
                         }
