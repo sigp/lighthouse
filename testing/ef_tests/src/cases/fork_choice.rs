@@ -443,35 +443,10 @@ impl<E: EthSpec> Tester<E> {
         // Convert blobs and kzg_proofs into sidecars, then plumb them into the availability tracker
         if let Some(blobs) = blobs.clone() {
             let proofs = kzg_proofs.unwrap();
-            let commitments = block
-                .message()
-                .body()
-                .blob_kzg_commitments()
-                .unwrap()
-                .clone();
-
-            // Zipping will stop when any of the zipped lists runs out, which is what we want. Some
-            // of the tests don't provide enough proofs/blobs, and should fail the availability
+            // Some of the tests don't provide enough proofs/blobs, and should fail the availability
             // check.
-            for (i, ((blob, kzg_proof), kzg_commitment)) in blobs
-                .into_iter()
-                .zip(proofs)
-                .zip(commitments.into_iter())
-                .enumerate()
-            {
-                let blob_sidecar = Arc::new(BlobSidecar {
-                    index: i as u64,
-                    blob,
-                    kzg_commitment,
-                    kzg_proof,
-                    signed_block_header: block.signed_block_header(),
-                    kzg_commitment_inclusion_proof: block
-                        .message()
-                        .body()
-                        .kzg_commitment_merkle_proof(i)
-                        .unwrap(),
-                });
-
+            let blob_sidecars = BlobSidecar::build_sidecars(blobs, &block, proofs.into()).unwrap();
+            for blob_sidecar in blob_sidecars {
                 let chain = self.harness.chain.clone();
                 let blob =
                     match GossipVerifiedBlob::new(blob_sidecar.clone(), blob_sidecar.index, &chain)

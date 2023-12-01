@@ -80,7 +80,6 @@ use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
 use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
@@ -707,18 +706,17 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
 
         let gossip_verified_blobs = blobs
             .map(|(kzg_proofs, blobs)| {
-                let mut gossip_verified_blobs = vec![];
-                for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
-                    let _timer =
-                        metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
-                    let blob = BlobSidecar::new(i, blob, &block, *kzg_proof)
-                        .map_err(BlockContentsError::SidecarError)?;
-                    drop(_timer);
-                    let gossip_verified_blob =
-                        GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
-                    gossip_verified_blobs.push(gossip_verified_blob);
-                }
-                let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
+                let _timer =
+                    metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
+                let blob_sidecars = BlobSidecar::build_sidecars(blobs, &block, kzg_proofs)
+                    .map_err(BlockContentsError::SidecarError)?;
+                metrics::stop_timer(_timer);
+
+                let gossip_verified_blobs = blob_sidecars
+                    .into_iter()
+                    .map(|blob_sidecar| GossipVerifiedBlob::new(blob_sidecar, chain))
+                    .collect::<Result<Vec<_>, GossipBlobError<T::EthSpec>>>()?
+                    .into();
                 Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
             })
             .transpose()?;
