@@ -141,7 +141,7 @@ impl<E: EthSpec> Case for KzgInclusionMerkleProofValidity<E> {
             let expected_leaf = self.merkle_proof.branch[i];
             if *proof_leaf != expected_leaf {
                 return Err(Error::NotEqual(format!(
-                    "Leaves not equal in merke proof computed: {}, expected: {}",
+                    "Leaves not equal in merkle proof computed: {}, expected: {}",
                     hex::encode(proof_leaf),
                     hex::encode(expected_leaf)
                 )));
