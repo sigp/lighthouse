@@ -105,8 +105,7 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 payload: ExecutionPayloadHeader::Deneb(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
-                blobs: None,
-                proofs: None,
+                blobs_and_proofs: None,
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -168,8 +167,8 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         payload: Payload,
         block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
-        blobs: Option<BlobsList<T>>,
-        proofs: Option<KzgProofs<T>>,
+        /// `None` for blinded `PayloadAndBlobs`.
+        blobs_and_proofs: Option<(BlobsList<T>, KzgProofs<T>)>,
     },
 }
 
@@ -201,8 +200,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
                 payload: execution_payload.into(),
                 block_value,
                 kzg_commitments: bundle.commitments,
-                blobs: Some(bundle.blobs),
-                proofs: Some(bundle.proofs),
+                blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
             }),
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),
@@ -230,22 +228,25 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
     ) -> (
         Payload,
         Option<KzgCommitments<T>>,
-        Option<BlobsList<T>>,
-        Option<KzgProofs<T>>,
+        Option<(BlobsList<T>, KzgProofs<T>)>,
         Uint256,
     ) {
         match self {
             Self::Payload {
                 payload,
                 block_value,
-            } => (payload, None, None, None, block_value),
+            } => (payload, None, None, block_value),
             Self::PayloadAndBlobs {
                 payload,
                 block_value,
                 kzg_commitments,
-                blobs,
-                proofs,
-            } => (payload, Some(kzg_commitments), blobs, proofs, block_value),
+                blobs_and_proofs,
+            } => (
+                payload,
+                Some(kzg_commitments),
+                blobs_and_proofs,
+                block_value,
+            ),
         }
     }
 
