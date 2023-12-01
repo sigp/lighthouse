@@ -1705,7 +1705,7 @@ impl<T: EthSpec> SignedBlockContents<T> {
     }
 }
 
-/// Converting from a Blinded
+/// Converting from a `SignedBlindedBeaconBlock` into a full `SignedBlockContents`.
 pub fn into_full_block_and_blobs<T: EthSpec>(
     blinded_block: SignedBlindedBeaconBlock<T>,
     maybe_full_payload_contents: Option<FullPayloadContents<T>>,
