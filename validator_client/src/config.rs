@@ -1,3 +1,4 @@
+use crate::beacon_node_fallback::ApiTopic;
 use crate::graffiti_file::GraffitiFile;
 use crate::{beacon_node_fallback, http_api, http_metrics};
 use clap::ArgMatches;
@@ -13,7 +14,6 @@ use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
@@ -71,10 +71,8 @@ pub struct Config {
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
-    /// Delay from the start of the slot to wait before publishing a block.
-    ///
-    /// This is *not* recommended in prod and should only be used for testing.
-    pub block_delay: Option<Duration>,
+    /// Enables broadcasting of various requests (by topic) to all beacon nodes.
+    pub broadcast_topics: Vec<ApiTopic>,
     /// Enables a service which attempts to measure latency between the VC and BNs.
     pub enable_latency_measurement_service: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
@@ -114,10 +112,10 @@ impl Default for Config {
             enable_doppelganger_protection: false,
             enable_high_validator_count_metrics: false,
             beacon_nodes_tls_certs: None,
-            block_delay: None,
             builder_proposals: false,
             builder_registration_timestamp_override: None,
             gas_limit: None,
+            broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
         }
@@ -171,27 +169,6 @@ impl Config {
                 .collect::<Result<_, _>>()
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
-        // To be deprecated.
-        else if let Some(beacon_node) = parse_optional::<String>(cli_args, "beacon-node")? {
-            warn!(
-                log,
-                "The --beacon-node flag is deprecated";
-                "msg" => "please use --beacon-nodes instead"
-            );
-            config.beacon_nodes = vec![SensitiveUrl::parse(&beacon_node)
-                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
-        }
-        // To be deprecated.
-        else if let Some(server) = parse_optional::<String>(cli_args, "server")? {
-            warn!(
-                log,
-                "The --server flag is deprecated";
-                "msg" => "please use --beacon-nodes instead"
-            );
-            config.beacon_nodes = vec![SensitiveUrl::parse(&server)
-                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
-        }
-
         if let Some(proposer_nodes) = parse_optional::<String>(cli_args, "proposer_nodes")? {
             config.proposer_nodes = proposer_nodes
                 .split(',')
@@ -200,21 +177,6 @@ impl Config {
                 .map_err(|e| format!("Unable to parse proposer node URL: {:?}", e))?;
         }
 
-        if cli_args.is_present("delete-lockfiles") {
-            warn!(
-                log,
-                "The --delete-lockfiles flag is deprecated";
-                "msg" => "it is no longer necessary, and no longer has any effect",
-            );
-        }
-
-        if cli_args.is_present("allow-unsynced") {
-            warn!(
-                log,
-                "The --allow-unsynced flag is deprecated";
-                "msg" => "it no longer has any effect",
-            );
-        }
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
         config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
@@ -255,6 +217,26 @@ impl Config {
 
         if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
             config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
+        }
+
+        if cli_args.is_present("disable-run-on-all") {
+            warn!(
+                log,
+                "The --disable-run-on-all flag is deprecated";
+                "msg" => "please use --broadcast instead"
+            );
+            config.broadcast_topics = vec![];
+        }
+        if let Some(broadcast_topics) = cli_args.value_of("broadcast") {
+            config.broadcast_topics = broadcast_topics
+                .split(',')
+                .filter(|t| *t != "none")
+                .map(|t| {
+                    t.trim()
+                        .parse::<ApiTopic>()
+                        .map_err(|_| format!("Unknown API topic to broadcast: {t}"))
+                })
+                .collect::<Result<_, _>>()?;
         }
 
         /*
@@ -411,14 +393,6 @@ impl Config {
             );
         }
 
-        if cli_args.is_present("strict-fee-recipient") {
-            warn!(
-                log,
-                "The flag `--strict-fee-recipient` has been deprecated due to a bug causing \
-                missed proposals. The flag will be ignored."
-            );
-        }
-
         config.enable_latency_measurement_service =
             parse_optional(cli_args, "latency-measurement-service")?.unwrap_or(true);
 
@@ -426,13 +400,6 @@ impl Config {
             parse_required(cli_args, "validator-registration-batch-size")?;
         if config.validator_registration_batch_size == 0 {
             return Err("validator-registration-batch-size cannot be 0".to_string());
-        }
-
-        /*
-         * Experimental
-         */
-        if let Some(delay_ms) = parse_optional::<u64>(cli_args, "block-delay-ms")? {
-            config.block_delay = Some(Duration::from_millis(delay_ms));
         }
 
         Ok(config)

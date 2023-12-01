@@ -22,6 +22,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use strum::{EnumString, EnumVariantNames};
 use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, Config as ConfigSpec, EthSpec, Slot};
 
@@ -342,9 +343,9 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 #[derive(Clone, Debug)]
 pub struct BeaconNodeFallback<T, E> {
     pub candidates: Arc<RwLock<Vec<CandidateBeaconNode<E>>>>,
-    disable_run_on_all: bool,
     distance_tiers: BeaconNodeSyncDistanceTiers,
     slot_clock: Option<T>,
+    broadcast_topics: Vec<ApiTopic>,
     spec: ChainSpec,
     log: Logger,
 }
@@ -353,15 +354,16 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub fn new(
         candidates: Vec<CandidateBeaconNode<E>>,
         config: Config,
+        broadcast_topics: Vec<ApiTopic>,
         spec: ChainSpec,
         log: Logger,
     ) -> Self {
         let distance_tiers = BeaconNodeSyncDistanceTiers::from_config(&config);
         Self {
             candidates: Arc::new(RwLock::new(candidates)),
-            disable_run_on_all: config.disable_run_on_all,
             distance_tiers,
             slot_clock: None,
+            broadcast_topics,
             spec,
             log,
         }
@@ -587,7 +589,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// It returns a list of errors along with the beacon node id that failed for `func`.
     /// Since this ignores the actual result of `func`, this function should only be used for beacon
     /// node calls whose results we do not care about, only that they completed successfully.
-    pub async fn run_on_all<F, O, Err, R>(&self, func: F) -> Result<(), Errors<Err>>
+    pub async fn broadcast<F, O, Err, R>(&self, func: F) -> Result<(), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
@@ -635,19 +637,36 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     }
 
     /// Call `func` on first beacon node that returns success or on all beacon nodes
-    /// depending on the value of `disable_run_on_all`.
-    pub async fn run<F, Err, R>(&self, func: F) -> Result<(), Errors<Err>>
+    /// depending on the `topic` and configuration.
+    pub async fn request<F, Err, R>(&self, topic: ApiTopic, func: F) -> Result<(), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<(), Err>>,
         Err: Debug,
     {
-        if self.disable_run_on_all {
+        if self.broadcast_topics.contains(&topic) {
+            self.broadcast(func).await
+        } else {
             self.first_success(func).await?;
             Ok(())
-        } else {
-            self.run_on_all(func).await
         }
+    }
+}
+
+/// Serves as a cue for `BeaconNodeFallback` to tell which requests need to be broadcasted.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, EnumString, EnumVariantNames)]
+#[strum(serialize_all = "kebab-case")]
+pub enum ApiTopic {
+    Attestations,
+    Blocks,
+    Subscriptions,
+    SyncCommittee,
+}
+
+impl ApiTopic {
+    pub fn all() -> Vec<ApiTopic> {
+        use ApiTopic::*;
+        vec![Attestations, Blocks, Subscriptions, SyncCommittee]
     }
 }
 
@@ -657,9 +676,21 @@ mod tests {
     use crate::beacon_node_health::BeaconNodeHealthTier;
     use crate::SensitiveUrl;
     use eth2::Timeouts;
+    use std::str::FromStr;
+    use strum::VariantNames;
     use types::{MainnetEthSpec, Slot};
 
     type E = MainnetEthSpec;
+
+    #[test]
+    fn api_topic_all() {
+        let all = ApiTopic::all();
+        assert_eq!(all.len(), ApiTopic::VARIANTS.len());
+        assert!(ApiTopic::VARIANTS
+            .iter()
+            .map(|topic| ApiTopic::from_str(topic).unwrap())
+            .eq(all.into_iter()));
+    }
 
     #[test]
     fn check_candidate_order() {

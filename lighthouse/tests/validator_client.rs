@@ -1,4 +1,4 @@
-use validator_client::Config;
+use validator_client::{ApiTopic, Config};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
@@ -99,12 +99,6 @@ fn beacon_nodes_flag() {
             );
             assert_eq!(config.beacon_nodes[1].to_string(), "https://infura.io/");
         });
-}
-
-#[test]
-fn allow_unsynced_flag() {
-    // No-op, but doesn't crash.
-    CommandLineTest::new().flag("allow-unsynced", None).run();
 }
 
 #[test]
@@ -428,24 +422,6 @@ fn no_doppelganger_protection_flag() {
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
 #[test]
-fn block_delay_ms() {
-    CommandLineTest::new()
-        .flag("block-delay-ms", Some("2000"))
-        .run()
-        .with_config(|config| {
-            assert_eq!(
-                config.block_delay,
-                Some(std::time::Duration::from_millis(2000))
-            )
-        });
-}
-#[test]
-fn no_block_delay_ms() {
-    CommandLineTest::new()
-        .run()
-        .with_config(|config| assert_eq!(config.block_delay, None));
-}
-#[test]
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
@@ -503,16 +479,57 @@ fn monitoring_endpoint() {
 fn disable_run_on_all_default() {
     CommandLineTest::new().run().with_config(|config| {
         assert!(!config.beacon_node_fallback.disable_run_on_all);
+        assert_eq!(config.broadcast_topics, vec![]);
+    });
+    // --broadcast flag takes precedence
+    CommandLineTest::new()
+        .flag("disable-run-on-all", None)
+        .flag("broadcast", Some("attestations"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
+        });
+}
+
+#[test]
+fn no_broadcast_flag() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.broadcast_topics, vec![ApiTopic::Subscriptions]);
     });
 }
 
 #[test]
-fn disable_run_on_all() {
+fn broadcast_flag() {
+    // "none" variant
     CommandLineTest::new()
-        .flag("disable-run-on-all", None)
+        .flag("broadcast", Some("none"))
         .run()
         .with_config(|config| {
-            assert!(config.beacon_node_fallback.disable_run_on_all);
+            assert_eq!(config.broadcast_topics, vec![]);
+        });
+    // "none" with other values is ignored
+    CommandLineTest::new()
+        .flag("broadcast", Some("none,sync-committee"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::SyncCommittee]);
+        });
+    // Other valid variants
+    CommandLineTest::new()
+        .flag("broadcast", Some("blocks, subscriptions"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.broadcast_topics,
+                vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
+            );
+        });
+    // Omitted "subscription" overrides default
+    CommandLineTest::new()
+        .flag("broadcast", Some("attestations"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
         });
 }
 
@@ -548,6 +565,21 @@ fn beacon_node_medium_sync_distance_modifier_flag() {
                 config.beacon_node_fallback.medium_sync_distance_modifier,
                 Some(32)
             );
+        });
+}
+
+#[test]
+#[should_panic(expected = "Unknown API topic")]
+fn wrong_broadcast_flag() {
+    CommandLineTest::new()
+        .flag("broadcast", Some("foo, subscriptions"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                            config.broadcast_topics,
+                            vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
+            >>>>>>> unstable
+                        );
         });
 }
 

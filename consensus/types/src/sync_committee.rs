@@ -1,5 +1,4 @@
 use crate::test_utils::TestRandom;
-use crate::typenum::Unsigned;
 use crate::{EthSpec, FixedVector, SyncSubnetId};
 use bls::PublicKeyBytes;
 use safe_arith::{ArithError, SafeArith};
@@ -46,14 +45,11 @@ pub struct SyncCommittee<T: EthSpec> {
 
 impl<T: EthSpec> SyncCommittee<T> {
     /// Create a temporary sync committee that should *never* be included in a legitimate consensus object.
-    pub fn temporary() -> Result<Self, ssz_types::Error> {
-        Ok(Self {
-            pubkeys: FixedVector::new(vec![
-                PublicKeyBytes::empty();
-                T::SyncCommitteeSize::to_usize()
-            ])?,
+    pub fn temporary() -> Self {
+        Self {
+            pubkeys: FixedVector::from_elem(PublicKeyBytes::empty()),
             aggregate_pubkey: PublicKeyBytes::empty(),
-        })
+        }
     }
 
     /// Return the pubkeys in this `SyncCommittee` for the given `subcommittee_index`.

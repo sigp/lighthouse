@@ -1,6 +1,8 @@
 use crate::beacon_node_fallback::{Error as FallbackError, Errors};
 use crate::{
-    beacon_node_fallback::BeaconNodeFallback, determine_graffiti, graffiti_file::GraffitiFile,
+    beacon_node_fallback::{ApiTopic, BeaconNodeFallback},
+    determine_graffiti,
+    graffiti_file::GraffitiFile,
 };
 use crate::{
     http_metrics::metrics,
@@ -18,7 +20,6 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio::time::sleep;
 use types::{
     AbstractExecPayload, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti, PublicKeyBytes,
     Slot,
@@ -54,7 +55,6 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    block_delay: Option<Duration>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
@@ -67,7 +67,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             context: None,
             graffiti: None,
             graffiti_file: None,
-            block_delay: None,
         }
     }
 
@@ -106,11 +105,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn block_delay(mut self, block_delay: Option<Duration>) -> Self {
-        self.block_delay = block_delay;
-        self
-    }
-
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -129,7 +123,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                 proposer_nodes: self.proposer_nodes,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
-                block_delay: self.block_delay,
             }),
         })
     }
@@ -144,31 +137,29 @@ pub struct ProposerFallback<T, E: EthSpec> {
 
 impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
     // Try `func` on `self.proposer_nodes` first. If that doesn't work, try `self.beacon_nodes`.
-    pub async fn first_success_try_proposers_first<F, O, Err, R>(
-        &self,
-        func: F,
-    ) -> Result<O, Errors<Err>>
+    pub async fn request_proposers_first<F, Err, R>(&self, func: F) -> Result<(), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R + Clone,
-        R: Future<Output = Result<O, Err>>,
+        R: Future<Output = Result<(), Err>>,
         Err: Debug,
     {
         // If there are proposer nodes, try calling `func` on them and return early if they are successful.
         if let Some(proposer_nodes) = &self.proposer_nodes {
-            if let Ok(result) = proposer_nodes.first_success(func.clone()).await {
-                return Ok(result);
+            if proposer_nodes
+                .request(ApiTopic::Blocks, func.clone())
+                .await
+                .is_ok()
+            {
+                return Ok(());
             }
         }
 
         // If the proposer nodes failed, try on the non-proposer nodes.
-        self.beacon_nodes.first_success(func).await
+        self.beacon_nodes.request(ApiTopic::Blocks, func).await
     }
 
     // Try `func` on `self.beacon_nodes` first. If that doesn't work, try `self.proposer_nodes`.
-    pub async fn first_success_try_proposers_last<F, O, Err, R>(
-        &self,
-        func: F,
-    ) -> Result<O, Errors<Err>>
+    pub async fn request_proposers_last<F, O, Err, R>(&self, func: F) -> Result<O, Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R + Clone,
         R: Future<Output = Result<O, Err>>,
@@ -197,7 +188,6 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    block_delay: Option<Duration>,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -241,18 +231,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         executor.spawn(
             async move {
                 while let Some(notif) = notification_rx.recv().await {
-                    let service = self.clone();
-
-                    if let Some(delay) = service.block_delay {
-                        debug!(
-                            service.context.log(),
-                            "Delaying block production by {}ms",
-                            delay.as_millis()
-                        );
-                        sleep(delay).await;
-                    }
-
-                    service.do_update(notif).await.ok();
+                    self.do_update(notif).await.ok();
                 }
                 debug!(log, "Block service shutting down");
             },
@@ -457,8 +436,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // Try the proposer nodes last, since it's likely that they don't have a
         // great view of attestations on the network.
         let block_contents = proposer_fallback
-            .first_success_try_proposers_last(|beacon_node| {
-                let beacon_node = beacon_node;
+            .request_proposers_last(move |beacon_node| {
                 Self::get_validator_block(
                     beacon_node,
                     slot,
@@ -547,8 +525,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // protect them from DoS attacks and they're most likely to successfully
         // publish a block.
         proposer_fallback
-            .first_success_try_proposers_first(|beacon_node| async {
-                let beacon_node = beacon_node;
+            .request_proposers_first(|beacon_node| async {
                 self.publish_signed_block_contents::<Payload>(&signed_block_contents, beacon_node)
                     .await
             })

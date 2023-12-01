@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::BeaconNodeFallback;
+use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use crate::{
     duties_service::{DutiesService, DutyAndProof},
     http_metrics::metrics,
@@ -428,7 +428,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         // Post the attestations to the BN.
         match self
             .beacon_nodes
-            .first_success(|beacon_node| async move {
+            .request(ApiTopic::Attestations, |beacon_node| async move {
                 let _timer = metrics::start_timer_vec(
                     &metrics::ATTESTATION_SERVICE_TIMES,
                     &[metrics::ATTESTATIONS_HTTP_POST],
