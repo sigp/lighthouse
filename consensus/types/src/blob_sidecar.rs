@@ -6,6 +6,7 @@ use crate::{
 use crate::{KzgProofs, SignedBeaconBlock};
 use bls::Signature;
 use derivative::Derivative;
+use itertools::izip;
 use kzg::{
     Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT,
     FIELD_ELEMENTS_PER_BLOB,
@@ -124,33 +125,41 @@ impl From<ArithError> for BlobSidecarError {
 }
 
 impl<T: EthSpec> BlobSidecar<T> {
-    pub fn new(
-        index: usize,
-        blob: Blob<T>,
-        signed_block: &SignedBeaconBlock<T>,
-        kzg_proof: KzgProof,
-    ) -> Result<Self, BlobSidecarError> {
-        let expected_kzg_commitments = signed_block
+    /// Build a list of `BlobSidecar`s given blobs, proofs and the `SignedBeaconBlock`.
+    ///
+    /// Since all inclusion proofs share a common top half of the merkle branches, it's faster
+    /// to compute it only once.
+    pub fn build_sidecars(
+        blobs: BlobsList<T>,
+        block: &SignedBeaconBlock<T>,
+        kzg_proofs: KzgProofs<T>,
+    ) -> Result<BlobSidecarList<T>, BlobSidecarError> {
+        let mut blob_sidecars = vec![];
+        let inclusion_proofs = block.message().body().kzg_commitment_inclusion_proofs()?;
+        let signed_block_header = block.signed_block_header();
+        let kzg_commitments = block
             .message()
             .body()
             .blob_kzg_commitments()
-            .map_err(|_e| BlobSidecarError::PreDeneb)?;
-        let kzg_commitment = *expected_kzg_commitments
-            .get(index)
-            .ok_or(BlobSidecarError::MissingKzgCommitment)?;
-        let kzg_commitment_inclusion_proof = signed_block
-            .message()
-            .body()
-            .kzg_commitment_merkle_proof(index)?;
-
-        Ok(Self {
-            index: index as u64,
-            blob,
-            kzg_commitment,
-            kzg_proof,
-            signed_block_header: signed_block.signed_block_header(),
-            kzg_commitment_inclusion_proof,
-        })
+            .map_err(|_| BlobSidecarError::MissingKzgCommitment)?;
+        for (index, blob, kzg_commitment, kzg_proof, kzg_commitment_inclusion_proof) in izip!(
+            0..blobs.len(),
+            blobs,
+            kzg_commitments,
+            kzg_proofs,
+            inclusion_proofs
+        ) {
+            let blob_sidecar = BlobSidecar {
+                index: index as u64,
+                blob,
+                kzg_commitment: *kzg_commitment,
+                kzg_proof,
+                signed_block_header: signed_block_header.clone(),
+                kzg_commitment_inclusion_proof,
+            };
+            blob_sidecars.push(Arc::new(blob_sidecar));
+        }
+        Ok(VariableList::from(blob_sidecars))
     }
 
     pub fn id(&self) -> BlobIdentifier {
@@ -259,19 +268,6 @@ impl<T: EthSpec> BlobSidecar<T> {
     pub fn max_size() -> usize {
         // Fixed part
         Self::empty().as_ssz_bytes().len()
-    }
-
-    pub fn build_sidecars(
-        blobs: BlobsList<T>,
-        block: &SignedBeaconBlock<T>,
-        kzg_proofs: KzgProofs<T>,
-    ) -> Result<BlobSidecarList<T>, BlobSidecarError> {
-        let mut blob_sidecars = vec![];
-        for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
-            let blob_sidecar = BlobSidecar::new(i, blob, block, *kzg_proof)?;
-            blob_sidecars.push(Arc::new(blob_sidecar));
-        }
-        Ok(VariableList::from(blob_sidecars))
     }
 }
 

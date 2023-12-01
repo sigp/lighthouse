@@ -207,6 +207,11 @@ fn update_blob_signed_header<E: EthSpec>(
     signed_block: &SignedBeaconBlock<E>,
     blobs: &mut BlobSidecarList<E>,
 ) {
+    let new_inclusion_proofs = signed_block
+        .message()
+        .body()
+        .kzg_commitment_inclusion_proofs()
+        .unwrap();
     for old_blob_sidecar in blobs.iter_mut() {
         let new_blob = Arc::new(BlobSidecar::<E> {
             index: old_blob_sidecar.index,
@@ -214,11 +219,10 @@ fn update_blob_signed_header<E: EthSpec>(
             kzg_commitment: old_blob_sidecar.kzg_commitment,
             kzg_proof: old_blob_sidecar.kzg_proof,
             signed_block_header: signed_block.signed_block_header(),
-            kzg_commitment_inclusion_proof: signed_block
-                .message()
-                .body()
-                .kzg_commitment_merkle_proof(old_blob_sidecar.index as usize)
-                .unwrap(),
+            kzg_commitment_inclusion_proof: new_inclusion_proofs
+                .get(old_blob_sidecar.index as usize)
+                .unwrap()
+                .clone(),
         });
         *old_blob_sidecar = new_blob;
     }

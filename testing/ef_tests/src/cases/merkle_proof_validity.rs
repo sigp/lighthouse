@@ -123,11 +123,12 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
 
 impl<E: EthSpec> Case for KzgInclusionMerkleProofValidity<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-        let Ok(proof) = self.block.to_ref().kzg_commitment_merkle_proof(0) else {
+        let Ok(proofs) = self.block.to_ref().kzg_commitment_inclusion_proofs() else {
             return Err(Error::FailedToParseTest(
                 "Could not retrieve merkle proof".to_string(),
             ));
         };
+        let proof = &proofs[0];
         let proof_len = proof.len();
         let branch_len = self.merkle_proof.branch.len();
         if proof_len != branch_len {

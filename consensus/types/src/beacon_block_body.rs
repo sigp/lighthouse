@@ -104,51 +104,15 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
         }
     }
 
-    /// Produces the proof of inclusion for a `KzgCommitment` in `self.blob_kzg_commitments`
-    /// at `index`.
-    pub fn kzg_commitment_merkle_proof(
-        &self,
-        index: usize,
-    ) -> Result<FixedVector<Hash256, T::KzgCommitmentInclusionProofDepth>, Error> {
+    /// Merkle tree branches for `BeaconBlockBody` container.
+    ///
+    /// This part of the proof is common for all commitment indices.
+    fn kzg_commitments_body_proof(&self) -> Result<Vec<Hash256>, Error> {
         match self {
             Self::Base(_) | Self::Altair(_) | Self::Merge(_) | Self::Capella(_) => {
                 Err(Error::IncorrectStateVariant)
             }
             Self::Deneb(body) => {
-                // We compute the branches by generating 2 merkle trees:
-                // 1. Merkle tree for the `blob_kzg_commitments` List object
-                // 2. Merkle tree for the `BeaconBlockBody` container
-                // We then merge the branches for both the trees all the way up to the root.
-
-                // Part1 (Branches for the subtree rooted at `blob_kzg_commitments`)
-                //
-                // Branches for `blob_kzg_commitments` without length mix-in
-                let depth = T::max_blob_commitments_per_block()
-                    .next_power_of_two()
-                    .ilog2();
-                let leaves: Vec<_> = body
-                    .blob_kzg_commitments
-                    .iter()
-                    .map(|commitment| commitment.tree_hash_root())
-                    .collect();
-                let tree = MerkleTree::create(&leaves, depth as usize);
-                let (_, mut proof) = tree
-                    .generate_proof(index, depth as usize)
-                    .map_err(Error::MerkleTreeError)?;
-
-                // Add the branch corresponding to the length mix-in.
-                let length = body.blob_kzg_commitments.len();
-                let usize_len = std::mem::size_of::<usize>();
-                let mut length_bytes = [0; BYTES_PER_CHUNK];
-                length_bytes
-                    .get_mut(0..usize_len)
-                    .ok_or(Error::MerkleTreeError(MerkleTreeError::PleaseNotifyTheDevs))?
-                    .copy_from_slice(&length.to_le_bytes());
-                let length_root = Hash256::from_slice(length_bytes.as_slice());
-                proof.push(length_root);
-
-                // Part 2
-                // Branches for `BeaconBlockBody` container
                 let leaves = [
                     body.randao_reveal.tree_hash_root(),
                     body.eth1_data.tree_hash_root(),
@@ -168,11 +132,66 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 let (_, mut proof_body) = tree
                     .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, beacon_block_body_depth)
                     .map_err(Error::MerkleTreeError)?;
-                // Join the proofs for the subtree and the main tree
-                proof.append(&mut proof_body);
+                Ok(proof_body)
+            }
+        }
+    }
 
-                debug_assert_eq!(proof.len(), T::kzg_proof_inclusion_proof_depth());
-                Ok(proof.into())
+    /// Produces the proof of inclusion for a `KzgCommitment` in `self.blob_kzg_commitments`
+    /// for all indices.
+    ///
+    /// Note: For non-testing paths, we always require proofs for each index to be generated.
+    /// Since the branches for the `BeaconBlockBody` ssz container are shared across inclusion proofs
+    /// for each index, we can compute the more expensive top half branches just once.
+    pub fn kzg_commitment_inclusion_proofs(
+        &self,
+    ) -> Result<Vec<FixedVector<Hash256, T::KzgCommitmentInclusionProofDepth>>, Error> {
+        match self {
+            Self::Base(_) | Self::Altair(_) | Self::Merge(_) | Self::Capella(_) => {
+                Err(Error::IncorrectStateVariant)
+            }
+            Self::Deneb(body) => {
+                let mut proofs = Vec::with_capacity(body.blob_kzg_commitments.len());
+                // We compute the branches by generating 2 merkle trees:
+                // 1. Merkle tree for the `BeaconBlockBody` container
+                // 2. Merkle tree for the `blob_kzg_commitments` List object
+                // We then merge the branches for both the trees all the way up to the root.
+
+                // Part 1: Branches for the `BeaconBlockBody` container
+                let mut proof_body = self.kzg_commitments_body_proof()?;
+
+                let depth = T::max_blob_commitments_per_block()
+                    .next_power_of_two()
+                    .ilog2();
+                let leaves: Vec<_> = body
+                    .blob_kzg_commitments
+                    .iter()
+                    .map(|commitment| commitment.tree_hash_root())
+                    .collect();
+
+                // Add the branch corresponding to the length mix-in.
+                let length = body.blob_kzg_commitments.len();
+                let usize_len = std::mem::size_of::<usize>();
+                let mut length_bytes = [0; BYTES_PER_CHUNK];
+                length_bytes
+                    .get_mut(0..usize_len)
+                    .ok_or(Error::MerkleTreeError(MerkleTreeError::PleaseNotifyTheDevs))?
+                    .copy_from_slice(&length.to_le_bytes());
+                let length_root = Hash256::from_slice(length_bytes.as_slice());
+
+                for index in 0..body.blob_kzg_commitments.len() {
+                    // Part 2: Branches for the subtree rooted at `blob_kzg_commitments`
+                    let tree = MerkleTree::create(&leaves, depth as usize);
+                    let (_, mut proof) = tree
+                        .generate_proof(index, depth as usize)
+                        .map_err(Error::MerkleTreeError)?;
+                    proof.push(length_root);
+                    // Join the proofs for the subtree and the main tree
+                    proof.append(&mut proof_body);
+                    proofs.push(proof.into());
+                }
+
+                Ok(proofs)
             }
         }
     }
