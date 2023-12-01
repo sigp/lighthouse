@@ -45,7 +45,7 @@ impl<E: EthSpec> Default for ObservedBlobSidecars<E> {
 }
 
 impl<T: EthSpec> ObservedBlobSidecars<T> {
-    /// Observe the `blob_sidecar` at (`blob_sidecar.block_root, blob_sidecar.slot`).
+    /// Observe the `blob_sidecar` at (`blob_sidecar.block_proposer_index, blob_sidecar.slot`).
     /// This will update `self` so future calls to it indicate that this `blob_sidecar` is known.
     ///
     /// The supplied `blob_sidecar` **MUST** have completed proposer signature verification.
@@ -138,7 +138,7 @@ mod tests {
         assert_eq!(
             cache.items.len(),
             1,
-            "only one (slot, root) tuple should be present"
+            "only one (validator_index, slot) tuple should be present"
         );
         assert_eq!(
             cache

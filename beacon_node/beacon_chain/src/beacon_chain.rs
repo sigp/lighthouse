@@ -5205,7 +5205,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let blobs_verification_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
-        let blob_item = match (blobs_opt, proofs_opt) {
+        let blob_items = match (blobs_opt, proofs_opt) {
             (Some(blobs), Some(proofs)) => {
                 let expected_kzg_commitments =
                     block.body().blob_kzg_commitments().map_err(|_| {
@@ -5257,7 +5257,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(BeaconBlockResponse {
             block,
             state,
-            blob_items: blob_item,
+            blob_items,
             execution_payload_value: Some(execution_payload_value),
             consensus_block_value: Some(consensus_block_value),
         })
