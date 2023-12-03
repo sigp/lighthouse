@@ -1,7 +1,7 @@
 use super::{BeaconState, EthSpec, FixedVector, Hash256, SyncCommittee};
 use crate::{
     light_client_header::{
-        LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderAltair,
+        LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
     },
     light_client_update::*,
     ChainSpec, ForkName, ForkVersionDeserialize, LightClientHeader, SignedBeaconBlock,
@@ -57,7 +57,7 @@ impl<T: EthSpec> LightClientBootstrap<T> {
         };
 
         Ok(LightClientBootstrap {
-            header: LightClientHeaderAltair::new(block)?.into(),
+            header: LightClientHeaderAltair::block_to_light_client_header(block)?.into(),
             current_sync_committee: beacon_state.current_sync_committee()?.clone(),
             current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
         })

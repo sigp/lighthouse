@@ -2,7 +2,7 @@ use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregat
 use crate::{
     beacon_state,
     light_client_header::{
-        LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderAltair,
+        LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
     },
     BeaconBlock, BeaconState, ChainSpec, ForkName, ForkVersionDeserialize, LightClientHeader,
     SignedBeaconBlock,
@@ -134,10 +134,16 @@ impl<T: EthSpec> LightClientUpdate<T> {
         if let Some(deneb_fork_epoch) = chain_spec.deneb_fork_epoch {
             if beacon_state.slot().epoch(T::slots_per_epoch()) >= deneb_fork_epoch {
                 return Ok(Self {
-                    attested_header: LightClientHeaderDeneb::new(attested_block)?.into(),
+                    attested_header: LightClientHeaderDeneb::block_to_light_client_header(
+                        attested_block,
+                    )?
+                    .into(),
                     next_sync_committee: attested_state.next_sync_committee()?.clone(),
                     next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
-                    finalized_header: LightClientHeaderDeneb::new(finalized_block)?.into(),
+                    finalized_header: LightClientHeaderDeneb::block_to_light_client_header(
+                        finalized_block,
+                    )?
+                    .into(),
                     finality_branch: FixedVector::new(finality_branch)?,
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block.slot(),
@@ -148,10 +154,16 @@ impl<T: EthSpec> LightClientUpdate<T> {
         if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
             if beacon_state.slot().epoch(T::slots_per_epoch()) >= capella_fork_epoch {
                 return Ok(Self {
-                    attested_header: LightClientHeaderCapella::new(attested_block)?.into(),
+                    attested_header: LightClientHeaderCapella::block_to_light_client_header(
+                        attested_block,
+                    )?
+                    .into(),
                     next_sync_committee: attested_state.next_sync_committee()?.clone(),
                     next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
-                    finalized_header: LightClientHeaderCapella::new(finalized_block)?.into(),
+                    finalized_header: LightClientHeaderCapella::block_to_light_client_header(
+                        finalized_block,
+                    )?
+                    .into(),
                     finality_branch: FixedVector::new(finality_branch)?,
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block.slot(),
@@ -160,10 +172,14 @@ impl<T: EthSpec> LightClientUpdate<T> {
         };
 
         Ok(Self {
-            attested_header: LightClientHeaderAltair::new(attested_block)?.into(),
+            attested_header: LightClientHeaderAltair::block_to_light_client_header(attested_block)?
+                .into(),
             next_sync_committee: attested_state.next_sync_committee()?.clone(),
             next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
-            finalized_header: LightClientHeaderAltair::new(finalized_block)?.into(),
+            finalized_header: LightClientHeaderAltair::block_to_light_client_header(
+                finalized_block,
+            )?
+            .into(),
             finality_branch: FixedVector::new(finality_branch)?,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
