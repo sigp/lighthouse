@@ -14,7 +14,7 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
 #[superstruct(
-    variants(Merge, Capella, Deneb),
+    variants(Altair, Capella, Deneb),
     variant_attributes(
         derive(
             Default,
@@ -53,9 +53,9 @@ pub struct LightClientHeader<E: EthSpec> {
     pub phantom_data: PhantomData<E>,
 }
 
-impl<E: EthSpec> LightClientHeaderMerge<E> {
+impl<E: EthSpec> LightClientHeaderAltair<E> {
     pub fn new(block: SignedBeaconBlock<E>) -> Result<Self, Error> {
-        Ok(LightClientHeaderMerge {
+        Ok(LightClientHeaderAltair {
             beacon: block.message().block_header(),
             phantom_data: PhantomData,
         })

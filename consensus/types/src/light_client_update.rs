@@ -2,7 +2,7 @@ use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregat
 use crate::{
     beacon_state,
     light_client_header::{
-        LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderMerge,
+        LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderAltair,
     },
     BeaconBlock, BeaconState, ChainSpec, ForkName, ForkVersionDeserialize, LightClientHeader,
     SignedBeaconBlock,
@@ -160,10 +160,10 @@ impl<T: EthSpec> LightClientUpdate<T> {
         };
 
         Ok(Self {
-            attested_header: LightClientHeaderMerge::new(attested_block)?.into(),
+            attested_header: LightClientHeaderAltair::new(attested_block)?.into(),
             next_sync_committee: attested_state.next_sync_committee()?.clone(),
             next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
-            finalized_header: LightClientHeaderMerge::new(finalized_block)?.into(),
+            finalized_header: LightClientHeaderAltair::new(finalized_block)?.into(),
             finality_branch: FixedVector::new(finality_branch)?,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
