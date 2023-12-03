@@ -360,7 +360,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 )
             }
         } else {
-            // TODO this can be deprecated post deneb
+            // TODO block v2 endpoint usage can be deprecated post deneb
             for validator_pubkey in proposers {
                 let builder_proposals = self
                     .validator_store
