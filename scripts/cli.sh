@@ -19,19 +19,7 @@ write_to_file() {
     printf "# %s\n\n\`\`\`\n%s\n\`\`\`" "$program" "$cmd" > "$file"
 }
 
-# Check if a lighthouse binary exists in the current branch.
-# -f means check if the file exists, to see all options, type "bash test" in a terminal
-release=./target/release/lighthouse
-debug=./target/debug/lighthouse
-if [[ -f "$release" ]]; then
-    CMD="$release"
-elif [[ -f "$debug" ]]; then
-    CMD="$debug"
-else
-    # No binary exists, build it.
-    cargo build --locked
-    CMD="$debug"
-fi
+CMD=./target/release/lighthouse
 
 # Store all help strings in variables.
 general_cli=$($CMD --help)
