@@ -366,7 +366,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     .validator_store
                     .get_builder_proposals(&validator_pubkey);
                 let service = self.clone();
-                let log = log.clone();
                 self.inner.context.executor.spawn(
                     async move {
                         if builder_proposals {
@@ -560,7 +559,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::BEACON_BLOCK]);
 
         let current_slot = self.slot_clock.now().ok_or_else(|| {
-            BlockError::Recoverable("Unable to determine current slot from clock".to_string())
+            BlockError::Irrecoverable("Unable to determine current slot from clock".to_string())
         })?;
 
         let randao_reveal = match self
@@ -582,7 +581,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 return Ok(());
             }
             Err(e) => {
-                return Err(BlockError::Recoverable(format!(
+                return Err(BlockError::Irrecoverable(format!(
                     "Unable to produce randao reveal signature: {:?}",
                     e
                 )))
@@ -626,7 +625,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         .get_validator_blocks_v3::<E>(slot, randao_reveal_ref, graffiti.as_ref())
                         .await
                         .map_err(|e| {
-                            BlockError::Recoverable(format!(
+                            BlockError::Irrecoverable(format!(
                                 "Error from beacon node when producing block: {:?}",
                                 e
                             ))
