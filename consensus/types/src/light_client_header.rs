@@ -1,13 +1,12 @@
 use crate::beacon_block_body::NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES;
-use crate::{light_client_update::*, BeaconBlockBody, ChainSpec};
+use crate::BeaconBlockHeader;
+use crate::{light_client_update::*, BeaconBlockBody};
 use crate::{
-    test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, FixedVector, Hash256, SignedBeaconBlock,
+    test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
+    FixedVector, Hash256, SignedBeaconBlock,
 };
-use crate::{BeaconBlockHeader, ExecutionPayload};
 use merkle_proof::verify_merkle_proof;
 use serde::{Deserialize, Serialize};
-use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use superstruct::superstruct;
@@ -62,12 +61,14 @@ impl<E: EthSpec> LightClientHeaderMerge<E> {
         })
     }
 
+    #[allow(dead_code)]
     fn get_lc_execution_root(&self) -> Option<Hash256> {
-        return None;
+        None
     }
 
+    #[allow(dead_code)]
     fn is_valid_light_client_header(&self) -> Result<bool, Error> {
-        return Ok(true);
+        Ok(true)
     }
 }
 
@@ -98,10 +99,12 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
         });
     }
 
+    #[allow(dead_code)]
     fn get_lc_execution_root(&self) -> Option<Hash256> {
-        return Some(self.execution.tree_hash_root());
+        Some(self.execution.tree_hash_root())
     }
 
+    #[allow(dead_code)]
     fn is_valid_light_client_header(&self) -> Result<bool, Error> {
         let Some(execution_root) = self.get_lc_execution_root() else {
             return Ok(false);
@@ -150,10 +153,12 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
         })
     }
 
+    #[allow(dead_code)]
     fn get_lc_execution_root(&self) -> Option<Hash256> {
-        return Some(self.execution.tree_hash_root());
+        Some(self.execution.tree_hash_root())
     }
 
+    #[allow(dead_code)]
     fn is_valid_light_client_header(&self) -> Result<bool, Error> {
         let Some(execution_root) = self.get_lc_execution_root() else {
             return Ok(false);

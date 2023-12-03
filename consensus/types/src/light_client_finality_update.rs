@@ -1,32 +1,12 @@
-use super::{
-    EthSpec, FixedVector, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot, SyncAggregate,
-};
-use crate::{
-    light_client_header::{
-        LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderMerge,
-    },
-    light_client_update::*,
-    test_utils::TestRandom,
-    BeaconState, ChainSpec, ForkName, ForkVersionDeserialize, LightClientHeader,
-};
+use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate};
+use crate::{light_client_update::*, ForkName, ForkVersionDeserialize, LightClientHeader};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 
 /// A LightClientFinalityUpdate is the update lightclient request or received by a gossip that
 /// signal a new finalized beacon block header for the light client sync protocol.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    arbitrary::Arbitrary,
-)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientFinalityUpdate<T: EthSpec> {
@@ -43,9 +23,7 @@ pub struct LightClientFinalityUpdate<T: EthSpec> {
 }
 
 impl<T: EthSpec> LightClientFinalityUpdate<T> {
-    pub fn new(
-        update: LightClientUpdate<T>,
-    ) -> Result<Self, Error> {
+    pub fn new(update: LightClientUpdate<T>) -> Result<Self, Error> {
         Ok(Self {
             attested_header: update.attested_header,
             finalized_header: update.finalized_header,

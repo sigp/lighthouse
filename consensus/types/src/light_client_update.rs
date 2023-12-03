@@ -1,7 +1,11 @@
 use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::{
-    beacon_state, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec, ForkName,
-    ForkVersionDeserialize, LightClientHeader, SignedBeaconBlock, light_client_header::{LightClientHeaderDeneb, LightClientHeaderCapella, LightClientHeaderMerge},
+    beacon_state,
+    light_client_header::{
+        LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderMerge,
+    },
+    BeaconBlock, BeaconState, ChainSpec, ForkName, ForkVersionDeserialize, LightClientHeader,
+    SignedBeaconBlock,
 };
 use safe_arith::ArithError;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -9,7 +13,6 @@ use serde_json::Value;
 use ssz_derive::{Decode, Encode};
 use ssz_types::typenum::{U4, U5, U6};
 use std::sync::Arc;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
 pub const FINALIZED_ROOT_INDEX: usize = 105;
@@ -61,17 +64,7 @@ impl From<ArithError> for Error {
 /// A LightClientUpdate is the update we request solely to either complete the bootstraping process,
 /// or to sync up to the last committee period, we need to have one ready for each ALTAIR period
 /// we go over, note: there is no need to keep all of the updates from [ALTAIR_PERIOD, CURRENT_PERIOD].
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
-    arbitrary::Arbitrary,
-)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientUpdate<T: EthSpec> {
@@ -139,7 +132,7 @@ impl<T: EthSpec> LightClientUpdate<T> {
         let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
 
         if let Some(deneb_fork_epoch) = chain_spec.deneb_fork_epoch {
-            if beacon_state.slot().epoch(T::slots_per_epoch()) >= deneb_fork_epoch  {
+            if beacon_state.slot().epoch(T::slots_per_epoch()) >= deneb_fork_epoch {
                 return Ok(Self {
                     attested_header: LightClientHeaderDeneb::new(attested_block)?.into(),
                     next_sync_committee: attested_state.next_sync_committee()?.clone(),
@@ -148,12 +141,12 @@ impl<T: EthSpec> LightClientUpdate<T> {
                     finality_branch: FixedVector::new(finality_branch)?,
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block.slot(),
-                })
+                });
             }
         };
 
         if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
-            if beacon_state.slot().epoch(T::slots_per_epoch()) >= capella_fork_epoch  {
+            if beacon_state.slot().epoch(T::slots_per_epoch()) >= capella_fork_epoch {
                 return Ok(Self {
                     attested_header: LightClientHeaderCapella::new(attested_block)?.into(),
                     next_sync_committee: attested_state.next_sync_committee()?.clone(),
@@ -162,7 +155,7 @@ impl<T: EthSpec> LightClientUpdate<T> {
                     finality_branch: FixedVector::new(finality_branch)?,
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block.slot(),
-                })
+                });
             }
         };
 

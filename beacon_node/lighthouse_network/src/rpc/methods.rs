@@ -574,7 +574,7 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
                 write!(
                     f,
                     "LightClientBootstrap Slot: {}",
-                    bootstrap.header.beacon.slot
+                    bootstrap.header.beacon().slot
                 )
             }
         }

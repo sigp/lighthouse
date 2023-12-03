@@ -1,28 +1,14 @@
 use super::{EthSpec, ForkName, ForkVersionDeserialize, Slot, SyncAggregate};
-use crate::LightClientUpdate;
 use crate::light_client_header::LightClientHeader;
-use crate::{
-    light_client_update::Error, test_utils::TestRandom, BeaconState, ChainSpec, SignedBeaconBlock,
-};
+use crate::light_client_update::Error;
+use crate::LightClientUpdate;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 
 /// A LightClientOptimisticUpdate is the update we send on each slot,
 /// it is based off the current unfinalized epoch is verified only against BLS signature.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
-    arbitrary::Arbitrary,
-)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientOptimisticUpdate<T: EthSpec> {
@@ -35,9 +21,7 @@ pub struct LightClientOptimisticUpdate<T: EthSpec> {
 }
 
 impl<T: EthSpec> LightClientOptimisticUpdate<T> {
-    pub fn new(
-        update: LightClientUpdate<T>,
-    ) -> Result<Self, Error> {
+    pub fn new(update: LightClientUpdate<T>) -> Result<Self, Error> {
         Ok(Self {
             attested_header: update.attested_header,
             sync_aggregate: update.sync_aggregate,
