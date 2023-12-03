@@ -39,7 +39,7 @@ impl<T: EthSpec> LightClientBootstrap<T> {
         if let Some(deneb_fork_epoch) = chain_spec.deneb_fork_epoch {
             if beacon_state.slot().epoch(T::slots_per_epoch()) >= deneb_fork_epoch {
                 return Ok(LightClientBootstrap {
-                    header: LightClientHeaderDeneb::new(block)?.into(),
+                    header: LightClientHeaderDeneb::block_to_light_client_header(block)?.into(),
                     current_sync_committee: beacon_state.current_sync_committee()?.clone(),
                     current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
                 });
@@ -49,7 +49,7 @@ impl<T: EthSpec> LightClientBootstrap<T> {
         if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
             if beacon_state.slot().epoch(T::slots_per_epoch()) >= capella_fork_epoch {
                 return Ok(LightClientBootstrap {
-                    header: LightClientHeaderCapella::new(block)?.into(),
+                    header: LightClientHeaderCapella::block_to_light_client_header(block)?.into(),
                     current_sync_committee: beacon_state.current_sync_committee()?.clone(),
                     current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
                 });
