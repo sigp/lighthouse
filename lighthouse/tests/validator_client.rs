@@ -1,4 +1,4 @@
-use validator_client::Config;
+use validator_client::{ApiTopic, Config};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
@@ -508,20 +508,78 @@ fn monitoring_endpoint() {
             assert_eq!(api_conf.update_period_secs, Some(30));
         });
 }
-#[test]
-fn disable_run_on_all_default() {
-    CommandLineTest::new().run().with_config(|config| {
-        assert!(!config.disable_run_on_all);
-    });
-}
 
 #[test]
-fn disable_run_on_all() {
+fn disable_run_on_all_flag() {
     CommandLineTest::new()
         .flag("disable-run-on-all", None)
         .run()
         .with_config(|config| {
-            assert!(config.disable_run_on_all);
+            assert_eq!(config.broadcast_topics, vec![]);
+        });
+    // --broadcast flag takes precedence
+    CommandLineTest::new()
+        .flag("disable-run-on-all", None)
+        .flag("broadcast", Some("attestations"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
+        });
+}
+
+#[test]
+fn no_broadcast_flag() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.broadcast_topics, vec![ApiTopic::Subscriptions]);
+    });
+}
+
+#[test]
+fn broadcast_flag() {
+    // "none" variant
+    CommandLineTest::new()
+        .flag("broadcast", Some("none"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![]);
+        });
+    // "none" with other values is ignored
+    CommandLineTest::new()
+        .flag("broadcast", Some("none,sync-committee"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::SyncCommittee]);
+        });
+    // Other valid variants
+    CommandLineTest::new()
+        .flag("broadcast", Some("blocks, subscriptions"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.broadcast_topics,
+                vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
+            );
+        });
+    // Omitted "subscription" overrides default
+    CommandLineTest::new()
+        .flag("broadcast", Some("attestations"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
+        });
+}
+
+#[test]
+#[should_panic(expected = "Unknown API topic")]
+fn wrong_broadcast_flag() {
+    CommandLineTest::new()
+        .flag("broadcast", Some("foo, subscriptions"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.broadcast_topics,
+                vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
+            );
         });
 }
 

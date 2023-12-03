@@ -482,6 +482,11 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     /// The KZG trusted setup used by this chain.
     pub kzg: Option<Arc<Kzg>>,
+    /// State with complete tree hash cache, ready for block production.
+    ///
+    /// NB: We can delete this once we have tree-states.
+    #[allow(clippy::type_complexity)]
+    pub block_production_state: Arc<Mutex<Option<(Hash256, BlockProductionPreState<T::EthSpec>)>>>,
 }
 
 pub enum BeaconBlockResponseType<T: EthSpec> {
@@ -4030,7 +4035,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
                 (re_org_state.pre_state, re_org_state.state_root)
             }
-            // Normal case: proposing a block atop the current head. Use the snapshot cache.
+            // Normal case: proposing a block atop the current head using the cache.
+            else if let Some((_, cached_state)) = self
+                .block_production_state
+                .lock()
+                .take()
+                .filter(|(cached_block_root, _)| *cached_block_root == head_block_root)
+            {
+                (cached_state.pre_state, cached_state.state_root)
+            }
+            // Fall back to a direct read of the snapshot cache.
             else if let Some(pre_state) = self
                 .snapshot_cache
                 .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
@@ -4038,6 +4052,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     snapshot_cache.get_state_for_block_production(head_block_root)
                 })
             {
+                warn!(
+                    self.log,
+                    "Block production cache miss";
+                    "message" => "falling back to snapshot cache clone",
+                    "slot" => slot
+                );
                 (pre_state.pre_state, pre_state.state_root)
             } else {
                 warn!(
@@ -4161,12 +4181,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(proposer_head_timer);
         let re_org_parent_block = proposer_head.parent_node.root;
 
-        // Only attempt a re-org if we hit the snapshot cache.
+        // Only attempt a re-org if we hit the block production cache or snapshot cache.
         let pre_state = self
-            .snapshot_cache
-            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .and_then(|snapshot_cache| {
-                snapshot_cache.get_state_for_block_production(re_org_parent_block)
+            .block_production_state
+            .lock()
+            .take()
+            .and_then(|(cached_block_root, state)| {
+                (cached_block_root == re_org_parent_block).then_some(state)
+            })
+            .or_else(|| {
+                warn!(
+                    self.log,
+                    "Block production cache miss";
+                    "message" => "falling back to snapshot cache during re-org",
+                    "slot" => slot,
+                    "block_root" => ?re_org_parent_block
+                );
+                self.snapshot_cache
+                    .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                    .and_then(|snapshot_cache| {
+                        snapshot_cache.get_state_for_block_production(re_org_parent_block)
+                    })
             })
             .or_else(|| {
                 debug!(
@@ -5326,15 +5361,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// This function will result in a call to `forkchoiceUpdated` on the EL if we're in the
     /// tail-end of the slot (as defined by `self.config.prepare_payload_lookahead`).
+    ///
+    /// Return `Ok(Some(head_block_root))` if this node prepared to propose at the next slot on
+    /// top of `head_block_root`.
     pub async fn prepare_beacon_proposer(
         self: &Arc<Self>,
         current_slot: Slot,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Hash256>, Error> {
         let prepare_slot = current_slot + 1;
 
         // There's no need to run the proposer preparation routine before the bellatrix fork.
         if self.slot_is_prior_to_bellatrix(prepare_slot) {
-            return Ok(());
+            return Ok(None);
         }
 
         let execution_layer = self
@@ -5347,7 +5385,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if !self.config.always_prepare_payload
             && !execution_layer.has_any_proposer_preparation_data().await
         {
-            return Ok(());
+            return Ok(None);
         }
 
         // Load the cached head and its forkchoice update parameters.
@@ -5394,7 +5432,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let Some((forkchoice_update_params, Some(pre_payload_attributes))) = maybe_prep_data else {
             // Appropriate log messages have already been logged above and in
             // `get_pre_payload_attributes`.
-            return Ok(());
+            return Ok(None);
         };
 
         // If the execution layer doesn't have any proposer data for this validator then we assume
@@ -5405,7 +5443,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .has_proposer_preparation_data(proposer)
                 .await
         {
-            return Ok(());
+            return Ok(None);
         }
 
         // Fetch payload attributes from the execution layer's cache, or compute them from scratch
@@ -5500,7 +5538,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "prepare_slot" => prepare_slot,
                 "validator" => proposer,
             );
-            return Ok(());
+            return Ok(None);
         };
 
         // If we are close enough to the proposal slot, send an fcU, which will have payload
@@ -5523,7 +5561,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await?;
         }
 
-        Ok(())
+        Ok(Some(head_root))
     }
 
     pub async fn update_execution_engine_forkchoice(
@@ -6445,6 +6483,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
         self.data_availability_checker.data_availability_boundary()
+    }
+
+    /// Gets the `LightClientBootstrap` object for a requested block root.
+    ///
+    /// Returns `None` when the state or block is not found in the database.
+    #[allow(clippy::type_complexity)]
+    pub fn get_light_client_bootstrap(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, Error> {
+        let Some((state_root, slot)) = self
+            .get_blinded_block(block_root)?
+            .map(|block| (block.state_root(), block.slot()))
+        else {
+            return Ok(None);
+        };
+
+        let Some(mut state) = self.get_state(&state_root, Some(slot))? else {
+            return Ok(None);
+        };
+
+        let fork_name = state
+            .fork_name(&self.spec)
+            .map_err(Error::InconsistentFork)?;
+
+        match fork_name {
+            ForkName::Altair | ForkName::Merge => {
+                LightClientBootstrap::from_beacon_state(&mut state)
+                    .map(|bootstrap| Some((bootstrap, fork_name)))
+                    .map_err(Error::LightClientError)
+            }
+            ForkName::Base | ForkName::Capella | ForkName::Deneb => Err(Error::UnsupportedFork),
+        }
     }
 }
 

@@ -26,15 +26,28 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true),
         )
+        // TODO remove this flag in a future release
         .arg(
             Arg::with_name("disable-run-on-all")
                 .long("disable-run-on-all")
                 .value_name("DISABLE_RUN_ON_ALL")
-                .help("By default, Lighthouse publishes attestation, sync committee subscriptions \
+                .help("DEPRECATED. Use --broadcast. \
+                       By default, Lighthouse publishes attestation, sync committee subscriptions \
                        and proposer preparation messages to all beacon nodes provided in the \
                        `--beacon-nodes flag`. This option changes that behaviour such that these \
                        api calls only go out to the first available and synced beacon node")
-                .takes_value(false)
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("broadcast")
+                .long("broadcast")
+                .value_name("API_TOPICS")
+                .help("Comma-separated list of beacon API topics to broadcast to all beacon nodes. \
+                       Possible values are: none, attestations, blocks, subscriptions, \
+                       sync-committee. Default (when flag is omitted) is to broadcast \
+                       subscriptions only."
+                )
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("validators-dir")
@@ -289,13 +302,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     immediately.")
                 .takes_value(false),
         )
+        // TODO deprecate this flag post Deneb
         .arg(
             Arg::with_name("builder-proposals")
                 .long("builder-proposals")
                 .alias("private-tx-proposals")
                 .help("If this flag is set, Lighthouse will query the Beacon Node for only block \
                     headers during proposals and will sign over headers. Useful for outsourcing \
-                    execution payload construction during proposals.")
+                    execution payload construction during proposals. If the produce-block-v3 flag is present \
+                    this flag will be ignored. This flag will also be ignored after the Deneb fork.")
                 .takes_value(false),
         )
         .arg(
@@ -333,18 +348,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     validator/register_validator request sent to the BN. This value \
                     can be reduced to avoid timeouts from builders.")
                 .default_value("500")
-                .takes_value(true),
-        )
-        /*
-         * Experimental/development options.
-         */
-        .arg(
-            Arg::with_name("block-delay-ms")
-                .long("block-delay-ms")
-                .value_name("MILLIS")
-                .hidden(true)
-                .help("Time to delay block production from the start of the slot. Should only be \
-                       used for testing.")
                 .takes_value(true),
         )
 }

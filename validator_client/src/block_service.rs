@@ -1,6 +1,6 @@
 use crate::beacon_node_fallback::{Error as FallbackError, Errors};
 use crate::{
-    beacon_node_fallback::{BeaconNodeFallback, RequireSynced},
+    beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced},
     determine_graffiti,
     graffiti_file::GraffitiFile,
     OfflineOnFailure,
@@ -21,7 +21,6 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio::time::sleep;
 use types::{
     AbstractExecPayload, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti, PublicKeyBytes,
     Slot,
@@ -57,7 +56,6 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    block_delay: Option<Duration>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
@@ -70,7 +68,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             context: None,
             graffiti: None,
             graffiti_file: None,
-            block_delay: None,
         }
     }
 
@@ -109,11 +106,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn block_delay(mut self, block_delay: Option<Duration>) -> Self {
-        self.block_delay = block_delay;
-        self
-    }
-
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -132,7 +124,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                 proposer_nodes: self.proposer_nodes,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
-                block_delay: self.block_delay,
             }),
         })
     }
@@ -147,35 +138,41 @@ pub struct ProposerFallback<T, E: EthSpec> {
 
 impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
     // Try `func` on `self.proposer_nodes` first. If that doesn't work, try `self.beacon_nodes`.
-    pub async fn first_success_try_proposers_first<'a, F, O, Err, R>(
+    pub async fn request_proposers_first<'a, F, Err, R>(
         &'a self,
         require_synced: RequireSynced,
         offline_on_failure: OfflineOnFailure,
         func: F,
-    ) -> Result<O, Errors<Err>>
+    ) -> Result<(), Errors<Err>>
     where
         F: Fn(&'a BeaconNodeHttpClient) -> R + Clone,
-        R: Future<Output = Result<O, Err>>,
+        R: Future<Output = Result<(), Err>>,
         Err: Debug,
     {
         // If there are proposer nodes, try calling `func` on them and return early if they are successful.
         if let Some(proposer_nodes) = &self.proposer_nodes {
-            if let Ok(result) = proposer_nodes
-                .first_success(require_synced, offline_on_failure, func.clone())
+            if proposer_nodes
+                .request(
+                    require_synced,
+                    offline_on_failure,
+                    ApiTopic::Blocks,
+                    func.clone(),
+                )
                 .await
+                .is_ok()
             {
-                return Ok(result);
+                return Ok(());
             }
         }
 
         // If the proposer nodes failed, try on the non-proposer nodes.
         self.beacon_nodes
-            .first_success(require_synced, offline_on_failure, func)
+            .request(require_synced, offline_on_failure, ApiTopic::Blocks, func)
             .await
     }
 
     // Try `func` on `self.beacon_nodes` first. If that doesn't work, try `self.proposer_nodes`.
-    pub async fn first_success_try_proposers_last<'a, F, O, Err, R>(
+    pub async fn request_proposers_last<'a, F, O, Err, R>(
         &'a self,
         require_synced: RequireSynced,
         offline_on_failure: OfflineOnFailure,
@@ -216,7 +213,6 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    block_delay: Option<Duration>,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -260,18 +256,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         executor.spawn(
             async move {
                 while let Some(notif) = notification_rx.recv().await {
-                    let service = self.clone();
-
-                    if let Some(delay) = service.block_delay {
-                        debug!(
-                            service.context.log(),
-                            "Delaying block production by {}ms",
-                            delay.as_millis()
-                        );
-                        sleep(delay).await;
-                    }
-
-                    service.do_update(notif).await.ok();
+                    self.do_update(notif).await.ok();
                 }
                 debug!(log, "Block service shutting down");
             },
@@ -346,6 +331,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             })
             .unwrap_or(false);
 
+        // TODO produce_block_v3 should be deprecated post deneb
         if self.validator_store.produce_block_v3() || deneb_fork_activated {
             for validator_pubkey in proposers {
                 let service: BlockService<T, E> = self.clone();
@@ -374,6 +360,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 )
             }
         } else {
+            // TODO this can be deprecated post deneb
             for validator_pubkey in proposers {
                 let builder_proposals = self
                     .validator_store
@@ -744,7 +731,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // Try the proposer nodes last, since it's likely that they don't have a
         // great view of attestations on the network.
         let block_contents = proposer_fallback
-            .first_success_try_proposers_last(
+            .request_proposers_last(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 move |beacon_node| {
