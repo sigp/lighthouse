@@ -1,8 +1,9 @@
 use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate};
-use crate::{light_client_update::*, ForkName, ForkVersionDeserialize, LightClientHeader};
+use crate::{light_client_update::*, ForkName, ForkVersionDeserialize, LightClientHeader, ChainSpec, BeaconState, SignedBeaconBlock, light_client_header::{LightClientHeaderDeneb, LightClientHeaderCapella, LightClientHeaderAltair}};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::{Decode, Encode};
+use tree_hash::TreeHash;
 
 /// A LightClientFinalityUpdate is the update lightclient request or received by a gossip that
 /// signal a new finalized beacon block header for the light client sync protocol.
@@ -23,13 +24,87 @@ pub struct LightClientFinalityUpdate<T: EthSpec> {
 }
 
 impl<T: EthSpec> LightClientFinalityUpdate<T> {
-    pub fn new(update: LightClientUpdate<T>) -> Result<Self, Error> {
+    pub fn new( 
+        chain_spec: &ChainSpec,
+        beacon_state: &BeaconState<T>,
+        block: &SignedBeaconBlock<T>,
+        attested_state: &mut BeaconState<T>,
+        attested_block: &SignedBeaconBlock<T>,
+        finalized_block: &SignedBeaconBlock<T>
+    ) -> Result<Self, Error> {
+        let altair_fork_epoch = chain_spec
+            .altair_fork_epoch
+            .ok_or(Error::AltairForkNotActive)?;
+        
+        if beacon_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
+            return Err(Error::AltairForkNotActive);
+        }
+
+        let sync_aggregate = block.message().body().sync_aggregate()?;
+        if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
+            return Err(Error::NotEnoughSyncCommitteeParticipants);
+        }
+
+        // Compute and validate attested header.
+        let mut attested_header = attested_state.latest_block_header().clone();
+        attested_header.state_root = attested_state.update_tree_hash_cache()?;
+        // Build finalized header from finalized block
+        let finalized_header = finalized_block.message().block_header();
+
+        if finalized_header.tree_hash_root() != beacon_state.finalized_checkpoint().root {
+            return Err(Error::InvalidFinalizedBlock);
+        }
+
+        let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
+
+        if let Some(deneb_fork_epoch) = chain_spec.deneb_fork_epoch {
+            if attested_state.slot().epoch(T::slots_per_epoch()) >= deneb_fork_epoch {
+                return Ok(Self {
+                    attested_header: LightClientHeaderDeneb::block_to_light_client_header(
+                        attested_block.to_owned(),
+                    )?
+                    .into(),
+                    finalized_header: LightClientHeaderDeneb::block_to_light_client_header(
+                        finalized_block.to_owned(),
+                    )?
+                    .into(),
+                    finality_branch: FixedVector::new(finality_branch)?,
+                    sync_aggregate: sync_aggregate.clone(),
+                    signature_slot: block.slot(),
+                })
+            }
+        }
+
+        if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
+            if attested_state.slot().epoch(T::slots_per_epoch()) >= capella_fork_epoch {
+                return Ok(Self {
+                    attested_header: LightClientHeaderCapella::block_to_light_client_header(
+                        attested_block.to_owned(),
+                    )?
+                    .into(),
+                    finalized_header: LightClientHeaderCapella::block_to_light_client_header(
+                        finalized_block.to_owned(),
+                    )?
+                    .into(),
+                    finality_branch: FixedVector::new(finality_branch)?,
+                    sync_aggregate: sync_aggregate.clone(),
+                    signature_slot: block.slot(),
+                })
+            }
+        }
+        
         Ok(Self {
-            attested_header: update.attested_header,
-            finalized_header: update.finalized_header,
-            finality_branch: update.finality_branch,
-            sync_aggregate: update.sync_aggregate,
-            signature_slot: update.signature_slot,
+            attested_header: LightClientHeaderAltair::block_to_light_client_header(
+                attested_block.to_owned(),
+            )?
+            .into(),
+            finalized_header: LightClientHeaderAltair::block_to_light_client_header(
+                finalized_block.to_owned(),
+            )?
+            .into(),
+            finality_branch: FixedVector::new(finality_branch)?,
+            sync_aggregate: sync_aggregate.clone(),
+            signature_slot: block.slot(),
         })
     }
 }

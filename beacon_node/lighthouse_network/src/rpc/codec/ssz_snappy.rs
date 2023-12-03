@@ -576,7 +576,7 @@ fn handle_rpc_response<T: EthSpec>(
             MetaDataV1::from_ssz_bytes(decoded_buffer)?,
         )))),
         SupportedProtocol::LightClientBootstrapV1 => Ok(Some(RPCResponse::LightClientBootstrap(
-            LightClientBootstrap::from_ssz_bytes(decoded_buffer)?,
+            Arc::new(LightClientBootstrap::from_ssz_bytes(decoded_buffer)?),
         ))),
         // MetaData V2 responses have no context bytes, so behave similarly to V1 responses
         SupportedProtocol::MetaDataV2 => Ok(Some(RPCResponse::MetaData(MetaData::V2(

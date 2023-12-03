@@ -67,7 +67,8 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         chain: &BeaconChain<T>,
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {
-        let gossiped_finality_slot = light_client_finality_update.finalized_header.beacon.slot;
+        let runtime =  tokio::runtime::Runtime::new().map_err(|_| Error::FailedConstructingUpdate)?;
+        let gossiped_finality_slot = light_client_finality_update.finalized_header.beacon().slot;
         let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
         let signature_slot = light_client_finality_update.signature_slot;
         let start_time = chain.slot_clock.start_of(signature_slot);
@@ -76,19 +77,29 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         let head = chain.canonical_head.cached_head();
         let head_block = &head.snapshot.beacon_block;
         let attested_block_root = head_block.message().parent_root();
-        let attested_block = chain
-            .get_blinded_block(&attested_block_root)?
-            .ok_or(Error::FailedConstructingUpdate)?;
+
+        let attested_block = runtime.block_on( async {
+            chain
+                .get_block(&attested_block_root).await
+            }
+        )?
+        .ok_or(Error::FailedConstructingUpdate)?;
+
         let mut attested_state = chain
             .get_state(&attested_block.state_root(), Some(attested_block.slot()))?
             .ok_or(Error::FailedConstructingUpdate)?;
 
         let finalized_block_root = attested_state.finalized_checkpoint().root;
-        let finalized_block = chain
-            .get_blinded_block(&finalized_block_root)?
-            .ok_or(Error::FailedConstructingUpdate)?;
+
+        let finalized_block = runtime.block_on( async {
+            chain
+                .get_block(&finalized_block_root).await
+            }
+        )?
+        .ok_or(Error::FailedConstructingUpdate)?;
+
         let latest_seen_finality_update_slot = match latest_seen_finality_update.as_ref() {
-            Some(update) => update.finalized_header.beacon.slot,
+            Some(update) => update.finalized_header.beacon().slot,
             None => Slot::new(0),
         };
 
@@ -116,6 +127,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
             head_state,
             head_block,
             &mut attested_state,
+            &attested_block,
             &finalized_block,
         )?;
 

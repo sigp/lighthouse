@@ -6455,12 +6455,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, Error> {
-        let Some((state_root, slot)) = self
-            .get_blinded_block(block_root)?
-            .map(|block| (block.state_root(), block.slot()))
-        else {
+        let runtime =  tokio::runtime::Runtime::new().map_err(|_| Error::RuntimeShutdown)?;
+
+        let Some(block) = runtime.block_on( async {
+            self
+                .get_block(block_root).await
+            }
+        )? else {
             return Ok(None);
         };
+
+        let (state_root, slot) = (block.state_root(), block.slot());
 
         let Some(mut state) = self.get_state(&state_root, Some(slot))? else {
             return Ok(None);
@@ -6471,12 +6476,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Error::InconsistentFork)?;
 
         match fork_name {
-            ForkName::Altair | ForkName::Merge => {
-                LightClientBootstrap::from_beacon_state(&mut state)
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
+                LightClientBootstrap::from_beacon_state(&self.spec, &mut state, block)
                     .map(|bootstrap| Some((bootstrap, fork_name)))
                     .map_err(Error::LightClientError)
             }
-            ForkName::Base | ForkName::Capella | ForkName::Deneb => Err(Error::UnsupportedFork),
+            ForkName::Base => Err(Error::UnsupportedFork),
         }
     }
 }
