@@ -4,7 +4,7 @@
 Utilities for managing a Lighthouse validator client via the HTTP API.
 
 USAGE:
-    lighthouse.exe validator_manager [FLAGS] [OPTIONS] [SUBCOMMAND]
+    lighthouse validator_manager [FLAGS] [OPTIONS] [SUBCOMMAND]
 
 FLAGS:
         --disable-log-timestamp          If present, do not include timestamps in logging output.

@@ -6,7 +6,7 @@ Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon node, a vali
 validator accounts.
 
 USAGE:
-    lighthouse.exe [FLAGS] [OPTIONS] [SUBCOMMAND]
+    lighthouse [FLAGS] [OPTIONS] [SUBCOMMAND]
 
 FLAGS:
         --disable-log-timestamp          If present, do not include timestamps in logging output.

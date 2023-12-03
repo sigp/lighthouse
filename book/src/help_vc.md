@@ -4,7 +4,7 @@
 When connected to a beacon node, performs the duties of a staked validator (e.g., proposing blocks and attestations).
 
 USAGE:
-    lighthouse.exe validator_client [FLAGS] [OPTIONS]
+    lighthouse validator_client [FLAGS] [OPTIONS]
 
 FLAGS:
         --builder-proposals
@@ -18,9 +18,9 @@ FLAGS:
             If present, do not configure the system allocator. Providing this flag will generally increase memory usage,
             it should only be provided when debugging specific memory allocation issues.
         --disable-run-on-all
-            By default, Lighthouse publishes attestation, sync committee subscriptions and proposer preparation messages
-            to all beacon nodes provided in the `--beacon-nodes flag`. This option changes that behaviour such that
-            these api calls only go out to the first available and synced beacon node
+            DEPRECATED. Use --broadcast. By default, Lighthouse publishes attestation, sync committee subscriptions and
+            proposer preparation messages to all beacon nodes provided in the `--beacon-nodes flag`. This option changes
+            that behaviour such that these api calls only go out to the first available and synced beacon node
         --enable-doppelganger-protection
             If this flag is set, Lighthouse will delay startup for three epochs and monitor for messages on the network
             by any of the validators managed by this client. This will result in three (possibly four) epochs worth of
@@ -72,6 +72,10 @@ OPTIONS:
             Comma-separated paths to custom TLS certificates to use when connecting to a beacon node (and/or proposer
             node). These certificates must be in PEM format and are used in addition to the OS trust store. Commas must
             only be used as a delimiter, and must not be part of the certificate path.
+        --broadcast <API_TOPICS>
+            Comma-separated list of beacon API topics to broadcast to all beacon nodes. Possible values are: none,
+            attestations, blocks, subscriptions, sync-committee. Default (when flag is omitted) is to broadcast
+            subscriptions only.
         --builder-registration-timestamp-override <builder-registration-timestamp-override>
             This flag takes a unix timestamp value that will be used to override the timestamp used in the builder api
             registration
