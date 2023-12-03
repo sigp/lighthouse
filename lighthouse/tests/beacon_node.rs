@@ -2443,20 +2443,20 @@ fn progressive_balances_default() {
         .with_config(|config| {
             assert_eq!(
                 config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Checked
+                ProgressiveBalancesMode::Fast
             )
         });
 }
 
 #[test]
-fn progressive_balances_fast() {
+fn progressive_balances_checked() {
     CommandLineTest::new()
-        .flag("progressive-balances", Some("fast"))
+        .flag("progressive-balances", Some("checked"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
                 config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Fast
+                ProgressiveBalancesMode::Checked
             )
         });
 }
