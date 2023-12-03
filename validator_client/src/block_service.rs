@@ -730,7 +730,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // Try the proposer nodes last, since it's likely that they don't have a
         // great view of attestations on the network.
         let block_contents = proposer_fallback
-            .request_proposers_last(
+            .first_success_try_proposers_last(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 move |beacon_node| {

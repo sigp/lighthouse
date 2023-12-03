@@ -141,7 +141,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("produce-block-v3")
                 .help("Enable block production via the block v3 endpoint for this validator client. \
                        This should only be enabled when paired with a beacon node \
-                       that has this endpoint implemented.")
+                       that has this endpoint implemented. This flag will be ignored \
+                       after the Deneb fork.")
                 .takes_value(false)
         )
         /* REST API related arguments */
