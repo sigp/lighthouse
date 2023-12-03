@@ -1,17 +1,18 @@
 use crate::beacon_block_body::NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES;
 use crate::{light_client_update::*, BeaconBlockBody, ChainSpec};
 use crate::{
-    test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, FixedVector, Hash256,
-    SignedBeaconBlock,
+    test_utils::TestRandom, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
+    ExecutionPayloadHeaderDeneb, FixedVector, Hash256, SignedBeaconBlock,
 };
 use crate::{BeaconBlockHeader, ExecutionPayload};
 use merkle_proof::verify_merkle_proof;
 use serde::{Deserialize, Serialize};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
+use std::marker::PhantomData;
+use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use superstruct::superstruct;
-use std::marker::PhantomData;
 
 #[superstruct(
     variants(Merge, Capella, Deneb),
@@ -30,11 +31,9 @@ use std::marker::PhantomData;
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
-    ),
+    )
 )]
-#[derive(
-    Debug, Clone, Serialize, PartialEq, Deserialize, Encode, Decode, arbitrary::Arbitrary,
-)]
+#[derive(Debug, Clone, Serialize, PartialEq, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
 #[arbitrary(bound = "E: EthSpec")]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
@@ -48,131 +47,63 @@ pub struct LightClientHeader<E: EthSpec> {
         partial_getter(rename = "execution_payload_header_capella")
     )]
     pub execution: ExecutionPayloadHeaderCapella<E>,
-    #[superstruct(
-        only(Deneb),
-        partial_getter(rename = "execution_payload_header_deneb")
-    )]
+    #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_header_deneb"))]
     pub execution: ExecutionPayloadHeaderDeneb<E>,
-   
+
     #[ssz(skip_serializing, skip_deserializing)]
     pub phantom_data: PhantomData<E>,
 }
 
-impl<E: EthSpec> From<BeaconBlockHeader> for LightClientHeaderMerge<E> {
-    fn from(beacon: BeaconBlockHeader) -> Self {
-        LightClientHeaderMerge {
-            beacon,
-        }
-    }
-}
-
-impl<E: EthSpec> LightClientHeader<E> {
-    fn new(chain_spec: ChainSpec, block: SignedBeaconBlock<E>) -> Result<Self, Error> {
-        let current_epoch = block.slot().epoch(E::slots_per_epoch());
-
-        if let Some(deneb_fork_epoch) = chain_spec.deneb_fork_epoch {
-            if current_epoch >= deneb_fork_epoch {
-                let payload: ExecutionPayload<E> = block
-                    .message()
-                    .execution_payload()?
-                    .execution_payload_deneb()?
-                    .to_owned()
-                    .into();
-
-                let header = ExecutionPayloadHeader::from(payload.to_ref());
-                let mut beacon_block_body = BeaconBlockBody::from(
-                    block
-                        .message()
-                        .body_deneb()
-                        .map_err(|_| Error::BeaconBlockBodyError)?
-                        .to_owned(),
-                );
-                let execution_branch =
-                    beacon_block_body.compute_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
-
-                return Ok(LightClientHeader {
-                    beacon: block.message().block_header(),
-                    execution: Some(header),
-                    execution_branch: Some(FixedVector::new(execution_branch)?),
-                });
-            }
-        };
-
-        if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
-            if current_epoch >= capella_fork_epoch {
-                let payload: ExecutionPayload<E> = block
-                    .message()
-                    .execution_payload()?
-                    .execution_payload_capella()?
-                    .to_owned()
-                    .into();
-
-                let header = ExecutionPayloadHeader::from(payload.to_ref());
-                let mut beacon_block_body = BeaconBlockBody::from(
-                    block
-                        .message()
-                        .body_capella()
-                        .map_err(|_| Error::BeaconBlockBodyError)?
-                        .to_owned(),
-                );
-                let execution_branch =
-                    beacon_block_body.compute_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
-
-                return Ok(LightClientHeader {
-                    beacon: block.message().block_header(),
-                    execution: Some(header),
-                    execution_branch: Some(FixedVector::new(execution_branch)?),
-                });
-            }
-        };
-
-        Ok(LightClientHeader {
+impl<E: EthSpec> LightClientHeaderMerge<E> {
+    pub fn new(block: SignedBeaconBlock<E>) -> Result<Self, Error> {
+        Ok(LightClientHeaderMerge {
             beacon: block.message().block_header(),
-            execution: None,
-            execution_branch: None,
+            phantom_data: PhantomData,
         })
     }
 
-    fn get_lc_execution_root(&self, chain_spec: ChainSpec) -> Option<Hash256> {
-        let current_epoch = self.beacon.slot.epoch(E::slots_per_epoch());
-
-        if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
-            if current_epoch >= capella_fork_epoch {
-                if let Some(execution) = &self.execution {
-                    return Some(execution.tree_hash_root());
-                }
-            }
-        }
-
-        None
+    fn get_lc_execution_root(&self) -> Option<Hash256> {
+        return None;
     }
 
-    fn is_valid_light_client_header(&self, chain_spec: ChainSpec) -> Result<bool, Error> {
-        let current_epoch = self.beacon.slot.epoch(E::slots_per_epoch());
+    fn is_valid_light_client_header(&self) -> Result<bool, Error> {
+        return Ok(true);
+    }
+}
 
-        if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
-            if current_epoch < capella_fork_epoch {
-                return Ok(self.execution.is_none() && self.execution_branch.is_none());
-            }
-        }
+impl<E: EthSpec> LightClientHeaderCapella<E> {
+    pub fn new(block: SignedBeaconBlock<E>) -> Result<Self, Error> {
+        let payload = block
+            .message()
+            .execution_payload()?
+            .execution_payload_capella()?
+            .to_owned();
 
-        if let Some(deneb_fork_epoch) = chain_spec.deneb_fork_epoch {
-            if current_epoch < deneb_fork_epoch {
-                let Some(execution) = &self.execution else {
-                    return Ok(false);
-                };
+        let header = ExecutionPayloadHeaderCapella::from(&payload);
+        let mut beacon_block_body = BeaconBlockBody::from(
+            block
+                .message()
+                .body_capella()
+                .map_err(|_| Error::BeaconBlockBodyError)?
+                .to_owned(),
+        );
 
-                if *execution.blob_gas_used()? != 0_u64 || *execution.excess_blob_gas()? != 0_u64 {
-                    return Ok(false);
-                }
-            }
-        }
+        let execution_branch = beacon_block_body.compute_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
-        let Some(execution_root) = self.get_lc_execution_root(chain_spec) else {
-            return Ok(false);
-        };
+        return Ok(LightClientHeaderCapella {
+            beacon: block.message().block_header(),
+            execution: header,
+            execution_branch: FixedVector::new(execution_branch)?,
+            phantom_data: PhantomData,
+        });
+    }
 
-        let Some(execution_branch) = &self.execution_branch else {
+    fn get_lc_execution_root(&self) -> Option<Hash256> {
+        return Some(self.execution.tree_hash_root());
+    }
+
+    fn is_valid_light_client_header(&self) -> Result<bool, Error> {
+        let Some(execution_root) = self.get_lc_execution_root() else {
             return Ok(false);
         };
 
@@ -184,7 +115,59 @@ impl<E: EthSpec> LightClientHeader<E> {
 
         Ok(verify_merkle_proof(
             execution_root,
-            execution_branch,
+            &self.execution_branch,
+            EXECUTION_PAYLOAD_PROOF_LEN,
+            field_index,
+            self.beacon.body_root,
+        ))
+    }
+}
+
+impl<E: EthSpec> LightClientHeaderDeneb<E> {
+    pub fn new(block: SignedBeaconBlock<E>) -> Result<Self, Error> {
+        let payload = block
+            .message()
+            .execution_payload()?
+            .execution_payload_deneb()?
+            .to_owned();
+
+        let header = ExecutionPayloadHeaderDeneb::from(&payload);
+        let mut beacon_block_body = BeaconBlockBody::from(
+            block
+                .message()
+                .body_deneb()
+                .map_err(|_| Error::BeaconBlockBodyError)?
+                .to_owned(),
+        );
+
+        let execution_branch = beacon_block_body.compute_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
+
+        Ok(LightClientHeaderDeneb {
+            beacon: block.message().block_header(),
+            execution: header,
+            execution_branch: FixedVector::new(execution_branch)?,
+            phantom_data: PhantomData,
+        })
+    }
+
+    fn get_lc_execution_root(&self) -> Option<Hash256> {
+        return Some(self.execution.tree_hash_root());
+    }
+
+    fn is_valid_light_client_header(&self) -> Result<bool, Error> {
+        let Some(execution_root) = self.get_lc_execution_root() else {
+            return Ok(false);
+        };
+
+        let Some(field_index) =
+            EXECUTION_PAYLOAD_INDEX.checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
+        else {
+            return Ok(false);
+        };
+
+        Ok(verify_merkle_proof(
+            execution_root,
+            &self.execution_branch,
             EXECUTION_PAYLOAD_PROOF_LEN,
             field_index,
             self.beacon.body_root,

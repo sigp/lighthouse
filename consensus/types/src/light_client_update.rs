@@ -1,7 +1,7 @@
 use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::{
     beacon_state, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec, ForkName,
-    ForkVersionDeserialize, LightClientHeader,
+    ForkVersionDeserialize, LightClientHeader, SignedBeaconBlock, light_client_header::{LightClientHeaderDeneb, LightClientHeaderCapella, LightClientHeaderMerge},
 };
 use safe_arith::ArithError;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -97,7 +97,8 @@ impl<T: EthSpec> LightClientUpdate<T> {
         beacon_state: BeaconState<T>,
         block: BeaconBlock<T>,
         attested_state: &mut BeaconState<T>,
-        finalized_block: BeaconBlock<T>,
+        attested_block: SignedBeaconBlock<T>,
+        finalized_block: SignedBeaconBlock<T>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
             .altair_fork_epoch
@@ -125,10 +126,10 @@ impl<T: EthSpec> LightClientUpdate<T> {
         // Build finalized header from finalized block
         let finalized_header = BeaconBlockHeader {
             slot: finalized_block.slot(),
-            proposer_index: finalized_block.proposer_index(),
+            proposer_index: finalized_block.message().proposer_index(),
             parent_root: finalized_block.parent_root(),
             state_root: finalized_block.state_root(),
-            body_root: finalized_block.body_root(),
+            body_root: finalized_block.message().body_root(),
         };
         if finalized_header.tree_hash_root() != beacon_state.finalized_checkpoint().root {
             return Err(Error::InvalidFinalizedBlock);
@@ -136,11 +137,40 @@ impl<T: EthSpec> LightClientUpdate<T> {
         let next_sync_committee_branch =
             attested_state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?;
         let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
+
+        if let Some(deneb_fork_epoch) = chain_spec.deneb_fork_epoch {
+            if beacon_state.slot().epoch(T::slots_per_epoch()) >= deneb_fork_epoch  {
+                return Ok(Self {
+                    attested_header: LightClientHeaderDeneb::new(attested_block)?.into(),
+                    next_sync_committee: attested_state.next_sync_committee()?.clone(),
+                    next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
+                    finalized_header: LightClientHeaderDeneb::new(finalized_block)?.into(),
+                    finality_branch: FixedVector::new(finality_branch)?,
+                    sync_aggregate: sync_aggregate.clone(),
+                    signature_slot: block.slot(),
+                })
+            }
+        };
+
+        if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
+            if beacon_state.slot().epoch(T::slots_per_epoch()) >= capella_fork_epoch  {
+                return Ok(Self {
+                    attested_header: LightClientHeaderCapella::new(attested_block)?.into(),
+                    next_sync_committee: attested_state.next_sync_committee()?.clone(),
+                    next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
+                    finalized_header: LightClientHeaderCapella::new(finalized_block)?.into(),
+                    finality_branch: FixedVector::new(finality_branch)?,
+                    sync_aggregate: sync_aggregate.clone(),
+                    signature_slot: block.slot(),
+                })
+            }
+        };
+
         Ok(Self {
-            attested_header: attested_header.into(),
+            attested_header: LightClientHeaderMerge::new(attested_block)?.into(),
             next_sync_committee: attested_state.next_sync_committee()?.clone(),
             next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
-            finalized_header: finalized_header.into(),
+            finalized_header: LightClientHeaderMerge::new(finalized_block)?.into(),
             finality_branch: FixedVector::new(finality_branch)?,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),

@@ -1,4 +1,5 @@
 use super::{EthSpec, ForkName, ForkVersionDeserialize, Slot, SyncAggregate};
+use crate::LightClientUpdate;
 use crate::light_client_header::LightClientHeader;
 use crate::{
     light_client_update::Error, test_utils::TestRandom, BeaconState, ChainSpec, SignedBeaconBlock,
@@ -35,29 +36,12 @@ pub struct LightClientOptimisticUpdate<T: EthSpec> {
 
 impl<T: EthSpec> LightClientOptimisticUpdate<T> {
     pub fn new(
-        chain_spec: &ChainSpec,
-        block: &SignedBeaconBlock<T>,
-        attested_state: &BeaconState<T>,
+        update: LightClientUpdate<T>,
     ) -> Result<Self, Error> {
-        let altair_fork_epoch = chain_spec
-            .altair_fork_epoch
-            .ok_or(Error::AltairForkNotActive)?;
-        if attested_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
-            return Err(Error::AltairForkNotActive);
-        }
-
-        let sync_aggregate = block.message().body().sync_aggregate()?;
-        if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
-            return Err(Error::NotEnoughSyncCommitteeParticipants);
-        }
-
-        // Compute and validate attested header.
-        let mut attested_header = attested_state.latest_block_header().clone();
-        attested_header.state_root = attested_state.tree_hash_root();
         Ok(Self {
-            attested_header: attested_header.into(),
-            sync_aggregate: sync_aggregate.clone(),
-            signature_slot: block.slot(),
+            attested_header: update.attested_header,
+            sync_aggregate: update.sync_aggregate,
+            signature_slot: update.signature_slot,
         })
     }
 }
