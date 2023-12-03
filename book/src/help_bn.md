@@ -6,7 +6,7 @@ The primary component which connects to the Ethereum 2.0 P2P network and downloa
 a HTTP API for querying the beacon chain and publishing messages to the network.
 
 USAGE:
-    lighthouse beacon_node [FLAGS] [OPTIONS]
+    lighthouse.exe beacon_node [FLAGS] [OPTIONS]
 
 FLAGS:
         --always-prefer-builder-payload        If set, the beacon node always uses the payload from the builder instead
@@ -241,13 +241,6 @@ OPTIONS:
             Specifies the distance between the Eth1 chain head and the last block which should be imported into the
             cache. Setting this value lower can help compensate for irregular Proof-of-Work block times, but setting it
             too low can make the node vulnerable to re-orgs.
-        --eth1-endpoint <HTTP-ENDPOINT>
-            Deprecated. Use --eth1-endpoints.
-
-        --eth1-endpoints <HTTP-ENDPOINTS>
-            One http endpoint for a web3 connection to an execution node. Note: This flag is now only useful for
-            testing, use `--execution-endpoint` flag to connect to an execution node on mainnet and testnets.
-                                   Defaults to http://127.0.0.1:8545.
         --execution-endpoint <EXECUTION-ENDPOINT>
             Server endpoint for an execution layer JWT-authenticated HTTP JSON-RPC connection. Uses the same endpoint to
             populate the deposit cache.
@@ -474,9 +467,6 @@ OPTIONS:
         --slots-per-restore-point <SLOT_COUNT>
             Specifies how often a freezer DB restore point should be stored. Cannot be changed after initialization.
             [default: 8192 (mainnet) or 64 (minimal)]
-    -s, --spec <DEPRECATED>
-            This flag is deprecated, it will be disallowed in a future release. This value is now derived from the
-            --network or --testnet-dir flags.
         --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
             Emergency fallback fee recipient for use in case the validator client does not have one configured. You
             should set this flag on the validator client instead of (or in addition to) setting it here.

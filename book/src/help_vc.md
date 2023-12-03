@@ -4,16 +4,12 @@
 When connected to a beacon node, performs the duties of a staked validator (e.g., proposing blocks and attestations).
 
 USAGE:
-    lighthouse validator_client [FLAGS] [OPTIONS]
+    lighthouse.exe validator_client [FLAGS] [OPTIONS]
 
 FLAGS:
-        --allow-unsynced                         DEPRECATED: this flag does nothing
         --builder-proposals
             If this flag is set, Lighthouse will query the Beacon Node for only block headers during proposals and will
             sign over headers. Useful for outsourcing execution payload construction during proposals.
-        --delete-lockfiles
-            DEPRECATED. This flag does nothing and will be removed in a future release.
-
         --disable-auto-discover
             If present, do not attempt to discover new validators in the validators-dir. Validators will need to be
             manually added to the validator_definitions.yml file.
@@ -60,14 +56,6 @@ FLAGS:
             machine. Note that logs can often contain sensitive information about your validator and so this flag should
             be used with caution. For Windows users, the log file permissions will be inherited from the parent folder.
         --metrics                                Enable the Prometheus metrics HTTP server. Disabled by default.
-        --strict-fee-recipient
-            [DEPRECATED] If this flag is set, Lighthouse will refuse to sign any block whose `fee_recipient` does not
-            match the `suggested_fee_recipient` sent by this validator. This applies to both the normal block proposal
-            flow, as well as block proposals through the builder API. Proposals through the builder API are more likely
-            to have a discrepancy in `fee_recipient` so you should be aware of how your connected relay sends proposer
-            payments before using this flag. If this flag is used, a fee recipient mismatch in the builder API flow will
-            result in a fallback to the local execution engine for payload construction, where a strict fee recipient
-            check will still be applied.
         --unencrypted-http-transport
             This is a safety flag to ensure that the user is aware that the http transport is unencrypted and using a
             custom HTTP address is unsafe.
@@ -77,9 +65,6 @@ FLAGS:
     -V, --version                                Prints version information
 
 OPTIONS:
-        --beacon-node <NETWORK_ADDRESS>
-            Deprecated. Use --beacon-nodes.
-
         --beacon-nodes <NETWORK_ADDRESSES>
             Comma-separated addresses to one or more beacon node HTTP APIs. Default is http://localhost:5052.
 
@@ -182,12 +167,6 @@ OPTIONS:
             The directory which contains the password to unlock the validator voting keypairs. Each password should be
             contained in a file where the name is the 0x-prefixed hex representation of the validators voting public
             key. Defaults to ~/.lighthouse/{network}/secrets.
-        --server <NETWORK_ADDRESS>
-            Deprecated. Use --beacon-nodes.
-
-    -s, --spec <DEPRECATED>
-            This flag is deprecated, it will be disallowed in a future release. This value is now derived from the
-            --network or --testnet-dir flags.
         --suggested-fee-recipient <FEE-RECIPIENT>
             Once the merge has happened, this address will receive transaction fees from blocks proposed by this
             validator client. If a fee recipient is configured in the validator definitions it takes priority over this

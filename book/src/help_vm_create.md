@@ -7,7 +7,7 @@ Another, optional JSON file is created which contains a list of validator deposi
 "ethereum/staking-deposit-cli" tool.
 
 USAGE:
-    lighthouse validator_manager create [FLAGS] [OPTIONS] --output-path <DIRECTORY>
+    lighthouse.exe validator_manager create [FLAGS] [OPTIONS] --output-path <DIRECTORY>
 
 FLAGS:
         --disable-deposits                    When provided don't generate the deposits JSON file that is commonly used
@@ -34,7 +34,6 @@ FLAGS:
                                               is not provided, a random password will be used. It is not necessary to
                                               keep backups of voting keystore passwords if the mnemonic is safely backed
                                               up.
-        --stdin-inputs                        If present, read all user inputs from stdin instead of tty.
     -V, --version                             Prints version information
 
 OPTIONS:
@@ -105,9 +104,6 @@ OPTIONS:
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
             this parameter in the event of an attack at the PoS transition block. Incorrect use of this flag can cause
             your node to possibly accept an invalid chain or sync more slowly. Be extremely careful with this flag.
-    -s, --spec <DEPRECATED>
-            This flag is deprecated, it will be disallowed in a future release. This value is now derived from the
-            --network or --testnet-dir flags.
         --suggested-fee-recipient <ETH1_ADDRESS>
             All created validators will use this value for the suggested fee recipient. Omit this flag to use the
             default value from the VC.

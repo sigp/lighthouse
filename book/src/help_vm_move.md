@@ -6,7 +6,7 @@ generated using the "create-validators" command. This command only supports vali
 local file system (i.e., not Web3Signer validators).
 
 USAGE:
-    lighthouse validator_manager move [FLAGS] [OPTIONS] --dest-vc-token <PATH> --dest-vc-url <HTTP_ADDRESS> --src-vc-token <PATH> --src-vc-url <HTTP_ADDRESS>
+    lighthouse.exe validator_manager move [FLAGS] [OPTIONS] --dest-vc-token <PATH> --dest-vc-url <HTTP_ADDRESS> --src-vc-token <PATH> --src-vc-url <HTTP_ADDRESS>
 
 FLAGS:
         --disable-log-timestamp          If present, do not include timestamps in logging output.
@@ -22,7 +22,6 @@ FLAGS:
                                          information about your validator and so this flag should be used with caution.
                                          For Windows users, the log file permissions will be inherited from the parent
                                          folder.
-        --stdin-inputs                   If present, read all user inputs from stdin instead of tty.
     -V, --version                        Prints version information
 
 OPTIONS:
@@ -80,9 +79,6 @@ OPTIONS:
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
             this parameter in the event of an attack at the PoS transition block. Incorrect use of this flag can cause
             your node to possibly accept an invalid chain or sync more slowly. Be extremely careful with this flag.
-    -s, --spec <DEPRECATED>
-            This flag is deprecated, it will be disallowed in a future release. This value is now derived from the
-            --network or --testnet-dir flags.
         --src-vc-token <PATH>
             The file containing a token required by the source validator client.
 

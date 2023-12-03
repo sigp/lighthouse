@@ -5,7 +5,7 @@ Uploads validators to a validator client using the HTTP API. The validators are 
 generated using the "create-validators" command.
 
 USAGE:
-    lighthouse validator_manager import [FLAGS] [OPTIONS] --validators-file <PATH_TO_JSON_FILE>
+    lighthouse.exe validator_manager import [FLAGS] [OPTIONS] --validators-file <PATH_TO_JSON_FILE>
 
 FLAGS:
         --disable-log-timestamp          If present, do not include timestamps in logging output.
@@ -71,9 +71,6 @@ OPTIONS:
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
             this parameter in the event of an attack at the PoS transition block. Incorrect use of this flag can cause
             your node to possibly accept an invalid chain or sync more slowly. Be extremely careful with this flag.
-    -s, --spec <DEPRECATED>
-            This flag is deprecated, it will be disallowed in a future release. This value is now derived from the
-            --network or --testnet-dir flags.
         --terminal-block-hash-epoch-override <EPOCH>
             Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH parameter. This flag should
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
