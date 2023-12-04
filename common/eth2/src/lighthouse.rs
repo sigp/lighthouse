@@ -11,7 +11,7 @@ use crate::{
     ok_or_error,
     types::{
         BeaconState, ChainSpec, DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock,
-        GenericResponse, PeersData, ValidatorId,
+        GenericResponse, ValidatorId,
     },
     BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot, StateId, StatusCode,
 };
@@ -413,7 +413,7 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    pub async fn get_lighthouse_peers(&self) -> Result<GenericResponse<PeersData>, Error> {
+    pub async fn get_lighthouse_peers<T: EthSpec>(&self) -> Result<Vec<Peer<T>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
