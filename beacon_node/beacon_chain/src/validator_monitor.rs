@@ -599,7 +599,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         {
                             let i = *proposer_index as u64;
                             if let Some(pub_key) = self.indices.get(&i) {
-                                println!("{:?}", self.indices);
                                 if let Some(validator) = self.validators.get(pub_key) {
                                     let missed_block = MissedBlock {
                                         slot,
