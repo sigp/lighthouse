@@ -34,7 +34,7 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256, Signature,
+    BeaconBlock, BeaconState, ChainSpec, Epoch, EthSpec, Graffiti, Hash256, Signature,
     SignedBeaconBlock, Slot,
 };
 
@@ -557,16 +557,6 @@ where
             store
                 .init_blob_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
-        );
-
-        // Store pruning checkpoint to prevent attempting to prune before the anchor state.
-        self.pending_io_batch.push(
-            store
-                .pruning_checkpoint_store_op(Checkpoint {
-                    root: weak_subj_block_root,
-                    epoch: weak_subj_state.slot().epoch(TEthSpec::slots_per_epoch()),
-                })
-                .map_err(|e| format!("{:?}", e))?,
         );
 
         let snapshot = BeaconSnapshot {

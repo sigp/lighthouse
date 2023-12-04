@@ -10,9 +10,9 @@ use crate::iter::{BlockRootsIterator, ParentRootBlockIterator, RootsIterator};
 use crate::leveldb_store::{BytesKey, LevelDB};
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
-    AnchorInfo, BlobInfo, CompactionTimestamp, PruningCheckpoint, SchemaVersion, ANCHOR_INFO_KEY,
-    BLOB_INFO_KEY, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION,
-    PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN,
+    AnchorInfo, BlobInfo, CompactionTimestamp, SchemaVersion, ANCHOR_INFO_KEY, BLOB_INFO_KEY,
+    COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, SPLIT_KEY,
+    STATE_UPPER_LIMIT_NO_RETAIN,
 };
 use crate::metrics;
 use crate::state_cache::{PutStateOutcome, StateCache};
@@ -77,6 +77,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// LRU cache of deserialized blocks and blobs. Updated whenever a block or blob is loaded.
     block_cache: Mutex<BlockCache<E>>,
     /// Cache of beacon states.
+    ///
+    /// LOCK ORDERING: this lock must always be locked *after* the `split` if both are required.
     state_cache: Mutex<StateCache<E>>,
     /// Immutable validator cache.
     pub immutable_validators: Arc<RwLock<ValidatorPubkeyCache<E, Hot, Cold>>>,
@@ -2385,26 +2387,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.config.compact_on_prune
     }
 
-    /// Load the checkpoint to begin pruning from (the "old finalized checkpoint").
-    pub fn load_pruning_checkpoint(&self) -> Result<Option<Checkpoint>, Error> {
-        Ok(self
-            .hot_db
-            .get(&PRUNING_CHECKPOINT_KEY)?
-            .map(|pc: PruningCheckpoint| pc.checkpoint))
-    }
-
-    /// Store the checkpoint to begin pruning from (the "old finalized checkpoint").
-    pub fn store_pruning_checkpoint(&self, checkpoint: Checkpoint) -> Result<(), Error> {
-        self.hot_db
-            .do_atomically(vec![self.pruning_checkpoint_store_op(checkpoint)?])
-    }
-
-    /// Create a staged store for the pruning checkpoint.
-    pub fn pruning_checkpoint_store_op(
-        &self,
-        checkpoint: Checkpoint,
-    ) -> Result<KeyValueStoreOp, Error> {
-        PruningCheckpoint { checkpoint }.as_kv_store_op(PRUNING_CHECKPOINT_KEY)
+    /// Get the checkpoint to begin pruning from (the "old finalized checkpoint").
+    pub fn get_pruning_checkpoint(&self) -> Checkpoint {
+        // Since tree-states we infer the pruning checkpoint from the split, as this is simpler &
+        // safer in the presence of crashes that occur after pruning but before the split is
+        // updated.
+        // FIXME(sproul): ensure delete PRUNING_CHECKPOINT_KEY is deleted in DB migration
+        let split = self.get_split_info();
+        Checkpoint {
+            epoch: split.slot.epoch(E::slots_per_epoch()),
+            root: split.block_root,
+        }
     }
 
     /// Load the timestamp of the last compaction as a `Duration` since the UNIX epoch.
@@ -2917,8 +2910,8 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
             store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
         }
 
-        // There are data dependencies between calls to `store_cold_state()` that prevent us from
-        // doing one big call to `store.cold_db.do_atomically()` at end of the loop.
+        // Cold states are diffed with respect to each other, so we need to finish writing previous
+        // states before storing new ones.
         store.cold_db.do_atomically(cold_db_ops)?;
     }
 
@@ -2927,15 +2920,20 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     //          procedure.
     //
     // Since it is pretty much impossible to be atomic across more than one database, we trade
-    // losing track of states to delete, for consistency.  In other words: We should be safe to die
-    // at any point below but it may happen that some states won't be deleted from the hot database
-    // and will remain there forever.  Since dying in these particular few lines should be an
-    // exceedingly rare event, this should be an acceptable tradeoff.
+    // temporarily losing track of blocks to delete, for consistency. In other words: We should be
+    // safe to die at any point below but it may happen that some blocks won't be deleted from the
+    // hot database and will remain there forever. We may also temporarily abandon states, but
+    // they will get picked up by the state pruning that iterates over the whole column.
 
     // Flush to disk all the states that have just been migrated to the cold store.
     store.cold_db.do_atomically(cold_db_block_ops)?;
     store.cold_db.sync()?;
 
+    // Update the split.
+    //
+    // NOTE(sproul): We do this in its own fsync'd transaction mostly for historical reasons, but
+    // I'm scared to change it, because doing an fsync with *more data* while holding the split
+    // write lock might have terrible performance implications (jamming the split for 100-500ms+).
     {
         let mut split_guard = store.split.write();
         let latest_split_slot = split_guard.slot;
@@ -2966,13 +2964,13 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         };
         store.hot_db.put_sync(&SPLIT_KEY, &split)?;
 
-        // Split point is now persisted in the hot database on disk.  The in-memory split point
-        // hasn't been modified elsewhere since we keep a write lock on it.  It's safe to update
+        // Split point is now persisted in the hot database on disk. The in-memory split point
+        // hasn't been modified elsewhere since we keep a write lock on it. It's safe to update
         // the in-memory split point now.
         *split_guard = split;
     }
 
-    // Delete the states from the hot database if we got this far.
+    // Delete the blocks and states from the hot database if we got this far.
     store.do_atomically_with_block_and_blobs_cache(hot_db_ops)?;
 
     // Update the cache's view of the finalized state.
