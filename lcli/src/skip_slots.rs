@@ -109,6 +109,7 @@ pub fn run<T: EthSpec>(
         }
         _ => return Err("must supply either --state-path or --beacon-url".into()),
     };
+    let mut post_state = None;
 
     let initial_slot = state.slot();
     let target_slot = initial_slot + slots;
@@ -140,14 +141,15 @@ pub fn run<T: EthSpec>(
 
         let duration = Instant::now().duration_since(start);
         info!("Run {}: {:?}", i, duration);
+        post_state = Some(state);
     }
 
-    if let Some(output_path) = output_path {
+    if let (Some(post_state), Some(output_path)) = (post_state, output_path) {
         let mut output_file = File::create(output_path)
             .map_err(|e| format!("Unable to create output file: {:?}", e))?;
 
         output_file
-            .write_all(&state.as_ssz_bytes())
+            .write_all(&post_state.as_ssz_bytes())
             .map_err(|e| format!("Unable to write to output file: {:?}", e))?;
     }
 

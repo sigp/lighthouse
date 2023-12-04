@@ -123,7 +123,7 @@ pub struct Config {
     /// Subscribe to all subnets for the duration of the runtime.
     pub subscribe_all_subnets: bool,
 
-    /// Import/aggregate all attestations recieved on subscribed subnets for the duration of the
+    /// Import/aggregate all attestations received on subscribed subnets for the duration of the
     /// runtime.
     pub import_all_attestations: bool,
 

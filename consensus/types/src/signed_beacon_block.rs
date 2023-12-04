@@ -1,3 +1,4 @@
+use crate::beacon_block_body::format_kzg_commitments;
 use crate::*;
 use bls::Signature;
 use derivative::Derivative;
@@ -255,6 +256,15 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             .blob_kzg_commitments()
             .map(|c| c.len())
             .unwrap_or(0)
+    }
+
+    /// Used for displaying commitments in logs.
+    pub fn commitments_formatted(&self) -> String {
+        let Ok(commitments) = self.message().body().blob_kzg_commitments() else {
+            return "[]".to_string();
+        };
+
+        format_kzg_commitments(commitments.as_ref())
     }
 }
 

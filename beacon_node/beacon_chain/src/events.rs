@@ -17,6 +17,8 @@ pub struct ServerSentEventHandler<T: EthSpec> {
     contribution_tx: Sender<EventKind<T>>,
     payload_attributes_tx: Sender<EventKind<T>>,
     late_head: Sender<EventKind<T>>,
+    light_client_finality_update_tx: Sender<EventKind<T>>,
+    light_client_optimistic_update_tx: Sender<EventKind<T>>,
     block_reward_tx: Sender<EventKind<T>>,
     log: Logger,
 }
@@ -40,6 +42,8 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         let (contribution_tx, _) = broadcast::channel(capacity);
         let (payload_attributes_tx, _) = broadcast::channel(capacity);
         let (late_head, _) = broadcast::channel(capacity);
+        let (light_client_finality_update_tx, _) = broadcast::channel(capacity);
+        let (light_client_optimistic_update_tx, _) = broadcast::channel(capacity);
         let (block_reward_tx, _) = broadcast::channel(capacity);
 
         Self {
@@ -53,6 +57,8 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
             contribution_tx,
             payload_attributes_tx,
             late_head,
+            light_client_finality_update_tx,
+            light_client_optimistic_update_tx,
             block_reward_tx,
             log,
         }
@@ -108,6 +114,14 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
                 .late_head
                 .send(kind)
                 .map(|count| log_count("late head", count)),
+            EventKind::LightClientFinalityUpdate(_) => self
+                .light_client_finality_update_tx
+                .send(kind)
+                .map(|count| log_count("light client finality update", count)),
+            EventKind::LightClientOptimisticUpdate(_) => self
+                .light_client_optimistic_update_tx
+                .send(kind)
+                .map(|count| log_count("light client optimistic update", count)),
             EventKind::BlockReward(_) => self
                 .block_reward_tx
                 .send(kind)
@@ -156,6 +170,14 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
 
     pub fn subscribe_late_head(&self) -> Receiver<EventKind<T>> {
         self.late_head.subscribe()
+    }
+
+    pub fn subscribe_light_client_finality_update(&self) -> Receiver<EventKind<T>> {
+        self.light_client_finality_update_tx.subscribe()
+    }
+
+    pub fn subscribe_light_client_optimistic_update(&self) -> Receiver<EventKind<T>> {
+        self.light_client_optimistic_update_tx.subscribe()
     }
 
     pub fn subscribe_block_reward(&self) -> Receiver<EventKind<T>> {

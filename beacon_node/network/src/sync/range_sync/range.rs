@@ -464,7 +464,7 @@ mod tests {
         log: slog::Logger,
         /// To check what does sync send to the beacon processor.
         beacon_processor_rx: mpsc::Receiver<BeaconWorkEvent<E>>,
-        /// To set up different scenarios where sync is told about known/unkown blocks.
+        /// To set up different scenarios where sync is told about known/unknown blocks.
         chain: Arc<FakeStorage>,
         /// Needed by range to handle communication with the network.
         cx: SyncNetworkContext<TestBeaconChainType>,

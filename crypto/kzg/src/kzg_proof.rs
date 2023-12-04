@@ -17,12 +17,6 @@ impl From<KzgProof> for c_kzg::Bytes48 {
     }
 }
 
-impl From<KzgProof> for c_kzg_min::Bytes48 {
-    fn from(value: KzgProof) -> Self {
-        value.0.into()
-    }
-}
-
 impl KzgProof {
     /// Creates a valid proof using `G1_POINT_AT_INFINITY`.
     pub fn empty() -> Self {
