@@ -738,7 +738,7 @@ impl ssz::Decode for OverflowKey {
 mod test {
     use super::*;
     use crate::{
-        blob_verification::{validate_blob_sidecar_for_gossip, GossipVerifiedBlob},
+        blob_verification::GossipVerifiedBlob,
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         data_availability_checker::STATE_LRU_CAPACITY,
@@ -925,7 +925,7 @@ mod test {
                 .into_iter()
                 .map(|sidecar| {
                     let subnet = sidecar.index;
-                    validate_blob_sidecar_for_gossip(sidecar, subnet, &harness.chain)
+                    GossipVerifiedBlob::new(sidecar, subnet, &harness.chain)
                         .expect("should validate blob")
                 })
                 .collect()

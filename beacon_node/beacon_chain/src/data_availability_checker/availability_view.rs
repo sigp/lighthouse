@@ -358,7 +358,7 @@ pub mod tests {
                 .map(|blob_opt| {
                     blob_opt
                         .as_ref()
-                        .map(|blob| KzgVerifiedBlob::new(blob.clone()))
+                        .map(|blob| KzgVerifiedBlob::__assumed_valid(blob.clone().into()))
                 })
                 .collect::<Vec<_>>(),
         );
@@ -368,7 +368,7 @@ pub mod tests {
                 .map(|blob_opt| {
                     blob_opt
                         .as_ref()
-                        .map(|blob| KzgVerifiedBlob::new(blob.clone()))
+                        .map(|blob| KzgVerifiedBlob::__assumed_valid(blob.clone().into()))
                 })
                 .collect::<Vec<_>>(),
         );
