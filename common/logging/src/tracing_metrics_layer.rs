@@ -23,9 +23,6 @@ lazy_static! {
         );
 }
 
-/// Depedencies that get a metric label on their own. Any other dep will be registered as `"other"`.
-const ENABLED_DEPENDENCY_TARGETS: &[&'static str] = &["discv5", "libp2p"];
-
 pub struct MetricsLayer {}
 
 impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for MetricsLayer {
@@ -39,14 +36,8 @@ impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for Metric
             return;
         }
         let target = match meta.target().split_once("::") {
-            Some((crate_name, _)) => {
-                if ENABLED_DEPENDENCY_TARGETS.contains(&crate_name) {
-                    crate_name
-                } else {
-                    "other"
-                }
-            }
-            None => "unknown",
+            Some((crate_name, _)) => crate_name,
+            None => "unknown" /* TODO(@divma): not sure if leaving here the full target is a good idea, maybe? maybe not?*/,
         };
         let target = &[target];
         match meta.level() {
