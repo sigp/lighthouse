@@ -828,10 +828,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             &fork_choice_read_lock,
             block,
         )?;
-        drop(fork_choice_read_lock);
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-        let (parent_block, block) = verify_parent_block_is_known(block_root, chain, block)?;
+        let (parent_block, block) =
+            verify_parent_block_is_known::<T>(block_root, &fork_choice_read_lock, block)?;
+        drop(fork_choice_read_lock);
 
         // Track the number of skip slots between the block and its parent.
         metrics::set_gauge(
@@ -1764,14 +1765,10 @@ pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
 #[allow(clippy::type_complexity)]
 fn verify_parent_block_is_known<T: BeaconChainTypes>(
     block_root: Hash256,
-    chain: &BeaconChain<T>,
+    fork_choice_read_lock: &RwLockReadGuard<BeaconForkChoice<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError<T::EthSpec>> {
-    if let Some(proto_block) = chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .get_block(&block.parent_root())
-    {
+    if let Some(proto_block) = fork_choice_read_lock.get_block(&block.parent_root()) {
         Ok((proto_block, block))
     } else {
         Err(BlockError::ParentUnknown(RpcBlock::new_without_blobs(
