@@ -294,32 +294,17 @@ fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> 
 pub fn inspect_db<E: EthSpec>(
     inspect_config: InspectConfig,
     client_config: ClientConfig,
-    runtime_context: &RuntimeContext<E>,
-    log: Logger,
 ) -> Result<(), String> {
-    let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
-    let blobs_path = client_config.get_blobs_db_path();
-
-    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
-        &hot_path,
-        &cold_path,
-        &blobs_path,
-        |_, _, _| Ok(()),
-        client_config.store,
-        spec,
-        log,
-    )
-    .map_err(|e| format!("{:?}", e))?;
 
     let mut total = 0;
     let mut num_keys = 0;
 
     let sub_db = if inspect_config.freezer {
-        &db.cold_db
+        LevelDB::<E>::open(&cold_path).map_err(|e| format!("Unable to open freezer DB: {e:?}"))?
     } else {
-        &db.hot_db
+        LevelDB::<E>::open(&hot_path).map_err(|e| format!("Unable to open hot DB: {e:?}"))?
     };
 
     let skip = inspect_config.skip.unwrap_or(0);
@@ -653,7 +638,7 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
         }
         ("inspect", Some(cli_args)) => {
             let inspect_config = parse_inspect_config(cli_args)?;
-            inspect_db(inspect_config, client_config, &context, log)
+            inspect_db::<T>(inspect_config, client_config)
         }
         ("prune-payloads", Some(_)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)

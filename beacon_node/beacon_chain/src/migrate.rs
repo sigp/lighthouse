@@ -512,13 +512,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         genesis_block_root: Hash256,
         log: &Logger,
     ) -> Result<PruningOutcome, BeaconChainError> {
-        let old_finalized_checkpoint =
-            store
-                .load_pruning_checkpoint()?
-                .unwrap_or_else(|| Checkpoint {
-                    epoch: Epoch::new(0),
-                    root: Hash256::zero(),
-                });
+        let old_finalized_checkpoint = store.get_pruning_checkpoint();
 
         let old_finalized_slot = old_finalized_checkpoint
             .epoch
@@ -750,11 +744,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY)?,
         ));
 
-        // Persist the new finalized checkpoint as the pruning checkpoint.
-        batch.push(StoreOp::KeyValueOp(
-            store.pruning_checkpoint_store_op(new_finalized_checkpoint)?,
-        ));
-
         store.do_atomically_with_block_and_blobs_cache(batch)?;
         debug!(
             log,
@@ -768,19 +757,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             let (state_root, summary) = res?;
 
             if summary.slot <= new_finalized_slot {
-                // If state root doesn't match state root from canonical chain, or this slot
-                // is not part of the recently finalized chain, then delete.
+                // If state root doesn't match state root from canonical chain, then delete.
+                // We may also find older states here that should have been deleted by `migrate_db`
+                // but weren't due to wonky I/O atomicity.
                 if newly_finalized_chain
                     .get(&summary.slot)
                     .map_or(true, |(_, canonical_state_root)| {
                         state_root != Hash256::from(*canonical_state_root)
                     })
                 {
+                    let reason = if summary.slot < old_finalized_slot {
+                        "old dangling state"
+                    } else {
+                        "non-canonical"
+                    };
                     debug!(
                         log,
                         "Deleting state";
                         "state_root" => ?state_root,
                         "slot" => summary.slot,
+                        "reason" => reason,
                     );
                     state_delete_batch.push(StoreOp::DeleteState(state_root, Some(summary.slot)));
                 }
