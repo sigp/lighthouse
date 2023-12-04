@@ -473,14 +473,16 @@ impl<E: EthSpec> Tester<E> {
                 });
 
                 let chain = self.harness.chain.clone();
-                let blob = match GossipVerifiedBlob::new(blob_sidecar.clone(), &chain) {
-                    Ok(gossip_verified_blob) => gossip_verified_blob,
-                    Err(GossipBlobError::KzgError(_)) => {
-                        blob_success = false;
-                        GossipVerifiedBlob::__assumed_valid(blob_sidecar)
-                    }
-                    Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
-                };
+                let blob =
+                    match GossipVerifiedBlob::new(blob_sidecar.clone(), blob_sidecar.index, &chain)
+                    {
+                        Ok(gossip_verified_blob) => gossip_verified_blob,
+                        Err(GossipBlobError::KzgError(_)) => {
+                            blob_success = false;
+                            GossipVerifiedBlob::__assumed_valid(blob_sidecar)
+                        }
+                        Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
+                    };
                 let result =
                     self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
                 if valid {
