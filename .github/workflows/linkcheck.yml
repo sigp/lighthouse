@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - unstable
-      - debug
   pull_request:
     paths:
       - 'book/**'
@@ -24,7 +23,9 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Run mdbook server
-        run: docker run -v ${{ github.workspace }}/book:/book --name book -p 3000:3000 -d peaceiris/mdbook:latest serve --hostname 0.0.0.0
+        run: |
+          docker run -v ${{ github.workspace }}/book:/book --name book -p 3000:3000 -d peaceiris/mdbook:latest serve --hostname 0.0.0.0
+          sleep 5
 
       - name: Print logs
         run: docker logs book
