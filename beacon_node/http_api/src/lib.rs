@@ -2608,11 +2608,9 @@ pub fn serve<T: BeaconChainTypes>(
                         chain.canonical_head.cached_head().finalized_checkpoint();
                     let finalized = epoch + 2 <= finalized_checkpoint.epoch;
 
-                    Ok(attestation_rewards)
-                        .map(api_types::GenericResponse::from)
-                        .map(|resp| {
-                            resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
-                        })
+                    Ok(api_types::GenericResponse::from(attestation_rewards)).map(|resp| {
+                        resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
+                    })
                 })
             },
         );
