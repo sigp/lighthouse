@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::{
-    beacon_block_body::BLOB_KZG_COMMITMENTS_GINDEX, BeaconBlockHeader, BeaconStateError, Blob,
+    beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, BeaconStateError, Blob,
     EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
 };
 use crate::{KzgProofs, SignedBeaconBlock};
@@ -215,7 +215,7 @@ impl<T: EthSpec> BlobSidecar<T> {
                 .get(kzg_commitments_tree_depth..T::kzg_proof_inclusion_proof_depth())
                 .ok_or(MerkleTreeError::PleaseNotifyTheDevs)?,
             T::kzg_proof_inclusion_proof_depth().safe_sub(kzg_commitments_tree_depth)?,
-            BLOB_KZG_COMMITMENTS_GINDEX,
+            BLOB_KZG_COMMITMENTS_INDEX,
             self.signed_block_header.message.body_root,
         ))
     }
