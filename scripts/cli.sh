@@ -52,6 +52,7 @@ write_to_file "$vm_cli_move" "$vm_move" "Validator Manager Move"
 files=(./book/src/help_general.md ./book/src/help_bn.md ./book/src/help_vc.md ./book/src/help_vm.md ./book/src/help_vm_create.md ./book/src/help_vm_import.md ./book/src/help_vm_move.md)
 new_files=($general $bn $vc $vm $vm_create $vm_import $vm_move)
 
+diff=()
 # function to check
 check() {
     local file="$1"
@@ -59,6 +60,7 @@ check() {
 
     if [[ -f $file ]]; then # check for existence of file
         diff=$(diff $file $new_file || :)
+        diff+=($diff)
     else
         cp $new_file $file
         changes=true
@@ -87,7 +89,7 @@ check ${files[6]} ${new_files[6]}
 
 # remove help files
 rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md help_vm_create.md help_vm_import.md help_vm_move.md
-
+echo "difference = ${diff[@]}"
 # only exit at the very end
 if [[ $changes == true ]]; then
     echo "Exiting with error to indicate changes occurred..."
