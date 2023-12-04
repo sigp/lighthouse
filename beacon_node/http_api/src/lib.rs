@@ -41,7 +41,7 @@ use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
-    FullSignedBlockContents, ValidatorId, ValidatorStatus,
+    PublishBlockRequest, ValidatorId, ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -1306,7 +1306,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            move |block_contents: FullSignedBlockContents<T::EthSpec>,
+            move |block_contents: PublishBlockRequest<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1342,7 +1342,7 @@ pub fn serve<T: BeaconChainTypes>(
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let block_contents = FullSignedBlockContents::<T::EthSpec>::from_ssz_bytes(
+                    let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
                         &chain.spec,
                     )
@@ -1375,7 +1375,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  block_contents: FullSignedBlockContents<T::EthSpec>,
+                  block_contents: PublishBlockRequest<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1413,7 +1413,7 @@ pub fn serve<T: BeaconChainTypes>(
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let block_contents = FullSignedBlockContents::<T::EthSpec>::from_ssz_bytes(
+                    let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
                         &chain.spec,
                     )
