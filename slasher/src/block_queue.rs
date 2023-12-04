@@ -1,6 +1,6 @@
 use parking_lot::Mutex;
-use types::SignedBeaconBlockHeader;
 use std::collections::HashSet;
+use types::SignedBeaconBlockHeader;
 
 #[derive(Debug, Default)]
 pub struct BlockQueue {
