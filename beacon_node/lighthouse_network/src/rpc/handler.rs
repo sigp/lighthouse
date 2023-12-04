@@ -844,7 +844,9 @@ where
                 && self.events_out.is_empty()
                 && self.dial_negotiated == 0
             {
-                // return Poll::Ready(ConnectionHandlerEvent::Close(RPCError::Disconnected));
+                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                    HandlerEvent::Close(RPCError::Disconnected),
+                ));
             }
         }
 
