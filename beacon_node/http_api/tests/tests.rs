@@ -64,8 +64,8 @@ struct ApiTester {
     harness: Arc<BeaconChainHarness<EphemeralHarnessType<E>>>,
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
-    next_block: FullSignedBlockContents<E>,
-    reorg_block: FullSignedBlockContents<E>,
+    next_block: PublishBlockRequest<E>,
+    reorg_block: PublishBlockRequest<E>,
     attestations: Vec<Attestation<E>>,
     contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
@@ -173,13 +173,13 @@ impl ApiTester {
         let (next_block, _next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
-        let next_block = FullSignedBlockContents::from(next_block);
+        let next_block = PublishBlockRequest::from(next_block);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap() + 1)
             .await;
-        let reorg_block = FullSignedBlockContents::from(reorg_block);
+        let reorg_block = PublishBlockRequest::from(reorg_block);
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -314,13 +314,13 @@ impl ApiTester {
         let (next_block, _next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
-        let next_block = FullSignedBlockContents::from(next_block);
+        let next_block = PublishBlockRequest::from(next_block);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
-        let reorg_block = FullSignedBlockContents::from(reorg_block);
+        let reorg_block = PublishBlockRequest::from(reorg_block);
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -1301,7 +1301,7 @@ impl ApiTester {
 
         assert!(self
             .client
-            .post_beacon_blocks(&FullSignedBlockContents::from(block))
+            .post_beacon_blocks(&PublishBlockRequest::from(block))
             .await
             .is_err());
 
@@ -1328,7 +1328,7 @@ impl ApiTester {
 
         assert!(self
             .client
-            .post_beacon_blocks_ssz(&FullSignedBlockContents::from(block))
+            .post_beacon_blocks_ssz(&PublishBlockRequest::from(block))
             .await
             .is_err());
 
@@ -2577,7 +2577,7 @@ impl ApiTester {
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_contents =
-                FullSignedBlockContents::try_from(signed_block.clone()).unwrap();
+                PublishBlockRequest::try_from(signed_block.clone()).unwrap();
 
             self.client
                 .post_beacon_blocks(&signed_block_contents)

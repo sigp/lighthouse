@@ -11,7 +11,7 @@ use crate::{
 };
 use bls::SignatureBytes;
 use environment::RuntimeContext;
-use eth2::types::{FullBlockContents, FullSignedBlockContents};
+use eth2::types::{FullBlockContents, PublishBlockRequest};
 use eth2::{BeaconNodeHttpClient, StatusCode};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -483,7 +483,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     .validator_store
                     .sign_block(*validator_pubkey_ref, block, current_slot)
                     .await
-                    .map(|b| SignedBlock::Full(FullSignedBlockContents::new(b, maybe_blobs)))
+                    .map(|b| SignedBlock::Full(PublishBlockRequest::new(b, maybe_blobs)))
             }
             UnsignedBlock::Blinded(block) => self_ref
                 .validator_store
@@ -660,7 +660,7 @@ impl<E: EthSpec> UnsignedBlock<E> {
 }
 
 pub enum SignedBlock<E: EthSpec> {
-    Full(FullSignedBlockContents<E>),
+    Full(PublishBlockRequest<E>),
     Blinded(SignedBlindedBeaconBlock<E>),
 }
 
