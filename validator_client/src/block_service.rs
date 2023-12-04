@@ -334,7 +334,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // TODO produce_block_v3 should be deprecated post deneb
         if self.validator_store.produce_block_v3() || deneb_fork_activated {
             for validator_pubkey in proposers {
-                let service: BlockService<T, E> = self.clone();
+
+                let service = self.clone();
                 let log = log.clone();
                 self.inner.context.executor.spawn(
                     async move {
@@ -366,6 +367,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     .validator_store
                     .get_builder_proposals(&validator_pubkey);
                 let service = self.clone();
+                let log = log.clone();
                 self.inner.context.executor.spawn(
                     async move {
                         if builder_proposals {
@@ -524,7 +526,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // protect them from DoS attacks and they're most likely to successfully
         // publish a block.
         proposer_fallback
-            .first_success_try_proposers_first(
+            .request_proposers_first(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async {
@@ -597,6 +599,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         );
 
         let randao_reveal_ref = &randao_reveal;
+        let self_ref = &self;
         let proposer_fallback = ProposerFallback {
             beacon_nodes: self.beacon_nodes.clone(),
             proposer_nodes: self.proposer_nodes.clone(),
@@ -613,7 +616,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // Try the proposer nodes last, since it's likely that they don't have a
         // great view of attestations on the network.
         let block_response = proposer_fallback
-            .first_success_try_proposers_last(
+            .request_proposers_last(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
@@ -638,7 +641,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         match block_response {
             eth2::types::ForkVersionedBeaconBlockType::Full(block_contents) => {
-                self.sign_and_publish_block::<FullPayload<E>>(
+                self_ref.sign_and_publish_block::<FullPayload<E>>(
                     proposer_fallback,
                     slot,
                     current_slot,
@@ -649,7 +652,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 .await?;
             }
             eth2::types::ForkVersionedBeaconBlockType::Blinded(block_contents) => {
-                self.sign_and_publish_block::<BlindedPayload<E>>(
+                self_ref.sign_and_publish_block::<BlindedPayload<E>>(
                     proposer_fallback,
                     slot,
                     current_slot,
@@ -713,6 +716,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         );
 
         let randao_reveal_ref = &randao_reveal;
+        let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let proposer_fallback = ProposerFallback {
             beacon_nodes: self.beacon_nodes.clone(),
@@ -730,7 +734,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // Try the proposer nodes last, since it's likely that they don't have a
         // great view of attestations on the network.
         let block_contents = proposer_fallback
-            .first_success_try_proposers_last(
+            .request_proposers_last(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 move |beacon_node| {
@@ -746,7 +750,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
             .await?;
 
-        self.sign_and_publish_block(
+        self_ref.sign_and_publish_block(
             proposer_fallback,
             slot,
             current_slot,
