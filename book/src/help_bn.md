@@ -393,11 +393,10 @@ OPTIONS:
             useful for execution nodes which don't improve their payload after the first call, and high values are
             useful for ensuring the EL is given ample notice. Default: 1/3 of a slot.
         --progressive-balances <MODE>
-            Options to enable or disable the progressive balances cache for unrealized FFG progression calculation. The
-            default `checked` mode compares the progressive balances from the cache against results from the existing
-            method. If there is a mismatch, it falls back to the existing method. The optimized mode (`fast`) is faster
-            but is still experimental, and is not recommended for mainnet usage at this time. [possible values:
-            disabled, checked, strict, fast]
+            Control the progressive balances cache mode. The default `fast` mode uses the cache to speed up fork choice.
+            A more conservative `checked` mode compares the cache's results against results without the cache. If there
+            is a mismatch, it falls back to the cache-free result. Using the default `fast` mode is recommended unless
+            advised otherwise by the Lighthouse team. [possible values: disabled, checked, strict, fast]
         --proposer-reorg-cutoff <MILLISECONDS>
             Maximum delay after the start of the slot at which to propose a reorging block. Lower values can prevent
             failed reorgs by ensuring the block has ample time to propagate and be processed by the network. The default
