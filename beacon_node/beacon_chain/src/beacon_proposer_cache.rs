@@ -25,7 +25,7 @@ const CACHE_SIZE: usize = 16;
 /// This value is fairly unimportant, it's used to avoid heap allocations. The result of it being
 /// incorrect is non-substantial from a consensus perspective (and probably also from a
 /// performance perspective).
-const TYPICAL_SLOTS_PER_EPOCH: usize = 32;
+pub const TYPICAL_SLOTS_PER_EPOCH: usize = 32;
 
 /// For some given slot, this contains the proposer index (`index`) and the `fork` that should be
 /// used to verify their signature.

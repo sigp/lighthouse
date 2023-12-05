@@ -12,7 +12,6 @@ jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
 bls = { workspace = true }
-kzg = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
@@ -44,6 +43,8 @@ beacon_chain = { workspace = true }
 store = { workspace = true }
 malloc_utils = { workspace = true }
 rayon = { workspace = true }
+execution_layer = { workspace = true }
+hex = { workspace = true }
 
 [package.metadata.cargo-udeps.ignore]
 normal = ["malloc_utils"]

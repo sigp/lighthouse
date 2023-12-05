@@ -386,8 +386,8 @@ pub struct JsonPayloadAttributes {
 }
 
 impl From<PayloadAttributes> for JsonPayloadAttributes {
-    fn from(payload_atributes: PayloadAttributes) -> Self {
-        match payload_atributes {
+    fn from(payload_attributes: PayloadAttributes) -> Self {
+        match payload_attributes {
             PayloadAttributes::V1(pa) => Self::V1(JsonPayloadAttributesV1 {
                 timestamp: pa.timestamp,
                 prev_randao: pa.prev_randao,

@@ -1,6 +1,6 @@
 //! Helper functions and an extension trait for Ethereum 2 ENRs.
 
-pub use discv5::enr::{self, CombinedKey, EnrBuilder};
+pub use discv5::enr::{CombinedKey, EnrBuilder};
 
 use super::enr_ext::CombinedKeyExt;
 use super::ENR_FILENAME;

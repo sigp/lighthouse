@@ -91,10 +91,8 @@ impl TestRig {
         fork_name: ForkName,
         num_blobs: NumBlobs,
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
-        let kzg = self.harness.chain.kzg.as_ref().unwrap();
         let rng = &mut self.rng;
-
-        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, kzg.as_ref(), rng)
+        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
     }
 
     #[track_caller]
@@ -1637,7 +1635,7 @@ mod deneb_only {
             self
         }
         fn invalidate_blobs_too_many(mut self) -> Self {
-            let first_blob = self.blobs.get(0).expect("blob").clone();
+            let first_blob = self.blobs.first().expect("blob").clone();
             self.blobs.push(first_blob);
             self
         }

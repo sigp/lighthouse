@@ -81,11 +81,8 @@
 //!     }
 //! ];
 //! assert_eq!(bar_a.compare_fields(&bar_b), bar_a_b);
-//!
-//!
-//!
-//! // TODO:
 //! ```
+use itertools::{EitherOrBoth, Itertools};
 use std::fmt::Debug;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -112,13 +109,38 @@ impl Comparison {
     }
 
     pub fn from_slice<T: Debug + PartialEq<T>>(field_name: String, a: &[T], b: &[T]) -> Self {
-        let mut children = vec![];
+        Self::from_iter(field_name, a.iter(), b.iter())
+    }
 
-        for i in 0..std::cmp::max(a.len(), b.len()) {
-            children.push(FieldComparison::new(format!("{i}"), &a.get(i), &b.get(i)));
+    pub fn from_into_iter<'a, T: Debug + PartialEq + 'a>(
+        field_name: String,
+        a: impl IntoIterator<Item = &'a T>,
+        b: impl IntoIterator<Item = &'a T>,
+    ) -> Self {
+        Self::from_iter(field_name, a.into_iter(), b.into_iter())
+    }
+
+    pub fn from_iter<'a, T: Debug + PartialEq + 'a>(
+        field_name: String,
+        a: impl Iterator<Item = &'a T>,
+        b: impl Iterator<Item = &'a T>,
+    ) -> Self {
+        let mut children = vec![];
+        let mut all_equal = true;
+
+        for (i, entry) in a.zip_longest(b).enumerate() {
+            let comparison = match entry {
+                EitherOrBoth::Both(x, y) => {
+                    FieldComparison::new(format!("{i}"), &Some(x), &Some(y))
+                }
+                EitherOrBoth::Left(x) => FieldComparison::new(format!("{i}"), &Some(x), &None),
+                EitherOrBoth::Right(y) => FieldComparison::new(format!("{i}"), &None, &Some(y)),
+            };
+            all_equal = all_equal && comparison.equal();
+            children.push(comparison);
         }
 
-        Self::parent(field_name, a == b, children)
+        Self::parent(field_name, all_equal, children)
     }
 
     pub fn retain_children<F>(&mut self, f: F)

@@ -24,3 +24,6 @@ rand = { workspace = true }
 beacon_chain = { workspace = true }
 tokio = { workspace = true }
 maplit = { workspace = true }
+
+[features]
+portable = ["beacon_chain/portable"]

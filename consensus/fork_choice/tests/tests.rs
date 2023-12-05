@@ -92,8 +92,7 @@ impl ForkChoiceTest {
         T: Fn(&BeaconForkChoiceStore<E, MemoryStore<E>, MemoryStore<E>>) -> U,
     {
         func(
-            &self
-                .harness
+            self.harness
                 .chain
                 .canonical_head
                 .fork_choice_read_lock()
@@ -386,8 +385,7 @@ impl ForkChoiceTest {
                 &self.harness.chain.spec,
                 self.harness.logger(),
             )
-            .err()
-            .expect("on_block did not return an error");
+            .expect_err("on_block did not return an error");
         comparison_func(err);
         self
     }
@@ -841,7 +839,7 @@ async fn valid_attestation() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |_, _| {},
-            |result| assert_eq!(result.unwrap(), ()),
+            |result| assert!(result.is_ok()),
         )
         .await;
 }
@@ -1074,7 +1072,7 @@ async fn invalid_attestation_delayed_slot() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |_, _| {},
-            |result| assert_eq!(result.unwrap(), ()),
+            |result| assert!(result.is_ok()),
         )
         .await
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 1))
@@ -1183,7 +1181,7 @@ async fn weak_subjectivity_check_fails_early_epoch() {
 
     let mut checkpoint = setup_harness.harness.finalized_checkpoint();
 
-    checkpoint.epoch = checkpoint.epoch - 1;
+    checkpoint.epoch -= 1;
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
@@ -1210,7 +1208,7 @@ async fn weak_subjectivity_check_fails_late_epoch() {
 
     let mut checkpoint = setup_harness.harness.finalized_checkpoint();
 
-    checkpoint.epoch = checkpoint.epoch + 1;
+    checkpoint.epoch += 1;
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),

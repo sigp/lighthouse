@@ -191,15 +191,7 @@ where
             .graffiti(graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
-            .monitor_validators(
-                config.validator_monitor_auto,
-                config.validator_monitor_pubkeys.clone(),
-                config.validator_monitor_individual_tracking_threshold,
-                runtime_context
-                    .service_context("val_mon".to_string())
-                    .log()
-                    .clone(),
-            );
+            .validator_monitor_config(config.validator_monitor.clone());
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
@@ -909,7 +901,7 @@ where
         mut self,
         hot_path: &Path,
         cold_path: &Path,
-        blobs_path: Option<PathBuf>,
+        blobs_path: &Path,
         config: StoreConfig,
         log: Logger,
     ) -> Result<Self, String> {
