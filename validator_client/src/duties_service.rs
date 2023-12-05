@@ -42,6 +42,9 @@ const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
 /// At start-up selection proofs will be computed with less lookahead out of necessity.
 const SELECTION_PROOF_SLOT_LOOKAHEAD: u64 = 8;
 
+/// The attestation selection proof lookahead for those running with the --dvt flag.
+const SELECTION_PROOF_SLOT_LOOKAHEAD_DVT: u64 = 1;
+
 /// Fraction of a slot at which selection proof signing should happen (2 means half way).
 const SELECTION_PROOF_SCHEDULE_DENOM: u32 = 2;
 
@@ -1002,7 +1005,9 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                 continue;
             };
 
-            let lookahead_slot = current_slot + SELECTION_PROOF_SLOT_LOOKAHEAD;
+            let selection_look_ahead = if duties_service.distributed { SELECTION_PROOF_SLOT_LOOKAHEAD_DVT } else { SELECTION_PROOF_SLOT_LOOKAHEAD };
+
+            let lookahead_slot = current_slot + selection_look_ahead;
 
             let mut relevant_duties = duties_by_slot.split_off(&lookahead_slot);
             std::mem::swap(&mut relevant_duties, &mut duties_by_slot);
