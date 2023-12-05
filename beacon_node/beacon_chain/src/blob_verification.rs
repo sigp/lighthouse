@@ -418,24 +418,10 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         return Err(GossipBlobError::BlobParentUnknown(blob_sidecar));
     };
 
-    // If fork choice does *not* consider the parent to be a descendant of the finalized block,
-    // then there are two more cases:
-    //
-    // 1. We have the parent stored in our database. Because fork-choice has confirmed the
-    //    parent is *not* in our post-finalization DAG, all other blocks must be either
-    //    pre-finalization or conflicting with finalization.
-    // 2. The parent is unknown to us, we probably want to download it since it might actually
-    //    descend from the finalized root.
+    // Do not process a blob that does not descend from the finalized root.
+    // We just loaded the parent_block, so we can be sure that it exists in fork choice.
     if !fork_choice.is_finalized_checkpoint_or_descendant(block_parent_root) {
-        if chain
-            .store
-            .block_exists(&block_parent_root)
-            .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
-        {
-            return Err(GossipBlobError::NotFinalizedDescendant { block_parent_root });
-        } else {
-            return Err(GossipBlobError::BlobParentUnknown(blob_sidecar));
-        }
+        return Err(GossipBlobError::NotFinalizedDescendant { block_parent_root });
     }
     drop(fork_choice);
 
