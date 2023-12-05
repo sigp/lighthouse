@@ -129,7 +129,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 ];
                 let beacon_block_body_depth = leaves.len().next_power_of_two().ilog2() as usize;
                 let tree = MerkleTree::create(&leaves, beacon_block_body_depth);
-                let (_, mut proof_body) = tree
+                let (_, proof_body) = tree
                     .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, beacon_block_body_depth)
                     .map_err(Error::MerkleTreeError)?;
                 Ok(proof_body)
@@ -158,7 +158,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 // We then merge the branches for both the trees all the way up to the root.
 
                 // Part 1: Branches for the `BeaconBlockBody` container
-                let mut proof_body = self.kzg_commitments_body_proof()?;
+                let proof_body = self.kzg_commitments_body_proof()?;
 
                 let depth = T::max_blob_commitments_per_block()
                     .next_power_of_two()
@@ -168,7 +168,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                     .iter()
                     .map(|commitment| commitment.tree_hash_root())
                     .collect();
-
+                let tree = MerkleTree::create(&leaves, depth as usize);
                 // Add the branch corresponding to the length mix-in.
                 let length = body.blob_kzg_commitments.len();
                 let usize_len = std::mem::size_of::<usize>();
@@ -181,13 +181,13 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
 
                 for index in 0..body.blob_kzg_commitments.len() {
                     // Part 2: Branches for the subtree rooted at `blob_kzg_commitments`
-                    let tree = MerkleTree::create(&leaves, depth as usize);
                     let (_, mut proof) = tree
                         .generate_proof(index, depth as usize)
                         .map_err(Error::MerkleTreeError)?;
                     proof.push(length_root);
                     // Join the proofs for the subtree and the main tree
-                    proof.append(&mut proof_body);
+                    proof.extend_from_slice(&proof_body);
+                    debug_assert_eq!(proof.len(), T::kzg_proof_inclusion_proof_depth());
                     proofs.push(proof.into());
                 }
 
