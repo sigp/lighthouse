@@ -601,7 +601,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(GossipBlobError::KzgNotInitialized)?;
     let kzg_verified_blob =
-        verify_kzg_for_blob(blob_sidecar, kzg).map_err(GossipBlobError::KzgError)?;
+        KzgVerifiedBlob::new(blob_sidecar, kzg).map_err(GossipBlobError::KzgError)?;
 
     Ok(GossipVerifiedBlob {
         block_root,
