@@ -1,3 +1,4 @@
+use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
 use crate::hdiff;
 use crate::hot_cold_store::HotColdDBError;
@@ -10,6 +11,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     SszDecodeError(DecodeError),
+    VectorChunkError(ChunkError),
     BeaconStateError(BeaconStateError),
     PartialBeaconStateError,
     HotColdDBError(HotColdDBError),
@@ -94,6 +96,12 @@ impl<T> HandleUnavailable<T> for Result<T> {
 impl From<DecodeError> for Error {
     fn from(e: DecodeError) -> Error {
         Error::SszDecodeError(e)
+    }
+}
+
+impl From<ChunkError> for Error {
+    fn from(e: ChunkError) -> Error {
+        Error::VectorChunkError(e)
     }
 }
 

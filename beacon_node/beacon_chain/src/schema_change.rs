@@ -1,62 +1,42 @@
 //! Utilities for managing database schema changes.
 mod migration_schema_v17;
 mod migration_schema_v18;
-mod migration_schema_v20;
+mod migration_schema_v24;
 
 use crate::beacon_chain::BeaconChainTypes;
-use crate::types::ChainSpec;
 use slog::Logger;
 use std::sync::Arc;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
 use store::Error as StoreError;
+use types::Hash256;
 
 /// Migrate the database from one schema version to another, applying all requisite mutations.
-#[allow(clippy::only_used_in_recursion)] // spec is not used but likely to be used in future
 pub fn migrate_schema<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-    deposit_contract_deploy_block: u64,
+    genesis_state_root: Option<Hash256>,
     from: SchemaVersion,
     to: SchemaVersion,
     log: Logger,
-    spec: &ChainSpec,
 ) -> Result<(), StoreError> {
     match (from, to) {
         // Migrating from the current schema version to itself is always OK, a no-op.
         (_, _) if from == to && to == CURRENT_SCHEMA_VERSION => Ok(()),
-        // Upgrade for tree-states database changes.
-        (SchemaVersion(12), SchemaVersion(20)) => {
-            migration_schema_v20::upgrade_to_v20::<T>(db, log)
-        }
-        // Downgrade for tree-states database changes.
-        (SchemaVersion(20), SchemaVersion(12)) => {
-            migration_schema_v20::downgrade_from_v20::<T>(db, log)
+        // Upgrade for tree-states database changes. There is no downgrade.
+        (SchemaVersion(18), SchemaVersion(24)) => {
+            migration_schema_v24::upgrade_to_v24::<T>(db, genesis_state_root, log)
         }
         // Upgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {
             let next = SchemaVersion(from.as_u64() + 1);
-            migrate_schema::<T>(
-                db.clone(),
-                deposit_contract_deploy_block,
-                from,
-                next,
-                log.clone(),
-                spec,
-            )?;
-            migrate_schema::<T>(db, deposit_contract_deploy_block, next, to, log, spec)
+            migrate_schema::<T>(db.clone(), genesis_state_root, from, next, log.clone())?;
+            migrate_schema::<T>(db, genesis_state_root, next, to, log)
         }
         // Downgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if to.as_u64() + 1 < from.as_u64() => {
             let next = SchemaVersion(from.as_u64() - 1);
-            migrate_schema::<T>(
-                db.clone(),
-                deposit_contract_deploy_block,
-                from,
-                next,
-                log.clone(),
-                spec,
-            )?;
-            migrate_schema::<T>(db, deposit_contract_deploy_block, next, to, log, spec)
+            migrate_schema::<T>(db.clone(), genesis_state_root, from, next, log.clone())?;
+            migrate_schema::<T>(db, genesis_state_root, next, to, log)
         }
 
         //

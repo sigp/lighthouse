@@ -66,11 +66,9 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pub(crate) hierarchy: HierarchyModuli,
     /// Cold database containing compact historical data.
     pub cold_db: Cold,
-    /// Database containing blobs. If None, store falls back to use `cold_db`.
+    /// Database containing blobs.
     pub blobs_db: Cold,
     /// Hot database containing duplicated but quick-to-access recent data.
-    ///
-    /// The hot database also contains all blocks.
     pub hot_db: Hot,
     /// LRU cache of deserialized blocks and blobs. Updated whenever a block or blob is loaded.
     block_cache: Mutex<BlockCache<E>>,
@@ -248,7 +246,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         let historic_state_cache_size = config.historic_state_cache_size;
         let diff_buffer_cache_size = config.diff_buffer_cache_size;
 
-        let db = HotColdDB {
+        let mut db = HotColdDB {
             split: RwLock::new(Split::default()),
             anchor_info: RwLock::new(None),
             blob_info: RwLock::new(BlobInfo::default()),
@@ -269,7 +267,12 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
 
         // Load the config from disk but don't error on a failed read because the config itself may
         // need migrating.
-        let _ = db.load_config();
+        if let Err(_) = db.load_config() {
+            // We expect this failure when migrating to tree-states for the first time, before
+            // the new config is written. We need to set it here before the DB gets Arc'd for the
+            // schema migration. This can be deleted when the v24 schema upgrade is deleted.
+            db.config.linear_blocks = false;
+        }
 
         // Load the previous split slot from the database (if any). This ensures we can
         // stop and restart correctly. This needs to occur *before* running any migrations
@@ -285,11 +288,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 "split_state" => ?split.state_root
             );
         }
-
-        // Load validator pubkey cache.
-        // FIXME(sproul): probably breaks migrations, etc
-        let pubkey_cache = ValidatorPubkeyCache::load_from_store(&db)?;
-        *db.immutable_validators.write() = pubkey_cache;
 
         // Open separate blobs directory if configured and same configuration was used on previous
         // run.
@@ -349,6 +347,10 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             db.config.check_compatibility(&disk_config)?;
         }
         db.store_config()?;
+
+        // Load validator pubkey cache.
+        let pubkey_cache = ValidatorPubkeyCache::load_from_store(&db)?;
+        *db.immutable_validators.write() = pubkey_cache;
 
         // Run a garbage collection pass.
         db.remove_garbage()?;
@@ -556,8 +558,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         block_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<SignedBlindedBeaconBlock<E>>, Error> {
+        // If linear_blocks is disabled, all blocks are in the hot DB.
+        if !self.config.linear_blocks {
+            return self.get_hot_blinded_block(block_root);
+        }
+
         let split = self.get_split_info();
         if let Some(slot) = slot {
+            // FIXME(sproul): this split block_root condition looks wrong
             if (slot < split.slot || slot == 0) && *block_root != split.block_root {
                 // To the freezer DB.
                 self.get_cold_blinded_block_by_slot(slot)
@@ -2282,10 +2290,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         match self.load_split_partial()? {
             Some(mut split) => {
                 // Load the hot state summary to get the block root.
-                let summary = self.load_hot_state_summary(&split.state_root)?.ok_or(
-                    HotColdDBError::MissingSplitState(split.state_root, split.slot),
-                )?;
-                split.block_root = summary.latest_block_root;
+                split.block_root = self
+                    .load_hot_state_summary_latest_block_root_any_version(&split.state_root)?
+                    .ok_or(HotColdDBError::MissingSplitState(
+                        split.state_root,
+                        split.slot,
+                    ))?;
                 Ok(Some(split))
             }
             None => Ok(None),
@@ -2341,6 +2351,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root: &Hash256,
     ) -> Result<Option<HotStateSummary>, Error> {
         self.hot_db.get(state_root)
+    }
+
+    pub fn load_hot_state_summary_latest_block_root_any_version(
+        &self,
+        state_root: &Hash256,
+    ) -> Result<Option<Hash256>, Error> {
+        if let Ok(summary_v24) = self.load_hot_state_summary(state_root) {
+            return Ok(summary_v24.map(|s| s.latest_block_root));
+        }
+        let summary_v1 = self.hot_db.get::<HotStateSummaryV1>(state_root)?;
+        Ok(summary_v1.map(|s| s.latest_block_root))
     }
 
     /// Iterate all hot state summaries in the database.
@@ -2705,10 +2726,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// `genesis_state`. This is to support its use in schema migrations where the storage scheme of
     /// the genesis state may be modified. It is the responsibility of the caller to ensure that the
     /// genesis state is correct, else a corrupt database will be created.
+    ///
+    /// Although DB ops for the cold DB are returned, this function WILL write a new anchor
+    /// immediately to the hot database. It is safe to re-run on failure.
     pub fn prune_historic_states(
         &self,
         genesis_state_root: Hash256,
         genesis_state: &BeaconState<E>,
+        cold_ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         // Update the anchor to use the dummy state upper limit and disable historic state storage.
         let old_anchor = self.get_anchor_info();
@@ -2735,8 +2760,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Stage freezer data for deletion. Do not bother loading and deserializing values as this
         // wastes time and is less schema-agnostic. My hope is that this method will be useful for
         // migrating to the tree-states schema (delete everything in the freezer then start afresh).
-        let mut cold_ops = vec![];
-
         let columns = [
             DBColumn::BeaconState,
             DBColumn::BeaconStateSummary,
@@ -2757,16 +2780,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
 
-        // XXX: We need to commit the mass deletion here *before* re-storing the genesis state, as
-        // the current schema performs reads as part of `store_cold_state`. This can be deleted
-        // once the target schema is tree-states. If the process is killed before the genesis state
-        // is written this can be fixed by re-running.
         info!(
             self.log,
             "Deleting historic states";
             "num_kv" => cold_ops.len(),
         );
-        self.cold_db.do_atomically(std::mem::take(&mut cold_ops))?;
 
         // If we just deleted the the genesis state, re-store it using the *current* schema, which
         // may be different from the schema of the genesis state we just deleted.
@@ -2776,10 +2794,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "Re-storing genesis state";
                 "state_root" => ?genesis_state_root,
             );
-            self.store_cold_state(&genesis_state_root, genesis_state, &mut cold_ops)?;
-            self.cold_db.do_atomically(cold_ops)?;
+            self.store_cold_state(&genesis_state_root, genesis_state, cold_ops)?;
         }
 
+        Ok(())
+    }
+
+    /// Same as `prune_historic_states` but also writing to the cold DB.
+    pub fn prune_historic_states_with_cold_write(
+        &self,
+        genesis_state_root: Hash256,
+        genesis_state: &BeaconState<E>,
+    ) -> Result<(), Error> {
+        let mut cold_db_ops = vec![];
+        self.prune_historic_states(genesis_state_root, genesis_state, &mut cold_db_ops)?;
+        self.cold_db.do_atomically(cold_db_ops)?;
         Ok(())
     }
 }
@@ -2846,17 +2875,19 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         }
 
         // Move the blinded block from the hot database to the freezer.
-        // FIXME(sproul): make this load lazy
-        let blinded_block = store
-            .get_blinded_block(&block_root, None)?
-            .ok_or(Error::BlockNotFound(block_root))?;
-        if blinded_block.slot() == slot || slot == current_split_slot {
-            store.blinded_block_as_cold_kv_store_ops(
-                &block_root,
-                &blinded_block,
-                &mut cold_db_block_ops,
-            )?;
-            hot_db_ops.push(StoreOp::DeleteBlock(block_root));
+        if store.config.linear_blocks {
+            // FIXME(sproul): make this load lazy
+            let blinded_block = store
+                .get_blinded_block(&block_root, None)?
+                .ok_or(Error::BlockNotFound(block_root))?;
+            if blinded_block.slot() == slot || slot == current_split_slot {
+                store.blinded_block_as_cold_kv_store_ops(
+                    &block_root,
+                    &blinded_block,
+                    &mut cold_db_block_ops,
+                )?;
+                hot_db_ops.push(StoreOp::DeleteBlock(block_root));
+            }
         }
 
         // Store the slot to block root mapping.
@@ -3011,9 +3042,8 @@ impl StoreItem for Split {
 /// Struct for summarising a state in the hot database.
 ///
 /// Allows full reconstruction by replaying blocks.
-// FIXME(sproul): change to V20
 #[superstruct(
-    variants(V1, V10),
+    variants(V1, V24),
     variant_attributes(derive(Debug, Clone, Copy, Default, Encode, Decode)),
     no_enum
 )]
@@ -3028,13 +3058,14 @@ pub struct HotStateSummary {
     /// Formerly known as the `epoch_boundary_state_root`.
     pub diff_base_state_root: Hash256,
     /// The slot of the state with `diff_base_state_root`, or 0 if no diff is stored.
+    #[superstruct(only(V24))]
     pub diff_base_slot: Slot,
     /// The state root of the state at the prior slot.
-    #[superstruct(only(V10))]
+    #[superstruct(only(V24))]
     pub prev_state_root: Hash256,
 }
 
-pub type HotStateSummary = HotStateSummaryV10;
+pub type HotStateSummary = HotStateSummaryV24;
 
 macro_rules! impl_store_item_summary {
     ($t:ty) => {
@@ -3054,7 +3085,7 @@ macro_rules! impl_store_item_summary {
     };
 }
 impl_store_item_summary!(HotStateSummaryV1);
-impl_store_item_summary!(HotStateSummaryV10);
+impl_store_item_summary!(HotStateSummaryV24);
 
 impl HotStateSummary {
     /// Construct a new summary of the given state.

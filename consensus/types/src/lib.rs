@@ -222,5 +222,7 @@ pub use bls::{
 };
 pub use kzg::{KzgCommitment, KzgProof, VERSIONED_HASH_VERSION_KZG};
 pub use milhouse::{self, Vector as FixedVector};
-pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, VariableList};
+pub use ssz_types::{
+    typenum, typenum::Unsigned, BitList, BitVector, FixedVector as FlatVector, VariableList,
+};
 pub use superstruct::superstruct;

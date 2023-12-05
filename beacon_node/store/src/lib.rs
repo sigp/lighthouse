@@ -10,6 +10,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+pub mod chunked_vector;
 pub mod config;
 pub mod errors;
 mod forwards_iter;
@@ -22,6 +23,7 @@ mod leveldb_store;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
+pub mod partial_beacon_state;
 pub mod reconstruct;
 mod state_cache;
 pub mod validator_pubkey_cache;

@@ -67,10 +67,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
 
         for validator_index in 0.. {
             if let Some(db_validator) =
-                store.get_item(&DatabaseValidator::key_for_index(validator_index))?
+                store.get_item(&DatabasePubkey::key_for_index(validator_index))?
             {
                 let (pubkey, pubkey_bytes) =
-                    DatabaseValidator::into_immutable_validator(&db_validator)?;
+                    DatabasePubkey::into_immutable_validator(&db_validator)?;
                 pubkeys.push(pubkey);
                 indices.insert(pubkey_bytes, validator_index);
                 validators.push(Arc::new(pubkey_bytes));
@@ -134,8 +134,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
             // Notably it is NOT written while the write lock on the cache is held.
             // See: https://github.com/sigp/lighthouse/issues/2327
             store_ops.push(StoreOp::KeyValueOp(
-                DatabaseValidator::from_immutable_validator(&pubkey, &pubkey_bytes)
-                    .as_kv_store_op(DatabaseValidator::key_for_index(i))?,
+                DatabasePubkey::from_pubkey(&pubkey)
+                    .as_kv_store_op(DatabasePubkey::key_for_index(i))?,
             ));
 
             self.pubkeys.push(pubkey);
@@ -186,11 +186,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
 ///
 /// Keyed by the validator index as `Hash256::from_low_u64_be(index)`.
 #[derive(Encode, Decode)]
-struct DatabaseValidator {
+pub struct DatabasePubkey {
     pubkey: SmallVec<[u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN]>,
 }
 
-impl StoreItem for DatabaseValidator {
+impl StoreItem for DatabasePubkey {
     fn db_column() -> DBColumn {
         DBColumn::PubkeyCache
     }
@@ -204,14 +204,13 @@ impl StoreItem for DatabaseValidator {
     }
 }
 
-impl DatabaseValidator {
+impl DatabasePubkey {
     fn key_for_index(index: usize) -> Hash256 {
         Hash256::from_low_u64_be(index as u64)
     }
 
-    // FIXME(sproul): remove param
-    fn from_immutable_validator(pubkey: &PublicKey, _validator: &PublicKeyBytes) -> Self {
-        DatabaseValidator {
+    fn from_pubkey(pubkey: &PublicKey) -> Self {
+        DatabasePubkey {
             pubkey: pubkey.serialize_uncompressed().into(),
         }
     }
@@ -222,6 +221,11 @@ impl DatabaseValidator {
             .map_err(Error::InvalidValidatorPubkeyBytes)?;
         let pubkey_bytes = pubkey.compress();
         Ok((pubkey, pubkey_bytes))
+    }
+
+    pub fn from_legacy_pubkey_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let pubkey = PublicKey::from_ssz_bytes(&bytes)?;
+        Ok(Self::from_pubkey(&pubkey))
     }
 }
 

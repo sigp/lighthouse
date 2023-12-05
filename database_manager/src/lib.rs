@@ -429,13 +429,14 @@ pub fn migrate_db<E: EthSpec>(
         "to" => to.as_u64(),
     );
 
+    // FIXME(sproul): get genesis state root
+    let genesis_state_root = None;
     migrate_schema::<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, _, _, _>>(
         db,
-        client_config.eth1.deposit_contract_deploy_block,
+        genesis_state_root,
         from,
         to,
         log,
-        spec,
     )
 }
 
@@ -614,7 +615,7 @@ pub fn prune_states<E: EthSpec>(
     let genesis_state_root = genesis_state
         .update_tree_hash_cache()
         .map_err(|e| format!("Error computing genesis state root: {e:?}"))?;
-    db.prune_historic_states(genesis_state_root, &genesis_state)
+    db.prune_historic_states_with_cold_write(genesis_state_root, &genesis_state)
         .map_err(|e| format!("Failed to prune due to error: {e:?}"))?;
 
     info!(log, "Historic states pruned successfully");
