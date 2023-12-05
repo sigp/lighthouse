@@ -56,7 +56,7 @@ unused_port = { workspace = true }
 database_manager = { path = "../database_manager" }
 slasher = { workspace = true }
 validator_manager = { path = "../validator_manager" }
-tracing-subscriber = "0.3.18"
+tracing-subscriber = { workspace = true }
 logging = { workspace = true }
 
 [dev-dependencies]

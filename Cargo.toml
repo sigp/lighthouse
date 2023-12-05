@@ -160,6 +160,8 @@ tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.6", features = ["codec", "compat", "time"] }
+tracing-core = "0.1"
+tracing-subscriber = "0.3"
 tree_hash = "0.5"
 tree_hash_derive = "0.5"
 url = "2"
