@@ -363,7 +363,7 @@ impl Default for Config {
             disable_discovery: false,
             disable_quic_support: false,
             upnp_enabled: true,
-            network_load: 3,
+            network_load: 4,
             private: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
@@ -422,7 +422,7 @@ impl From<u8> for NetworkLoad {
                 mesh_n_high: 10,
                 gossip_lazy: 3,
                 history_gossip: 3,
-                heartbeat_interval: Duration::from_millis(700),
+                heartbeat_interval: Duration::from_millis(1000),
             },
             4 => NetworkLoad {
                 name: "Average",
@@ -432,7 +432,7 @@ impl From<u8> for NetworkLoad {
                 mesh_n_high: 12,
                 gossip_lazy: 3,
                 history_gossip: 3,
-                heartbeat_interval: Duration::from_millis(700),
+                heartbeat_interval: Duration::from_millis(1000),
             },
             // 5 and above
             _ => NetworkLoad {
@@ -443,7 +443,7 @@ impl From<u8> for NetworkLoad {
                 mesh_n_high: 15,
                 gossip_lazy: 5,
                 history_gossip: 6,
-                heartbeat_interval: Duration::from_millis(500),
+                heartbeat_interval: Duration::from_millis(700),
             },
         }
     }
