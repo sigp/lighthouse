@@ -293,7 +293,7 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
     pub fn blob_index(&self) -> u64 {
         self.blob.index
     }
-    /// Construct a `GossipVerifiedBlob` that is assumed to be valid.
+    /// Construct a `KzgVerifiedBlob` that is assumed to be valid.
     ///
     /// This should ONLY be used for testing.
     #[cfg(test)]
