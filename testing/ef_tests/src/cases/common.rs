@@ -1,4 +1,4 @@
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::convert::TryFrom;
@@ -64,8 +64,9 @@ pub fn previous_fork(fork_name: ForkName) -> ForkName {
     match fork_name {
         ForkName::Base => ForkName::Base,
         ForkName::Altair => ForkName::Base,
-        ForkName::Merge => ForkName::Altair, // TODO: Check this when tests are released..
-        ForkName::Capella => ForkName::Merge, // TODO: Check this when tests are released..
+        ForkName::Merge => ForkName::Altair,
+        ForkName::Capella => ForkName::Merge,
+        ForkName::Deneb => ForkName::Capella,
     }
 }
 

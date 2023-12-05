@@ -4,6 +4,7 @@ use beacon_chain::{
     StateSkipConfig,
 };
 use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
+use execution_layer::test_utils::generate_genesis_header;
 use genesis::{bls_withdrawal_credentials, interop_genesis_state_with_withdrawal_credentials};
 use http_api::test_utils::*;
 use std::collections::HashSet;
@@ -354,12 +355,13 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         .iter()
         .map(|keypair| bls_withdrawal_credentials(&keypair.as_ref().unwrap().pk, &spec))
         .collect::<Vec<_>>();
+    let header = generate_genesis_header(&spec, true);
     let genesis_state = interop_genesis_state_with_withdrawal_credentials(
         &validator_keypairs,
         &withdrawal_credentials,
         HARNESS_GENESIS_TIME,
         Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-        None,
+        header,
         &spec,
     )
     .unwrap();

@@ -21,7 +21,7 @@ pub use eth2;
 pub use execution_layer::test_utils::{
     Config as MockServerConfig, MockExecutionConfig, MockServer,
 };
-pub use validator_client::Config as ValidatorConfig;
+pub use validator_client::{ApiTopic, Config as ValidatorConfig};
 
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(8);
@@ -250,7 +250,7 @@ impl<E: EthSpec> LocalExecutionNode<E> {
             panic!("Failed to write jwt file {}", e);
         }
         Self {
-            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config),
+            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config, None),
             datadir,
         }
     }

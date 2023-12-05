@@ -1,7 +1,6 @@
 use super::*;
 use crate::hot_cold_store::HotColdDBError;
 use crate::metrics;
-use db_key::Key;
 use leveldb::compaction::Compaction;
 use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
@@ -170,16 +169,15 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         for (start_key, end_key) in [
             endpoints(DBColumn::BeaconStateTemporary),
             endpoints(DBColumn::BeaconState),
+            endpoints(DBColumn::BeaconStateSummary),
         ] {
             self.db.compact(&start_key, &end_key);
         }
         Ok(())
     }
 
-    /// Iterate through all keys and values in a particular column.
-    fn iter_column(&self, column: DBColumn) -> ColumnIter {
-        let start_key =
-            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
 
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
@@ -187,21 +185,50 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         Box::new(
             iter.take_while(move |(key, _)| key.matches_column(column))
                 .map(move |(bytes_key, value)| {
-                    let key =
-                        bytes_key
-                            .remove_column(column)
-                            .ok_or(HotColdDBError::IterationError {
-                                unexpected_key: bytes_key,
-                            })?;
-                    Ok((key, value))
+                    let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
+                        HotColdDBError::IterationError {
+                            unexpected_key: bytes_key.clone(),
+                        }
+                    })?;
+                    Ok((K::from_bytes(key)?, value))
+                }),
+        )
+    }
+
+    fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
+        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
+
+        let iter = self.db.iter(self.read_options());
+        iter.seek(&start_key);
+
+        Box::new(
+            iter.take_while(move |(key, _)| key.key.starts_with(start_key.key.as_slice()))
+                .map(move |(bytes_key, value)| {
+                    let subkey = &bytes_key.key[column.as_bytes().len()..];
+                    Ok((Vec::from(subkey), value))
+                }),
+        )
+    }
+
+    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
+        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
+
+        let iter = self.db.keys_iter(self.read_options());
+        iter.seek(&start_key);
+
+        Box::new(
+            iter.take_while(move |key| key.key.starts_with(start_key.key.as_slice()))
+                .map(move |bytes_key| {
+                    let subkey = &bytes_key.key[column.as_bytes().len()..];
+                    Ok(Vec::from(subkey))
                 }),
         )
     }
 
     /// Iterate through all keys and values in a particular column.
-    fn iter_column_keys(&self, column: DBColumn) -> ColumnKeyIter {
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
         let start_key =
-            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
+            BytesKey::from_vec(get_key_for_col(column.into(), &vec![0; column.key_size()]));
 
         let iter = self.db.keys_iter(self.read_options());
         iter.seek(&start_key);
@@ -209,13 +236,12 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         Box::new(
             iter.take_while(move |key| key.matches_column(column))
                 .map(move |bytes_key| {
-                    let key =
-                        bytes_key
-                            .remove_column(column)
-                            .ok_or(HotColdDBError::IterationError {
-                                unexpected_key: bytes_key,
-                            })?;
-                    Ok(key)
+                    let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
+                        HotColdDBError::IterationError {
+                            unexpected_key: bytes_key.clone(),
+                        }
+                    })?;
+                    K::from_bytes(key)
                 }),
         )
     }
@@ -224,12 +250,12 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
 impl<E: EthSpec> ItemStore<E> for LevelDB<E> {}
 
 /// Used for keying leveldb.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BytesKey {
     key: Vec<u8>,
 }
 
-impl Key for BytesKey {
+impl db_key::Key for BytesKey {
     fn from_u8(key: &[u8]) -> Self {
         Self { key: key.to_vec() }
     }
@@ -245,12 +271,20 @@ impl BytesKey {
         self.key.starts_with(column.as_bytes())
     }
 
-    /// Remove the column from a key, returning its `Hash256` portion.
+    /// Remove the column from a 32 byte key, yielding the `Hash256` key.
     pub fn remove_column(&self, column: DBColumn) -> Option<Hash256> {
+        let key = self.remove_column_variable(column)?;
+        (column.key_size() == 32).then(|| Hash256::from_slice(key))
+    }
+
+    /// Remove the column from a key.
+    ///
+    /// Will return `None` if the value doesn't match the column or has the wrong length.
+    pub fn remove_column_variable(&self, column: DBColumn) -> Option<&[u8]> {
         if self.matches_column(column) {
             let subkey = &self.key[column.as_bytes().len()..];
-            if subkey.len() == 32 {
-                return Some(Hash256::from_slice(subkey));
+            if subkey.len() == column.key_size() {
+                return Some(subkey);
             }
         }
         None

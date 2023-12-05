@@ -2,6 +2,7 @@ use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
+use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
@@ -190,15 +191,7 @@ where
             .graffiti(graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
-            .monitor_validators(
-                config.validator_monitor_auto,
-                config.validator_monitor_pubkeys.clone(),
-                config.validator_monitor_individual_tracking_threshold,
-                runtime_context
-                    .service_context("val_mon".to_string())
-                    .log()
-                    .clone(),
-            );
+            .validator_monitor_config(config.validator_monitor.clone());
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
@@ -506,6 +499,12 @@ where
                     .map(|v| (v, Some(genesis_service.into_core_service())))?
             }
             ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
+        };
+
+        let beacon_chain_builder = if let Some(trusted_setup) = config.trusted_setup {
+            beacon_chain_builder.trusted_setup(trusted_setup)
+        } else {
+            beacon_chain_builder
         };
 
         if config.sync_eth1_chain {
@@ -838,6 +837,10 @@ where
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
             start_otb_verification_service(runtime_context.executor.clone(), beacon_chain.clone());
+            start_availability_cache_maintenance_service(
+                runtime_context.executor.clone(),
+                beacon_chain.clone(),
+            );
         }
 
         Ok(Client {
@@ -898,6 +901,7 @@ where
         mut self,
         hot_path: &Path,
         cold_path: &Path,
+        blobs_path: &Path,
         config: StoreConfig,
         log: Logger,
     ) -> Result<Self, String> {
@@ -935,6 +939,7 @@ where
         let store = HotColdDB::open(
             hot_path,
             cold_path,
+            blobs_path,
             schema_upgrade,
             config,
             spec,

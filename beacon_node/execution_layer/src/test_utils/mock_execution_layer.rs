@@ -5,11 +5,12 @@ use crate::{
     },
     Config, *,
 };
+use keccak_hash::H256;
+use kzg::Kzg;
 use sensitive_url::SensitiveUrl;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
-use tree_hash::TreeHash;
-use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, MainnetEthSpec};
+use types::{Address, ChainSpec, Epoch, EthSpec, Hash256, MainnetEthSpec};
 
 pub struct MockExecutionLayer<T: EthSpec> {
     pub server: MockServer<T>,
@@ -29,8 +30,10 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_BLOCK,
             None,
             None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
+            None,
         )
     }
 
@@ -39,9 +42,11 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         executor: TaskExecutor,
         terminal_block: u64,
         shanghai_time: Option<u64>,
+        cancun_time: Option<u64>,
         builder_threshold: Option<u128>,
         jwt_key: Option<JwtKey>,
         spec: ChainSpec,
+        kzg: Option<Kzg>,
     ) -> Self {
         let handle = executor.handle().unwrap();
 
@@ -53,6 +58,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             terminal_block,
             spec.terminal_block_hash,
             shanghai_time,
+            cancun_time,
+            kzg,
         );
 
         let url = SensitiveUrl::parse(&server.url()).unwrap();
@@ -96,13 +103,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             justified_hash: None,
             finalized_hash: None,
         };
-        let payload_attributes = PayloadAttributes::new(
-            timestamp,
-            prev_randao,
-            Address::repeat_byte(42),
-            // FIXME: think about how to handle different forks / withdrawals here..
-            None,
-        );
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, prev_randao, Address::repeat_byte(42), None, None);
 
         // Insert a proposer to ensure the fork choice updated command works.
         let slot = Slot::new(0);
@@ -130,22 +132,26 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         };
         let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
         let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
-        let payload: ExecutionPayload<T> = self
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
+
+        let block_proposal_content_type = self
             .el
-            .get_payload::<FullPayload<T>>(
+            .get_payload(
                 parent_hash,
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
-                // FIXME: do we need to consider other forks somehow? What about withdrawals?
                 ForkName::Merge,
                 &self.spec,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap()
-            .to_payload()
-            .into();
+            .unwrap();
+
+        let payload: ExecutionPayload<T> = match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => block.to_payload().into(),
+            BlockProposalContentsType::Blinded(_) => panic!("Should always be a full payload"),
+        };
 
         let block_hash = payload.block_hash();
         assert_eq!(payload.parent_hash(), parent_hash);
@@ -165,22 +171,65 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         };
         let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
         let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
-        let payload_header = self
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
+
+        let block_proposal_content_type = self
             .el
-            .get_payload::<BlindedPayload<T>>(
+            .get_payload(
                 parent_hash,
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
-                // FIXME: do we need to consider other forks somehow? What about withdrawals?
                 ForkName::Merge,
                 &self.spec,
+                BlockProductionVersion::BlindedV2,
             )
             .await
-            .unwrap()
-            .to_payload();
+            .unwrap();
 
+        match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => {
+                let payload_header = block.to_payload();
+                self.assert_valid_execution_payload_on_head(
+                    payload,
+                    payload_header,
+                    block_hash,
+                    parent_hash,
+                    block_number,
+                    timestamp,
+                    prev_randao,
+                )
+                .await;
+            }
+            BlockProposalContentsType::Blinded(block) => {
+                let payload_header = block.to_payload();
+                self.assert_valid_execution_payload_on_head(
+                    payload,
+                    payload_header,
+                    block_hash,
+                    parent_hash,
+                    block_number,
+                    timestamp,
+                    prev_randao,
+                )
+                .await;
+            }
+        };
+
+        self
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn assert_valid_execution_payload_on_head<Payload: AbstractExecPayload<T>>(
+        &self,
+        payload: ExecutionPayload<T>,
+        payload_header: Payload,
+        block_hash: ExecutionBlockHash,
+        parent_hash: ExecutionBlockHash,
+        block_number: u64,
+        timestamp: u64,
+        prev_randao: H256,
+    ) {
         assert_eq!(payload_header.block_hash(), block_hash);
         assert_eq!(payload_header.parent_hash(), parent_hash);
         assert_eq!(payload_header.block_number(), block_number);
@@ -191,10 +240,15 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(
             self.el
                 .get_payload_by_root(&payload_header.tree_hash_root()),
-            Some(payload.clone())
+            Some(FullPayloadContents::Payload(payload.clone()))
         );
 
-        let status = self.el.notify_new_payload(&payload).await.unwrap();
+        // TODO: again consider forks
+        let status = self
+            .el
+            .notify_new_payload(payload.try_into().unwrap())
+            .await
+            .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
 
         // Use junk values for slot/head-root to ensure there is no payload supplied.
@@ -219,8 +273,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(head_execution_block.block_number(), block_number);
         assert_eq!(head_execution_block.block_hash(), block_hash);
         assert_eq!(head_execution_block.parent_hash(), parent_hash);
-
-        self
     }
 
     pub fn move_to_block_prior_to_terminal_block(self) -> Self {

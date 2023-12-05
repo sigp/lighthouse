@@ -334,10 +334,28 @@ impl GossipTester {
         self.harness.chain.epoch().unwrap()
     }
 
-    pub fn two_epochs_ago(&self) -> Slot {
+    pub fn earliest_valid_attestation_slot(&self) -> Slot {
+        let offset = match self.harness.spec.fork_name_at_epoch(self.epoch()) {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                // Subtract an additional slot since the harness will be exactly on the start of the
+                // slot and the propagation tolerance will allow an extra slot.
+                E::slots_per_epoch() + 1
+            }
+            // EIP-7045
+            ForkName::Deneb => {
+                let epoch_slot_offset = (self.slot() % E::slots_per_epoch()).as_u64();
+                if epoch_slot_offset != 0 {
+                    E::slots_per_epoch() + epoch_slot_offset
+                } else {
+                    // Here the propagation tolerance will cause the cutoff to be an entire epoch earlier
+                    2 * E::slots_per_epoch()
+                }
+            }
+        };
+
         self.slot()
             .as_u64()
-            .checked_sub(E::slots_per_epoch() + 2)
+            .checked_sub(offset)
             .expect("chain is not sufficiently deep for test")
             .into()
     }
@@ -484,18 +502,21 @@ async fn aggregated_gossip_verification() {
         )
         .inspect_aggregate_err(
             "aggregate from past slot",
-            |tester, a| a.message.aggregate.data.slot = tester.two_epochs_ago(),
+            |tester, a| {
+                let too_early_slot = tester.earliest_valid_attestation_slot() - 1;
+                a.message.aggregate.data.slot = too_early_slot;
+                a.message.aggregate.data.target.epoch = too_early_slot.epoch(E::slots_per_epoch());
+            },
             |tester, err| {
+                let valid_early_slot = tester.earliest_valid_attestation_slot();
                 assert!(matches!(
                     err,
                     AttnError::PastSlot {
                         attestation_slot,
-                        // Subtract an additional slot since the harness will be exactly on the start of the
-                        // slot and the propagation tolerance will allow an extra slot.
                         earliest_permissible_slot
                     }
-                    if attestation_slot == tester.two_epochs_ago()
-                        && earliest_permissible_slot == tester.slot() - E::slots_per_epoch() - 1
+                    if attestation_slot == valid_early_slot - 1
+                        && earliest_permissible_slot == valid_early_slot
                 ))
             },
         )
@@ -800,22 +821,20 @@ async fn unaggregated_gossip_verification() {
         .inspect_unaggregate_err(
             "attestation from past slot",
             |tester, a, _| {
-                let early_slot = tester.two_epochs_ago();
-                a.data.slot = early_slot;
-                a.data.target.epoch = early_slot.epoch(E::slots_per_epoch());
+                let too_early_slot = tester.earliest_valid_attestation_slot() - 1;
+                a.data.slot = too_early_slot;
+                a.data.target.epoch = too_early_slot.epoch(E::slots_per_epoch());
             },
             |tester, err| {
-                dbg!(&err);
+                let valid_early_slot = tester.earliest_valid_attestation_slot();
                 assert!(matches!(
                     err,
                     AttnError::PastSlot {
                         attestation_slot,
-                        // Subtract an additional slot since the harness will be exactly on the start of the
-                        // slot and the propagation tolerance will allow an extra slot.
                         earliest_permissible_slot,
                     }
-                    if attestation_slot == tester.two_epochs_ago()
-                        && earliest_permissible_slot == tester.slot() - E::slots_per_epoch() - 1
+                    if attestation_slot == valid_early_slot - 1
+                        && earliest_permissible_slot == valid_early_slot
                 ))
             },
         )

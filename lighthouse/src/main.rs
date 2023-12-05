@@ -11,7 +11,7 @@ use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
-use slog::{crit, info, warn};
+use slog::{crit, info};
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
@@ -80,16 +80,6 @@ fn main() {
                  cfg!(feature = "spec-minimal"),
                  cfg!(feature = "gnosis"),
             ).as_str()
-        )
-        .arg(
-            Arg::with_name("spec")
-                .short("s")
-                .long("spec")
-                .value_name("DEPRECATED")
-                .help("This flag is deprecated, it will be disallowed in a future release. This \
-                    value is now derived from the --network or --testnet-dir flags.")
-                .takes_value(true)
-                .global(true)
         )
         .arg(
             Arg::with_name("env_log")
@@ -549,16 +539,9 @@ fn run<E: EthSpec>(
     // Allow Prometheus access to the version and commit of the Lighthouse build.
     metrics::expose_lighthouse_version();
 
-    if matches.is_present("spec") {
-        warn!(
-            log,
-            "The --spec flag is deprecated and will be removed in a future release"
-        );
-    }
-
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
-        warn!(
+        slog::warn!(
             log,
             "CPU seems incompatible with optimized Lighthouse build";
             "advice" => "If you get a SIGILL, please try Lighthouse portable build"

@@ -7,6 +7,7 @@ use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_RE
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
+use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
@@ -15,6 +16,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use strum::{EnumString, EnumVariantNames};
 use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, Config, EthSpec};
 
@@ -296,6 +298,14 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 "endpoint_capella_fork_epoch" => ?beacon_node_spec.capella_fork_epoch,
                 "hint" => UPDATE_REQUIRED_LOG_HINT,
             );
+        } else if beacon_node_spec.deneb_fork_epoch != spec.deneb_fork_epoch {
+            warn!(
+                log,
+                "Beacon node has mismatched Deneb fork epoch";
+                "endpoint" => %self.beacon_node,
+                "endpoint_deneb_fork_epoch" => ?beacon_node_spec.deneb_fork_epoch,
+                "hint" => UPDATE_REQUIRED_LOG_HINT,
+            );
         }
 
         Ok(())
@@ -322,7 +332,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 pub struct BeaconNodeFallback<T, E> {
     candidates: Vec<CandidateBeaconNode<E>>,
     slot_clock: Option<T>,
-    disable_run_on_all: bool,
+    broadcast_topics: Vec<ApiTopic>,
     spec: ChainSpec,
     log: Logger,
 }
@@ -330,14 +340,14 @@ pub struct BeaconNodeFallback<T, E> {
 impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub fn new(
         candidates: Vec<CandidateBeaconNode<E>>,
-        disable_run_on_all: bool,
+        broadcast_topics: Vec<ApiTopic>,
         spec: ChainSpec,
         log: Logger,
     ) -> Self {
         Self {
             candidates,
             slot_clock: None,
-            disable_run_on_all,
+            broadcast_topics,
             spec,
             log,
         }
@@ -571,7 +581,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// It returns a list of errors along with the beacon node id that failed for `func`.
     /// Since this ignores the actual result of `func`, this function should only be used for beacon
     /// node calls whose results we do not care about, only that they completed successfully.
-    pub async fn run_on_all<'a, F, O, Err, R>(
+    pub async fn broadcast<'a, F, O, Err, R>(
         &'a self,
         require_synced: RequireSynced,
         offline_on_failure: OfflineOnFailure,
@@ -679,11 +689,12 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     }
 
     /// Call `func` on first beacon node that returns success or on all beacon nodes
-    /// depending on the value of `disable_run_on_all`.
-    pub async fn run<'a, F, Err, R>(
+    /// depending on the `topic` and configuration.
+    pub async fn request<'a, F, Err, R>(
         &'a self,
         require_synced: RequireSynced,
         offline_on_failure: OfflineOnFailure,
+        topic: ApiTopic,
         func: F,
     ) -> Result<(), Errors<Err>>
     where
@@ -691,13 +702,47 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         R: Future<Output = Result<(), Err>>,
         Err: Debug,
     {
-        if self.disable_run_on_all {
+        if self.broadcast_topics.contains(&topic) {
+            self.broadcast(require_synced, offline_on_failure, func)
+                .await
+        } else {
             self.first_success(require_synced, offline_on_failure, func)
                 .await?;
             Ok(())
-        } else {
-            self.run_on_all(require_synced, offline_on_failure, func)
-                .await
         }
+    }
+}
+
+/// Serves as a cue for `BeaconNodeFallback` to tell which requests need to be broadcasted.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, EnumString, EnumVariantNames)]
+#[strum(serialize_all = "kebab-case")]
+pub enum ApiTopic {
+    Attestations,
+    Blocks,
+    Subscriptions,
+    SyncCommittee,
+}
+
+impl ApiTopic {
+    pub fn all() -> Vec<ApiTopic> {
+        use ApiTopic::*;
+        vec![Attestations, Blocks, Subscriptions, SyncCommittee]
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::str::FromStr;
+    use strum::VariantNames;
+
+    #[test]
+    fn api_topic_all() {
+        let all = ApiTopic::all();
+        assert_eq!(all.len(), ApiTopic::VARIANTS.len());
+        assert!(ApiTopic::VARIANTS
+            .iter()
+            .map(|topic| ApiTopic::from_str(topic).unwrap())
+            .eq(all.into_iter()));
     }
 }

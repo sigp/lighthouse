@@ -282,9 +282,6 @@ jobs:
                   | <img src="https://simpleicons.org/icons/docker.svg" style="width: 32px;"/> | Docker | [${{ env.VERSION }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}/tags?page=1&ordering=last_updated&name=${{ env.VERSION }}) | [${{ env.IMAGE_NAME }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}) |
                   ENDBODY
                   )
-                  assets=()
-                  for asset in ./lighthouse-*.tar.gz*; do
-                      assets+=("-a" "$asset/$asset")
-                  done
+                  assets=(./lighthouse-*.tar.gz*)
                   tag_name="${{ env.VERSION }}"
-                  echo "$body" | hub release create --draft "${assets[@]}" -F "-" "$tag_name"
+                  echo "$body" | gh release create --draft -F "-" "$tag_name" "${assets[@]}"

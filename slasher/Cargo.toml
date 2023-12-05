@@ -8,6 +8,7 @@ edition = { workspace = true }
 default = ["lmdb"]
 mdbx = ["dep:mdbx"]
 lmdb = ["lmdb-rkv", "lmdb-rkv-sys"]
+portable = ["types/portable"]
 
 [dependencies]
 bincode = { workspace = true }
@@ -23,7 +24,6 @@ parking_lot = { workspace = true }
 rand = { workspace = true }
 safe_arith = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0"
 slog = { workspace = true }
 sloggers = { workspace = true }
 tree_hash = { workspace = true }
