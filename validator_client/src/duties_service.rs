@@ -6,7 +6,7 @@
 //! The `DutiesService` is also responsible for sending events to the `BlockService` which trigger
 //! block production.
 
-mod sync;
+pub mod sync;
 
 use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, OfflineOnFailure, RequireSynced};
 use crate::http_metrics::metrics::{get_int_gauge, set_int_gauge, ATTESTATION_DUTY};
@@ -214,7 +214,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
     /// Map from validator index to sync committee duties.
-    pub sync_duties: SyncDutiesMap,
+    pub sync_duties: SyncDutiesMap<E>,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<ValidatorStore<T, E>>,
     /// Tracks the current slot.
@@ -1005,7 +1005,11 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                 continue;
             };
 
-            let selection_look_ahead = if duties_service.distributed { SELECTION_PROOF_SLOT_LOOKAHEAD_DVT } else { SELECTION_PROOF_SLOT_LOOKAHEAD };
+            let selection_look_ahead = if duties_service.distributed {
+                SELECTION_PROOF_SLOT_LOOKAHEAD_DVT
+            } else {
+                SELECTION_PROOF_SLOT_LOOKAHEAD
+            };
 
             let lookahead_slot = current_slot + selection_look_ahead;
 
