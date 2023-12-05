@@ -196,7 +196,9 @@ fn update_parent_roots(
             *block.parent_root_mut() = root;
             let new_child = Arc::new(SignedBeaconBlock::from_block(block, signature));
             if let Some(blobs) = child_blobs {
-                update_blob_signed_header(&new_child, blobs);
+                if !blobs.is_empty() {
+                    update_blob_signed_header(&new_child, blobs);
+                }
             }
             child.beacon_block = new_child;
         }
