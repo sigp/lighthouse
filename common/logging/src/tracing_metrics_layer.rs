@@ -28,7 +28,7 @@ lazy_static! {
 
 /// Layer that registers Prometheus metrics for `INFO`, `WARN` and `ERROR` logs emitted per dependency.
 /// Dependencies are enabled via the `RUST_LOG` env flag.
-pub struct MetricsLayer {}
+pub struct MetricsLayer;
 
 impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for MetricsLayer {
     fn on_event(

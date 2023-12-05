@@ -364,13 +364,13 @@ fn main() {
         }
     }
 
-    // Debugging output for libp2p and external crates.
+    // Debugging output for discv5, libp2p and external crates.
     if matches.is_present("env_log") {
         // read the `RUST_LOG` statement
         let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env() {
             Ok(filter) => filter,
             Err(e) => {
-                eprintln!("Failed to initialize dependecy logging {e}");
+                eprintln!("Failed to initialize dependency logging {e}");
                 exit(1)
             }
         };
@@ -378,10 +378,10 @@ fn main() {
         if let Err(e) = tracing_subscriber::fmt()
             .with_env_filter(filter_layer)
             .finish()
-            .with(logging::tracing_metrics_layer::MetricsLayer {})
+            .with(logging::MetricsLayer)
             .try_init()
         {
-            eprintln!("Failed to initialize dependecy logging {e}");
+            eprintln!("Failed to initialize dependency logging {e}");
             exit(1)
         }
     }
