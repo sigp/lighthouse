@@ -160,6 +160,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 // Part 1: Branches for the `BeaconBlockBody` container
                 let proof_body = self.kzg_commitments_body_proof()?;
 
+                // Part 2: Branches for the subtree rooted at `blob_kzg_commitments`
                 let depth = T::max_blob_commitments_per_block()
                     .next_power_of_two()
                     .ilog2();
@@ -180,7 +181,6 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 let length_root = Hash256::from_slice(length_bytes.as_slice());
 
                 for index in 0..body.blob_kzg_commitments.len() {
-                    // Part 2: Branches for the subtree rooted at `blob_kzg_commitments`
                     let (_, mut proof) = tree
                         .generate_proof(index, depth as usize)
                         .map_err(Error::MerkleTreeError)?;
