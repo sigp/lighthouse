@@ -292,7 +292,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let Some(slot) = blobs
             .iter()
-            .find_map(|blob| blob.as_ref().map(|blob| blob.slot))
+            .find_map(|blob| blob.as_ref().map(|blob| blob.slot()))
         else {
             return;
         };

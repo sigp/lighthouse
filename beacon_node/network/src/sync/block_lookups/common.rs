@@ -428,7 +428,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
         verified_response
             .into_iter()
             .filter_map(|blob| blob.as_ref())
-            .map(|blob| blob.block_parent_root)
+            .map(|blob| blob.block_parent_root())
             .next()
     }
 

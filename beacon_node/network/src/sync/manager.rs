@@ -637,9 +637,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
-                let blob_slot = blob.slot;
-                let block_root = blob.block_root;
-                let parent_root = blob.block_parent_root;
+                let blob_slot = blob.slot();
+                let block_root = blob.block_root();
+                let parent_root = blob.block_parent_root();
                 let blob_index = blob.index;
                 if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
                     warn!(self.log, "Peer sent blob with invalid index"; "index" => blob_index, "peer_id" => %peer_id);
