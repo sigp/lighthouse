@@ -65,3 +65,10 @@ https://checkpoint.sigp.io --execution-endpoint http://localhost:8551
 ```
 
 Additional flags, such as metrics may be added.
+
+
+## Additional Notes
+
+The above is assuming that you have not run the command in the past. If you have a database in
+existence for the network you are testing, checkpoint sync will not start. You may need to add the
+`--purge-db` flag to remove any past database and force checkpoint sync to run.
