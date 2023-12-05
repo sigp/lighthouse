@@ -276,6 +276,10 @@ impl<T: EthSpec> Ord for KzgVerifiedBlob<T> {
 }
 
 impl<T: EthSpec> KzgVerifiedBlob<T> {
+    pub fn new(blob: Arc<BlobSidecar<T>>, kzg: &Kzg) -> Result<Self, KzgError> {
+        verify_kzg_for_blob(blob, kzg)
+    }
+
     pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
         self.blob
     }
