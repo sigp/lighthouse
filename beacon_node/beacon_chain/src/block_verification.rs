@@ -718,7 +718,10 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T>
 
                 let gossip_verified_blobs = blob_sidecars
                     .into_iter()
-                    .map(|blob_sidecar| GossipVerifiedBlob::new(blob_sidecar, chain))
+                    .map(|blob_sidecar| {
+                        let index = blob_sidecar.index;
+                        GossipVerifiedBlob::new(blob_sidecar, index, chain)
+                    })
                     .collect::<Result<Vec<_>, GossipBlobError<T::EthSpec>>>()?
                     .into();
                 Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
