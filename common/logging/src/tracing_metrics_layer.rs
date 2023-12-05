@@ -37,13 +37,13 @@ impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for Metric
         }
         let target = match meta.target().split_once("::") {
             Some((crate_name, _)) => crate_name,
-            None => "unknown" /* TODO(@divma): not sure if leaving here the full target is a good idea, maybe? maybe not?*/,
+            None => "unknown",
         };
         let target = &[target];
-        match meta.level() {
-            &tracing_core::Level::INFO => metrics::inc_counter_vec(&DEP_INFOS_TOTAL, target),
-            &tracing_core::Level::WARN => metrics::inc_counter_vec(&DEP_WARNS_TOTAL, target),
-            &tracing_core::Level::ERROR => metrics::inc_counter_vec(&DEP_ERRORS_TOTAL, target),
+        match *meta.level() {
+            tracing_core::Level::INFO => metrics::inc_counter_vec(&DEP_INFOS_TOTAL, target),
+            tracing_core::Level::WARN => metrics::inc_counter_vec(&DEP_WARNS_TOTAL, target),
+            tracing_core::Level::ERROR => metrics::inc_counter_vec(&DEP_ERRORS_TOTAL, target),
             _ => {}
         }
     }
