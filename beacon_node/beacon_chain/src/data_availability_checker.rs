@@ -200,10 +200,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let mut verified_blobs = vec![];
         if let Some(kzg) = self.kzg.as_ref() {
             for blob in Vec::from(blobs).into_iter().flatten() {
-                verified_blobs.push(
-                    KzgVerifiedBlob::new(blob, kzg)
-                    .map_err(AvailabilityCheckError::Kzg)?,
-                );
+                verified_blobs
+                    .push(KzgVerifiedBlob::new(blob, kzg).map_err(AvailabilityCheckError::Kzg)?);
             }
         } else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
