@@ -388,7 +388,7 @@ fn main() {
         .try_init()
     {
         eprintln!("Failed to initialize dependency logging {e}");
-        // NOTE: this can fail in testing environments where a logger is already set
+        exit(1)
     }
 
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {
