@@ -405,18 +405,9 @@ pub mod tests {
         valid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
         invalid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
     ) -> ChildComponentsSetup<E> {
-        let blobs = FixedVector::from(
-            valid_blobs
-                .into_iter()
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
-        let invalid_blobs = FixedVector::from(
-            invalid_blobs
-                .into_iter()
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
+        let blobs = FixedVector::from(valid_blobs.into_iter().cloned().collect::<Vec<_>>());
+        let invalid_blobs =
+            FixedVector::from(invalid_blobs.into_iter().cloned().collect::<Vec<_>>());
         (Arc::new(block), blobs, invalid_blobs)
     }
 
