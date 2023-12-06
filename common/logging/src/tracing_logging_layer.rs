@@ -1,5 +1,8 @@
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Sender, self};
+use std::thread;
+use std::io::Write;
 use std::time::{SystemTime, Duration};
 
 /// Layer that handles `INFO`, `WARN` and `ERROR` logs emitted per dependency and
@@ -30,54 +33,58 @@ impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for Loggin
     }
 }
 
-// Delete the oldest file in a supplied directory
-// as long as the directory contains file count >= min_file_count.
-// Note that we ignore child directories.
-fn delete_oldest_file(dir: &Path, min_file_count: u32) -> std::io::Result<()> {
-    let mut oldest_write: Option<SystemTime> =  None;
-    let mut file_to_delete: Option<PathBuf> = None;
-    let mut file_count = 0u32;
-    if dir.is_dir() {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                // TODO raise an error
-                return Ok(())
-            } else {         
-                let last_write = get_last_modified_date(&path)?;
-
-                file_count += 1;
-
-                let Some(write) = oldest_write else {
-                    oldest_write = Some(last_write);
-                    file_to_delete = Some(path);
-                    continue
-                };
-
-                if last_write < write {
-                    oldest_write = Some(last_write);
-                    file_to_delete = Some(path);
-                }
-            }
-        }
-    }
-
-    let Some(file) = file_to_delete else {
-        // TODO 
-        return Ok(());
-    };
-
-    if file_count >= min_file_count {
-      
-        // TODO delete file
-    }
-
-    Ok(())
+struct NonBlockingFileWriter {
+    sender: Sender<String>,
+    path: PathBuf,
 }
 
-fn get_last_modified_date(path: &std::path::Path) -> std::io::Result<SystemTime> {
-    let metadata = fs::metadata(path)?;
-    let last_modified = metadata.modified()?;
-    Ok(last_modified)
+impl NonBlockingFileWriter {
+    fn new(path: &std::path::Path) -> Result<Self, std::io::Error> {
+        let (sender, receiver) = mpsc::channel();
+        let path = path.to_path_buf();
+
+        thread::spawn(move || {
+            let mut file = match OpenOptions::new().create(true).append(true).open(&path) {
+                Ok(file) => file,
+                Err(e) => {
+                    eprintln!("Failed to open file: {:?}", e);
+                    return;
+                }
+            };
+
+            let mut should_clear_file = false;
+
+            for message in receiver {
+                should_clear_file = match NonBlockingFileWriter::get_file_size(&path) {
+                    Ok(file_size) => file_size > 0u64,
+                    Err(_) => false,
+                };
+
+                if should_clear_file {
+                    NonBlockingFileWriter::clear_file(&path);
+                }
+
+                if let Err(e) = writeln!(file, "{}", message) {
+                    eprintln!("Failed to write to file: {:?}", e);
+                }
+            }
+        });
+
+        Ok(NonBlockingFileWriter { sender, path })
+
+    }
+
+    fn write(&self, message: String) -> Result<(), std::io::Error> {
+        self.sender.send(message).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    }
+
+    fn get_file_size(path: &PathBuf) -> std::io::Result<u64> {
+        let metadata = fs::metadata(path)?;
+        Ok(metadata.len())
+    }
+    
+    fn clear_file(path: &PathBuf) -> std::io::Result<()> {
+        File::create(path)?;
+        Ok(())
+    }
 }
