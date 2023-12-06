@@ -276,6 +276,10 @@ impl<T: EthSpec> Ord for KzgVerifiedBlob<T> {
 }
 
 impl<T: EthSpec> KzgVerifiedBlob<T> {
+    pub fn new(blob: Arc<BlobSidecar<T>>, kzg: &Kzg) -> Result<Self, KzgError> {
+        verify_kzg_for_blob(blob, kzg)
+    }
+
     pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
         self.blob
     }
@@ -289,14 +293,12 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
     pub fn blob_index(&self) -> u64 {
         self.blob.index
     }
-}
-
-#[cfg(test)]
-impl<T: EthSpec> KzgVerifiedBlob<T> {
-    pub fn new(blob: BlobSidecar<T>) -> Self {
-        Self {
-            blob: Arc::new(blob),
-        }
+    /// Construct a `KzgVerifiedBlob` that is assumed to be valid.
+    ///
+    /// This should ONLY be used for testing.
+    #[cfg(test)]
+    pub fn __assumed_valid(blob: Arc<BlobSidecar<T>>) -> Self {
+        Self { blob }
     }
 }
 
@@ -599,7 +601,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(GossipBlobError::KzgNotInitialized)?;
     let kzg_verified_blob =
-        verify_kzg_for_blob(blob_sidecar, kzg).map_err(GossipBlobError::KzgError)?;
+        KzgVerifiedBlob::new(blob_sidecar, kzg).map_err(GossipBlobError::KzgError)?;
 
     Ok(GossipVerifiedBlob {
         block_root,

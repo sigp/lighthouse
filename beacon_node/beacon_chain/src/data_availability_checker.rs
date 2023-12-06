@@ -1,4 +1,4 @@
-use crate::blob_verification::{verify_kzg_for_blob, verify_kzg_for_blob_list, GossipVerifiedBlob};
+use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlob};
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
@@ -199,10 +199,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut verified_blobs = vec![];
         if let Some(kzg) = self.kzg.as_ref() {
-            for blob in blobs.iter().flatten() {
-                verified_blobs.push(
-                    verify_kzg_for_blob(blob.clone(), kzg).map_err(AvailabilityCheckError::Kzg)?,
-                );
+            for blob in Vec::from(blobs).into_iter().flatten() {
+                verified_blobs
+                    .push(KzgVerifiedBlob::new(blob, kzg).map_err(AvailabilityCheckError::Kzg)?);
             }
         } else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
