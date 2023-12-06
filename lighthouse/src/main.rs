@@ -84,7 +84,8 @@ fn main() {
         .arg(
             Arg::with_name("env_log")
                 .short("l")
-                .help("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
+                .help(
+                    "DEPRECATED Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
                 )
                 .takes_value(false),
         )
@@ -366,24 +367,28 @@ fn main() {
 
     // Debugging output for discv5, libp2p and external crates.
     if matches.is_present("env_log") {
-        // read the `RUST_LOG` statement
-        let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env() {
-            Ok(filter) => filter,
-            Err(e) => {
-                eprintln!("Failed to initialize dependency logging {e}");
-                exit(1)
-            }
-        };
+        eprintln!("The -l flag is DEPRECATED. Dependency logging will be on by default.");
+    }
 
-        if let Err(e) = tracing_subscriber::fmt()
-            .with_env_filter(filter_layer)
-            .finish()
-            .with(logging::MetricsLayer)
-            .try_init()
-        {
+    // read the `RUST_LOG` statement
+    let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
+        .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
+    {
+        Ok(filter) => filter,
+        Err(e) => {
             eprintln!("Failed to initialize dependency logging {e}");
             exit(1)
         }
+    };
+
+    if let Err(e) = tracing_subscriber::fmt()
+        .with_env_filter(filter_layer)
+        .finish()
+        .with(logging::MetricsLayer)
+        .try_init()
+    {
+        eprintln!("Failed to initialize dependency logging {e}");
+        exit(1)
     }
 
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {
