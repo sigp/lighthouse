@@ -1043,29 +1043,17 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(graffiti_flag_filter)
         .and(signer.clone())
-        .and(task_executor_filter.clone())
         .and_then(
             |pubkey: PublicKey,
              validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_flag: Option<Graffiti>,
-             signer,
-             task_executor: TaskExecutor| {
+             signer| {
                 blocking_signed_json_task(signer, move || {
-                    if let Some(handle) = task_executor.handle() {
-                        let graffiti = handle.block_on(get_graffiti(
-                            pubkey.clone(),
-                            validator_store,
-                            graffiti_flag,
-                        ))?;
-                        Ok(GenericResponse::from(GetGraffitiResponse {
-                            pubkey: pubkey.into(),
-                            graffiti,
-                        }))
-                    } else {
-                        Err(warp_utils::reject::custom_server_error(
-                            "An error occurred while attempting to get graffiti".into(),
-                        ))
-                    }
+                    let graffiti = get_graffiti(pubkey.clone(), validator_store, graffiti_flag)?;
+                    Ok(GenericResponse::from(GetGraffitiResponse {
+                        pubkey: pubkey.into(),
+                        graffiti,
+                    }))
                 })
             },
         );
@@ -1080,14 +1068,12 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(graffiti_file_filter.clone())
         .and(signer.clone())
-        .and(task_executor_filter.clone())
         .and_then(
             |pubkey: PublicKey,
              query: SetGraffitiRequest,
              validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>,
-             signer,
-             task_executor: TaskExecutor| {
+             signer| {
                 blocking_signed_json_task(signer, move || {
                     if graffiti_file.is_some() {
                         return Err(warp_utils::reject::invalid_auth(
@@ -1095,17 +1081,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 .to_string(),
                         ));
                     }
-                    if let Some(handle) = task_executor.handle() {
-                        handle.block_on(set_graffiti(
-                            pubkey.clone(),
-                            query.graffiti,
-                            validator_store,
-                        ))
-                    } else {
-                        Err(warp_utils::reject::custom_server_error(
-                            "An error occurred while attempting to set graffiti".into(),
-                        ))
-                    }
+                    set_graffiti(pubkey.clone(), query.graffiti, validator_store)
                 })
             },
         )
@@ -1120,13 +1096,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(graffiti_file_filter.clone())
         .and(signer.clone())
-        .and(task_executor_filter.clone())
         .and_then(
             |pubkey: PublicKey,
              validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>,
-             signer,
-             task_executor: TaskExecutor| {
+             signer| {
                 blocking_signed_json_task(signer, move || {
                     if graffiti_file.is_some() {
                         return Err(warp_utils::reject::invalid_auth(
@@ -1134,13 +1108,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 .to_string(),
                         ));
                     }
-                    if let Some(handle) = task_executor.handle() {
-                        handle.block_on(delete_graffiti(pubkey.clone(), validator_store))
-                    } else {
-                        Err(warp_utils::reject::custom_server_error(
-                            "An error occurred while attempting to delete graffiti".into(),
-                        ))
-                    }
+                    delete_graffiti(pubkey.clone(), validator_store)
                 })
             },
         )

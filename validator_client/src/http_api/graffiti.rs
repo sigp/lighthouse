@@ -4,7 +4,7 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::{graffiti::GraffitiString, EthSpec, Graffiti};
 
-pub async fn get_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
+pub fn get_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
     validator_pubkey: PublicKey,
     validator_store: Arc<ValidatorStore<T, E>>,
     graffiti_flag: Option<Graffiti>,
@@ -26,7 +26,7 @@ pub async fn get_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
     }
 }
 
-pub async fn set_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
+pub fn set_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
     validator_pubkey: PublicKey,
     graffiti: GraffitiString,
     validator_store: Arc<ValidatorStore<T, E>>,
@@ -53,7 +53,7 @@ pub async fn set_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
     }
 }
 
-pub async fn delete_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
+pub fn delete_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
     validator_pubkey: PublicKey,
     validator_store: Arc<ValidatorStore<T, E>>,
 ) -> Result<(), warp::Rejection> {
