@@ -236,6 +236,7 @@ impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
                         // If the iterator has an end slot (inclusive) which has already been
                         // covered by the (exclusive) frozen forwards iterator, then we're done!
                         let iter_end_slot = Slot::from(iter.inner.end_vindex);
+                        println!("{:?}", iter_end_slot);
                         if end_slot.map_or(false, |end_slot| iter_end_slot == end_slot + 1) {
                             *self = Finished;
                             return Ok(None);
