@@ -385,6 +385,7 @@ fn main() {
         .with_env_filter(filter_layer)
         .finish()
         .with(logging::MetricsLayer)
+        .with(logging::LoggingLayer)
         .try_init()
     {
         eprintln!("Failed to initialize dependency logging {e}");
