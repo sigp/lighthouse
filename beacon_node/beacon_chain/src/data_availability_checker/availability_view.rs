@@ -408,13 +408,13 @@ pub mod tests {
         let blobs = FixedVector::from(
             valid_blobs
                 .into_iter()
-                .map(|blob_opt| blob_opt.clone())
+                .cloned()
                 .collect::<Vec<_>>(),
         );
         let invalid_blobs = FixedVector::from(
             invalid_blobs
                 .into_iter()
-                .map(|blob_opt| blob_opt.clone())
+                .cloned()
                 .collect::<Vec<_>>(),
         );
         (Arc::new(block), blobs, invalid_blobs)
