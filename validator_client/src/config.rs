@@ -75,6 +75,8 @@ pub struct Config {
     pub enable_latency_measurement_service: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
     pub validator_registration_batch_size: usize,
+    /// Enable slashing protection even while using web3signer keys.
+    pub enable_web3signer_slashing_protection: bool,
 }
 
 impl Default for Config {
@@ -115,6 +117,7 @@ impl Default for Config {
             broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
+            enable_web3signer_slashing_protection: true,
         }
     }
 }
@@ -366,6 +369,9 @@ impl Config {
         if config.validator_registration_batch_size == 0 {
             return Err("validator-registration-batch-size cannot be 0".to_string());
         }
+
+        config.enable_web3signer_slashing_protection =
+            !cli_args.is_present("disable-slashing-protection-web3signer");
 
         Ok(config)
     }
