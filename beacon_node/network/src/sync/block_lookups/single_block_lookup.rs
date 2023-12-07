@@ -402,7 +402,7 @@ pub struct SingleLookupRequestState {
 impl SingleLookupRequestState {
     pub fn new(peers: &[PeerId]) -> Self {
         let mut available_peers = HashSet::default();
-        for peer in peers.into_iter().copied() {
+        for peer in peers.iter().copied() {
             available_peers.insert(peer);
         }
 

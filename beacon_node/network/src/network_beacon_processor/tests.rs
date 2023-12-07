@@ -23,8 +23,6 @@ use lighthouse_network::{
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
     Client, MessageId, NetworkGlobals, PeerId, Response,
 };
-use lru::LruCache;
-use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use std::iter::Iterator;
 use std::sync::Arc;

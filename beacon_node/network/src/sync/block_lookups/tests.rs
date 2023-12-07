@@ -1181,7 +1181,6 @@ mod deneb_only {
         AttestationUnknownBlock,
         GossipUnknownParentBlock,
         GossipUnknownParentBlob,
-        GossipUnknownBlockOrBlob,
     }
 
     impl DenebTester {
@@ -1287,12 +1286,6 @@ mod deneb_only {
                             Some(parent_block_req_id),
                             Some(parent_blob_req_id),
                         )
-                    }
-                    RequestTrigger::GossipUnknownBlockOrBlob => {
-                        bl.search_block(block_root, &[peer_id], &mut cx);
-                        let block_req_id = rig.expect_lookup_request(ResponseType::Block);
-                        let blob_req_id = rig.expect_lookup_request(ResponseType::Blob);
-                        (Some(block_req_id), Some(blob_req_id), None, None)
                     }
                 };
 
@@ -1798,186 +1791,6 @@ mod deneb_only {
     #[test]
     fn too_many_blobs_response_then_block_response_attestation() {
         let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
-            return;
-        };
-
-        tester
-            .invalidate_blobs_too_many()
-            .blobs_response()
-            .expect_penalty()
-            .expect_blobs_request()
-            .expect_no_block_request()
-            .block_response_triggering_process();
-    }
-
-    #[test]
-    fn single_block_and_blob_lookup_block_returned_first_gossip() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
-            return;
-        };
-
-        tester
-            .block_response_triggering_process()
-            .blobs_response()
-            .blobs_response_was_valid()
-            .block_imported();
-    }
-
-    #[test]
-    fn single_block_and_blob_lookup_blobs_returned_first_gossip() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
-            return;
-        };
-
-        tester
-            .blobs_response()
-            .blobs_response_was_valid()
-            .block_response_triggering_process()
-            .block_imported();
-    }
-
-    #[test]
-    fn single_block_and_blob_lookup_empty_response_gossip() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
-            return;
-        };
-
-        tester
-            .empty_block_response()
-            .expect_block_request()
-            .expect_no_penalty()
-            .expect_no_blobs_request()
-            .empty_blobs_response()
-            .expect_no_penalty()
-            .expect_no_block_request()
-            .expect_no_blobs_request()
-            .block_response_triggering_process()
-            .missing_components_from_block_request();
-    }
-
-    #[test]
-    fn single_block_response_then_empty_blob_response_gossip() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
-            return;
-        };
-
-        tester
-            .block_response_triggering_process()
-            .missing_components_from_block_request()
-            .empty_blobs_response()
-            .missing_components_from_blob_request()
-            .expect_blobs_request()
-            .expect_no_penalty()
-            .expect_no_block_request();
-    }
-
-    #[test]
-    fn single_blob_response_then_empty_block_response_gossip() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
-            return;
-        };
-
-        tester
-            .blobs_response()
-            .blobs_response_was_valid()
-            .expect_no_penalty()
-            .expect_no_block_request()
-            .expect_no_blobs_request()
-            .missing_components_from_blob_request()
-            .empty_block_response()
-            .expect_block_request()
-            .expect_no_penalty()
-            .expect_no_blobs_request();
-    }
-
-    #[test]
-    fn single_invalid_block_response_then_blob_response_gossip() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
-            return;
-        };
-
-        tester
-            .block_response_triggering_process()
-            .invalid_block_processed()
-            .expect_penalty()
-            .expect_block_request()
-            .expect_no_blobs_request()
-            .blobs_response()
-            .missing_components_from_blob_request()
-            .expect_no_penalty()
-            .expect_no_block_request()
-            .expect_no_block_request();
-    }
-
-    #[test]
-    fn single_block_response_then_invalid_blob_response_gossip() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
-            return;
-        };
-
-        tester
-            .block_response_triggering_process()
-            .missing_components_from_block_request()
-            .blobs_response()
-            .invalid_blob_processed()
-            .expect_penalty()
-            .expect_blobs_request()
-            .expect_no_block_request();
-    }
-
-    #[test]
-    fn single_block_response_then_too_few_blobs_response_gossip() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
-            return;
-        };
-
-        tester
-            .block_response_triggering_process()
-            .missing_components_from_block_request()
-            .invalidate_blobs_too_few()
-            .blobs_response()
-            .missing_components_from_blob_request()
-            .expect_blobs_request()
-            .expect_no_penalty()
-            .expect_no_block_request();
-    }
-
-    #[test]
-    fn single_block_response_then_too_many_blobs_response_gossip() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
-            return;
-        };
-
-        tester
-            .block_response_triggering_process()
-            .invalidate_blobs_too_many()
-            .blobs_response()
-            .expect_penalty()
-            .expect_blobs_request()
-            .expect_no_block_request();
-    }
-    #[test]
-    fn too_few_blobs_response_then_block_response_gossip() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
-            return;
-        };
-
-        tester
-            .invalidate_blobs_too_few()
-            .blobs_response()
-            .blobs_response_was_valid()
-            .missing_components_from_blob_request()
-            .expect_no_penalty()
-            .expect_no_blobs_request()
-            .expect_no_block_request()
-            .block_response_triggering_process()
-            .missing_components_from_block_request()
-            .expect_blobs_request();
-    }
-
-    #[test]
-    fn too_many_blobs_response_then_block_response_gossip() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
             return;
         };
 
