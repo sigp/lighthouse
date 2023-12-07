@@ -45,17 +45,21 @@ impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for Loggin
             return;
         };
 
+        let mut visitor = LogMessageExtractor { message: String::default()};
+
+        event.record(&mut visitor);
+
         match *meta.level() {
             tracing_core::Level::INFO => {
-                let _ = file_writer.write("TEST".to_string());
+                let _ = file_writer.write(visitor.message);
                 ()
             }
             tracing_core::Level::WARN => {
-                let _ = file_writer.write("TEST".to_string());
+                let _ = file_writer.write(visitor.message);
                 ()
             }
             tracing_core::Level::ERROR => {
-                let _ = file_writer.write("TEST".to_string());
+                let _ = file_writer.write(visitor.message);
                 ()
             }
             _ => {}
@@ -114,5 +118,15 @@ impl NonBlockingFileWriter {
     fn clear_file(path: &PathBuf) -> std::io::Result<()> {
         File::create(path)?;
         Ok(())
+    }
+}
+
+struct LogMessageExtractor {
+    message: String,
+}
+
+impl tracing_core::field::Visit for LogMessageExtractor {
+    fn record_debug(&mut self, field: &tracing_core::Field, value: &dyn std::fmt::Debug) {
+        self.message= format!("{}\n{}={:?}", self.message, field.name(), value);
     }
 }
