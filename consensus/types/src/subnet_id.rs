@@ -2,6 +2,7 @@
 use crate::{AttestationData, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use swap_or_not_shuffle::compute_shuffled_index;
 
@@ -127,6 +128,30 @@ impl SubnetId {
         });
         Ok((subnet_set_generator, valid_until_epoch.into()))
     }
+
+    /// Compute a mapping of `SubnetId` to `NodeId`s, which can be used for subnet discovery searches.
+    pub fn compute_prefix_mapping_for_epoch<T: EthSpec>(
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<HashMap<SubnetId, Vec<ethereum_types::U256>>, &'static str> {
+        // simplify variable naming
+        let prefix_bits = spec.attestation_subnet_prefix_bits as u32;
+        let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u32;
+
+        let mut mapping = HashMap::new();
+
+        for i in 0..2_i32.pow(prefix_bits + shuffling_prefix_bits) {
+            let node_id =
+                ethereum_types::U256::from(i) << (256 - (prefix_bits + shuffling_prefix_bits));
+            let (subnets, _) = Self::compute_subnets_for_epoch::<T>(node_id, epoch, spec)?;
+
+            for subnet_id in subnets {
+                mapping.entry(subnet_id).or_insert(vec![]).push(node_id);
+            }
+        }
+
+        Ok(mapping)
+    }
 }
 
 impl Deref for SubnetId {
@@ -235,6 +260,30 @@ mod tests {
                 computed_subnets.map(SubnetId::into).collect::<Vec<u64>>()
             );
             assert_eq!(Epoch::from(expected_valid_time[x]), valid_time);
+        }
+    }
+
+    #[test]
+    fn compute_prefix_mapping_for_epoch_unit_test() {
+        let epochs = [
+            54321u64, 1017090249, 1827566880, 846255942, 766597383, 1204990115, 1616209495,
+            1774367616, 1484598751, 3525502229,
+        ]
+        .map(Epoch::from);
+
+        // Test mainnet
+        let spec = ChainSpec::mainnet();
+
+        for epoch in epochs {
+            let mapping =
+                SubnetId::compute_prefix_mapping_for_epoch::<crate::MainnetEthSpec>(epoch, &spec)
+                    .unwrap();
+
+            assert_eq!(mapping.len(), 64);
+
+            for (_, node_ids) in mapping.into_iter() {
+                assert!(node_ids.len() > 0);
+            }
         }
     }
 }
