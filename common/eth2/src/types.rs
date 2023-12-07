@@ -666,6 +666,12 @@ pub struct ValidatorBalancesQuery {
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(transparent)]
+pub struct ValidatorBalancesRequestBody {
+    pub ids: Vec<ValidatorId>,
+}
+
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlobIndicesQuery {
     #[serde(default, deserialize_with = "option_query_vec")]

@@ -42,7 +42,8 @@ use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
-    PublishBlockRequest, ValidatorId, ValidatorStatus, ValidatorsRequestBody,
+    PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId, ValidatorStatus,
+    ValidatorsRequestBody,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -664,47 +665,32 @@ pub fn serve<T: BeaconChainTypes>(
              query_res: Result<api_types::ValidatorBalancesQuery, warp::Rejection>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     let query = query_res?;
-                    let (data, execution_optimistic, finalized) = state_id
-                        .map_state_and_execution_optimistic_and_finalized(
-                            &chain,
-                            |state, execution_optimistic, finalized| {
-                                Ok((
-                                    state
-                                        .validators()
-                                        .iter()
-                                        .zip(state.balances().iter())
-                                        .enumerate()
-                                        // filter by validator id(s) if provided
-                                        .filter(|(index, (validator, _))| {
-                                            query.id.as_ref().map_or(true, |ids| {
-                                                ids.iter().any(|id| match id {
-                                                    ValidatorId::PublicKey(pubkey) => {
-                                                        &validator.pubkey == pubkey
-                                                    }
-                                                    ValidatorId::Index(param_index) => {
-                                                        *param_index == *index as u64
-                                                    }
-                                                })
-                                            })
-                                        })
-                                        .map(|(index, (_, balance))| {
-                                            Some(api_types::ValidatorBalanceData {
-                                                index: index as u64,
-                                                balance: *balance,
-                                            })
-                                        })
-                                        .collect::<Vec<_>>(),
-                                    execution_optimistic,
-                                    finalized,
-                                ))
-                            },
-                        )?;
+                    crate::validators::get_beacon_state_validator_balances(
+                        state_id,
+                        chain,
+                        query.id.as_deref(),
+                    )
+                })
+            },
+        );
 
-                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
-                        data,
-                        execution_optimistic: Some(execution_optimistic),
-                        finalized: Some(finalized),
-                    })
+    // POST beacon/states/{state_id}/validator_balances
+    let post_beacon_state_validator_balances = beacon_states_path
+        .clone()
+        .and(warp::path("validator_balances"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             query: ValidatorBalancesRequestBody| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    crate::validators::get_beacon_state_validator_balances(
+                        state_id,
+                        chain,
+                        Some(&query.ids),
+                    )
                 })
             },
         );
@@ -4676,6 +4662,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_sync_committees)
                     .uor(post_beacon_pool_bls_to_execution_changes)
                     .uor(post_beacon_state_validators)
+                    .uor(post_beacon_state_validator_balances)
                     .uor(post_beacon_rewards_attestations)
                     .uor(post_beacon_rewards_sync_committee)
                     .uor(post_validator_duties_attester)
