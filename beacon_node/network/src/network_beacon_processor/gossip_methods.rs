@@ -4,8 +4,6 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
-use std::collections::HashSet;
-
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::store::Error;

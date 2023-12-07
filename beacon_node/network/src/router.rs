@@ -21,8 +21,6 @@ use lighthouse_network::{
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
 use logging::TimeLatch;
-use lru::LruCache;
-use parking_lot::Mutex;
 use slog::{crit, debug, o, trace};
 use slog::{error, warn};
 use std::sync::Arc;

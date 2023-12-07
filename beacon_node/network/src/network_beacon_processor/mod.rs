@@ -18,11 +18,8 @@ use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
-use lru::LruCache;
-use parking_lot::Mutex;
-use slog::{crit, debug, error, trace, Logger};
-use slot_clock::{ManualSlotClock, SlotClock};
-use std::collections::HashSet;
+use slog::{debug, Logger};
+use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,7 +27,6 @@ use store::MemoryStore;
 use task_executor::test_utils::TestRuntime;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tokio::time::{interval_at, Instant};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
