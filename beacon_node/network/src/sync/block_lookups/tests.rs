@@ -213,10 +213,8 @@ impl TestRig {
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
         let (mut block, mut blobs) = self.rand_block_and_blobs(fork_name, num_blobs);
         *block.message_mut().parent_root_mut() = parent_root;
-        let block_root = block.canonical_root();
         blobs.iter_mut().for_each(|blob| {
-            blob.block_parent_root = parent_root;
-            blob.block_root = block_root;
+            blob.signed_block_header = block.signed_block_header();
         });
         (block, blobs)
     }
@@ -1293,7 +1291,7 @@ mod deneb_only {
 
                         let child_blob = blobs.first().cloned().unwrap();
                         let parent_root = block_root;
-                        let child_root = child_blob.block_root;
+                        let child_root = child_blob.block_root();
                         block_root = child_root;
 
                         let mut blobs = FixedBlobSidecarList::default();

@@ -716,6 +716,74 @@ impl InitializedValidators {
         self.validators.get(public_key).and_then(|v| v.graffiti)
     }
 
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `graffiti` values.
+    ///
+    /// ## Notes
+    ///
+    /// Setting a validator `graffiti` will cause `self.definitions` to be updated and saved to
+    /// disk.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn set_graffiti(
+        &mut self,
+        voting_public_key: &PublicKey,
+        graffiti: GraffitiString,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.graffiti = Some(graffiti.clone());
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.graffiti = Some(graffiti.into());
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+        Ok(())
+    }
+
+    /// Removes the `InitializedValidator` and `ValidatorDefinition` `graffiti` values.
+    ///
+    /// ## Notes
+    ///
+    /// Removing a validator `graffiti` will cause `self.definitions` to be updated and saved to
+    /// disk. The graffiti for the validator will then fall back to the process level default if
+    /// it is set.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn delete_graffiti(&mut self, voting_public_key: &PublicKey) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.graffiti = None;
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.graffiti = None;
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
     /// Returns a `HashMap` of `public_key` -> `graffiti` for all initialized validators.
     pub fn get_all_validators_graffiti(&self) -> HashMap<&PublicKeyBytes, Option<Graffiti>> {
         let mut result = HashMap::new();

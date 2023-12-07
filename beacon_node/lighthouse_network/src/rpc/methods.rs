@@ -563,10 +563,10 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
             RPCResponse::BlobsByRange(blob) => {
-                write!(f, "BlobsByRange: Blob slot: {}", blob.slot)
+                write!(f, "BlobsByRange: Blob slot: {}", blob.slot())
             }
             RPCResponse::BlobsByRoot(sidecar) => {
-                write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot)
+                write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot())
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),

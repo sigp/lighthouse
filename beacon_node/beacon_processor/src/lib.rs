@@ -591,7 +591,7 @@ pub enum Work<E: EthSpec> {
         process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
     },
     GossipBlock(AsyncFn),
-    GossipSignedBlobSidecar(AsyncFn),
+    GossipBlobSidecar(AsyncFn),
     DelayedImportBlock {
         beacon_block_slot: Slot,
         beacon_block_root: Hash256,
@@ -641,7 +641,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAggregate { .. } => GOSSIP_AGGREGATE,
             Work::GossipAggregateBatch { .. } => GOSSIP_AGGREGATE_BATCH,
             Work::GossipBlock(_) => GOSSIP_BLOCK,
-            Work::GossipSignedBlobSidecar(_) => GOSSIP_BLOBS_SIDECAR,
+            Work::GossipBlobSidecar(_) => GOSSIP_BLOBS_SIDECAR,
             Work::DelayedImportBlock { .. } => DELAYED_IMPORT_BLOCK,
             Work::GossipVoluntaryExit(_) => GOSSIP_VOLUNTARY_EXIT,
             Work::GossipProposerSlashing(_) => GOSSIP_PROPOSER_SLASHING,
@@ -1205,7 +1205,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
                             }
-                            Work::GossipSignedBlobSidecar { .. } => {
+                            Work::GossipBlobSidecar { .. } => {
                                 gossip_blob_queue.push(work, work_id, &self.log)
                             }
                             Work::DelayedImportBlock { .. } => {
@@ -1457,10 +1457,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 task_spawner.spawn_async(process_fn)
             }
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
-            Work::GossipBlock(work) | Work::GossipSignedBlobSidecar(work) => task_spawner
-                .spawn_async(async move {
+            Work::GossipBlock(work) | Work::GossipBlobSidecar(work) => {
+                task_spawner.spawn_async(async move {
                     work.await;
-                }),
+                })
+            }
             Work::BlobsByRangeRequest(process_fn) | Work::BlobsByRootsRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
