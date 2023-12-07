@@ -111,14 +111,10 @@ impl<T: BeaconChainTypes> Router<T> {
             reprocess_tx: beacon_processor_reprocess_tx,
             network_globals: network_globals.clone(),
             invalid_block_storage,
-            delayed_lookup_peers: Mutex::new(LruCache::new(
-                crate::network_beacon_processor::DELAYED_PEER_CACHE_SIZE,
-            )),
             executor: executor.clone(),
             log: log.clone(),
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
-        network_beacon_processor.spawn_delayed_lookup_service();
 
         // spawn the sync thread
         crate::sync::manager::spawn(

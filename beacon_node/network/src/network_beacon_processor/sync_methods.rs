@@ -373,27 +373,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    /// Poll the beacon chain for any delayed lookups that are now available.
-    pub fn poll_delayed_lookups(&self, slot: Slot) {
-        let block_roots = self
-            .chain
-            .data_availability_checker
-            .incomplete_processing_components(slot);
-        if block_roots.is_empty() {
-            trace!(self.log, "No delayed lookups found on poll");
-        } else {
-            debug!(self.log, "Found delayed lookups on poll"; "lookup_count" => block_roots.len());
-        }
-        for block_root in block_roots {
-            if let Some(peer_ids) = self.delayed_lookup_peers.lock().pop(&block_root) {
-                self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
-                    peer_ids.into_iter().collect(),
-                    block_root,
-                ));
-            }
-        }
-    }
-
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
     pub async fn process_chain_segment(
