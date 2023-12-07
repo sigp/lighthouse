@@ -40,9 +40,7 @@ To apply a downgrade you need to use the `lighthouse db migrate` command with th
 
 1. Make sure you have a copy of the latest version of Lighthouse. This will be the version that
    knows about the latest schema change, and has the ability to revert it.
-2. Work out the schema version you would like to downgrade to by checking the table above, or the
-   Lighthouse release notes. E.g. if you want to downgrade from v2.3.0, which upgraded the version
-   from v8 to v9, then you'll want to _downgrade_ to v8 in order to run v2.2.x or earlier.
+2. Work out the schema version you would like to downgrade to by checking the table above, or the [Full list of schema versions](#full-list-of-schema-versions) below. E.g. if you want to downgrade from v4.2.0, which upgraded the version from v16 to v17, then you'll want to downgrade to v16 in order to run v4.0.1.
 3. **Ensure that downgrading is feasible**. Not all schema upgrades can be reverted, and some of
    them are time-sensitive. The release notes will state whether a downgrade is available and
    whether any caveats apply to it.
@@ -55,14 +53,13 @@ To apply a downgrade you need to use the `lighthouse db migrate` command with th
 sudo -u "$LH_USER" lighthouse db migrate --to "$VERSION" --datadir "$LH_DATADIR" --network "$NET"
 ```
 
-For example if you want to downgrade to Lighthouse v2.1 or v2.2 from v2.3 and you followed Somer
-Esat's guide, you would run:
+For example if you want to downgrade to Lighthouse v4.0.1 from v4.2.0 and you followed Somer Esat's guide, you would run:
 
 ```
-sudo -u lighthousebeacon lighthouse db migrate --to 8 --datadir /var/lib/lighthouse --network mainnet
+sudo -u lighthousebeacon lighthouse db migrate --to 16 --datadir /var/lib/lighthouse --network mainnet
 ```
 
-Where `lighthouse` is Lighthouse v2.3.0+. After the downgrade succeeds you can then replace your
+Where `lighthouse` is Lighthouse v4.2.0+. After the downgrade succeeds you can then replace your
 global `lighthouse` binary with the older version and start your node again.
 
 ## How to apply a database upgrade
