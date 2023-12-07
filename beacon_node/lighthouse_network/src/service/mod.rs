@@ -32,6 +32,7 @@ use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::{identify, PeerId, SwarmBuilder};
 use slog::{crit, debug, info, o, trace, warn};
+use slot_clock::SlotClock;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{
@@ -107,8 +108,8 @@ pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
 /// behaviours.
-pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
-    swarm: libp2p::swarm::Swarm<Behaviour<AppReqId, TSpec>>,
+pub struct Network<AppReqId: ReqId, TSpec: EthSpec, TSlotClock: SlotClock + 'static> {
+    swarm: libp2p::swarm::Swarm<Behaviour<AppReqId, TSpec, TSlotClock>>,
     /* Auxiliary Fields */
     /// A collections of variables accessible outside the network service.
     network_globals: Arc<NetworkGlobals<TSpec>>,
@@ -131,11 +132,12 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
 }
 
 /// Implements the combined behaviour for the libp2p service.
-impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
+impl<AppReqId: ReqId, TSpec: EthSpec, TSlotClock: SlotClock> Network<AppReqId, TSpec, TSlotClock> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
         log: &slog::Logger,
+        slot_clock: TSlotClock,
     ) -> error::Result<(Self, Arc<NetworkGlobals<TSpec>>)> {
         let log = log.new(o!("service"=> "libp2p"));
 
@@ -299,6 +301,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 &config,
                 network_globals.clone(),
                 &log,
+                ctx.chain_spec.clone(),
+                slot_clock,
             )
             .await?;
             // start searching for peers
@@ -563,7 +567,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &mut self.swarm.behaviour_mut().eth2_rpc
     }
     /// Discv5 Discovery protocol.
-    pub fn discovery_mut(&mut self) -> &mut Discovery<TSpec> {
+    pub fn discovery_mut(&mut self) -> &mut Discovery<TSpec, TSlotClock> {
         &mut self.swarm.behaviour_mut().discovery
     }
     /// Provides IP addresses and peer information.
@@ -584,7 +588,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &self.swarm.behaviour().eth2_rpc
     }
     /// Discv5 Discovery protocol.
-    pub fn discovery(&self) -> &Discovery<TSpec> {
+    pub fn discovery(&self) -> &Discovery<TSpec, TSlotClock> {
         &self.swarm.behaviour().discovery
     }
     /// Provides IP addresses and peer information.

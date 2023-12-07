@@ -167,7 +167,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     beacon_chain: Arc<BeaconChain<T>>,
     /// The underlying libp2p service that drives all the network interactions.
-    libp2p: Network<RequestId, T::EthSpec>,
+    libp2p: Network<RequestId, T::EthSpec, T::SlotClock>,
     /// An attestation and subnet manager service.
     attestation_service: AttestationService<T>,
     /// A sync committeee subnet manager service.
@@ -283,8 +283,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         };
 
         // launch libp2p service
-        let (mut libp2p, network_globals) =
-            Network::new(executor.clone(), service_context, &network_log).await?;
+        let (mut libp2p, network_globals) = Network::new(
+            executor.clone(),
+            service_context,
+            &network_log,
+            beacon_chain.slot_clock.clone(),
+        )
+        .await?;
 
         // Repopulate the DHT with stored ENR's if discovery is not disabled.
         if !config.disable_discovery {

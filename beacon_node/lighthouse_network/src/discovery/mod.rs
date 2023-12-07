@@ -16,6 +16,7 @@ pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::identity::{Keypair, PublicKey};
 
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
+use ethereum_types::U256;
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::multiaddr::Protocol;
@@ -31,10 +32,11 @@ pub use libp2p::{
 };
 use lru::LruCache;
 use slog::{crit, debug, error, info, trace, warn};
+use slot_clock::SlotClock;
 use ssz::Encode;
 use std::num::NonZeroUsize;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{hash_map::Entry, HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
     path::Path,
     pin::Pin,
@@ -43,7 +45,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
-use types::{EnrForkId, EthSpec};
+use types::{ChainSpec, EnrForkId, Epoch, EthSpec, SubnetId};
 
 mod subnet_predicate;
 pub use subnet_predicate::subnet_predicate;
@@ -152,9 +154,67 @@ enum EventStream {
     InActive,
 }
 
+/// Stores mappings of `SubnetId` to `NodeId`s.
+struct PrefixMapping<TSlotClock: SlotClock> {
+    slot_clock: TSlotClock,
+    chain_spec: ChainSpec,
+    mappings: HashMap<Epoch, HashMap<SubnetId, Vec<U256>>>,
+}
+
+impl<TSlotClock: SlotClock> PrefixMapping<TSlotClock> {
+    fn new(slot_clock: TSlotClock, spec: ChainSpec) -> Self {
+        Self {
+            slot_clock,
+            chain_spec: spec,
+            mappings: HashMap::new(),
+        }
+    }
+
+    /// Returns `NodeId` with the prefix that should be subscribed to the given `SubnetId`.
+    fn get<TSpec: EthSpec>(&mut self, subnet_id: &SubnetId) -> Result<U256, &'static str> {
+        let current_epoch = self
+            .slot_clock
+            .now()
+            .ok_or("Failed to get the current epoch from clock")?
+            .epoch(TSpec::slots_per_epoch());
+
+        let select_node_id =
+            |mapping: &HashMap<SubnetId, Vec<U256>>| -> Result<U256, &'static str> {
+                // TODO: randomize node_id that to be returned.
+                Ok(mapping
+                    .get(subnet_id)
+                    .map(|node_ids| node_ids[0].clone())
+                    .ok_or("No NodeId in the prefix mapping.")?)
+            };
+
+        let (node_id, vacant) = match self.mappings.entry(current_epoch) {
+            Entry::Occupied(entry) => {
+                let mapping = entry.get();
+                (select_node_id(mapping)?, false)
+            }
+            Entry::Vacant(entry) => {
+                // compute prefixes
+                let computed_mapping = SubnetId::compute_prefix_mapping_for_epoch::<TSpec>(
+                    current_epoch,
+                    &self.chain_spec,
+                )?;
+                let mapping = entry.insert(computed_mapping);
+                (select_node_id(mapping)?, true)
+            }
+        };
+
+        // Remove expired mappings
+        if vacant {
+            self.mappings.retain(|epoch, _| epoch >= &current_epoch);
+        }
+
+        Ok(node_id)
+    }
+}
+
 /// The main discovery service. This can be disabled via CLI arguements. When disabled the
 /// underlying processes are not started, but this struct still maintains our current ENR.
-pub struct Discovery<TSpec: EthSpec> {
+pub struct Discovery<TSpec: EthSpec, TSlotClock: SlotClock> {
     /// A collection of seen live ENRs for quick lookup and to map peer-id's to ENRs.
     cached_enrs: LruCache<PeerId, Enr>,
 
@@ -192,15 +252,20 @@ pub struct Discovery<TSpec: EthSpec> {
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
+
+    /// Mappings of `SubnetId` to `NodeId`s for subnet discovery.
+    prefix_mapping: PrefixMapping<TSlotClock>,
 }
 
-impl<TSpec: EthSpec> Discovery<TSpec> {
+impl<TSpec: EthSpec, TSlotClock: SlotClock> Discovery<TSpec, TSlotClock> {
     /// NOTE: Creating discovery requires running within a tokio execution environment.
     pub async fn new(
         local_key: Keypair,
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
+        chain_spec: ChainSpec,
+        slot_clock: TSlotClock,
     ) -> error::Result<Self> {
         let log = log.clone();
 
@@ -325,6 +390,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             update_ports,
             log,
             enr_dir,
+            prefix_mapping: PrefixMapping::new(slot_clock, chain_spec),
         })
     }
 
@@ -916,7 +982,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
 /* NetworkBehaviour Implementation */
 
-impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
+impl<TSpec: EthSpec, TSlotClock: SlotClock + 'static> NetworkBehaviour
+    for Discovery<TSpec, TSlotClock>
+{
     // Discovery is not a real NetworkBehaviour...
     type ConnectionHandler = ConnectionHandler;
     type ToSwarm = DiscoveredPeers;
@@ -1116,7 +1184,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> Discovery<TSpec> {
+impl<TSpec: EthSpec, TSlotClock: SlotClock> Discovery<TSpec, TSlotClock> {
     fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
         if let Some(peer_id) = peer_id {
             match error {

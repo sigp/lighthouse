@@ -13,6 +13,7 @@ types = { workspace = true }
 serde = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+ethereum-types = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 slog = { workspace = true }
@@ -47,6 +48,7 @@ tracing = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
 either = { workspace = true }
+slot_clock = { workspace = true }
 
 # Local dependencies
 futures-ticker = "0.0.3"
