@@ -426,9 +426,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn new_payload(&mut self, payload: ExecutionPayload<T>) -> PayloadStatusV1 {
-        let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash()) {
-            parent
-        } else {
+        let Some(parent) = self.blocks.get(&payload.parent_hash()) else {
             return PayloadStatusV1 {
                 status: PayloadStatusV1Status::Syncing,
                 latest_valid_hash: None,
@@ -657,14 +655,17 @@ pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, 
 
     Ok((
         commitments
-            .get(0)
+            .first()
             .cloned()
             .ok_or("commitment missing in test bundle")?,
         proofs
-            .get(0)
+            .first()
             .cloned()
             .ok_or("proof missing in test bundle")?,
-        blobs.get(0).cloned().ok_or("blob missing in test bundle")?,
+        blobs
+            .first()
+            .cloned()
+            .ok_or("blob missing in test bundle")?,
     ))
 }
 
@@ -880,16 +881,16 @@ mod test {
     #[test]
     fn valid_test_blobs() {
         assert!(
-            validate_blob::<MainnetEthSpec>().unwrap(),
+            validate_blob::<MainnetEthSpec>().is_ok(),
             "Mainnet preset test blobs bundle should contain valid proofs"
         );
         assert!(
-            validate_blob::<MinimalEthSpec>().unwrap(),
+            validate_blob::<MinimalEthSpec>().is_ok(),
             "Minimal preset test blobs bundle should contain valid proofs"
         );
     }
 
-    fn validate_blob<E: EthSpec>() -> Result<bool, String> {
+    fn validate_blob<E: EthSpec>() -> Result<(), String> {
         let kzg = load_kzg()?;
         let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle::<E>()?;
         let kzg_blob = kzg::Blob::from_bytes(blob.as_ref())

@@ -25,11 +25,11 @@ pub struct SyncAggregatorSelectionData {
     pub subcommittee_index: u64,
 }
 
+impl SignedRoot for SyncAggregatorSelectionData {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     ssz_and_tree_hash_tests!(SyncAggregatorSelectionData);
 }
-
-impl SignedRoot for SyncAggregatorSelectionData {}

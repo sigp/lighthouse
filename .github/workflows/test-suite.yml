@@ -309,8 +309,7 @@ jobs:
       run: |
           make
     - name: Install lcli
-# TODO(jimmy): re-enable this once we merge deneb into unstable
-#      if: env.SELF_HOSTED_RUNNERS == 'false'
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       run: make install-lcli
     - name: Run the doppelganger protection failure test script
       run: |
@@ -365,10 +364,8 @@ jobs:
       run:  make arbitrary-fuzz
     - name: Run cargo audit
       run: make audit-CI
-# TODO(sean): re-enable this when we can figure it out with c-kzg
-# Issue: https://github.com/sigp/lighthouse/issues/4440
-#    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
-#      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
+    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
+      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest
@@ -414,3 +411,15 @@ jobs:
       run: rustup override set beta
     - name: Run make
       run: make
+  cli-check:
+    name: cli-check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+        cache-target: release
+    - name: Run Makefile to trigger the bash script
+      run: make cli

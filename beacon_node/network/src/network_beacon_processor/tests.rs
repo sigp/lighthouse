@@ -33,8 +33,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, Epoch, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot,
+    Attestation, AttesterSlashing, BlobSidecar, BlobSidecarList, Epoch, Hash256, MainnetEthSpec,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot,
     SubnetId,
 };
 
@@ -55,7 +55,7 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
-    next_blobs: Option<SignedBlobSidecarList<E>>,
+    next_blobs: Option<BlobSidecarList<E>>,
     attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
@@ -186,8 +186,10 @@ impl TestRig {
 
         let log = harness.logger().clone();
 
-        let mut beacon_processor_config = BeaconProcessorConfig::default();
-        beacon_processor_config.enable_backfill_rate_limiting = enable_backfill_rate_limiting;
+        let beacon_processor_config = BeaconProcessorConfig {
+            enable_backfill_rate_limiting,
+            ..Default::default()
+        };
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
@@ -243,12 +245,17 @@ impl TestRig {
             chain.spec.maximum_gossip_clock_disparity(),
         );
 
-        assert!(!beacon_processor.is_err());
-
+        assert!(beacon_processor.is_ok());
+        let block = next_block_tuple.0;
+        let blob_sidecars = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
+            Some(BlobSidecar::build_sidecars(blobs, &block, kzg_proofs).unwrap())
+        } else {
+            None
+        };
         Self {
             chain,
-            next_block: Arc::new(next_block_tuple.0),
-            next_blobs: next_block_tuple.1,
+            next_block: Arc::new(block),
+            next_blobs: blob_sidecars,
             attestations,
             next_block_attestations,
             next_block_aggregate_attestations,
@@ -293,7 +300,7 @@ impl TestRig {
                     junk_message_id(),
                     junk_peer_id(),
                     Client::default(),
-                    blob.message.index,
+                    blob.index,
                     blob.clone(),
                     Duration::from_secs(0),
                 )
@@ -306,7 +313,7 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone().into()),
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
                 std::time::Duration::default(),
                 BlockProcessType::ParentLookup {
                     chain_hash: Hash256::random(),
@@ -320,7 +327,7 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone().into()),
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )
@@ -328,12 +335,7 @@ impl TestRig {
     }
     pub fn enqueue_single_lookup_rpc_blobs(&self) {
         if let Some(blobs) = self.next_blobs.clone() {
-            let blobs = FixedBlobSidecarList::from(
-                blobs
-                    .into_iter()
-                    .map(|b| Some(b.message))
-                    .collect::<Vec<_>>(),
-            );
+            let blobs = FixedBlobSidecarList::from(blobs.into_iter().map(Some).collect::<Vec<_>>());
             self.network_beacon_processor
                 .send_rpc_blobs(
                     self.next_block.canonical_root(),

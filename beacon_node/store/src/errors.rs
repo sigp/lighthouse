@@ -45,6 +45,8 @@ pub enum Error {
     BlockReplayError(BlockReplayError),
     AddPayloadLogicError,
     SlotClockUnavailableForMigration,
+    InvalidKey,
+    InvalidBytes,
     UnableToDowngrade,
     InconsistentFork(InconsistentFork),
 }

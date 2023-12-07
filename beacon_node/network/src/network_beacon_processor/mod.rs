@@ -212,7 +212,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         peer_client: Client,
         blob_index: u64,
-        blob: SignedBlobSidecar<T::EthSpec>,
+        blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
@@ -223,7 +223,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     peer_client,
                     blob_index,
-                    blob,
+                    blob_sidecar,
                     seen_timestamp,
                 )
                 .await
@@ -231,7 +231,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::GossipSignedBlobSidecar(Box::pin(process_fn)),
+            work: Work::GossipBlobSidecar(Box::pin(process_fn)),
         })
     }
 

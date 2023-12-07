@@ -17,8 +17,8 @@ use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::consts::deneb::MAX_BLOBS_PER_BLOCK;
 use types::{
-    blob_sidecar::BlobSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
-    Hash256, SignedBeaconBlock, Slot,
+    blob_sidecar::BlobSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap, SignedBeaconBlock,
+    Slot,
 };
 
 /// Maximum number of blocks in a single request.
@@ -563,15 +563,19 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
             RPCResponse::BlobsByRange(blob) => {
-                write!(f, "BlobsByRange: Blob slot: {}", blob.slot)
+                write!(f, "BlobsByRange: Blob slot: {}", blob.slot())
             }
             RPCResponse::BlobsByRoot(sidecar) => {
-                write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot)
+                write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot())
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
             RPCResponse::LightClientBootstrap(bootstrap) => {
-                write!(f, "LightClientBootstrap Slot: {}", bootstrap.header.slot)
+                write!(
+                    f,
+                    "LightClientBootstrap Slot: {}",
+                    bootstrap.header.beacon.slot
+                )
             }
         }
     }

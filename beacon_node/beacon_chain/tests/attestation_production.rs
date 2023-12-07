@@ -140,7 +140,7 @@ async fn produces_attestations() {
                 available_block,
             ) = chain
                 .data_availability_checker
-                .check_rpc_block_availability(rpc_block)
+                .verify_kzg_for_rpc_block(rpc_block)
                 .unwrap()
             else {
                 panic!("block should be available")
@@ -218,7 +218,7 @@ async fn early_attester_cache_old_request() {
         harness
             .chain
             .data_availability_checker
-            .check_rpc_block_availability(rpc_block)
+            .verify_kzg_for_rpc_block(rpc_block)
             .unwrap()
     else {
         panic!("block should be available")

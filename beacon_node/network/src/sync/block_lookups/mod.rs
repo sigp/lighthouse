@@ -330,7 +330,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let Some(lookup) = self.get_single_lookup::<R>(lookup_id) else {
             if response.is_some() {
-                warn!(
+                // We don't have the ability to cancel in-flight RPC requests. So this can happen
+                // if we started this RPC request, and later saw the block/blobs via gossip.
+                debug!(
                     self.log,
                     "Block returned for single block lookup not present";
                         "response_type" => ?response_type,
@@ -784,7 +786,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             self.log,
             "Block component processed for lookup";
             "response_type" => ?R::response_type(),
-            "result" => ?result,
+            "block_root" => ?root,
         );
 
         match result {
@@ -1013,15 +1015,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
             | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                 // Check if the beacon processor is available
-                let beacon_processor = match cx.beacon_processor_if_enabled() {
-                    Some(beacon_processor) => beacon_processor,
-                    None => {
-                        return trace!(
-                            self.log,
-                            "Dropping parent chain segment that was ready for processing.";
-                            parent_lookup
-                        );
-                    }
+                let Some(beacon_processor) = cx.beacon_processor_if_enabled() else {
+                    return trace!(
+                        self.log,
+                        "Dropping parent chain segment that was ready for processing.";
+                        parent_lookup
+                    );
                 };
                 let (chain_hash, blocks, hashes, block_request) =
                     parent_lookup.parts_for_processing();
@@ -1193,11 +1192,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         result: BatchProcessResult,
         cx: &SyncNetworkContext<T>,
     ) {
-        let request = match self.processing_parent_lookups.remove(&chain_hash) {
-            Some((_hashes, request)) => request,
-            None => {
-                return debug!(self.log, "Chain process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash, "result" => ?result)
-            }
+        let Some((_hashes, request)) = self.processing_parent_lookups.remove(&chain_hash) else {
+            return debug!(self.log, "Chain process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash, "result" => ?result);
         };
 
         debug!(self.log, "Parent chain processed"; "chain_hash" => %chain_hash, "result" => ?result);

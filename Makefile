@@ -175,7 +175,7 @@ test-network-%:
 	env FORK_NAME=$* cargo nextest run --release \
 		--features "fork_from_env,$(TEST_FEATURES)" \
 		-p network
-		
+
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
 	cargo nextest run --release -p slasher --features "lmdb,$(TEST_FEATURES)"
@@ -200,6 +200,12 @@ test-exec-engine:
 # test vectors.
 test: test-release
 
+# Updates the CLI help text pages in the Lighthouse book.
+cli:
+	docker run --rm --user=root \
+	-v ${PWD}:/home/runner/actions-runner/lighthouse sigmaprime/github-runner \
+	bash -c 'cd lighthouse && make && ./scripts/cli.sh'
+	
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
@@ -208,13 +214,15 @@ test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 lint:
 	cargo clippy --workspace --tests $(EXTRA_CLIPPY_OPTS) --features "$(TEST_FEATURES)" -- \
 		-D clippy::fn_to_numeric_cast_any \
+		-D clippy::manual_let_else \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push \
 		-A clippy::question-mark \
-		-A clippy::uninlined-format-args
+		-A clippy::uninlined-format-args \
+		-A clippy::enum_variant_names
 
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:

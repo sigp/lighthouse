@@ -286,9 +286,7 @@ where
     // wrong state a response will fail silently.
     fn send_response(&mut self, inbound_id: SubstreamId, response: RPCCodedResponse<TSpec>) {
         // check if the stream matching the response still exists
-        let inbound_info = if let Some(info) = self.inbound_substreams.get_mut(&inbound_id) {
-            info
-        } else {
+        let Some(inbound_info) = self.inbound_substreams.get_mut(&inbound_id) else {
             if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
                 // the stream is closed after sending the expected number of responses
                 trace!(self.log, "Inbound stream has expired. Response not sent";
@@ -296,7 +294,6 @@ where
             }
             return;
         };
-
         // If the response we are sending is an error, report back for handling
         if let RPCCodedResponse::Error(ref code, ref reason) = response {
             self.events_out.push(Err(HandlerErr::Inbound {
