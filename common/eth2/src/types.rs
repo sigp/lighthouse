@@ -278,17 +278,18 @@ pub struct FinalityCheckpointsData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(try_from = "&str")]
+#[serde(into = "String")]
+#[serde(try_from = "std::borrow::Cow<str>")]
 pub enum ValidatorId {
     PublicKey(PublicKeyBytes),
     Index(u64),
 }
 
-impl TryFrom<&str> for ValidatorId {
+impl TryFrom<std::borrow::Cow<'_, str>> for ValidatorId {
     type Error = String;
 
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        Self::from_str(s)
+    fn try_from(s: std::borrow::Cow<str>) -> Result<Self, Self::Error> {
+        Self::from_str(&s)
     }
 }
 
@@ -314,6 +315,12 @@ impl fmt::Display for ValidatorId {
             ValidatorId::PublicKey(pubkey) => write!(f, "{:?}", pubkey),
             ValidatorId::Index(index) => write!(f, "{}", index),
         }
+    }
+}
+
+impl From<ValidatorId> for String {
+    fn from(id: ValidatorId) -> String {
+        id.to_string()
     }
 }
 
@@ -492,7 +499,7 @@ pub struct ValidatorsQuery {
     pub status: Option<Vec<ValidatorStatus>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ValidatorsRequestBody {
     #[serde(default)]
@@ -665,7 +672,7 @@ pub struct ValidatorBalancesQuery {
     pub id: Option<Vec<ValidatorId>>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ValidatorBalancesRequestBody {
     pub ids: Vec<ValidatorId>,
@@ -1893,4 +1900,21 @@ pub struct BlobsBundle<E: EthSpec> {
     pub proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn validator_id_serde() {
+        let id_str = "\"1\"";
+        let x: ValidatorId = serde_json::from_str(id_str).unwrap();
+        assert_eq!(x, ValidatorId::Index(1));
+        assert_eq!(serde_json::to_string(&x).unwrap(), id_str);
+
+        let pubkey_str = "\"0xb824b5ede33a7b05a378a84b183b4bc7e7db894ce48b659f150c97d359edca2f503081d6678d1200f582ec7cafa9caf2\"";
+        let y: ValidatorId = serde_json::from_str(pubkey_str).unwrap();
+        assert_eq!(serde_json::to_string(&y).unwrap(), pubkey_str);
+    }
 }
