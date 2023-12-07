@@ -5,10 +5,7 @@ use crate::discovery::Eth2Enr;
 use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
 use libp2p::core::multiaddr::{Multiaddr, Protocol};
-use serde::{
-    ser::{SerializeStruct, Serializer},
-    Deserialize, Serialize,
-};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Instant;
@@ -486,7 +483,8 @@ pub enum ConnectionDirection {
 }
 
 /// Connection Status of the peer.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(tag = "status")]
 pub enum PeerConnectionStatus {
     /// The peer is connected.
     Connected {
@@ -521,56 +519,4 @@ pub enum PeerConnectionStatus {
     /// The connection status has not been specified.
     #[default]
     Unknown,
-}
-
-/// Serialization for http requests.
-impl Serialize for PeerConnectionStatus {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("connection_status", 6)?;
-        match self {
-            Connected { n_in, n_out } => {
-                s.serialize_field("status", "connected")?;
-                s.serialize_field("connections_in", n_in)?;
-                s.serialize_field("connections_out", n_out)?;
-                s.serialize_field("last_seen", &0)?;
-                s.end()
-            }
-            Disconnecting { .. } => {
-                s.serialize_field("status", "disconnecting")?;
-                s.serialize_field("connections_in", &0)?;
-                s.serialize_field("connections_out", &0)?;
-                s.serialize_field("last_seen", &0)?;
-                s.end()
-            }
-            Disconnected { since } => {
-                s.serialize_field("status", "disconnected")?;
-                s.serialize_field("connections_in", &0)?;
-                s.serialize_field("connections_out", &0)?;
-                s.serialize_field("last_seen", &since.elapsed().as_secs())?;
-                s.serialize_field("banned_ips", &Vec::<IpAddr>::new())?;
-                s.end()
-            }
-            Banned { since } => {
-                s.serialize_field("status", "banned")?;
-                s.serialize_field("connections_in", &0)?;
-                s.serialize_field("connections_out", &0)?;
-                s.serialize_field("last_seen", &since.elapsed().as_secs())?;
-                s.end()
-            }
-            Dialing { since } => {
-                s.serialize_field("status", "dialing")?;
-                s.serialize_field("connections_in", &0)?;
-                s.serialize_field("connections_out", &0)?;
-                s.serialize_field("last_seen", &since.elapsed().as_secs())?;
-                s.end()
-            }
-            Unknown => {
-                s.serialize_field("status", "unknown")?;
-                s.serialize_field("connections_in", &0)?;
-                s.serialize_field("connections_out", &0)?;
-                s.serialize_field("last_seen", &0)?;
-                s.end()
-            }
-        }
-    }
 }
