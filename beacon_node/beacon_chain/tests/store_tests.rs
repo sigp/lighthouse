@@ -314,10 +314,7 @@ async fn heal_freezer_block_roots_at_genesis() {
             &harness.chain.spec,
         )
         .unwrap()
-        .map(|r| {
-            println!("{r:?}");
-            r.unwrap()
-        })
+        .map(Result::unwrap)
         .take(2)
         .collect::<Vec<_>>();
     assert_eq!(
