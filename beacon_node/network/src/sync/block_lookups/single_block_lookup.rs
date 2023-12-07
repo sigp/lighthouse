@@ -281,35 +281,31 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         }
     }
 
-    /// Penalizes a blob peer if it should have blobs but didn't return them to us. Does not penalize
-    /// a peer who we request blobs from based on seeing a block or blobs over gossip. This may
-    /// have been a benign failure.
-    pub fn penalize_blob_peer(&mut self, penalize_always: bool, cx: &SyncNetworkContext<T>) {
+    /// Penalizes a blob peer if it should have blobs but didn't return them to us.     
+    pub fn penalize_blob_peer(&mut self, cx: &SyncNetworkContext<T>) {
         if let Ok(blob_peer) = self.blob_request_state.state.processing_peer() {
-            if penalize_always {
-                cx.report_peer(
-                    blob_peer,
-                    PeerAction::MidToleranceError,
-                    "single_blob_failure",
-                );
-            }
+            cx.report_peer(
+                blob_peer,
+                PeerAction::MidToleranceError,
+                "single_blob_failure",
+            );
         }
     }
 
-    /// This failure occurs on download, so register a failure downloading, penalize the peer if
-    /// necessary and clear the blob cache.
+    /// This failure occurs on download, so register a failure downloading, penalize the peer
+    /// and clear the blob cache.
     pub fn handle_consistency_failure(&mut self, cx: &SyncNetworkContext<T>) {
-        self.penalize_blob_peer(false, cx);
+        self.penalize_blob_peer(cx);
         if let Some(cached_child) = self.child_components.as_mut() {
             cached_child.clear_blobs();
         }
         self.blob_request_state.state.register_failure_downloading()
     }
 
-    /// This failure occurs after processing, so register a failure processing, penalize the peer if
-    /// necessary and clear the blob cache.
+    /// This failure occurs after processing, so register a failure processing, penalize the peer
+    /// and clear the blob cache.
     pub fn handle_availability_check_failure(&mut self, cx: &SyncNetworkContext<T>) {
-        self.penalize_blob_peer(true, cx);
+        self.penalize_blob_peer(cx);
         if let Some(cached_child) = self.child_components.as_mut() {
             cached_child.clear_blobs();
         }

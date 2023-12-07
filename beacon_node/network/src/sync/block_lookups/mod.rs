@@ -406,7 +406,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // we should penalize the blobs peer because they did not provide all blobs on the
                 // initial request.
                 if lookup.both_components_downloaded() {
-                    lookup.penalize_blob_peer(false, cx);
+                    lookup.penalize_blob_peer(cx);
                     lookup
                         .blob_request_state
                         .state
@@ -787,7 +787,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         request_state.get_state_mut().component_processed = true;
         if lookup.both_components_processed() {
-            lookup.penalize_blob_peer(false, cx);
+            lookup.penalize_blob_peer(cx);
 
             // Try it again if possible.
             lookup
