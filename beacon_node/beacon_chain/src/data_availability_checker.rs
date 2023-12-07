@@ -1,4 +1,4 @@
-use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlob};
+use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlobList};
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
@@ -197,15 +197,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let mut verified_blobs = vec![];
-        if let Some(kzg) = self.kzg.as_ref() {
-            for blob in Vec::from(blobs).into_iter().flatten() {
-                verified_blobs
-                    .push(KzgVerifiedBlob::new(blob, kzg).map_err(AvailabilityCheckError::Kzg)?);
-            }
-        } else {
+        let Some(kzg) = self.kzg.as_ref() else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
+
+        let verified_blobs = KzgVerifiedBlobList::new(Vec::from(blobs).into_iter().flatten(), kzg)
+            .map_err(AvailabilityCheckError::Kzg)?;
+
         self.availability_cache
             .put_kzg_verified_blobs(block_root, verified_blobs)
     }
@@ -261,7 +259,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .kzg
                         .as_ref()
                         .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                    verify_kzg_for_blob_list(&blob_list, kzg)
+                    verify_kzg_for_blob_list(blob_list.iter(), kzg)
                         .map_err(AvailabilityCheckError::Kzg)?;
                     Some(blob_list)
                 } else {
@@ -302,7 +300,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 .kzg
                 .as_ref()
                 .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-            verify_kzg_for_blob_list(&all_blobs, kzg)?;
+            verify_kzg_for_blob_list(all_blobs.iter(), kzg)?;
         }
 
         for block in blocks {
