@@ -959,12 +959,6 @@ where
             );
         }
 
-        // let beacon_chain = Arc::new(beacon_chain);
-        // start_attestation_simulator_service(
-        //     beacon_chain.task_executor.clone(),
-        //     beacon_chain.clone(),
-        // );
-
         Ok(beacon_chain)
     }
 }
