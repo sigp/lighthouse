@@ -125,7 +125,7 @@ itertools = "0.10"
 lazy_static = "1"
 libsecp256k1 = "0.7"
 log = "0.4"
-lru = "0.9"
+lru = "0.12"
 maplit = "1"
 num_cpus = "1"
 parking_lot = "0.12"
@@ -220,7 +220,7 @@ swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
 task_executor = { path = "common/task_executor" }
 types = { path = "consensus/types" }
 unused_port = { path = "common/unused_port" }
-validator_client = { path = "validator_client/" }
+validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
 warp_utils = { path = "common/warp_utils" }
 
