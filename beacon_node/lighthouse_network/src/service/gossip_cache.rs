@@ -205,9 +205,8 @@ impl GossipCache {
             GossipKind::LightClientFinalityUpdate => self.light_client_finality_update,
             GossipKind::LightClientOptimisticUpdate => self.light_client_optimistic_update,
         };
-        let expire_timeout = match expire_timeout {
-            Some(expire_timeout) => expire_timeout,
-            None => return,
+        let Some(expire_timeout) = expire_timeout else {
+            return;
         };
         match self
             .topic_msgs

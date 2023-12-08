@@ -219,7 +219,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
-        gossipsub_registry: Option<&'_ mut Registry>,
+        libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     ) -> error::Result<(
@@ -229,7 +229,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     )> {
         let network_log = executor.log().clone();
         // build the channels for external comms
-        let (network_senders, network_recievers) = NetworkSenders::new();
+        let (network_senders, network_receivers) = NetworkSenders::new();
 
         #[cfg(feature = "disable-backfill")]
         warn!(
@@ -285,7 +285,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             enr_fork_id,
             fork_context: fork_context.clone(),
             chain_spec: &beacon_chain.spec,
-            gossipsub_registry,
+            libp2p_registry,
         };
 
         // launch libp2p service
@@ -344,7 +344,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let NetworkReceivers {
             network_recv,
             validator_subscription_recv,
-        } = network_recievers;
+        } = network_receivers;
 
         // create the network service and spawn the task
         let network_log = network_log.new(o!("service" => "network"));
@@ -380,7 +380,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
-        gossipsub_registry: Option<&'_ mut Registry>,
+        libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
@@ -388,7 +388,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_chain,
             config,
             executor.clone(),
-            gossipsub_registry,
+            libp2p_registry,
             beacon_processor_send,
             beacon_processor_reprocess_tx,
         )
@@ -497,7 +497,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         }
                     }
                 }
-                metrics::update_bandwidth_metrics(self.libp2p.bandwidth.clone());
             }
         };
         executor.spawn(service_fut, "network");
@@ -635,7 +634,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 id,
                 reason,
             } => {
-                self.libp2p.send_error_reponse(peer_id, id, error, reason);
+                self.libp2p.send_error_response(peer_id, id, error, reason);
             }
             NetworkMessage::UPnPMappingEstablished { mappings } => {
                 self.upnp_mappings = mappings;

@@ -1004,6 +1004,14 @@ lazy_static! {
         "beacon_blobs_sidecar_gossip_verification_seconds",
         "Full runtime of blob sidecars gossip verification"
     );
+    pub static ref BLOB_SIDECAR_INCLUSION_PROOF_VERIFICATION: Result<Histogram> = try_create_histogram(
+        "blob_sidecar_inclusion_proof_verification_seconds",
+        "Time taken to verify blob sidecar inclusion proof"
+    );
+    pub static ref BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: Result<Histogram> = try_create_histogram(
+        "blob_sidecar_inclusion_proof_computation_seconds",
+        "Time taken to compute blob sidecar inclusion proof"
+    );
 }
 
 // Fifth lazy-static block is used to account for macro recursion limit.
@@ -1032,6 +1040,11 @@ lazy_static! {
     pub static ref AGGREGATED_ATTESTATION_SUBSETS: Result<IntCounter> = try_create_int_counter(
         "beacon_aggregated_attestation_subsets_total",
         "Count of new aggregated attestations that are subsets of already known aggregates"
+    );
+    pub static ref VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_missed_blocks_total",
+        "Number of non-finalized blocks missed",
+        &["validator"]
     );
 
     /*

@@ -389,12 +389,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("http-disable-legacy-spec")
-                .long("http-disable-legacy-spec")
-                .requires("enable_http")
-                .hidden(true)
-        )
-        .arg(
             Arg::with_name("http-spec-fork")
                 .long("http-spec-fork")
                 .requires("enable_http")
@@ -570,24 +564,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       Identical to the method used at the 2019 Canada interop.")
         )
         .arg(
-            Arg::with_name("eth1-endpoint")
-                .long("eth1-endpoint")
-                .value_name("HTTP-ENDPOINT")
-                .help("Deprecated. Use --eth1-endpoints.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("eth1-endpoints")
-                .long("eth1-endpoints")
-                .value_name("HTTP-ENDPOINTS")
-                .conflicts_with("eth1-endpoint")
-                .help("One http endpoint for a web3 connection to an execution node. \
-                       Note: This flag is now only useful for testing, use `--execution-endpoint` \
-                       flag to connect to an execution node on mainnet and testnets.
-                       Defaults to http://127.0.0.1:8545.")
-                .takes_value(true)
-        )
-        .arg(
             Arg::with_name("eth1-purge-cache")
                 .long("eth1-purge-cache")
                 .value_name("PURGE-CACHE")
@@ -649,14 +625,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         /*
          * Execution Layer Integration
          */
-        .arg(
-            Arg::with_name("merge")
-                .long("merge")
-                .help("Deprecated. The feature activates automatically when --execution-endpoint \
-                    is supplied.")
-                .takes_value(false)
-                .hidden(true)
-        )
         .arg(
             Arg::with_name("execution-endpoint")
                 .long("execution-endpoint")
@@ -1201,22 +1169,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("count-unrealized")
-                .long("count-unrealized")
-                .hidden(true)
-                .help("This flag is deprecated and has no effect.")
-                .takes_value(true)
-                .default_value("true")
-        )
-        .arg(
-            Arg::with_name("count-unrealized-full")
-                .long("count-unrealized-full")
-                .hidden(true)
-                .help("This flag is deprecated and has no effect.")
-                .takes_value(true)
-                .default_value("false")
-        )
-        .arg(
             Arg::with_name("reset-payload-statuses")
                 .long("reset-payload-statuses")
                 .help("When present, Lighthouse will forget the payload statuses of any \
@@ -1276,12 +1228,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("progressive-balances")
                 .long("progressive-balances")
                 .value_name("MODE")
-                .help("Options to enable or disable the progressive balances cache for \
-                        unrealized FFG progression calculation. The default `checked` mode compares \
-                        the progressive balances from the cache against results from the existing \
-                        method. If there is a mismatch, it falls back to the existing method. The \
-                        optimized mode (`fast`) is faster but is still experimental, and is \
-                        not recommended for mainnet usage at this time.")
+                .help("Control the progressive balances cache mode. The default `fast` mode uses \
+                        the cache to speed up fork choice. A more conservative `checked` mode \
+                        compares the cache's results against results without the cache. If \
+                        there is a mismatch, it falls back to the cache-free result. Using the \
+                        default `fast` mode is recommended unless advised otherwise by the \
+                        Lighthouse team.")
                 .takes_value(true)
                 .possible_values(ProgressiveBalancesMode::VARIANTS)
         )

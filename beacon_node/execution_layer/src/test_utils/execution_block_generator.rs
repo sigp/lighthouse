@@ -1,4 +1,5 @@
 use crate::engines::ForkchoiceState;
+use crate::EthersTransaction;
 use crate::{
     engine_api::{
         json_structures::{
@@ -6,24 +7,28 @@ use crate::{
         },
         ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
     },
-    static_valid_tx, ExecutionBlockWithTransactions,
+    ExecutionBlockWithTransactions,
 };
 use eth2::types::BlobsBundle;
-use kzg::Kzg;
+use kzg::{Kzg, KzgCommitment, KzgProof};
 use parking_lot::Mutex;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
+use ssz::Decode;
+use ssz_types::VariableList;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    BlobSidecar, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
     ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge, ForkName, Hash256,
-    Transactions, Uint256,
+    Transaction, Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
+
+const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
 
 const GAS_LIMIT: u64 = 16384;
 const GAS_USED: u64 = GAS_LIMIT - 1;
@@ -131,7 +136,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * deneb stuff
      */
     pub blobs_bundles: HashMap<PayloadId, BlobsBundle<T>>,
-    pub kzg: Option<Arc<Kzg<T::Kzg>>>,
+    pub kzg: Option<Arc<Kzg>>,
     rng: Arc<Mutex<StdRng>>,
 }
 
@@ -148,7 +153,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
-        kzg: Option<Kzg<T::Kzg>>,
+        kzg: Option<Kzg>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -421,9 +426,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn new_payload(&mut self, payload: ExecutionPayload<T>) -> PayloadStatusV1 {
-        let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash()) {
-            parent
-        } else {
+        let Some(parent) = self.blocks.get(&payload.parent_hash()) else {
             return PayloadStatusV1 {
                 status: PayloadStatusV1Status::Syncing,
                 latest_valid_hash: None,
@@ -625,8 +628,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 // get random number between 0 and Max Blobs
                 let mut rng = self.rng.lock();
                 let num_blobs = rng.gen::<usize>() % (T::max_blobs_per_block() + 1);
-                let kzg = self.kzg.as_ref().ok_or("kzg not initialized")?;
-                let (bundle, transactions) = generate_random_blobs(num_blobs, kzg, &mut *rng)?;
+                let (bundle, transactions) = generate_blobs(num_blobs)?;
                 for tx in Vec::from(transactions) {
                     execution_payload
                         .transactions_mut()
@@ -643,30 +645,46 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 }
 
-pub fn generate_random_blobs<T: EthSpec, R: Rng>(
+pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, Blob<E>), String> {
+    let BlobsBundle::<E> {
+        commitments,
+        proofs,
+        blobs,
+    } = BlobsBundle::from_ssz_bytes(TEST_BLOB_BUNDLE)
+        .map_err(|e| format!("Unable to decode ssz: {:?}", e))?;
+
+    Ok((
+        commitments
+            .first()
+            .cloned()
+            .ok_or("commitment missing in test bundle")?,
+        proofs
+            .first()
+            .cloned()
+            .ok_or("proof missing in test bundle")?,
+        blobs
+            .first()
+            .cloned()
+            .ok_or("blob missing in test bundle")?,
+    ))
+}
+
+pub fn generate_blobs<E: EthSpec>(
     n_blobs: usize,
-    kzg: &Kzg<T::Kzg>,
-    rng: &mut R,
-) -> Result<(BlobsBundle<T>, Transactions<T>), String> {
-    let mut bundle = BlobsBundle::<T>::default();
+) -> Result<(BlobsBundle<E>, Transactions<E>), String> {
+    let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle::<E>()?;
+
+    let mut bundle = BlobsBundle::<E>::default();
     let mut transactions = vec![];
+
     for blob_index in 0..n_blobs {
-        let random_valid_sidecar = BlobSidecar::<T>::random_valid(rng, kzg)?;
-
-        let BlobSidecar {
-            blob,
-            kzg_commitment,
-            kzg_proof,
-            ..
-        } = random_valid_sidecar;
-
-        let tx = static_valid_tx::<T>()
+        let tx = static_valid_tx::<E>()
             .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
 
         transactions.push(tx);
         bundle
             .blobs
-            .push(blob)
+            .push(blob.clone())
             .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
         bundle
             .commitments
@@ -679,6 +697,31 @@ pub fn generate_random_blobs<T: EthSpec, R: Rng>(
     }
 
     Ok((bundle, transactions.into()))
+}
+
+fn static_valid_tx<T: EthSpec>() -> Result<Transaction<T::MaxBytesPerTransaction>, String> {
+    // This is a real transaction hex encoded, but we don't care about the contents of the transaction.
+    let transaction: EthersTransaction = serde_json::from_str(
+        r#"{
+            "blockHash":"0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+            "blockNumber":"0x5daf3b",
+            "from":"0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+            "gas":"0xc350",
+            "gasPrice":"0x4a817c800",
+            "hash":"0x88df016429689c079f3b2f6ad39fa052532c56795b733da78a91ebe6a713944b",
+            "input":"0x68656c6c6f21",
+            "nonce":"0x15",
+            "to":"0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+            "transactionIndex":"0x41",
+            "value":"0xf3dbb76162000",
+            "v":"0x25",
+            "r":"0x1b5e176d927f8e9ab405058b2d2457392da3e20f328b16ddabcebc33eaac5fea",
+            "s":"0x4ba69724e8f69de52f0125ad8b3c5c2cef33019bac3249e2c0a2192766d1721c"
+         }"#,
+    )
+    .unwrap();
+    VariableList::new(transaction.rlp().to_vec())
+        .map_err(|e| format!("Failed to convert transaction to SSZ: {:?}", e))
 }
 
 fn payload_id_from_u64(n: u64) -> PayloadId {
@@ -770,7 +813,9 @@ pub fn generate_pow_block(
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::MainnetEthSpec;
+    use eth2_network_config::TRUSTED_SETUP_BYTES;
+    use kzg::TrustedSetup;
+    use types::{MainnetEthSpec, MinimalEthSpec};
 
     #[test]
     fn pow_chain_only() {
@@ -831,5 +876,33 @@ mod test {
             let next_i = i + 1;
             assert!(generator.block_by_number(next_i).is_none());
         }
+    }
+
+    #[test]
+    fn valid_test_blobs() {
+        assert!(
+            validate_blob::<MainnetEthSpec>().is_ok(),
+            "Mainnet preset test blobs bundle should contain valid proofs"
+        );
+        assert!(
+            validate_blob::<MinimalEthSpec>().is_ok(),
+            "Minimal preset test blobs bundle should contain valid proofs"
+        );
+    }
+
+    fn validate_blob<E: EthSpec>() -> Result<(), String> {
+        let kzg = load_kzg()?;
+        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle::<E>()?;
+        let kzg_blob = kzg::Blob::from_bytes(blob.as_ref())
+            .map_err(|e| format!("Error converting blob to kzg blob: {e:?}"))?;
+        kzg.verify_blob_kzg_proof(&kzg_blob, kzg_commitment, kzg_proof)
+            .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
+    }
+
+    fn load_kzg() -> Result<Kzg, String> {
+        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+            .map_err(|e| format!("Unable to read trusted setup file: {e:?}"))?;
+        Kzg::new_from_trusted_setup(trusted_setup)
+            .map_err(|e| format!("Failed to load trusted setup: {e:?}"))
     }
 }

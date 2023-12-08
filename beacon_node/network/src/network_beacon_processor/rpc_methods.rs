@@ -16,9 +16,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
-use types::{
-    light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, ForkName, Hash256, Slot,
-};
+use types::{Epoch, EthSpec, ForkName, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -222,7 +220,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request_id: PeerRequestId,
         request: BlobsByRootRequest,
     ) {
-        let requested_blobs = request.blob_ids.len();
+        let Some(requested_root) = request.blob_ids.first().map(|id| id.block_root) else {
+            // No blob ids requested.
+            return;
+        };
+        let requested_indices = request
+            .blob_ids
+            .iter()
+            .map(|id| id.index)
+            .collect::<Vec<_>>();
         let mut send_blob_count = 0;
         let send_response = true;
 
@@ -275,7 +281,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.log,
             "Received BlobsByRoot Request";
             "peer" => %peer_id,
-            "requested" => requested_blobs,
+            "request_root" => %requested_root,
+            "request_indices" => ?requested_indices,
             "returned" => send_blob_count
         );
 
@@ -293,69 +300,32 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: LightClientBootstrapRequest,
     ) {
         let block_root = request.root;
-        let state_root = match self.chain.get_blinded_block(&block_root) {
-            Ok(signed_block) => match signed_block {
-                Some(signed_block) => signed_block.state_root(),
-                None => {
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ResourceUnavailable,
-                        "Bootstrap not available".into(),
-                        request_id,
-                    );
-                    return;
-                }
-            },
-            Err(_) => {
+        match self.chain.get_light_client_bootstrap(&block_root) {
+            Ok(Some((bootstrap, _))) => self.send_response(
+                peer_id,
+                Response::LightClientBootstrap(bootstrap),
+                request_id,
+            ),
+            Ok(None) => self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::ResourceUnavailable,
+                "Bootstrap not available".into(),
+                request_id,
+            ),
+            Err(e) => {
                 self.send_error_response(
                     peer_id,
                     RPCResponseErrorCode::ResourceUnavailable,
                     "Bootstrap not available".into(),
                     request_id,
                 );
-                return;
+                error!(self.log, "Error getting LightClientBootstrap instance";
+                    "block_root" => ?block_root,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                )
             }
         };
-        let mut beacon_state = match self.chain.get_state(&state_root, None) {
-            Ok(beacon_state) => match beacon_state {
-                Some(state) => state,
-                None => {
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ResourceUnavailable,
-                        "Bootstrap not available".into(),
-                        request_id,
-                    );
-                    return;
-                }
-            },
-            Err(_) => {
-                self.send_error_response(
-                    peer_id,
-                    RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not available".into(),
-                    request_id,
-                );
-                return;
-            }
-        };
-        let bootstrap = match LightClientBootstrap::from_beacon_state(&mut beacon_state) {
-            Ok(bootstrap) => bootstrap,
-            Err(_) => {
-                self.send_error_response(
-                    peer_id,
-                    RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not available".into(),
-                    request_id,
-                );
-                return;
-            }
-        };
-        self.send_response(
-            peer_id,
-            Response::LightClientBootstrap(bootstrap),
-            request_id,
-        )
     }
 
     /// Handle a `BlocksByRange` request from the peer.

@@ -1,4 +1,4 @@
-use crate::blob_verification::{verify_kzg_for_blob, verify_kzg_for_blob_list, GossipVerifiedBlob};
+use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlob};
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
@@ -49,7 +49,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     processing_cache: RwLock<ProcessingCache<T::EthSpec>>,
     availability_cache: Arc<OverflowLRUCache<T>>,
     slot_clock: T::SlotClock,
-    kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
+    kzg: Option<Arc<Kzg>>,
     log: Logger,
     spec: ChainSpec,
 }
@@ -78,7 +78,7 @@ impl<T: EthSpec> Debug for Availability<T> {
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
         slot_clock: T::SlotClock,
-        kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
+        kzg: Option<Arc<Kzg>>,
         store: BeaconStore<T>,
         log: &Logger,
         spec: ChainSpec,
@@ -198,8 +198,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut verified_blobs = vec![];
         if let Some(kzg) = self.kzg.as_ref() {
-            for blob in blobs.iter().flatten() {
-                verified_blobs.push(verify_kzg_for_blob(blob.clone(), kzg)?)
+            for blob in Vec::from(blobs).into_iter().flatten() {
+                verified_blobs
+                    .push(KzgVerifiedBlob::new(blob, kzg).map_err(AvailabilityCheckError::Kzg)?);
             }
         } else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
@@ -208,7 +209,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_blobs(block_root, verified_blobs)
     }
 
-    /// This first validates the KZG commitments included in the blob sidecar.
     /// Check if we've cached other blobs for this block. If it completes a set and we also
     /// have a block cached, return the `Availability` variant triggering block import.
     /// Otherwise cache the blob sidecar.
@@ -218,15 +218,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        // Verify the KZG commitments.
-        let kzg_verified_blob = if let Some(kzg) = self.kzg.as_ref() {
-            verify_kzg_for_blob(gossip_blob.to_blob(), kzg)?
-        } else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
-
         self.availability_cache
-            .put_kzg_verified_blobs(kzg_verified_blob.block_root(), vec![kzg_verified_blob])
+            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -239,9 +232,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_pending_executed_block(executed_block)
     }
 
-    /// Checks if a block is available, returns a `MaybeAvailableBlock` that may include the fully
-    /// available block.
-    pub fn check_rpc_block_availability(
+    /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
+    /// include the fully available block.
+    ///
+    /// WARNING: This function assumes all required blobs are already present, it does NOT
+    ///          check if there are any missing blobs.
+    pub fn verify_kzg_for_rpc_block(
         &self,
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
@@ -264,7 +260,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .kzg
                         .as_ref()
                         .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                    verify_kzg_for_blob_list(&blob_list, kzg)?;
+                    verify_kzg_for_blob_list(&blob_list, kzg)
+                        .map_err(AvailabilityCheckError::Kzg)?;
                     Some(blob_list)
                 } else {
                     None
@@ -276,6 +273,68 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 }))
             }
         }
+    }
+
+    /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`
+    /// This is more efficient than calling `verify_kzg_for_rpc_block` in a loop as it does
+    /// all kzg verification at once
+    ///
+    /// WARNING: This function assumes all required blobs are already present, it does NOT
+    ///          check if there are any missing blobs.
+    pub fn verify_kzg_for_rpc_blocks(
+        &self,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
+    ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
+        let mut results = Vec::with_capacity(blocks.len());
+        let all_blobs: BlobSidecarList<T::EthSpec> = blocks
+            .iter()
+            .filter(|block| self.blobs_required_for_block(block.as_block()))
+            // this clone is cheap as it's cloning an Arc
+            .filter_map(|block| block.blobs().cloned())
+            .flatten()
+            .collect::<Vec<_>>()
+            .into();
+
+        // verify kzg for all blobs at once
+        if !all_blobs.is_empty() {
+            let kzg = self
+                .kzg
+                .as_ref()
+                .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
+            verify_kzg_for_blob_list(&all_blobs, kzg)?;
+        }
+
+        for block in blocks {
+            let (block_root, block, blobs) = block.deconstruct();
+            match blobs {
+                None => {
+                    if self.blobs_required_for_block(&block) {
+                        results.push(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+                    } else {
+                        results.push(MaybeAvailableBlock::Available(AvailableBlock {
+                            block_root,
+                            block,
+                            blobs: None,
+                        }))
+                    }
+                }
+                Some(blob_list) => {
+                    let verified_blobs = if self.blobs_required_for_block(&block) {
+                        Some(blob_list)
+                    } else {
+                        None
+                    };
+                    // already verified kzg for all blobs
+                    results.push(MaybeAvailableBlock::Available(AvailableBlock {
+                        block_root,
+                        block,
+                        blobs: verified_blobs,
+                    }))
+                }
+            }
+        }
+
+        Ok(results)
     }
 
     /// Determines the blob requirements for a block. If the block is pre-deneb, no blobs are required.
@@ -309,8 +368,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         blob: &GossipVerifiedBlob<T>,
     ) {
-        let index = blob.as_blob().index;
-        let commitment = blob.as_blob().kzg_commitment;
+        let index = blob.index();
+        let commitment = blob.kzg_commitment();
         self.processing_cache
             .write()
             .entry(block_root)
@@ -351,31 +410,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.processing_cache
             .read()
             .incomplete_processing_components(slot)
-    }
-
-    /// Determines whether we are at least the `single_lookup_delay` duration into the given slot.
-    /// If we are not currently in the Deneb fork, this delay is not considered.
-    ///
-    /// The `single_lookup_delay` is the duration we wait for a blocks or blobs to arrive over
-    /// gossip before making single block or blob requests. This is to minimize the number of
-    /// single lookup requests we end up making.
-    pub fn should_delay_lookup(&self, slot: Slot) -> bool {
-        if !self.is_deneb() {
-            return false;
-        }
-
-        let current_or_future_slot = self
-            .slot_clock
-            .now()
-            .map_or(false, |current_slot| current_slot <= slot);
-
-        let delay_threshold_unmet = self
-            .slot_clock
-            .millis_from_current_slot_start()
-            .map_or(false, |millis_into_slot| {
-                millis_into_slot < self.slot_clock.single_lookup_delay()
-            });
-        current_or_future_slot && delay_threshold_unmet
     }
 
     /// The epoch at which we require a data availability check in block processing.
@@ -451,23 +485,21 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 let additional_delay = (epoch_duration * 3) / 4;
                 tokio::time::sleep(duration + additional_delay).await;
 
-                let deneb_fork_epoch = match chain.spec.deneb_fork_epoch {
-                    Some(epoch) => epoch,
-                    None => break, // shutdown service if deneb fork epoch not set
+                let Some(deneb_fork_epoch) = chain.spec.deneb_fork_epoch else {
+                    // shutdown service if deneb fork epoch not set
+                    break;
                 };
 
                 debug!(
                     chain.log,
                     "Availability cache maintenance service firing";
                 );
-
-                let current_epoch = match chain
+                let Some(current_epoch) = chain
                     .slot_clock
                     .now()
                     .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
-                {
-                    Some(epoch) => epoch,
-                    None => continue, // we'll have to try again next time I suppose..
+                else {
+                    continue;
                 };
 
                 if current_epoch < deneb_fork_epoch {

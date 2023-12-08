@@ -54,7 +54,7 @@ pub fn upgrade_to_altair<E: EthSpec>(
         VariableList::new(vec![ParticipationFlags::default(); pre.validators.len()])?;
     let inactivity_scores = VariableList::new(vec![0; pre.validators.len()])?;
 
-    let temp_sync_committee = Arc::new(SyncCommittee::temporary()?);
+    let temp_sync_committee = Arc::new(SyncCommittee::temporary());
 
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.

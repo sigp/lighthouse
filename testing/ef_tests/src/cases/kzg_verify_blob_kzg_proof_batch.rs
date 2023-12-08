@@ -1,6 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::validate_blobs;
+use kzg::Error as KzgError;
 use serde::Deserialize;
 use std::marker::PhantomData;
 
@@ -52,11 +53,24 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProofBatch<E> {
             Ok((commitments, blobs, proofs))
         };
 
-        let kzg = get_kzg::<E::Kzg>()?;
-        let result = parse_input(&self.input).and_then(|(commitments, blobs, proofs)| {
-            validate_blobs::<E>(&kzg, &commitments, &blobs, &proofs)
-                .map_err(|e| Error::InternalError(format!("Failed to validate blobs: {:?}", e)))
-        });
+        let kzg = get_kzg()?;
+
+        let result =
+            parse_input(&self.input).and_then(
+                |(commitments, blobs, proofs)| match validate_blobs::<E>(
+                    &kzg,
+                    &commitments,
+                    blobs.iter().collect(),
+                    &proofs,
+                ) {
+                    Ok(_) => Ok(true),
+                    Err(KzgError::KzgVerificationFailed) => Ok(false),
+                    Err(e) => Err(Error::InternalError(format!(
+                        "Failed to validate blobs: {:?}",
+                        e
+                    ))),
+                },
+            );
 
         compare_result::<bool, _>(&result, &self.output)
     }

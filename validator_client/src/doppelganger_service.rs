@@ -163,8 +163,6 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
     current_epoch: Epoch,
     validator_indices: Vec<u64>,
 ) -> LivenessResponses {
-    let validator_indices = validator_indices.as_slice();
-
     let previous_epoch = current_epoch.saturating_sub(1_u64);
 
     let previous_epoch_responses = if previous_epoch == current_epoch {
@@ -180,12 +178,22 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
             .first_success(
                 RequireSynced::Yes,
                 OfflineOnFailure::Yes,
-                |beacon_node| async move {
+                |beacon_node| async {
                     beacon_node
-                        .post_lighthouse_liveness(validator_indices, previous_epoch)
+                        .post_validator_liveness_epoch(previous_epoch, &validator_indices)
                         .await
                         .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
-                        .map(|result| result.data)
+                        .map(|result| {
+                            result
+                                .data
+                                .into_iter()
+                                .map(|response| LivenessResponseData {
+                                    index: response.index,
+                                    epoch: previous_epoch,
+                                    is_live: response.is_live,
+                                })
+                                .collect()
+                        })
                 },
             )
             .await
@@ -207,12 +215,22 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
         .first_success(
             RequireSynced::Yes,
             OfflineOnFailure::Yes,
-            |beacon_node| async move {
+            |beacon_node| async {
                 beacon_node
-                    .post_lighthouse_liveness(validator_indices, current_epoch)
+                    .post_validator_liveness_epoch(current_epoch, &validator_indices)
                     .await
                     .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
-                    .map(|result| result.data)
+                    .map(|result| {
+                        result
+                            .data
+                            .into_iter()
+                            .map(|response| LivenessResponseData {
+                                index: response.index,
+                                epoch: current_epoch,
+                                is_live: response.is_live,
+                            })
+                            .collect()
+                    })
             },
         )
         .await
@@ -525,9 +543,7 @@ impl DoppelgangerService {
             }
 
             // Resolve the index from the server response back to a public key.
-            let pubkey = if let Some(pubkey) = indices_map.get(&response.index) {
-                pubkey
-            } else {
+            let Some(pubkey) = indices_map.get(&response.index) else {
                 crit!(
                     self.log,
                     "Inconsistent indices map";

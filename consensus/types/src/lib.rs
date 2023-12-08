@@ -99,6 +99,7 @@ pub mod slot_data;
 pub mod sqlite;
 
 pub mod blob_sidecar;
+pub mod light_client_header;
 pub mod runtime_var_list;
 pub mod sidecar;
 pub mod signed_blob;
@@ -121,10 +122,7 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
-pub use crate::blob_sidecar::{
-    BlindedBlobSidecar, BlindedBlobSidecarList, BlobRootsList, BlobSidecar, BlobSidecarList,
-    BlobsList, SidecarList,
-};
+pub use crate::blob_sidecar::{BlobSidecar, BlobSidecarList, BlobsList};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
@@ -155,8 +153,11 @@ pub use crate::fork_versioned_response::{ForkVersionDeserialize, ForkVersionedRe
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
+pub use crate::light_client_bootstrap::LightClientBootstrap;
 pub use crate::light_client_finality_update::LightClientFinalityUpdate;
+pub use crate::light_client_header::LightClientHeader;
 pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
+pub use crate::light_client_update::{Error as LightClientError, LightClientUpdate};
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
@@ -180,7 +181,6 @@ pub use crate::signed_beacon_block::{
     SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
-pub use crate::signed_blob::*;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
@@ -221,6 +221,5 @@ pub use bls::{
 
 pub use kzg::{KzgCommitment, KzgProof, VERSIONED_HASH_VERSION_KZG};
 
-pub use sidecar::Sidecar;
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 pub use superstruct::superstruct;
