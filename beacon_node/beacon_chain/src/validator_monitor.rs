@@ -41,15 +41,11 @@ pub const HISTORIC_EPOCHS: usize = 10;
 /// Prometheus cardinality and log volume.
 pub const DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD: usize = 64;
 
-/// This is a variable used in an experimental feature, as per:
-/// https://github.com/sigp/lighthouse/issues/4526
 /// The goal is to check the behaviour of the BN if it pretends to attest at each slot
 /// Check the head/target/source once the state.slot is some slots beyond attestation.data.slot
 /// to defend against re-orgs. 16 slots is the minimum to defend against re-orgs of up to 16 slots.
 pub const UNAGGREGATED_ATTESTATION_LAG_SLOTS: usize = 16;
 
-/// This is a variable used in an experimental feature, as per:
-/// https://github.com/sigp/lighthouse/issues/4526
 /// We do not want to have more than 32 slots worth of unaggregated attestations in memory
 pub const MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH: usize = 32;
 
