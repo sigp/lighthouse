@@ -538,7 +538,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let current_slot = state.slot();
 
         // Ensures that we process attestation when there have been skipped slots between blocks
-        let attested_slots: Vec<_> = self.unaggregated_attestations
+        let attested_slots: Vec<_> = self
+            .unaggregated_attestations
             .keys()
             .filter(|attestation_slot| {
                 **attestation_slot
