@@ -15,11 +15,11 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar, ChainSpec};
+use types::ChainSpec;
 use types::{
-    BlobSidecar, EthSpec, ForkContext, ForkName, Hash256, RuntimeVariableList, LightClientBootstrap, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockMerge,
+    BlobSidecar, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap,
+    RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 

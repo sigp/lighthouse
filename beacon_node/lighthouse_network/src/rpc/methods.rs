@@ -13,8 +13,8 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    blob_sidecar::BlobSidecar, light_client_bootstrap::LightClientBootstrap,LightClientBootstrap, ChainSpec, Epoch,
-    EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock, Slot,
+    blob_sidecar::BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 /// Maximum length of error message.
