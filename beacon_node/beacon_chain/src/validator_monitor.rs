@@ -416,8 +416,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
         // Pruning, this removes the oldest key/pair of the hashmap if it's greater than MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH
         if unaggregated_attestations.len() >= MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH {
-            if let Some(oldest_slot) = unaggregated_attestations.keys().min() {
-                unaggregated_attestations.remove(&oldest_slot.clone());
+            if let Some(oldest_slot) = unaggregated_attestations.keys().min().copied() {
+                unaggregated_attestations.remove(&oldest_slot);
             }
         }
         let slot = attestation.data.slot;
