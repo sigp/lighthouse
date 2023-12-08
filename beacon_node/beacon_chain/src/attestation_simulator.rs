@@ -72,7 +72,7 @@ pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
 
             debug!(
             inner_chain.log,
-            "Produce unaggregated attestation";
+            "Produce unagg. attestation";
             "attestation_source" => data.source.root.to_string(),
             "attestation_target" => data.target.root.to_string(),
             );
@@ -85,7 +85,7 @@ pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
         Err(e) => {
             error!(
             inner_chain.log,
-            "Produce unaggregated attestation failed";
+            "Produce unagg. attestation failed";
             "error" => ?e
             );
         }
