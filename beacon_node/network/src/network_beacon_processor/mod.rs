@@ -23,6 +23,7 @@ use parking_lot::Mutex;
 use slog::{crit, debug, error, trace, Logger};
 use slot_clock::{ManualSlotClock, SlotClock};
 use std::collections::HashSet;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,6 +36,7 @@ use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::non_zero_usize::new_non_zero_usize;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
@@ -44,7 +46,7 @@ mod sync_methods;
 mod tests;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
-pub const DELAYED_PEER_CACHE_SIZE: usize = 16;
+pub const DELAYED_PEER_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);
 
 /// Defines if and where we will store the SSZ files of invalid blocks.
 #[derive(Clone)]

@@ -42,6 +42,7 @@ use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
+use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256};
@@ -288,7 +289,7 @@ struct Critical<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> Critical<T> {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(capacity: NonZeroUsize) -> Self {
         Self {
             in_memory: LruCache::new(capacity),
             store_keys: HashSet::new(),
@@ -329,7 +330,7 @@ impl<T: BeaconChainTypes> Critical<T> {
         pending_components: PendingComponents<T::EthSpec>,
         overflow_store: &OverflowStore<T>,
     ) -> Result<(), AvailabilityCheckError> {
-        if self.in_memory.len() == self.in_memory.cap() {
+        if self.in_memory.len() == self.in_memory.cap().get() {
             // cache will overflow, must write lru entry to disk
             if let Some((lru_key, lru_value)) = self.in_memory.pop_lru() {
                 overflow_store.persist_pending_components(lru_key, lru_value)?;
@@ -377,12 +378,12 @@ pub struct OverflowLRUCache<T: BeaconChainTypes> {
     /// Mutex to guard maintenance methods which move data between disk and memory
     maintenance_lock: Mutex<()>,
     /// The capacity of the LRU cache
-    capacity: usize,
+    capacity: NonZeroUsize,
 }
 
 impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     pub fn new(
-        capacity: usize,
+        capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
@@ -514,7 +515,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     /// maintain the cache
     pub fn do_maintenance(&self, cutoff_epoch: Epoch) -> Result<(), AvailabilityCheckError> {
         // ensure memory usage is below threshold
-        let threshold = self.capacity * 3 / 4;
+        let threshold = self.capacity.get() * 3 / 4;
         self.maintain_threshold(threshold, cutoff_epoch)?;
         // clean up any keys on the disk that shouldn't be there
         self.prune_disk(cutoff_epoch)?;
@@ -753,6 +754,7 @@ mod test {
     use std::ops::AddAssign;
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
     use tempfile::{tempdir, TempDir};
+    use types::non_zero_usize::new_non_zero_usize;
     use types::{ChainSpec, ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
@@ -974,8 +976,9 @@ mod test {
         let harness = get_deneb_chain(log.clone(), &chain_db_path).await;
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
+        let capacity_non_zero = new_non_zero_usize(capacity);
         let cache = Arc::new(
-            OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
+            OverflowLRUCache::<T>::new(capacity_non_zero, test_store, spec.clone())
                 .expect("should create cache"),
         );
         (harness, cache, chain_db_path)
@@ -1477,7 +1480,7 @@ mod test {
 
         // create a new cache with the same store
         let recovered_cache = OverflowLRUCache::<T>::new(
-            capacity,
+            new_non_zero_usize(capacity),
             harness.chain.store.clone(),
             harness.chain.spec.clone(),
         )

@@ -35,6 +35,7 @@ pub use libp2p::{
 use lru::LruCache;
 use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
+use std::num::NonZeroUsize;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -318,7 +319,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         };
 
         Ok(Self {
-            cached_enrs: LruCache::new(50),
+            cached_enrs: LruCache::new(NonZeroUsize::new(50).expect("should not be zero")),
             network_globals,
             find_peer_active: false,
             queued_queries: VecDeque::with_capacity(10),
