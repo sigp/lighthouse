@@ -46,8 +46,9 @@ pub const DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD: usize = 64;
 /// to defend against re-orgs. 16 slots is the minimum to defend against re-orgs of up to 16 slots.
 pub const UNAGGREGATED_ATTESTATION_LAG_SLOTS: usize = 16;
 
-/// We do not want to have more than 32 slots worth of unaggregated attestations in memory
-pub const MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH: usize = 32;
+/// Bound the storage size of simulated attestations. The head state can only verify attestations
+/// from the current and previous epoch.
+pub const MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH: usize = 64;
 
 #[derive(Debug)]
 pub enum Error {
