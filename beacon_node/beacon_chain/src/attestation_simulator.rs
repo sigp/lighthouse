@@ -71,10 +71,10 @@ pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
             let data = &unaggregated_attestation.data;
 
             debug!(
-            inner_chain.log,
-            "Produce unagg. attestation";
-            "attestation_source" => data.source.root.to_string(),
-            "attestation_target" => data.target.root.to_string(),
+                inner_chain.log,
+                "Produce unagg. attestation";
+                "attestation_source" => data.source.root.to_string(),
+                "attestation_target" => data.target.root.to_string(),
             );
 
             inner_chain
