@@ -569,11 +569,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     spec,
                 ) {
                     Ok(flag_indices) => {
-                        let head_hit = flag_indices.get(TIMELY_HEAD_FLAG_INDEX);
-                        let target_hit = flag_indices.get(TIMELY_TARGET_FLAG_INDEX);
-                        let source_hit = flag_indices.get(TIMELY_SOURCE_FLAG_INDEX);
+                        let head_hit = flag_indices.contains(&TIMELY_HEAD_FLAG_INDEX);
+                        let target_hit = flag_indices.contains(&TIMELY_TARGET_FLAG_INDEX);
+                        let source_hit = flag_indices.contains(&TIMELY_SOURCE_FLAG_INDEX);
 
-                        if head_hit.is_some() {
+                        if head_hit {
                             metrics::inc_counter(
                                 &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT,
                             );
@@ -582,7 +582,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS,
                             );
                         }
-                        if target_hit.is_some() {
+                        if target_hit {
                             metrics::inc_counter(
                             &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT,
                             );
@@ -591,7 +591,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS,
                             );
                         }
-                        if source_hit.is_some() {
+                        if source_hit {
                             metrics::inc_counter(
                             &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT,
                             );
