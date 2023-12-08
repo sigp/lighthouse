@@ -51,7 +51,7 @@ impl TestBeaconChain {
 
         let test_runtime = TestRuntime::default();
 
-        let chain = BeaconChainBuilder::new(MainnetEthSpec)
+        let chain = Arc::new(BeaconChainBuilder::new(MainnetEthSpec)
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(Arc::new(store))
@@ -77,7 +77,8 @@ impl TestBeaconChain {
             .shutdown_sender(shutdown_tx)
             .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
             .build()
-            .expect("should build");
+            .expect("should build"),
+        );
         Self {
             chain,
             _test_runtime: test_runtime,
