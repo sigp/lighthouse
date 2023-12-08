@@ -41,7 +41,7 @@ The default value is 8192 for databases synced from scratch using Lighthouse v2.
 2048 for prior versions. Please see the section on [Defaults](#defaults) below.
 
 The values shown in the table are approximate, calculated using a simple heuristic: each
-`BeaconState` consumes around 18MB of disk space, and each block replayed takes around 5ms.  The
+`BeaconState` consumes around 145MB of disk space, and each block replayed takes around 5ms.  The
 **Yearly Disk Usage** column shows the approximate size of the freezer DB _alone_ (hot DB not included), calculated proportionally using the total freezer database disk usage. 
 The **Load Historical State** time is the worst-case load time for a state in the last slot
 before a restore point. 
