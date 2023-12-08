@@ -413,31 +413,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .incomplete_processing_components(slot)
     }
 
-    /// Determines whether we are at least the `single_lookup_delay` duration into the given slot.
-    /// If we are not currently in the Deneb fork, this delay is not considered.
-    ///
-    /// The `single_lookup_delay` is the duration we wait for a blocks or blobs to arrive over
-    /// gossip before making single block or blob requests. This is to minimize the number of
-    /// single lookup requests we end up making.
-    pub fn should_delay_lookup(&self, slot: Slot) -> bool {
-        if !self.is_deneb() {
-            return false;
-        }
-
-        let current_or_future_slot = self
-            .slot_clock
-            .now()
-            .map_or(false, |current_slot| current_slot <= slot);
-
-        let delay_threshold_unmet = self
-            .slot_clock
-            .millis_from_current_slot_start()
-            .map_or(false, |millis_into_slot| {
-                millis_into_slot < self.slot_clock.single_lookup_delay()
-            });
-        current_or_future_slot && delay_threshold_unmet
-    }
-
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
