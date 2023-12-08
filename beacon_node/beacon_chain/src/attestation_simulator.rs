@@ -34,7 +34,7 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
 
                 debug!(
                     chain.log,
-                    "Produce an unaggregated attestation";
+                    "Simulating unagg. attestation production";
                 );
 
                 // Run the task in the executor
