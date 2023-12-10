@@ -43,7 +43,7 @@ impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for Metric
         }
         let target = match meta.target().split_once("::") {
             Some((crate_name, _)) => crate_name,
-            None => "unknown",
+            None => meta.target(),
         };
         let target = &[target];
         match *meta.level() {
