@@ -850,6 +850,18 @@ impl ApiTester {
                     .await
                     .unwrap()
                     .map(|res| res.data);
+                let result_post_index_ids = self
+                    .client
+                    .post_beacon_states_validator_balances(state_id.0, validator_index_ids)
+                    .await
+                    .unwrap()
+                    .map(|res| res.data);
+                let result_post_pubkey_ids = self
+                    .client
+                    .post_beacon_states_validator_balances(state_id.0, validator_pubkey_ids)
+                    .await
+                    .unwrap()
+                    .map(|res| res.data);
 
                 let expected = state_opt.map(|(state, _execution_optimistic, _finalized)| {
                     let mut validators = Vec::with_capacity(validator_indices.len());
@@ -868,6 +880,8 @@ impl ApiTester {
 
                 assert_eq!(result_index_ids, expected, "{:?}", state_id);
                 assert_eq!(result_pubkey_ids, expected, "{:?}", state_id);
+                assert_eq!(result_post_index_ids, expected, "{:?}", state_id);
+                assert_eq!(result_post_pubkey_ids, expected, "{:?}", state_id);
             }
         }
 
@@ -913,7 +927,6 @@ impl ApiTester {
                         .await
                         .unwrap()
                         .map(|res| res.data);
-
                     let result_pubkey_ids = self
                         .client
                         .get_beacon_states_validators(
@@ -921,6 +934,18 @@ impl ApiTester {
                             Some(validator_pubkey_ids.as_slice()),
                             None,
                         )
+                        .await
+                        .unwrap()
+                        .map(|res| res.data);
+                    let post_result_index_ids = self
+                        .client
+                        .post_beacon_states_validators(state_id.0, Some(validator_index_ids), None)
+                        .await
+                        .unwrap()
+                        .map(|res| res.data);
+                    let post_result_pubkey_ids = self
+                        .client
+                        .post_beacon_states_validators(state_id.0, Some(validator_pubkey_ids), None)
                         .await
                         .unwrap()
                         .map(|res| res.data);
@@ -959,6 +984,8 @@ impl ApiTester {
 
                     assert_eq!(result_index_ids, expected, "{:?}", state_id);
                     assert_eq!(result_pubkey_ids, expected, "{:?}", state_id);
+                    assert_eq!(post_result_index_ids, expected, "{:?}", state_id);
+                    assert_eq!(post_result_pubkey_ids, expected, "{:?}", state_id);
                 }
             }
         }

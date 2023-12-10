@@ -3,8 +3,7 @@ use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, LookupVerifyError, SingleBlockLookup, SingleLookupRequestState, State,
 };
 use crate::sync::block_lookups::{
-    BlobRequestState, BlockLookups, BlockRequestState, PeerShouldHave,
-    SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
+    BlobRequestState, BlockLookups, BlockRequestState, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
 };
 use crate::sync::manager::{BlockProcessType, Id, SingleLookupReqId};
 use crate::sync::network_context::SyncNetworkContext;
@@ -13,7 +12,6 @@ use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponents}
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use lighthouse_network::rpc::BlocksByRootRequest;
-use lighthouse_network::PeerId;
 use rand::prelude::IteratorRandom;
 use ssz_types::VariableList;
 use std::ops::IndexMut;
@@ -89,7 +87,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     /* Request building methods */
 
     /// Construct a new request.
-    fn build_request(&mut self) -> Result<(PeerShouldHave, Self::RequestType), LookupRequestError> {
+    fn build_request(&mut self) -> Result<(PeerId, Self::RequestType), LookupRequestError> {
         // Verify and construct request.
         self.too_many_attempts()?;
         let peer = self.get_peer()?;
@@ -121,7 +119,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
             id,
             req_counter: self.get_state().req_counter,
         };
-        Self::make_request(id, peer_id.to_peer_id(), request, cx)
+        Self::make_request(id, peer_id, request, cx)
     }
 
     /// Verify the current request has not exceeded the maximum number of attempts.
@@ -140,26 +138,15 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
 
     /// Get the next peer to request. Draws from the set of peers we think should have both the
     /// block and blob first. If that fails, we draw from the set of peers that may have either.
-    fn get_peer(&mut self) -> Result<PeerShouldHave, LookupRequestError> {
+    fn get_peer(&mut self) -> Result<PeerId, LookupRequestError> {
         let request_state = self.get_state_mut();
-        let available_peer_opt = request_state
+        let peer_id = request_state
             .available_peers
             .iter()
             .choose(&mut rand::thread_rng())
             .copied()
-            .map(PeerShouldHave::BlockAndBlobs);
-
-        let Some(peer_id) = available_peer_opt.or_else(|| {
-            request_state
-                .potential_peers
-                .iter()
-                .choose(&mut rand::thread_rng())
-                .copied()
-                .map(PeerShouldHave::Neither)
-        }) else {
-            return Err(LookupRequestError::NoPeers);
-        };
-        request_state.used_peers.insert(peer_id.to_peer_id());
+            .ok_or(LookupRequestError::NoPeers)?;
+        request_state.used_peers.insert(peer_id);
         Ok(peer_id)
     }
 
@@ -211,7 +198,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         &mut self,
         expected_block_root: Hash256,
         response: Option<Self::ResponseType>,
-        peer_id: PeerShouldHave,
+        peer_id: PeerId,
     ) -> Result<Option<Self::VerifiedResponseType>, LookupVerifyError>;
 
     /// A getter for the parent root of the response. Returns an `Option` because we won't know
@@ -240,11 +227,6 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         duration: Duration,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError>;
-
-    /// Remove the peer from the lookup if it is useless.
-    fn remove_if_useless(&mut self, peer: &PeerId) {
-        self.get_state_mut().remove_peer_if_useless(peer)
-    }
 
     /// Register a failure to process the block or blob.
     fn register_failure_downloading(&mut self) {
@@ -290,7 +272,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
         &mut self,
         expected_block_root: Hash256,
         response: Option<Self::ResponseType>,
-        peer_id: PeerShouldHave,
+        peer_id: PeerId,
     ) -> Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, LookupVerifyError> {
         match response {
             Some(block) => {
@@ -310,13 +292,8 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
                 }
             }
             None => {
-                if peer_id.should_have_block() {
-                    self.state.register_failure_downloading();
-                    Err(LookupVerifyError::NoBlockReturned)
-                } else {
-                    self.state.state = State::AwaitingDownload;
-                    Err(LookupVerifyError::BenignFailure)
-                }
+                self.state.register_failure_downloading();
+                Err(LookupVerifyError::NoBlockReturned)
             }
         }
     }
@@ -396,7 +373,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
         &mut self,
         _expected_block_root: Hash256,
         blob: Option<Self::ResponseType>,
-        peer_id: PeerShouldHave,
+        peer_id: PeerId,
     ) -> Result<Option<FixedBlobSidecarList<T::EthSpec>>, LookupVerifyError> {
         match blob {
             Some(blob) => {

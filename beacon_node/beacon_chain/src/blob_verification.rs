@@ -17,8 +17,7 @@ use ssz_types::VariableList;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconStateError, BlobSidecar, BlobSidecarList, CloneConfig, EthSpec, Hash256,
-    SignedBeaconBlockHeader, Slot,
+    BeaconStateError, BlobSidecar, CloneConfig, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip blob.
@@ -279,7 +278,6 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
     pub fn new(blob: Arc<BlobSidecar<T>>, kzg: &Kzg) -> Result<Self, KzgError> {
         verify_kzg_for_blob(blob, kzg)
     }
-
     pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
         self.blob
     }
@@ -310,8 +308,36 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
     kzg: &Kzg,
 ) -> Result<KzgVerifiedBlob<T>, KzgError> {
     validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)?;
-
     Ok(KzgVerifiedBlob { blob })
+}
+
+pub struct KzgVerifiedBlobList<E: EthSpec> {
+    verified_blobs: Vec<KzgVerifiedBlob<E>>,
+}
+
+impl<E: EthSpec> KzgVerifiedBlobList<E> {
+    pub fn new<I: IntoIterator<Item = Arc<BlobSidecar<E>>>>(
+        blob_list: I,
+        kzg: &Kzg,
+    ) -> Result<Self, KzgError> {
+        let blobs = blob_list.into_iter().collect::<Vec<_>>();
+        verify_kzg_for_blob_list(blobs.iter(), kzg)?;
+        Ok(Self {
+            verified_blobs: blobs
+                .into_iter()
+                .map(|blob| KzgVerifiedBlob { blob })
+                .collect(),
+        })
+    }
+}
+
+impl<E: EthSpec> IntoIterator for KzgVerifiedBlobList<E> {
+    type Item = KzgVerifiedBlob<E>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.verified_blobs.into_iter()
+    }
 }
 
 /// Complete kzg verification for a list of `BlobSidecar`s.
@@ -319,12 +345,14 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_blob`
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
-pub fn verify_kzg_for_blob_list<T: EthSpec>(
-    blob_list: &BlobSidecarList<T>,
-    kzg: &Kzg,
-) -> Result<(), KzgError> {
-    let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
-        .iter()
+pub fn verify_kzg_for_blob_list<'a, T: EthSpec, I>(
+    blob_iter: I,
+    kzg: &'a Kzg,
+) -> Result<(), KzgError>
+where
+    I: Iterator<Item = &'a Arc<BlobSidecar<T>>>,
+{
+    let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_iter
         .map(|blob| (&blob.blob, (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
     validate_blobs::<T>(kzg, commitments.as_slice(), blobs, proofs.as_slice())

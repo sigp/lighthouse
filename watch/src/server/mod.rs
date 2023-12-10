@@ -111,6 +111,7 @@ pub fn start_server(
     );
 
     info!("HTTP server listening on {}", addr);
+
     Ok(serve.into_future())
 }
 

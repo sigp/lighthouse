@@ -415,10 +415,10 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         }
     }
 
-    pub fn put_kzg_verified_blobs(
+    pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
         block_root: Hash256,
-        kzg_verified_blobs: Vec<KzgVerifiedBlob<T::EthSpec>>,
+        kzg_verified_blobs: I,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut fixed_blobs = FixedVector::default();
 
