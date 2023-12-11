@@ -4648,6 +4648,7 @@ dependencies = [
  "take_mut",
  "tokio",
  "tracing-core",
+ "tracing-log",
  "tracing-subscriber",
 ]
 
