@@ -1228,12 +1228,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("progressive-balances")
                 .long("progressive-balances")
                 .value_name("MODE")
-                .help("Options to enable or disable the progressive balances cache for \
-                        unrealized FFG progression calculation. The default `checked` mode compares \
-                        the progressive balances from the cache against results from the existing \
-                        method. If there is a mismatch, it falls back to the existing method. The \
-                        optimized mode (`fast`) is faster but is still experimental, and is \
-                        not recommended for mainnet usage at this time.")
+                .help("Control the progressive balances cache mode. The default `fast` mode uses \
+                        the cache to speed up fork choice. A more conservative `checked` mode \
+                        compares the cache's results against results without the cache. If \
+                        there is a mismatch, it falls back to the cache-free result. Using the \
+                        default `fast` mode is recommended unless advised otherwise by the \
+                        Lighthouse team.")
                 .takes_value(true)
                 .possible_values(ProgressiveBalancesMode::VARIANTS)
         )

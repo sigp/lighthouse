@@ -23,7 +23,7 @@ pub struct Timestamps {
 }
 
 // Helps arrange delay data so it is more relevant to metrics.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct BlockDelays {
     pub observed: Option<Duration>,
     pub imported: Option<Duration>,
@@ -51,7 +51,7 @@ impl BlockDelays {
 
 // If the block was received via gossip, we can record the client type of the peer which sent us
 // the block.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct BlockPeerInfo {
     pub id: Option<String>,
     pub client: Option<String>,
@@ -80,6 +80,8 @@ pub struct BlockTimesCache {
 
 /// Helper methods to read from and write to the cache.
 impl BlockTimesCache {
+    /// Set the observation time for `block_root` to `timestamp` if `timestamp` is less than
+    /// any previous timestamp at which this block was observed.
     pub fn set_time_observed(
         &mut self,
         block_root: BlockRoot,
@@ -92,11 +94,19 @@ impl BlockTimesCache {
             .cache
             .entry(block_root)
             .or_insert_with(|| BlockTimesCacheValue::new(slot));
-        block_times.timestamps.observed = Some(timestamp);
-        block_times.peer_info = BlockPeerInfo {
-            id: peer_id,
-            client: peer_client,
-        };
+        match block_times.timestamps.observed {
+            Some(existing_observation_time) if existing_observation_time <= timestamp => {
+                // Existing timestamp is earlier, do nothing.
+            }
+            _ => {
+                // No existing timestamp, or new timestamp is earlier.
+                block_times.timestamps.observed = Some(timestamp);
+                block_times.peer_info = BlockPeerInfo {
+                    id: peer_id,
+                    client: peer_client,
+                };
+            }
+        }
     }
 
     pub fn set_time_imported(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
@@ -139,5 +149,73 @@ impl BlockTimesCache {
     pub fn prune(&mut self, current_slot: Slot) {
         self.cache
             .retain(|_, cache| cache.slot > current_slot.saturating_sub(64_u64));
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn observed_time_uses_minimum() {
+        let mut cache = BlockTimesCache::default();
+
+        let block_root = Hash256::zero();
+        let slot = Slot::new(100);
+
+        let slot_start_time = Duration::from_secs(0);
+
+        let ts1 = Duration::from_secs(5);
+        let ts2 = Duration::from_secs(6);
+        let ts3 = Duration::from_secs(4);
+
+        let peer_info2 = BlockPeerInfo {
+            id: Some("peer2".to_string()),
+            client: Some("lighthouse".to_string()),
+        };
+
+        let peer_info3 = BlockPeerInfo {
+            id: Some("peer3".to_string()),
+            client: Some("prysm".to_string()),
+        };
+
+        cache.set_time_observed(block_root, slot, ts1, None, None);
+
+        assert_eq!(
+            cache.get_block_delays(block_root, slot_start_time).observed,
+            Some(ts1)
+        );
+        assert_eq!(cache.get_peer_info(block_root), BlockPeerInfo::default());
+
+        // Second observation with higher timestamp should not override anything, even though it has
+        // superior peer info.
+        cache.set_time_observed(
+            block_root,
+            slot,
+            ts2,
+            peer_info2.id.clone(),
+            peer_info2.client.clone(),
+        );
+
+        assert_eq!(
+            cache.get_block_delays(block_root, slot_start_time).observed,
+            Some(ts1)
+        );
+        assert_eq!(cache.get_peer_info(block_root), BlockPeerInfo::default());
+
+        // Third observation with lower timestamp should override everything.
+        cache.set_time_observed(
+            block_root,
+            slot,
+            ts3,
+            peer_info3.id.clone(),
+            peer_info3.client.clone(),
+        );
+
+        assert_eq!(
+            cache.get_block_delays(block_root, slot_start_time).observed,
+            Some(ts3)
+        );
+        assert_eq!(cache.get_peer_info(block_root), peer_info3);
     }
 }
