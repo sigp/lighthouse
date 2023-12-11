@@ -33,6 +33,7 @@
 - [Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?](#net-ip)
 - [How to change the TCP/UDP port 9000 that Lighthouse listens on?](#net-port)
 - [Lighthouse `v4.3.0` introduces a change where a node will subscribe to only 2 subnets in total. I am worried that this will impact my validators return.](#net-subnet)
+- [How to know how many of my peers are connected through QUIC?](#net-quic)
 
 ## [Miscellaneous](#miscellaneous-1)
 - [What should I do if I lose my slashing protection database?](#misc-slashing)
@@ -41,6 +42,7 @@
 - [Does Lighthouse have pruning function like the execution client to save disk space?](#misc-prune)
 - [Can I use a HDD for the freezer database and only have the hot db on SSD?](#misc-freezer)
 - [Can Lighthouse log in local timestamp instead of UTC?](#misc-timestamp)
+- [My hard disk is full and my validator is down. What should I do? ](#misc-full)
 
 ## Beacon Node
 
@@ -345,6 +347,13 @@ Generally yes.
 
 If you do not want to stop `lighthouse vc`, you can use the [key manager API](./api-vc-endpoints.md) to import keys.
 
+
+### <a name="vc-delete"></a> How can I delete my validator once it is imported? 
+
+Lighthouse supports the [KeyManager API](https://ethereum.github.io/keymanager-APIs/#/Local%20Key%20Manager/deleteKeys) to delete validators and remove them from the `validator_definitions.yml` file. To do so, start the validator client with the flag `--http` and call the API.
+
+If you are looking to delete the validators in one node and import it to another, you can use the [validator-manager](./validator-manager-move.md) to move the validators across nodes without the hassle of deleting and importing the keys.
+
 ## Network, Monitoring and Maintenance
 
 ### <a name="net-peer"></a> I have a low peer count and it is not increasing
@@ -486,6 +495,23 @@ While subscribing to more subnets can ensure you have peers on a wider range of 
  
 If you would still like to subscribe to all subnets, you can use the flag `subscribe-all-subnets`. This may improve the block rewards by 1-5%, though it comes at the cost of a much higher bandwidth requirement.
 
+### <a name="net-quic"></a> How to know how many of my peers are connected via QUIC?
+
+With `--metrics` enabled in the beacon node, you can find the number of peers connected via QUIC using:
+
+```bash
+ curl -s "http://localhost:5054/metrics" | grep libp2p_quic_peers
+```
+
+A response example is:
+
+```
+# HELP libp2p_quic_peers Count of libp2p peers currently connected via QUIC
+# TYPE libp2p_quic_peers gauge
+libp2p_quic_peers 4
+```
+which shows that there are 4 peers connected via QUIC.
+
 ## Miscellaneous
 
 ### <a name="misc-slashing"></a> What should I do if I lose my slashing protection database?
@@ -533,9 +559,11 @@ Yes, you can do so by using the flag `--freezer-dir /path/to/freezer_db` in the 
 
 The reason why Lighthouse logs in UTC is due to the dependency on an upstream library that is [yet to be resolved](https://github.com/sigp/lighthouse/issues/3130). Alternatively, using the flag `disable-log-timestamp` in combination with systemd will suppress the UTC timestamps and print the logs in local timestamps. 
 
+### <a name="misc-full"></a> My hard disk is full and my validator is down. What should I do? 
 
+A quick way to get the validator back online is by removing the Lighthouse beacon node database and resync Lighthouse using checkpoint sync. A guide to do this can be found in the [Lighthouse Discord server](https://discord.com/channels/605577013327167508/605577013331361793/1019755522985050142). With some free space left, you will then be able to prune the execution client database to free up more space.
 
-
+For a relatively long term solution, if you are using Geth and Nethermind as the execution client, you can consider setup the online pruning feature. Refer to [Geth](https://blog.ethereum.org/2023/09/12/geth-v1-13-0) and [Nethermind](https://gist.github.com/yorickdowne/67be09b3ba0a9ff85ed6f83315b5f7e0) for details. 
 
 
 
