@@ -6,8 +6,12 @@ use lighthouse_metrics::{
 };
 use slog::Logger;
 use slog_term::Decorator;
+use sloggers::file;
+use std::collections::HashMap;
 use std::io::{Result, Write};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use tracing_logging_layer::TRACING_LOGGING_DEPENDENCIES;
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
@@ -18,7 +22,9 @@ mod tracing_metrics_layer;
 
 pub use sse_logging_components::SSELoggingComponents;
 pub use tracing_logging_layer::LoggingLayer;
+pub use tracing_logging_layer::NonBlockingFileWriter;
 pub use tracing_metrics_layer::MetricsLayer;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
@@ -217,6 +223,58 @@ impl TimeLatch {
 
         is_elapsed
     }
+}
+
+pub fn create_tracing_layer(logfile_max_size: u64, base_tracing_log_path: PathBuf) {
+    let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
+        .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
+    {
+        Ok(filter) => filter,
+        Err(e) => {
+            eprintln!("Failed to initialize dependency tracing {e}");
+            return;
+        }
+    };
+
+    let mut file_writer_streams: HashMap<String, NonBlockingFileWriter> = HashMap::new();
+
+    for dependency in TRACING_LOGGING_DEPENDENCIES.iter() {
+        init_file_writer_stream(
+            &mut file_writer_streams,
+            base_tracing_log_path.clone(),
+            dependency,
+            logfile_max_size,
+        );
+    }
+
+    if let Err(e) = tracing_subscriber::fmt()
+        .with_env_filter(filter_layer)
+        .finish()
+        .with(MetricsLayer)
+        .with(LoggingLayer {
+            file_writer_streams,
+        })
+        .try_init()
+    {
+        // TODO
+        eprintln!("Failed to initialize dependency tracing {e}");
+        return;
+    }
+}
+
+fn init_file_writer_stream(
+    file_writer_streams: &mut HashMap<String, NonBlockingFileWriter>,
+    base_path: PathBuf,
+    file_name: &str,
+    max_file_size: u64,
+) {
+    let file_path = base_path.join(file_name).with_extension("log");
+    let Ok(file_writer) = NonBlockingFileWriter::new(file_path.as_path(), max_file_size) else {
+        eprintln!("Failed to create tracing file stream for {file_name}");
+        return;
+    };
+
+    file_writer_streams.insert(file_name.to_string(), file_writer);
 }
 
 /// Return a logger suitable for test usage.

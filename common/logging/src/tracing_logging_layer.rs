@@ -1,28 +1,20 @@
 use std::collections::HashMap;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, create_dir_all, File, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 
-pub const MAX_FILE_SIZE_IN_BYTES: u64 = 100_000_000;
-
-pub const BASE_FILE_PATH: &str = "";
-
 lazy_static! {
-    pub static ref FILE_WRITER_STREAMS: HashMap<String, Option<NonBlockingFileWriter>> = {
-        let mut m = HashMap::new();
-        let libp2p_logging_thread = NonBlockingFileWriter::new(Path::new("libp2p")).ok();
-        let discv5_logging_thread = NonBlockingFileWriter::new(Path::new("discv5")).ok();
-        m.insert("libp2p".to_string(), libp2p_logging_thread);
-        m.insert("discv5".to_string(), discv5_logging_thread);
-        m
-    };
+    pub static ref TRACING_LOGGING_DEPENDENCIES: Vec<String> =
+        vec!["libp2p".to_string(), "discv5".to_string()];
 }
 
 /// Layer that handles `INFO`, `WARN` and `ERROR` logs emitted per dependency and
 /// writes them to a file. Dependencies are enabled via the `RUST_LOG` env flag.
-pub struct LoggingLayer;
+pub struct LoggingLayer {
+    pub file_writer_streams: HashMap<String, NonBlockingFileWriter>,
+}
 
 impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for LoggingLayer {
     fn on_event(
@@ -37,15 +29,13 @@ impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for Loggin
             None => "unknown",
         };
 
-        let Some(get_file_writer_stream) = FILE_WRITER_STREAMS.get(target) else {
+        let Some(file_writer) = self.file_writer_streams.get(target) else {
             return;
         };
 
-        let Some(file_writer) = get_file_writer_stream else {
-            return;
+        let mut visitor = LogMessageExtractor {
+            message: String::default(),
         };
-
-        let mut visitor = LogMessageExtractor { message: String::default()};
 
         event.record(&mut visitor);
 
@@ -72,11 +62,31 @@ pub struct NonBlockingFileWriter {
 }
 
 impl NonBlockingFileWriter {
-    pub fn new(path: &std::path::Path) -> Result<Self, std::io::Error> {
+    pub fn new(path: &std::path::Path, max_file_size: u64) -> Result<Self, std::io::Error> {
         let (sender, receiver) = mpsc::channel();
         let path = path.to_path_buf();
 
         thread::spawn(move || {
+            if !path.exists() {
+                let mut dir = path.clone();
+                dir.pop();
+
+                // Create the necessary directories for the correct service and network.
+                if !dir.exists() {
+                    let res = create_dir_all(dir);
+
+                    // If the directories cannot be created, warn and disable the logger.
+                    match res {
+                        Ok(_) => (),
+                        Err(e) => {
+                            eprintln!("Failed to create dir: {:?}", e);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            eprintln!("{:?}", path);
             let mut file = match OpenOptions::new().create(true).append(true).open(&path) {
                 Ok(file) => file,
                 Err(e) => {
@@ -87,7 +97,7 @@ impl NonBlockingFileWriter {
 
             for message in receiver {
                 let should_clear_file = match NonBlockingFileWriter::get_file_size(&path) {
-                    Ok(file_size) => file_size > MAX_FILE_SIZE_IN_BYTES,
+                    Ok(file_size) => file_size > max_file_size,
                     Err(_) => false,
                 };
 
@@ -126,7 +136,9 @@ struct LogMessageExtractor {
 }
 
 impl tracing_core::field::Visit for LogMessageExtractor {
-    fn record_debug(&mut self, field: &tracing_core::Field, value: &dyn std::fmt::Debug) {
-        self.message= format!("{}\n{}={:?}", self.message, field.name(), value);
+    fn record_debug(&mut self, _: &tracing_core::Field, value: &dyn std::fmt::Debug) {
+        self.message = format!("{:?}", value);
     }
 }
+
+pub fn create_tracing_logging_layer() {}
