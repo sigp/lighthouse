@@ -1248,6 +1248,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     "does_not_support_gossipsub",
                 );
             }
+            gossipsub::Event::SlowPeer { .. } => {
+                //TODO
+            }
         }
         None
     }
