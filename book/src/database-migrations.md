@@ -180,14 +180,27 @@ Here are the steps to prune historic states:
     sudo -u "$LH_USER" lighthouse db prune-states --datadir "$LH_DATADIR" --network "$NET"
     ```
 
+   If pruning is available, Lighthouse will log:
+
+   ```
+   INFO Ready to prune states
+   WARN Pruning states is irreversible
+   WARN Re-run this command with --confirm to commit to state deletion
+   INFO Nothing has been pruned on this run
+   ```
+
 3. If you are ready to prune the states irreversibly, add the `--confirm` flag to commit the changes:
     
    ```bash
     sudo -u "$LH_USER" lighthouse db prune-states --confirm --datadir "$LH_DATADIR" --network "$NET"
     ```
 
-   The `--confirm` flag ensures that you are aware the action is irreversible, and historic states will be permanently removed.
+   The `--confirm` flag ensures that you are aware the action is irreversible, and historic states will be permanently removed. Lighthouse will log:
 
+   ```
+   INFO Historic states pruned successfully
+   ```
+   
 4. After successfully pruning the historic states, you can restart the Lighthouse beacon node:
    
    ```bash
