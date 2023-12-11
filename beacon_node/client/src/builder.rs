@@ -1,5 +1,5 @@
 use crate::address_change_broadcast::broadcast_address_changes_at_capella;
-use crate::broadcast_lightclient_updates::{
+use crate::compute_lightclient_updates::{
     compute_lightclient_updates, LIGHTCLIENT_SERVER_CHANNEL_CAPACITY,
 };
 use crate::config::{ClientGenesis, Config as ClientConfig};
@@ -27,6 +27,7 @@ use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
 };
 use execution_layer::ExecutionLayer;
+use futures::channel::mpsc::Receiver;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
@@ -39,7 +40,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
@@ -207,7 +207,7 @@ where
         };
 
         let builder = if config.network.enable_light_client_server {
-            let (tx, rv) = tokio::sync::mpsc::channel::<LightclientProducerEvent<TEthSpec>>(
+            let (tx, rv) = futures::channel::mpsc::channel::<LightclientProducerEvent<TEthSpec>>(
                 LIGHTCLIENT_SERVER_CHANNEL_CAPACITY,
             );
             self.lightclient_server_rv = Some(rv);

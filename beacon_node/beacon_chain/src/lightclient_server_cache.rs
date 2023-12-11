@@ -22,7 +22,9 @@ pub struct LightclientServerCache<T: BeaconChainTypes> {
     /// Tracks a single global latest finality update out of all imported blocks.
     ///
     /// TODO: Active discussion with @etan-status if this cache should be fork aware to return
-    /// latest canonical instead of global latest.
+    /// latest canonical (update with highest signature slot, where its attested header is part of
+    /// the head chain) instead of global latest (update with highest signature slot, out of all
+    /// branches).
     latest_finality_update: RwLock<Option<LightClientFinalityUpdate<T::EthSpec>>>,
     /// Tracks a single global latest optimistic update out of all imported blocks.
     latest_optimistic_update: RwLock<Option<LightClientOptimisticUpdate<T::EthSpec>>>,

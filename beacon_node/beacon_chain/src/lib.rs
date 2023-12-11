@@ -30,7 +30,7 @@ pub mod historical_blocks;
 pub mod kzg_utils;
 pub mod light_client_finality_update_verification;
 pub mod light_client_optimistic_update_verification;
-mod lightclient_proofs_cache;
+mod lightclient_server_cache;
 pub mod merge_readiness;
 pub mod metrics;
 pub mod migrate;

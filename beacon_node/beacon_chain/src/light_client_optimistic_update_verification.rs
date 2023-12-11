@@ -72,17 +72,13 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         // verify that enough time has passed for the block to have been propagated
         let start_time = chain
             .slot_clock
-            .start_of(rcv_optimistic_update.signature_slot);
+            .start_of(rcv_optimistic_update.signature_slot)
+            .ok_or(Error::SigSlotStartIsNone)?;
         let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
-        match start_time {
-            Some(time) => {
-                if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
-                    < time + one_third_slot_duration
-                {
-                    return Err(Error::TooEarly);
-                }
-            }
-            None => return Err(Error::SigSlotStartIsNone),
+        if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
+            < start_time + one_third_slot_duration
+        {
+            return Err(Error::TooEarly);
         }
 
         let latest_optimistic_update = chain
@@ -98,7 +94,6 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         let parent_root = rcv_optimistic_update.attested_header.beacon.parent_root;
         Ok(Self {
             light_client_optimistic_update: rcv_optimistic_update,
-            // TODO: why is the parent_root necessary here?
             parent_root,
             seen_timestamp,
         })

@@ -38,7 +38,7 @@ use crate::light_client_finality_update_verification::{
 use crate::light_client_optimistic_update_verification::{
     Error as LightClientOptimisticUpdateError, VerifiedLightClientOptimisticUpdate,
 };
-use crate::lightclient_proofs_cache::LightclientServerCache;
+use crate::lightclient_server_cache::LightclientServerCache;
 use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{
     AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
@@ -466,8 +466,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A cache used to produce lightclient server messages
     pub lightclient_server_cache: LightclientServerCache<T>,
     /// Sender to signal the lightclient server to produce new updates
-    pub lightclient_server_tx:
-        Option<tokio::sync::mpsc::Sender<LightclientProducerEvent<T::EthSpec>>>,
+    pub lightclient_server_tx: Option<Sender<LightclientProducerEvent<T::EthSpec>>>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,
@@ -3452,15 +3451,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // compute state proofs for light client updates before inserting the state into the
         // snapshot cache.
-        self.lightclient_server_cache
-            .cache_state_data(
-                &self.spec, block, block_root,
-                // mutable reference on the state is needed to compute merkle proofs
-                &mut state,
-            )
-            .unwrap_or_else(|e| {
-                error!(self.log, "error caching lightclient data {:?}", e);
-            });
+        if self.config.enable_lightclient_server {
+            self.lightclient_server_cache
+                .cache_state_data(
+                    &self.spec, block, block_root,
+                    // mutable reference on the state is needed to compute merkle proofs
+                    &mut state,
+                )
+                .unwrap_or_else(|e| {
+                    error!(self.log, "error caching lightclient data {:?}", e);
+                });
+        }
 
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
@@ -3835,8 +3836,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Do not trigger lightclient server update producer for old blocks, to extra work
         // during sync.
-        if block_delay_total < self.slot_clock.slot_duration() * 32 {
-            if let Some(lightclient_server_tx) = self.lightclient_server_tx.clone() {
+        if self.config.enable_lightclient_server
+            && block_delay_total < self.slot_clock.slot_duration() * 32
+        {
+            if let Some(mut lightclient_server_tx) = self.lightclient_server_tx.clone() {
                 if let Ok(sync_aggregate) = block.body().sync_aggregate() {
                     if let Err(e) = lightclient_server_tx.try_send((
                         block.parent_root(),

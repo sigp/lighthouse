@@ -65,34 +65,22 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         chain: &BeaconChain<T>,
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {
+        // verify that enough time has passed for the block to have been propagated
+        let start_time = chain
+            .slot_clock
+            .start_of(rcv_finality_update.signature_slot)
+            .ok_or(Error::SigSlotStartIsNone)?;
+        let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
+        if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
+            < start_time + one_third_slot_duration
+        {
+            return Err(Error::TooEarly);
+        }
+
         let latest_finality_update = chain
             .lightclient_server_cache
             .get_latest_finality_update()
             .ok_or(Error::FailedConstructingUpdate)?;
-
-        // verify that no other finality_update with a lower or equal
-        // finalized_header.slot was already forwarded on the network
-        if rcv_finality_update.finalized_header.beacon.slot
-            <= latest_finality_update.finalized_header.beacon.slot
-        {
-            return Err(Error::FinalityUpdateAlreadySeen);
-        }
-
-        // verify that enough time has passed for the block to have been propagated
-        let start_time = chain
-            .slot_clock
-            .start_of(rcv_finality_update.signature_slot);
-        let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
-        match start_time {
-            Some(time) => {
-                if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
-                    < time + one_third_slot_duration
-                {
-                    return Err(Error::TooEarly);
-                }
-            }
-            None => return Err(Error::SigSlotStartIsNone),
-        }
 
         // verify that the gossiped finality update is the same as the locally constructed one.
         if latest_finality_update != rcv_finality_update {

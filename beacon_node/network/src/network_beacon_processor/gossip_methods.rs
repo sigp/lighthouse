@@ -1697,7 +1697,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                         self.gossip_penalize_peer(
                             peer_id,
-                            PeerAction::LowToleranceError,
+                            PeerAction::HighToleranceError,
                             "light_client_gossip_error",
                         );
                     }
