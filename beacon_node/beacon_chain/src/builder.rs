@@ -925,6 +925,7 @@ where
                     .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
             ),
             kzg,
+            block_production_state: Arc::new(Mutex::new(None)),
         };
 
         let head = beacon_chain.head_snapshot();

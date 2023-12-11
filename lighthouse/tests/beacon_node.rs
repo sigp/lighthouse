@@ -2346,7 +2346,10 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
 fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enable_light_client_server, false));
+        .with_config(|config| {
+            assert_eq!(config.network.enable_light_client_server, false);
+            assert_eq!(config.http_api.enable_light_client_server, false);
+        });
 }
 
 #[test]
@@ -2354,7 +2357,20 @@ fn light_client_server_enabled() {
     CommandLineTest::new()
         .flag("light-client-server", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enable_light_client_server, true));
+        .with_config(|config| {
+            assert_eq!(config.network.enable_light_client_server, true);
+        });
+}
+
+#[test]
+fn light_client_http_server_enabled() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("light-client-server", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.http_api.enable_light_client_server, true);
+        });
 }
 
 #[test]
@@ -2427,20 +2443,20 @@ fn progressive_balances_default() {
         .with_config(|config| {
             assert_eq!(
                 config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Checked
+                ProgressiveBalancesMode::Fast
             )
         });
 }
 
 #[test]
-fn progressive_balances_fast() {
+fn progressive_balances_checked() {
     CommandLineTest::new()
-        .flag("progressive-balances", Some("fast"))
+        .flag("progressive-balances", Some("checked"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
                 config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Fast
+                ProgressiveBalancesMode::Checked
             )
         });
 }

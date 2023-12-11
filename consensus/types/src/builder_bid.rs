@@ -1,23 +1,14 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
-    BlobRootsList, ChainSpec, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
+    ChainSpec, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
     ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ForkName,
-    ForkVersionDeserialize, KzgProofs, SignedRoot, Uint256,
+    ForkVersionDeserialize, SignedRoot, Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
 use serde::{Deserialize, Deserializer, Serialize};
-use ssz_derive::Encode;
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
-
-#[derive(PartialEq, Debug, Default, Serialize, Deserialize, TreeHash, Clone, Encode)]
-#[serde(bound = "E: EthSpec")]
-pub struct BlindedBlobsBundle<E: EthSpec> {
-    pub commitments: KzgCommitments<E>,
-    pub proofs: KzgProofs<E>,
-    pub blob_roots: BlobRootsList<E>,
-}
 
 #[superstruct(
     variants(Merge, Capella, Deneb),
@@ -39,7 +30,7 @@ pub struct BuilderBid<E: EthSpec> {
     #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
     pub header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(only(Deneb))]
-    pub blinded_blobs_bundle: BlindedBlobsBundle<E>,
+    pub blob_kzg_commitments: KzgCommitments<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,

@@ -411,6 +411,18 @@ jobs:
       run: rustup override set beta
     - name: Run make
       run: make
+  cli-check:
+    name: cli-check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+        cache-target: release
+    - name: Run Makefile to trigger the bash script
+      run: make cli
   # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
   # a PR is safe to merge. New jobs should be added here.
   test-suite-success:

@@ -17,8 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::{
-    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
+    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, MainnetEthSpec,
+    MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
 use eth2::types::ForkVersionedBeaconBlockType::{Blinded, Full};
@@ -641,13 +641,9 @@ pub async fn proposer_boost_re_org_test(
         assert_eq!(block_c.parent_root(), block_b_root);
     }
 
-    // Sign blobs.
-    let block_c_signed_blobs =
-        block_c_blobs.map(|blobs| harness.sign_blobs(blobs, &state_b, proposer_index));
-
     // Applying block C should cause it to become head regardless (re-org or continuation).
     let block_root_c = harness
-        .process_block_result((block_c.clone(), block_c_signed_blobs))
+        .process_block_result((block_c.clone(), block_c_blobs))
         .await
         .unwrap()
         .into();
@@ -828,7 +824,7 @@ pub async fn fork_choice_before_proposal() {
         .into();
     let block_d = tester
         .client
-        .get_validator_blocks::<E, FullPayload<E>>(slot_d, &randao_reveal, None)
+        .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
         .await
         .unwrap()
         .data
