@@ -62,7 +62,7 @@ of Lighthouse and you should switch to the `-portable` build. In this case, you 
 warning like this on start-up:
 
 ```
-WARN CPU seems incompatible with optimized Lighthouse build, advice: If you get a SIGILL, please try Lighthouse portable build
+WARN CPU seems incompatible with optimized Lighthouse build, advise: If you get a SIGILL, please try Lighthouse portable build
 ```
 
 On some VPS providers, the virtualization can make it appear as if CPU features are not available,
