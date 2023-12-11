@@ -10,7 +10,7 @@ pub mod enr_ext;
 use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use crate::{metrics, ClearDialError};
-use discv5::{enr::NodeId, Discv5, Discv5Event};
+use discv5::{enr::NodeId, Discv5};
 pub use enr::{
     build_enr, create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, CombinedKey,
     Eth2Enr,
@@ -143,15 +143,10 @@ enum EventStream {
     /// Awaiting an event stream to be generated. This is required due to the poll nature of
     /// `Discovery`
     Awaiting(
-        Pin<
-            Box<
-                dyn Future<Output = Result<mpsc::Receiver<Discv5Event>, discv5::Discv5Error>>
-                    + Send,
-            >,
-        >,
+        Pin<Box<dyn Future<Output = Result<mpsc::Receiver<discv5::Event>, discv5::Error>> + Send>>,
     ),
     /// The future has completed.
-    Present(mpsc::Receiver<Discv5Event>),
+    Present(mpsc::Receiver<discv5::Event>),
     // The future has failed or discv5 has been disabled. There are no events from discv5.
     InActive,
 }
@@ -992,7 +987,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     match event {
                         // We filter out unwanted discv5 events here and only propagate useful results to
                         // the peer manager.
-                        Discv5Event::Discovered(_enr) => {
+                        discv5::Event::Discovered(_enr) => {
                             // Peers that get discovered during a query but are not contactable or
                             // don't match a predicate can end up here. For debugging purposes we
                             // log these to see if we are unnecessarily dropping discovered peers
@@ -1005,7 +1000,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             }
                             */
                         }
-                        Discv5Event::SocketUpdated(socket_addr) => {
+                        discv5::Event::SocketUpdated(socket_addr) => {
                             info!(self.log, "Address updated"; "ip" => %socket_addr.ip(), "udp_port" => %socket_addr.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             metrics::check_nat();
@@ -1026,10 +1021,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             // NOTE: We assume libp2p itself can keep track of IP changes and we do
                             // not inform it about IP changes found via discovery.
                         }
-                        Discv5Event::EnrAdded { .. }
-                        | Discv5Event::TalkRequest(_)
-                        | Discv5Event::NodeInserted { .. }
-                        | Discv5Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
+                        discv5::Event::EnrAdded { .. }
+                        | discv5::Event::TalkRequest(_)
+                        | discv5::Event::NodeInserted { .. }
+                        | discv5::Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
                     }
                 }
             }
