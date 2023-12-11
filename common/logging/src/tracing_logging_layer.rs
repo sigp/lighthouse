@@ -42,15 +42,12 @@ impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for Loggin
         match *meta.level() {
             tracing_core::Level::INFO => {
                 let _ = file_writer.write(visitor.message);
-                ()
             }
             tracing_core::Level::WARN => {
                 let _ = file_writer.write(visitor.message);
-                ()
             }
             tracing_core::Level::ERROR => {
                 let _ = file_writer.write(visitor.message);
-                ()
             }
             _ => {}
         }
@@ -140,5 +137,3 @@ impl tracing_core::field::Visit for LogMessageExtractor {
         self.message = format!("{:?}", value);
     }
 }
-
-pub fn create_tracing_logging_layer() {}

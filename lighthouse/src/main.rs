@@ -3,10 +3,7 @@ mod metrics;
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
-use directory::{
-    parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_ROOT_DIR, DEFAULT_TRACING_DIR,
-    DEFAULT_VALIDATOR_DIR,
-};
+use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
@@ -14,11 +11,9 @@ use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -374,17 +369,6 @@ fn main() {
         eprintln!("The -l flag is DEPRECATED. Dependency logging will be on by default.");
     }
 
-    // read the `RUST_LOG` statement
-    let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
-        .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
-    {
-        Ok(filter) => filter,
-        Err(e) => {
-            eprintln!("Failed to initialize dependency logging {e}");
-            exit(1)
-        }
-    };
-
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {
         let eth_spec_id = eth2_network_config.eth_spec_id()?;
 
@@ -549,28 +533,15 @@ fn run<E: EthSpec>(
 
     let log = environment.core_context().log().clone();
 
-    // read the `RUST_LOG` statement
-    let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
-        .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
-    {
-        Ok(filter) => filter,
-        Err(e) => {
-            eprintln!("Failed to initialize dependency logging {e}");
-            exit(1)
-        }
-    };
-
     let mut tracing_log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
 
     if tracing_log_path.is_none() {
-        tracing_log_path = match matches.subcommand() {
-            (&_, _) => Some(
-                parse_path_or_default(matches, "datadir")?
-                    .join(DEFAULT_BEACON_NODE_DIR)
-                    .join("tracing"),
-            ),
-        }
-    };
+        tracing_log_path = Some(
+            parse_path_or_default(matches, "datadir")?
+                .join(DEFAULT_BEACON_NODE_DIR)
+                .join("tracing"),
+        )
+    }
 
     let path = tracing_log_path.clone().unwrap();
 

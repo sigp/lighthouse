@@ -6,7 +6,6 @@ use lighthouse_metrics::{
 };
 use slog::Logger;
 use slog_term::Decorator;
-use sloggers::file;
 use std::collections::HashMap;
 use std::io::{Result, Write};
 use std::path::PathBuf;
@@ -256,9 +255,7 @@ pub fn create_tracing_layer(logfile_max_size: u64, base_tracing_log_path: PathBu
         })
         .try_init()
     {
-        // TODO
         eprintln!("Failed to initialize dependency tracing {e}");
-        return;
     }
 }
 
