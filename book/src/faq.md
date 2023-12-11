@@ -22,7 +22,7 @@
 - [Does increasing the number of validators increase the CPU and other computer resources used?](#vc-resource)
 - [I want to add new validators. Do I have to reimport the existing keys?](#vc-reimport)
 - [Do I have to stop `lighthouse vc` the when importing new validator keys?](#vc-import)
-
+- [How can I delete my validator once it is imported?](#vc-delete)
 
 ## [Network, Monitoring and Maintenance](#network-monitoring-and-maintenance-1)
 - [I have a low peer count and it is not increasing](#net-peer)
