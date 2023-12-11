@@ -16,6 +16,7 @@ HTTP Path | Description |
 [`POST /lighthouse/validators/keystore`](#post-lighthousevalidatorskeystore) | Import a keystore.
 [`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic.
 [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators.
+[`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs
 
 The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api-vc-auth-header.md). 
 
