@@ -1,7 +1,7 @@
 use account_utils::ZeroizeString;
 use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
-use types::{Address, PublicKeyBytes};
+use types::{Address, Graffiti, PublicKeyBytes};
 
 pub use slashing_protection::interchange::Interchange;
 
@@ -171,4 +171,10 @@ pub enum DeleteRemotekeyStatus {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteRemotekeysResponse {
     pub data: Vec<Status<DeleteRemotekeyStatus>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GetGraffitiResponse {
+    pub pubkey: PublicKeyBytes,
+    pub graffiti: Graffiti,
 }

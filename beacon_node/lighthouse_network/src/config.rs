@@ -363,7 +363,7 @@ impl Default for Config {
             disable_discovery: false,
             disable_quic_support: false,
             upnp_enabled: true,
-            network_load: 3,
+            network_load: 4,
             private: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
@@ -422,7 +422,7 @@ impl From<u8> for NetworkLoad {
                 mesh_n_high: 10,
                 gossip_lazy: 3,
                 history_gossip: 3,
-                heartbeat_interval: Duration::from_millis(700),
+                heartbeat_interval: Duration::from_millis(1000),
             },
             4 => NetworkLoad {
                 name: "Average",
@@ -432,7 +432,7 @@ impl From<u8> for NetworkLoad {
                 mesh_n_high: 12,
                 gossip_lazy: 3,
                 history_gossip: 3,
-                heartbeat_interval: Duration::from_millis(700),
+                heartbeat_interval: Duration::from_millis(1000),
             },
             // 5 and above
             _ => NetworkLoad {
@@ -443,7 +443,7 @@ impl From<u8> for NetworkLoad {
                 mesh_n_high: 15,
                 gossip_lazy: 5,
                 history_gossip: 6,
-                heartbeat_interval: Duration::from_millis(500),
+                heartbeat_interval: Duration::from_millis(700),
             },
         }
     }
@@ -455,12 +455,6 @@ pub fn gossipsub_config(
     fork_context: Arc<ForkContext>,
     gossipsub_config_params: GossipsubConfigParams,
 ) -> gossipsub::Config {
-    // The function used to generate a gossipsub message id
-    // We use the first 8 bytes of SHA256(topic, data) for content addressing
-    let fast_gossip_message_id = |message: &gossipsub::RawMessage| {
-        let data = [message.topic.as_str().as_bytes(), &message.data].concat();
-        gossipsub::FastMessageId::from(&Sha256::digest(&data)[..8])
-    };
     fn prefix(
         prefix: [u8; 4],
         message: &gossipsub::Message,
@@ -512,13 +506,13 @@ pub fn gossipsub_config(
         .gossip_lazy(load.gossip_lazy)
         .fanout_ttl(Duration::from_secs(60))
         .history_length(12)
+        .flood_publish(false)
         .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
         .history_gossip(load.history_gossip)
         .validate_messages() // require validation before propagation
         .validation_mode(gossipsub::ValidationMode::Anonymous)
         .duplicate_cache_time(DUPLICATE_CACHE_TIME)
         .message_id_fn(gossip_message_id)
-        .fast_message_id_fn(fast_gossip_message_id)
         .allow_self_origin(true)
         .build()
         .expect("valid gossipsub configuration")

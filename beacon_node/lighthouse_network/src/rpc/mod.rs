@@ -5,10 +5,9 @@
 //! syncing.
 
 use futures::future::FutureExt;
-use handler::{HandlerEvent, RPCHandler};
+use handler::RPCHandler;
 use libp2p::swarm::{
-    handler::ConnectionHandler, ConnectionId, NetworkBehaviour, NotifyHandler, PollParameters,
-    ToSwarm,
+    handler::ConnectionHandler, ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm,
 };
 use libp2p::swarm::{FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
@@ -20,7 +19,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use types::{EthSpec, ForkContext};
 
-pub(crate) use handler::HandlerErr;
+pub(crate) use handler::{HandlerErr, HandlerEvent};
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
 pub(crate) use protocol::InboundRequest;
 
@@ -282,25 +281,9 @@ where
         Ok(handler)
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
-        match event {
-            FromSwarm::ConnectionClosed(_)
-            | FromSwarm::ConnectionEstablished(_)
-            | FromSwarm::AddressChange(_)
-            | FromSwarm::DialFailure(_)
-            | FromSwarm::ListenFailure(_)
-            | FromSwarm::NewListener(_)
-            | FromSwarm::NewListenAddr(_)
-            | FromSwarm::ExpiredListenAddr(_)
-            | FromSwarm::ListenerError(_)
-            | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddrCandidate(_)
-            | FromSwarm::ExternalAddrExpired(_)
-            | FromSwarm::ExternalAddrConfirmed(_) => {
-                // Rpc Behaviour does not act on these swarm events. We use a comprehensive match
-                // statement to ensure future events are dealt with appropriately.
-            }
-        }
+    fn on_swarm_event(&mut self, _event: FromSwarm) {
+        // NOTE: FromSwarm is a non exhaustive enum so updates should be based on release notes more
+        // than compiler feedback
     }
 
     fn on_connection_handler_event(
@@ -309,7 +292,7 @@ where
         conn_id: ConnectionId,
         event: <Self::ConnectionHandler as ConnectionHandler>::ToBehaviour,
     ) {
-        if let Ok(RPCReceived::Request(ref id, ref req)) = event {
+        if let HandlerEvent::Ok(RPCReceived::Request(ref id, ref req)) = event {
             if let Some(limiter) = self.limiter.as_mut() {
                 // check if the request is conformant to the quota
                 match limiter.allows(&peer_id, req) {
@@ -374,11 +357,7 @@ where
         }
     }
 
-    fn poll(
-        &mut self,
-        cx: &mut Context,
-        _: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         // let the rate limiter prune.
         if let Some(limiter) = self.limiter.as_mut() {
             let _ = limiter.poll_unpin(cx);
@@ -409,27 +388,38 @@ where
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         serializer.emit_arguments("peer_id", &format_args!("{}", self.peer_id))?;
-        let (msg_kind, protocol) = match &self.event {
-            Ok(received) => match received {
-                RPCReceived::Request(_, req) => ("request", req.versioned_protocol().protocol()),
-                RPCReceived::Response(_, res) => ("response", res.protocol()),
-                RPCReceived::EndOfStream(_, end) => (
-                    "end_of_stream",
-                    match end {
-                        ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
-                        ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
-                        ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
-                        ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
-                    },
-                ),
-            },
-            Err(error) => match &error {
-                HandlerErr::Inbound { proto, .. } => ("inbound_err", *proto),
-                HandlerErr::Outbound { proto, .. } => ("outbound_err", *proto),
-            },
+        match &self.event {
+            HandlerEvent::Ok(received) => {
+                let (msg_kind, protocol) = match received {
+                    RPCReceived::Request(_, req) => {
+                        ("request", req.versioned_protocol().protocol())
+                    }
+                    RPCReceived::Response(_, res) => ("response", res.protocol()),
+                    RPCReceived::EndOfStream(_, end) => (
+                        "end_of_stream",
+                        match end {
+                            ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
+                            ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
+                            ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
+                            ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
+                        },
+                    ),
+                };
+                serializer.emit_str("msg_kind", msg_kind)?;
+                serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
+            }
+            HandlerEvent::Err(error) => {
+                let (msg_kind, protocol) = match &error {
+                    HandlerErr::Inbound { proto, .. } => ("inbound_err", *proto),
+                    HandlerErr::Outbound { proto, .. } => ("outbound_err", *proto),
+                };
+                serializer.emit_str("msg_kind", msg_kind)?;
+                serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
+            }
+            HandlerEvent::Close(err) => {
+                serializer.emit_arguments("handler_close", &format_args!("{}", err))?;
+            }
         };
-        serializer.emit_str("msg_kind", msg_kind)?;
-        serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
 
         slog::Result::Ok(())
     }
