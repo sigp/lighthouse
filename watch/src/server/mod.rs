@@ -104,7 +104,7 @@ pub fn start_server(
         .layer(Extension(slots_per_epoch));
 
     let addr = SocketAddr::new(config.server.listen_addr, config.server.listen_port);
-    let mut listener = TcpListener::bind(addr)?;
+    let listener = TcpListener::bind(addr)?;
     listener.set_nonblocking(true)?;
     let serve = axum::serve(tokio::net::TcpListener::from_std(listener)?, app);
 
