@@ -450,6 +450,7 @@ jobs:
       'check-msrv',
       'cargo-udeps',
       'compile-with-beta-compiler',
+      'cli-check',
     ]
     steps:
       - uses: actions/checkout@v3
