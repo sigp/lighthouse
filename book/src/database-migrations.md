@@ -163,7 +163,7 @@ lighthouse db version --network mainnet
 
 Pruning historic states helps in managing the disk space used by the Lighthouse beacon node by removing old beacon 
 states from the freezer database. This can be especially useful when the database has accumulated a significant amount 
-of historic data. This command is intended for nodes synced before 4.4.1, as newly synced node no longer store 
+of historic data. This command is intended for nodes synced before 4.4.1, as newly synced nodes no longer store 
 historic states by default.
 
 Here are the steps to prune historic states:
