@@ -29,7 +29,7 @@ pub use libp2p::{
     identity::PeerId,
     swarm::{
         dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour, NotifyHandler,
-        PollParameters, SubstreamProtocol, ToSwarm,
+        SubstreamProtocol, ToSwarm,
     },
 };
 use lru::LruCache;
@@ -955,11 +955,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     }
 
     // Main execution loop to drive the behaviour
-    fn poll(
-        &mut self,
-        cx: &mut Context,
-        _: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if !self.started {
             return Poll::Pending;
         }
@@ -1041,7 +1037,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         Poll::Pending
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         match event {
             FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
                 self.on_dial_failure(peer_id, error)
@@ -1114,17 +1110,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     Err(e) => warn!(self.log, "Failed to update ENR"; "error" => ?e),
                 }
             }
-            FromSwarm::ConnectionEstablished(_)
-            | FromSwarm::ConnectionClosed(_)
-            | FromSwarm::AddressChange(_)
-            | FromSwarm::ListenFailure(_)
-            | FromSwarm::NewListener(_)
-            | FromSwarm::ExpiredListenAddr(_)
-            | FromSwarm::ListenerError(_)
-            | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddrCandidate(_)
-            | FromSwarm::ExternalAddrExpired(_)
-            | FromSwarm::ExternalAddrConfirmed(_) => {
+            _ => {
                 // Ignore events not relevant to discovery
             }
         }

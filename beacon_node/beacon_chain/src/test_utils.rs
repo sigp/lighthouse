@@ -1,7 +1,7 @@
 use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::BeaconBlockResponseType;
+use crate::BeaconBlockResponseWrapper;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
@@ -33,8 +33,8 @@ use int_to_bytes::int_to_bytes32;
 use kzg::{Kzg, TrustedSetup};
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
+use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
-use parking_lot::{Mutex, RwLock};
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -52,7 +52,6 @@ use state_processing::{
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -567,7 +566,6 @@ where
             runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
             mock_builder: None,
-            blob_signature_cache: <_>::default(),
             rng: make_rng(),
         }
     }
@@ -623,27 +621,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     pub mock_builder: Option<Arc<MockBuilder<T::EthSpec>>>,
 
-    /// Cache for blob signature because we don't need them for import, but we do need them
-    /// to test gossip validation. We always make them during block production but drop them
-    /// before storing them in the db.
-    pub blob_signature_cache: Arc<RwLock<HashMap<BlobSignatureKey, Signature>>>,
-
     pub rng: Mutex<StdRng>,
-}
-
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub struct BlobSignatureKey {
-    block_root: Hash256,
-    blob_index: u64,
-}
-
-impl BlobSignatureKey {
-    pub fn new(block_root: Hash256, blob_index: u64) -> Self {
-        Self {
-            block_root,
-            blob_index,
-        }
-    }
 }
 
 pub type CommitteeAttestations<E> = Vec<(Attestation<E>, SubnetId)>;
@@ -845,28 +823,9 @@ where
         &self,
         state: BeaconState<E>,
         slot: Slot,
-    ) -> (
-        SignedBlockContentsTuple<E, BlindedPayload<E>>,
-        BeaconState<E>,
-    ) {
+    ) -> (SignedBlindedBeaconBlock<E>, BeaconState<E>) {
         let (unblinded, new_state) = self.make_block(state, slot).await;
-        let maybe_blinded_blob_sidecars = unblinded.1.map(|blob_sidecar_list| {
-            VariableList::new(
-                blob_sidecar_list
-                    .into_iter()
-                    .map(|blob_sidecar| {
-                        let blinded_sidecar: BlindedBlobSidecar = blob_sidecar.message.into();
-                        SignedSidecar {
-                            message: Arc::new(blinded_sidecar),
-                            signature: blob_sidecar.signature,
-                            _phantom: PhantomData,
-                        }
-                    })
-                    .collect(),
-            )
-            .unwrap()
-        });
-        ((unblinded.0.into(), maybe_blinded_blob_sidecars), new_state)
+        (unblinded.0.into(), new_state)
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
@@ -874,7 +833,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
+    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -892,7 +851,7 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-        let BeaconBlockResponseType::Full(block_response) = self
+        let BeaconBlockResponseWrapper::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -916,17 +875,12 @@ where
             &self.spec,
         );
 
-        let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E> = match &signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) => (
-                signed_block,
-                block_response
-                    .maybe_side_car
-                    .map(|blobs| self.sign_blobs(blobs, &block_response.state, proposer_index)),
-            ),
+            SignedBeaconBlock::Deneb(_) => (signed_block, block_response.blob_items),
         };
 
         (block_contents, block_response.state)
@@ -938,7 +892,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
+    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -958,7 +912,7 @@ where
 
         let pre_state = state.clone();
 
-        let BeaconBlockResponseType::Full(block_response) = self
+        let BeaconBlockResponseWrapper::Full(block_response) = self
             .chain
             .produce_block_on_state(
                 state,
@@ -982,37 +936,12 @@ where
             &self.spec,
         );
 
-        let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E> = match &signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) => {
-                if let Some(blobs) = block_response.maybe_side_car {
-                    let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
-                        .into_iter()
-                        .map(|blob| {
-                            blob.sign(
-                                &self.validator_keypairs[proposer_index].sk,
-                                &block_response.state.fork(),
-                                block_response.state.genesis_validators_root(),
-                                &self.spec,
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .into();
-                    let mut guard = self.blob_signature_cache.write();
-                    for blob in &signed_blobs {
-                        guard.insert(
-                            BlobSignatureKey::new(blob.message.block_root, blob.message.index),
-                            blob.signature.clone(),
-                        );
-                    }
-                    (signed_block, Some(signed_blobs))
-                } else {
-                    (signed_block, None)
-                }
-            }
+            SignedBeaconBlock::Deneb(_) => (signed_block, block_response.blob_items),
         };
         (block_contents, pre_state)
     }
@@ -1049,35 +978,6 @@ where
             state.genesis_validators_root(),
             &self.spec,
         )
-    }
-
-    /// Sign blobs, and cache their signatures.
-    pub fn sign_blobs(
-        &self,
-        blobs: BlobSidecarList<E>,
-        state: &BeaconState<E>,
-        proposer_index: usize,
-    ) -> SignedSidecarList<E, BlobSidecar<E>> {
-        let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
-            .into_iter()
-            .map(|blob| {
-                blob.sign(
-                    &self.validator_keypairs[proposer_index].sk,
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    &self.spec,
-                )
-            })
-            .collect::<Vec<_>>()
-            .into();
-        let mut guard = self.blob_signature_cache.write();
-        for blob in &signed_blobs {
-            guard.insert(
-                BlobSignatureKey::new(blob.message.block_root, blob.message.index),
-                blob.signature.clone(),
-            );
-        }
-        signed_blobs
     }
 
     /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
@@ -1837,7 +1737,7 @@ where
         state: BeaconState<E>,
         slot: Slot,
         block_modifier: impl FnOnce(&mut BeaconBlock<E>),
-    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
+    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -1935,24 +1835,20 @@ where
         &self,
         slot: Slot,
         block_root: Hash256,
-        block_contents: SignedBlockContentsTuple<E, FullPayload<E>>,
+        block_contents: SignedBlockContentsTuple<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
-        let (block, blobs) = block_contents;
-        // Note: we are just dropping signatures here and skipping signature verification.
-        let blobs_without_signatures = blobs.map(|blobs| {
-            VariableList::from(
-                blobs
-                    .into_iter()
-                    .map(|blob| blob.message)
-                    .collect::<Vec<_>>(),
-            )
-        });
+        let (block, blob_items) = block_contents;
+
+        let sidecars = blob_items
+            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs))
+            .transpose()
+            .unwrap();
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), Arc::new(block), blobs_without_signatures).unwrap(),
+                RpcBlock::new(Some(block_root), Arc::new(block), sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -1965,24 +1861,20 @@ where
 
     pub async fn process_block_result(
         &self,
-        block_contents: SignedBlockContentsTuple<E, FullPayload<E>>,
+        block_contents: SignedBlockContentsTuple<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
-        let (block, blobs) = block_contents;
-        // Note: we are just dropping signatures here and skipping signature verification.
-        let blobs_without_signatures = blobs.map(|blobs| {
-            VariableList::from(
-                blobs
-                    .into_iter()
-                    .map(|blob| blob.message)
-                    .collect::<Vec<_>>(),
-            )
-        });
+        let (block, blob_items) = block_contents;
+
+        let sidecars = blob_items
+            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs))
+            .transpose()
+            .unwrap();
         let block_root = block.canonical_root();
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), Arc::new(block), blobs_without_signatures).unwrap(),
+                RpcBlock::new(Some(block_root), Arc::new(block), sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -2051,7 +1943,7 @@ where
     ) -> Result<
         (
             SignedBeaconBlockHash,
-            SignedBlockContentsTuple<E, FullPayload<E>>,
+            SignedBlockContentsTuple<E>,
             BeaconState<E>,
         ),
         BlockError<E>,
@@ -2603,8 +2495,6 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             blobs,
         } = bundle;
 
-        let block_root = block.canonical_root();
-
         for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
             .into_iter()
             .zip(commitments.into_iter())
@@ -2612,14 +2502,16 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             .enumerate()
         {
             blob_sidecars.push(BlobSidecar {
-                block_root,
                 index: index as u64,
-                slot: block.slot(),
-                block_parent_root: block.parent_root(),
-                proposer_index: block.message().proposer_index(),
                 blob: blob.clone(),
                 kzg_commitment,
                 kzg_proof,
+                signed_block_header: block.signed_block_header(),
+                kzg_commitment_inclusion_proof: block
+                    .message()
+                    .body()
+                    .kzg_commitment_merkle_proof(index)
+                    .unwrap(),
             });
         }
     }

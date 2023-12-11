@@ -369,7 +369,7 @@ pub fn verify_merkle_proof(
 }
 
 /// Compute a root hash from a leaf and a Merkle proof.
-fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index: usize) -> H256 {
+pub fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index: usize) -> H256 {
     assert_eq!(branch.len(), depth, "proof length should equal depth");
 
     let mut merkle_root = leaf.as_bytes().to_vec();
