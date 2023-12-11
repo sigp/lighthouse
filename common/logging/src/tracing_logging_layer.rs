@@ -72,7 +72,6 @@ impl NonBlockingFileWriter {
                 if !dir.exists() {
                     let res = create_dir_all(dir);
 
-                    // If the directories cannot be created, warn and disable the logger.
                     match res {
                         Ok(_) => (),
                         Err(e) => {
@@ -83,7 +82,6 @@ impl NonBlockingFileWriter {
                 }
             }
 
-            eprintln!("{:?}", path);
             let mut file = match OpenOptions::new().create(true).append(true).open(&path) {
                 Ok(file) => file,
                 Err(e) => {

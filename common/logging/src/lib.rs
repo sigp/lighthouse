@@ -242,7 +242,7 @@ pub fn create_tracing_layer(logfile_max_size: u64, base_tracing_log_path: PathBu
             &mut file_writer_streams,
             base_tracing_log_path.clone(),
             dependency,
-            logfile_max_size,
+            logfile_max_size * 1_024 * 1_024,
         );
     }
 
