@@ -3,7 +3,7 @@ use derivative::Derivative;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
-use types::{light_client_update::Error as LightClientUpdateError, LightClientFinalityUpdate};
+use types::LightClientFinalityUpdate;
 
 /// Returned when a light client finality update was not successfully verified. It might not have been verified for
 /// two reasons:
@@ -14,8 +14,6 @@ use types::{light_client_update::Error as LightClientUpdateError, LightClientFin
 ///   (the `BeaconChainError` variant)
 #[derive(Debug, AsRefStr)]
 pub enum Error {
-    /// Light client finality update message with a lower or equal finalized_header slot already forwarded.
-    FinalityUpdateAlreadySeen,
     /// The light client finality message was received is prior to one-third of slot duration passage. (with
     /// respect to the gossip clock disparity and slot clock duration).
     ///
@@ -24,29 +22,11 @@ pub enum Error {
     /// Assuming the local clock is correct, the peer has sent an invalid message.
     TooEarly,
     /// Light client finality update message does not match the locally constructed one.
-    ///
-    /// ## Peer Scoring
-    ///
     InvalidLightClientFinalityUpdate,
     /// Signature slot start time is none.
     SigSlotStartIsNone,
     /// Failed to construct a LightClientFinalityUpdate from state.
     FailedConstructingUpdate,
-    /// Beacon chain error occurred.
-    BeaconChainError(BeaconChainError),
-    LightClientUpdateError(LightClientUpdateError),
-}
-
-impl From<BeaconChainError> for Error {
-    fn from(e: BeaconChainError) -> Self {
-        Error::BeaconChainError(e)
-    }
-}
-
-impl From<LightClientUpdateError> for Error {
-    fn from(e: LightClientUpdateError) -> Self {
-        Error::LightClientUpdateError(e)
-    }
 }
 
 /// Wraps a `LightClientFinalityUpdate` that has been verified for propagation on the gossip network.

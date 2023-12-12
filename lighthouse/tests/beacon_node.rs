@@ -2359,6 +2359,7 @@ fn light_client_server_enabled() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enable_light_client_server, true);
+            assert_eq!(config.chain.enable_light_client_server, true);
         });
 }
 

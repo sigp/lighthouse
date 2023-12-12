@@ -4,7 +4,7 @@ use eth2::types::Hash256;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
-use types::{light_client_update::Error as LightClientUpdateError, LightClientOptimisticUpdate};
+use types::LightClientOptimisticUpdate;
 
 /// Returned when a light client optimistic update was not successfully verified. It might not have been verified for
 /// two reasons:
@@ -15,8 +15,6 @@ use types::{light_client_update::Error as LightClientUpdateError, LightClientOpt
 ///   (the `BeaconChainError` variant)
 #[derive(Debug, AsRefStr)]
 pub enum Error {
-    /// Light client optimistic update message with a lower or equal optimistic_header slot already forwarded.
-    OptimisticUpdateAlreadySeen,
     /// The light client optimistic message was received is prior to one-third of slot duration passage. (with
     /// respect to the gossip clock disparity and slot clock duration).
     ///
@@ -25,31 +23,11 @@ pub enum Error {
     /// Assuming the local clock is correct, the peer has sent an invalid message.
     TooEarly,
     /// Light client optimistic update message does not match the locally constructed one.
-    ///
-    /// ## Peer Scoring
-    ///
     InvalidLightClientOptimisticUpdate,
     /// Signature slot start time is none.
     SigSlotStartIsNone,
     /// Failed to construct a LightClientOptimisticUpdate from state.
     FailedConstructingUpdate,
-    /// Unknown block with parent root.
-    UnknownBlockParentRoot(Hash256),
-    /// Beacon chain error occurred.
-    BeaconChainError(BeaconChainError),
-    LightClientUpdateError(LightClientUpdateError),
-}
-
-impl From<BeaconChainError> for Error {
-    fn from(e: BeaconChainError) -> Self {
-        Error::BeaconChainError(e)
-    }
-}
-
-impl From<LightClientUpdateError> for Error {
-    fn from(e: LightClientUpdateError) -> Self {
-        Error::LightClientUpdateError(e)
-    }
 }
 
 /// Wraps a `LightClientOptimisticUpdate` that has been verified for propagation on the gossip network.

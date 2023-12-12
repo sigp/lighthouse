@@ -42,8 +42,7 @@ impl<T: BeaconChainTypes> LightclientServerCache<T> {
     }
 
     /// Compute and cache state proofs for latter production of light-client messages. Does not
-    /// trigger block replay. May result in multiple DB write ops.
-    /// TODO: Should return StoreOps to batch with rest of db operations?
+    /// trigger block replay.
     pub fn cache_state_data(
         &self,
         spec: &ChainSpec,

@@ -1675,15 +1675,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "light_client_gossip_error",
                         );
                     }
-                    LightClientFinalityUpdateError::FinalityUpdateAlreadySeen => debug!(
-                        self.log,
-                        "Light client finality update already seen";
-                        "peer" => %peer_id,
-                        "error" => ?e,
-                    ),
-                    LightClientFinalityUpdateError::BeaconChainError(_)
-                    | LightClientFinalityUpdateError::LightClientUpdateError(_)
-                    | LightClientFinalityUpdateError::SigSlotStartIsNone
+                    LightClientFinalityUpdateError::SigSlotStartIsNone
                     | LightClientFinalityUpdateError::FailedConstructingUpdate => debug!(
                         self.log,
                         "Light client error constructing finality update";
@@ -1720,56 +1712,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(e) => {
                 match e {
-                    LightClientOptimisticUpdateError::UnknownBlockParentRoot(parent_root) => {
-                        metrics::inc_counter(
-                            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_SENT_OPTIMISTIC_UPDATES,
-                        );
-                        debug!(
-                            self.log,
-                            "Optimistic update for unknown block";
-                            "peer_id" => %peer_id,
-                            "parent_root" => ?parent_root
-                        );
-
-                        if let Some(sender) = reprocess_tx {
-                            let processor = self.clone();
-                            let msg = ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(
-                                QueuedLightClientUpdate {
-                                    parent_root,
-                                    process_fn: Box::new(move || {
-                                        processor.process_gossip_optimistic_update(
-                                            message_id,
-                                            peer_id,
-                                            light_client_optimistic_update,
-                                            None, // Do not reprocess this message again.
-                                            seen_timestamp,
-                                        )
-                                    }),
-                                },
-                            );
-
-                            if sender.try_send(msg).is_err() {
-                                error!(
-                                    self.log,
-                                    "Failed to send optimistic update for re-processing";
-                                )
-                            }
-                        } else {
-                            debug!(
-                                self.log,
-                                "Not sending light client update because it had been reprocessed";
-                                "peer_id" => %peer_id,
-                                "parent_root" => ?parent_root
-                            );
-
-                            self.propagate_validation_result(
-                                message_id,
-                                peer_id,
-                                MessageAcceptance::Ignore,
-                            );
-                        }
-                        return;
-                    }
                     LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate => {
                         metrics::register_optimistic_update_error(&e);
 
@@ -1801,19 +1743,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "light_client_gossip_error",
                         );
                     }
-                    LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen => {
-                        metrics::register_optimistic_update_error(&e);
-
-                        debug!(
-                            self.log,
-                            "Light client optimistic update already seen";
-                            "peer" => %peer_id,
-                            "error" => ?e,
-                        )
-                    }
-                    LightClientOptimisticUpdateError::BeaconChainError(_)
-                    | LightClientOptimisticUpdateError::LightClientUpdateError(_)
-                    | LightClientOptimisticUpdateError::SigSlotStartIsNone
+                    LightClientOptimisticUpdateError::SigSlotStartIsNone
                     | LightClientOptimisticUpdateError::FailedConstructingUpdate => {
                         metrics::register_optimistic_update_error(&e);
 
