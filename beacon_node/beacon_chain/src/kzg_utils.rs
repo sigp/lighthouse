@@ -4,7 +4,7 @@ use types::{Blob, EthSpec, Hash256, KzgCommitment, KzgProof};
 /// Converts a blob ssz List object to an array to be used with the kzg
 /// crypto library.
 fn ssz_blob_to_crypto_blob<T: EthSpec>(blob: &Blob<T>) -> Result<KzgBlob, KzgError> {
-    KzgBlob::from_bytes(blob.as_ref())
+    KzgBlob::from_bytes(blob.as_ref()).map_err(Into::into)
 }
 
 /// Validate a single blob-commitment-proof triplet from a `BlobSidecar`.
@@ -13,7 +13,8 @@ pub fn validate_blob<T: EthSpec>(
     blob: &Blob<T>,
     kzg_commitment: KzgCommitment,
     kzg_proof: KzgProof,
-) -> Result<bool, KzgError> {
+) -> Result<(), KzgError> {
+    let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
     let kzg_blob = ssz_blob_to_crypto_blob::<T>(blob)?;
     kzg.verify_blob_kzg_proof(&kzg_blob, kzg_commitment, kzg_proof)
 }
@@ -24,7 +25,8 @@ pub fn validate_blobs<T: EthSpec>(
     expected_kzg_commitments: &[KzgCommitment],
     blobs: Vec<&Blob<T>>,
     kzg_proofs: &[KzgProof],
-) -> Result<bool, KzgError> {
+) -> Result<(), KzgError> {
+    let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_BATCH_TIMES);
     let blobs = blobs
         .into_iter()
         .map(|blob| ssz_blob_to_crypto_blob::<T>(blob))
