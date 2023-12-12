@@ -1,6 +1,7 @@
 queue_rules:
   - name: default
     batch_size: 8
+    batch_max_wait_time: 60 s
     checks_timeout: 10800 s
     merge_method: squash
     queue_conditions:
