@@ -47,6 +47,7 @@ libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p/", rev = "c543024350
 
 [dependencies.libp2p]
 git = "https://github.com/sigp/rust-libp2p/"
+# Branch https://github.com/sigp/rust-libp2p/tree/lighthouse-gossipsub-yamux
 rev = "c5430243501075eba4429b33c427bc0ed13d0ff6"
 default-features = false
 features = ["identify", "yamux", "noise", "gossipsub", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic"]

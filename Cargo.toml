@@ -105,6 +105,7 @@ criterion = "0.3"
 delay_map = "0.3"
 derivative = "2"
 dirs = "3"
+# Branch https://github.com/sigp/discv5/tree/lighthouse-with-yamux
 discv5 = { git="https://github.com/sigp/discv5", rev="1b5218d01015023f32e12c0a9ac6780759a550bf", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
