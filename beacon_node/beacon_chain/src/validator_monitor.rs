@@ -541,8 +541,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let attested_slots: Vec<_> = self
             .unaggregated_attestations
             .keys()
-            .filter(|attestation_slot| {
-                **attestation_slot
+            .filter(|&&attestation_slot| {
+                attestation_slot
                     < current_slot - Slot::new(UNAGGREGATED_ATTESTATION_LAG_SLOTS as u64)
             })
             .cloned()
