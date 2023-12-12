@@ -1,5 +1,5 @@
 use crate::errors::BeaconChainError;
-use crate::{BeaconChainTypes, BeaconStore};
+use crate::{metrics, BeaconChainTypes, BeaconStore};
 use parking_lot::{Mutex, RwLock};
 use slog::{debug, Logger};
 use ssz_types::FixedVector;
@@ -50,6 +50,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         block_root: Hash256,
         block_post_state: &mut BeaconState<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
+        let _timer = metrics::start_timer(&metrics::LIGHT_CLIENT_SERVER_CACHE_STATE_DATA_TIMES);
+
         // Only post-altair
         if spec.fork_name_at_slot::<T::EthSpec>(block.slot()) == ForkName::Base {
             return Ok(());
@@ -73,6 +75,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         block_slot: Slot,
         sync_aggregate: &SyncAggregate<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
+        let _timer =
+            metrics::start_timer(&metrics::LIGHT_CLIENT_SERVER_CACHE_RECOMPUTE_UPDATES_TIMES);
+
         let signature_slot = block_slot;
         let attested_block_root = block_parent_root;
 
@@ -158,6 +163,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         if let Some(cached_parts) = self.prev_block_cache.lock().get(block_root) {
             return Ok(cached_parts.clone());
         }
+        metrics::inc_counter(&metrics::LIGHT_CLIENT_SERVER_CACHE_PREV_BLOCK_CACHE_MISS);
 
         // Compute the value, handling potential errors.
         let mut state = store
