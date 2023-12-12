@@ -1455,8 +1455,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 self.build_response(id, peer_id, response)
             }
             HandlerEvent::Close(_) => {
-                let _ = self.swarm.disconnect_peer_id(peer_id);
-                // NOTE: we wait for the swarm to report the connection as actually closed
+                // NOTE: This is handled in the RPC behaviour.
                 None
             }
         }
