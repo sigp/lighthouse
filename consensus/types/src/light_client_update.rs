@@ -93,13 +93,6 @@ impl<T: EthSpec> LightClientUpdate<T> {
         attested_block: SignedBeaconBlock<T>,
         finalized_block: SignedBeaconBlock<T>,
     ) -> Result<Self, Error> {
-        let altair_fork_epoch = chain_spec
-            .altair_fork_epoch
-            .ok_or(Error::AltairForkNotActive)?;
-        if attested_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
-            return Err(Error::AltairForkNotActive);
-        }
-
         let sync_aggregate = block.body().sync_aggregate()?;
         if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
             return Err(Error::NotEnoughSyncCommitteeParticipants);
@@ -131,55 +124,45 @@ impl<T: EthSpec> LightClientUpdate<T> {
             attested_state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?;
         let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
 
-        if let Some(deneb_fork_epoch) = chain_spec.deneb_fork_epoch {
-            if beacon_state.slot().epoch(T::slots_per_epoch()) >= deneb_fork_epoch {
-                return Ok(Self {
-                    attested_header: LightClientHeaderDeneb::block_to_light_client_header(
-                        attested_block,
-                    )?
-                    .into(),
-                    next_sync_committee: attested_state.next_sync_committee()?.clone(),
-                    next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
-                    finalized_header: LightClientHeaderDeneb::block_to_light_client_header(
-                        finalized_block,
-                    )?
-                    .into(),
-                    finality_branch: FixedVector::new(finality_branch)?,
-                    sync_aggregate: sync_aggregate.clone(),
-                    signature_slot: block.slot(),
-                });
-            }
-        };
+        let (attested_header, finalized_header) = match chain_spec
+            .fork_name_at_epoch(beacon_state.slot().epoch(T::slots_per_epoch()))
+        {
+            ForkName::Base => return Err(Error::AltairForkNotActive),
+            ForkName::Merge => return Err(Error::AltairForkNotActive),
+            ForkName::Altair => {
+                let attested_header: LightClientHeader<T> =
+                    LightClientHeaderAltair::block_to_light_client_header(attested_block)?.into();
 
-        if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
-            if beacon_state.slot().epoch(T::slots_per_epoch()) >= capella_fork_epoch {
-                return Ok(Self {
-                    attested_header: LightClientHeaderCapella::block_to_light_client_header(
-                        attested_block,
-                    )?
-                    .into(),
-                    next_sync_committee: attested_state.next_sync_committee()?.clone(),
-                    next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
-                    finalized_header: LightClientHeaderCapella::block_to_light_client_header(
-                        finalized_block,
-                    )?
-                    .into(),
-                    finality_branch: FixedVector::new(finality_branch)?,
-                    sync_aggregate: sync_aggregate.clone(),
-                    signature_slot: block.slot(),
-                });
+                let finalized_header: LightClientHeader<T> =
+                    LightClientHeaderAltair::block_to_light_client_header(finalized_block)?.into();
+
+                (attested_header, finalized_header)
+            }
+            ForkName::Capella => {
+                let attested_header: LightClientHeader<T> =
+                    LightClientHeaderCapella::block_to_light_client_header(attested_block)?.into();
+
+                let finalized_header: LightClientHeader<T> =
+                    LightClientHeaderCapella::block_to_light_client_header(finalized_block)?.into();
+
+                (attested_header, finalized_header)
+            }
+            ForkName::Deneb => {
+                let attested_header: LightClientHeader<T> =
+                    LightClientHeaderDeneb::block_to_light_client_header(attested_block)?.into();
+
+                let finalized_header: LightClientHeader<T> =
+                    LightClientHeaderDeneb::block_to_light_client_header(finalized_block)?.into();
+
+                (attested_header, finalized_header)
             }
         };
 
         Ok(Self {
-            attested_header: LightClientHeaderAltair::block_to_light_client_header(attested_block)?
-                .into(),
+            attested_header,
             next_sync_committee: attested_state.next_sync_committee()?.clone(),
             next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
-            finalized_header: LightClientHeaderAltair::block_to_light_client_header(
-                finalized_block,
-            )?
-            .into(),
+            finalized_header,
             finality_branch: FixedVector::new(finality_branch)?,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),

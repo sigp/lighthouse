@@ -71,7 +71,8 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         chain: &BeaconChain<T>,
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {
-        let runtime =  tokio::runtime::Runtime::new().map_err(|_| Error::FailedConstructingUpdate)?;
+        let runtime =
+            tokio::runtime::Runtime::new().map_err(|_| Error::FailedConstructingUpdate)?;
         let gossiped_optimistic_slot = light_client_optimistic_update.attested_header.beacon().slot;
         let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
         let signature_slot = light_client_optimistic_update.signature_slot;
@@ -81,12 +82,9 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         let head = chain.canonical_head.cached_head();
         let head_block = &head.snapshot.beacon_block;
         let attested_block_root = head_block.message().parent_root();
-        let attested_block = runtime.block_on( async {
-            chain
-                .get_block(&attested_block_root).await
-            }
-        )?
-        .ok_or(Error::FailedConstructingUpdate)?;
+        let attested_block = runtime
+            .block_on(async { chain.get_block(&attested_block_root).await })?
+            .ok_or(Error::FailedConstructingUpdate)?;
 
         let attested_state = chain
             .get_state(&attested_block.state_root(), Some(attested_block.slot()))?
@@ -125,8 +123,12 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             return Err(Error::UnknownBlockParentRoot(canonical_root));
         }
 
-        let optimistic_update =
-            LightClientOptimisticUpdate::new(&chain.spec, head_block, &attested_state, attested_block)?;
+        let optimistic_update = LightClientOptimisticUpdate::new(
+            &chain.spec,
+            head_block,
+            &attested_state,
+            attested_block,
+        )?;
 
         // verify that the gossiped optimistic update is the same as the locally constructed one.
         if optimistic_update != light_client_optimistic_update {

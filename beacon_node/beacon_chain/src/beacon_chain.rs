@@ -6530,13 +6530,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, Error> {
-        let runtime =  tokio::runtime::Runtime::new().map_err(|_| Error::RuntimeShutdown)?;
+        let runtime = tokio::runtime::Runtime::new().map_err(|_| Error::RuntimeShutdown)?;
 
-        let Some(block) = runtime.block_on( async {
-            self
-                .get_block(block_root).await
-            }
-        )? else {
+        let Some(block) = runtime.block_on(async { self.get_block(block_root).await })? else {
             return Ok(None);
         };
 

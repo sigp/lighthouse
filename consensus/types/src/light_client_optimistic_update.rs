@@ -1,8 +1,10 @@
 use super::{EthSpec, ForkName, ForkVersionDeserialize, Slot, SyncAggregate};
-use crate::light_client_header::{LightClientHeaderDeneb, LightClientHeaderCapella, LightClientHeaderAltair};
-use crate::{light_client_header::LightClientHeader, ChainSpec};
+use crate::light_client_header::{
+    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
+};
 use crate::light_client_update::Error;
-use crate::{SignedBeaconBlock, BeaconState};
+use crate::{light_client_header::LightClientHeader, ChainSpec};
+use crate::{BeaconState, SignedBeaconBlock};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::{Decode, Encode};
@@ -29,13 +31,6 @@ impl<T: EthSpec> LightClientOptimisticUpdate<T> {
         attested_state: &BeaconState<T>,
         attested_block: SignedBeaconBlock<T>,
     ) -> Result<Self, Error> {
-        let altair_fork_epoch = chain_spec
-            .altair_fork_epoch
-            .ok_or(Error::AltairForkNotActive)?;
-        if attested_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
-            return Err(Error::AltairForkNotActive);
-        }
-
         let sync_aggregate = block.message().body().sync_aggregate()?;
         if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
             return Err(Error::NotEnoughSyncCommitteeParticipants);
@@ -45,36 +40,24 @@ impl<T: EthSpec> LightClientOptimisticUpdate<T> {
         let mut attested_header = attested_state.latest_block_header().clone();
         attested_header.state_root = attested_state.tree_hash_root();
 
-        if let Some(deneb_fork_epoch) = chain_spec.deneb_fork_epoch {
-            if attested_state.slot().epoch(T::slots_per_epoch()) >= deneb_fork_epoch {
-                return Ok(Self {
-                    attested_header: LightClientHeaderDeneb::block_to_light_client_header(
-                        attested_block,
-                    )?
-                    .into(),
-                    sync_aggregate: sync_aggregate.clone(),
-                    signature_slot: block.slot(),
-                })
+        let attested_header: LightClientHeader<T> = match chain_spec
+            .fork_name_at_epoch(attested_state.slot().epoch(T::slots_per_epoch()))
+        {
+            ForkName::Base => return Err(Error::AltairForkNotActive),
+            ForkName::Merge => return Err(Error::AltairForkNotActive),
+            ForkName::Altair => {
+                LightClientHeaderAltair::block_to_light_client_header(attested_block)?.into()
             }
-        }
+            ForkName::Capella => {
+                LightClientHeaderCapella::block_to_light_client_header(attested_block)?.into()
+            }
+            ForkName::Deneb => {
+                LightClientHeaderDeneb::block_to_light_client_header(attested_block)?.into()
+            }
+        };
 
-        if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
-            if attested_state.slot().epoch(T::slots_per_epoch()) >= capella_fork_epoch {
-                return Ok(Self {
-                    attested_header: LightClientHeaderCapella::block_to_light_client_header(
-                        attested_block,
-                    )?
-                    .into(),
-                    sync_aggregate: sync_aggregate.clone(),
-                    signature_slot: block.slot(),
-                })
-            }
-        }
         Ok(Self {
-            attested_header: LightClientHeaderAltair::block_to_light_client_header(
-                attested_block,
-            )?
-            .into(),
+            attested_header,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
         })

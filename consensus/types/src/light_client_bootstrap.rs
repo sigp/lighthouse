@@ -36,28 +36,22 @@ impl<T: EthSpec> LightClientBootstrap<T> {
         let current_sync_committee_branch =
             beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?;
 
-        if let Some(deneb_fork_epoch) = chain_spec.deneb_fork_epoch {
-            if beacon_state.slot().epoch(T::slots_per_epoch()) >= deneb_fork_epoch {
-                return Ok(LightClientBootstrap {
-                    header: LightClientHeaderDeneb::block_to_light_client_header(block)?.into(),
-                    current_sync_committee: beacon_state.current_sync_committee()?.clone(),
-                    current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
-                });
+        let header: LightClientHeader<T> = match chain_spec
+            .fork_name_at_epoch(beacon_state.slot().epoch(T::slots_per_epoch()))
+        {
+            ForkName::Base => return Err(Error::AltairForkNotActive),
+            ForkName::Merge => return Err(Error::AltairForkNotActive),
+            ForkName::Altair => {
+                LightClientHeaderAltair::block_to_light_client_header(block)?.into()
             }
-        };
-
-        if let Some(capella_fork_epoch) = chain_spec.capella_fork_epoch {
-            if beacon_state.slot().epoch(T::slots_per_epoch()) >= capella_fork_epoch {
-                return Ok(LightClientBootstrap {
-                    header: LightClientHeaderCapella::block_to_light_client_header(block)?.into(),
-                    current_sync_committee: beacon_state.current_sync_committee()?.clone(),
-                    current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
-                });
+            ForkName::Capella => {
+                LightClientHeaderCapella::block_to_light_client_header(block)?.into()
             }
+            ForkName::Deneb => LightClientHeaderDeneb::block_to_light_client_header(block)?.into(),
         };
 
         Ok(LightClientBootstrap {
-            header: LightClientHeaderAltair::block_to_light_client_header(block)?.into(),
+            header,
             current_sync_committee: beacon_state.current_sync_committee()?.clone(),
             current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
         })
