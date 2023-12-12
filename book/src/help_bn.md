@@ -29,7 +29,7 @@ FLAGS:
                                                contention which degrades staking performance. Stakers should generally
                                                choose to avoid this flag since backfill sync is not required for
                                                staking.
-        --disable-deposit-contract-sync        Explicitly disables syncing of deposit logs from the execution node. This
+        --disable-deposit-contract-sync        Explictly disables syncing of deposit logs from the execution node. This
                                                overrides any previous option that depends on it. Useful if you intend to
                                                run a non-validating beacon node.
         --disable-duplicate-warn-logs          Disable warning logs for duplicate gossip messages. The WARN level log is
