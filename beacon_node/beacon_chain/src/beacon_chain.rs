@@ -38,7 +38,7 @@ use crate::light_client_finality_update_verification::{
 use crate::light_client_optimistic_update_verification::{
     Error as LightClientOptimisticUpdateError, VerifiedLightClientOptimisticUpdate,
 };
-use crate::lightclient_server_cache::LightclientServerCache;
+use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{
     AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
@@ -339,7 +339,7 @@ struct PartialBeaconBlock<E: EthSpec> {
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
-pub type LightclientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
+pub type LightClientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
 
 pub type BeaconForkChoice<T> = ForkChoice<
     BeaconForkChoiceStore<
@@ -462,10 +462,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
-    /// A cache used to produce lightclient server messages
-    pub lightclient_server_cache: LightclientServerCache<T>,
-    /// Sender to signal the lightclient server to produce new updates
-    pub lightclient_server_tx: Option<Sender<LightclientProducerEvent<T::EthSpec>>>,
+    /// A cache used to produce light_client server messages
+    pub light_client_server_cache: LightClientServerCache<T>,
+    /// Sender to signal the light_client server to produce new updates
+    pub light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,
@@ -1330,11 +1330,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)
     }
 
-    pub fn recompute_and_cache_lightclient_updates(
+    pub fn recompute_and_cache_light_client_updates(
         &self,
-        (parent_root, slot, sync_aggregate): LightclientProducerEvent<T::EthSpec>,
+        (parent_root, slot, sync_aggregate): LightClientProducerEvent<T::EthSpec>,
     ) -> Result<(), Error> {
-        self.lightclient_server_cache.recompute_and_cache_updates(
+        self.light_client_server_cache.recompute_and_cache_updates(
             &self.log,
             self.store.clone(),
             &parent_root,
@@ -3503,15 +3503,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // compute state proofs for light client updates before inserting the state into the
         // snapshot cache.
-        if self.config.enable_lightclient_server {
-            self.lightclient_server_cache
+        if self.config.enable_light_client_server {
+            self.light_client_server_cache
                 .cache_state_data(
                     &self.spec, block, block_root,
                     // mutable reference on the state is needed to compute merkle proofs
                     &mut state,
                 )
                 .unwrap_or_else(|e| {
-                    error!(self.log, "error caching lightclient data {:?}", e);
+                    error!(self.log, "error caching light_client data {:?}", e);
                 });
         }
 
@@ -3886,21 +3886,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // Do not trigger lightclient server update producer for old blocks, to extra work
+        // Do not trigger light_client server update producer for old blocks, to extra work
         // during sync.
-        if self.config.enable_lightclient_server
+        if self.config.enable_light_client_server
             && block_delay_total < self.slot_clock.slot_duration() * 32
         {
-            if let Some(mut lightclient_server_tx) = self.lightclient_server_tx.clone() {
+            if let Some(mut light_client_server_tx) = self.light_client_server_tx.clone() {
                 if let Ok(sync_aggregate) = block.body().sync_aggregate() {
-                    if let Err(e) = lightclient_server_tx.try_send((
+                    if let Err(e) = light_client_server_tx.try_send((
                         block.parent_root(),
                         block.slot(),
                         sync_aggregate.clone(),
                     )) {
                         warn!(
                             self.log,
-                            "Failed to send lightclient server event";
+                            "Failed to send light_client server event";
                             "error" => ?e
                         );
                     }

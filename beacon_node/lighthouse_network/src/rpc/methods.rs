@@ -389,7 +389,7 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<BlobSidecar<T>>),
 
-    /// A response to a get LIGHTCLIENT_BOOTSTRAP request.
+    /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
     LightClientBootstrap(LightClientBootstrap<T>),
 
     /// A response to a get BLOBS_BY_ROOT request.
@@ -431,7 +431,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
     StreamTermination(ResponseTermination),
 }
 
-/// Request a light_client_bootstrap for lightclients peers.
+/// Request a light_client_bootstrap for light_clients peers.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct LightClientBootstrapRequest {
     pub root: Hash256,

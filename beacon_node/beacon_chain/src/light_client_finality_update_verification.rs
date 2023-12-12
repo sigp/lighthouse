@@ -1,4 +1,4 @@
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainTypes};
 use derivative::Derivative;
 use slot_clock::SlotClock;
 use std::time::Duration;
@@ -58,7 +58,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         }
 
         let latest_finality_update = chain
-            .lightclient_server_cache
+            .light_client_server_cache
             .get_latest_finality_update()
             .ok_or(Error::FailedConstructingUpdate)?;
 

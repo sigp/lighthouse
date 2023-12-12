@@ -157,7 +157,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.is_present("light-client-server") {
-        client_config.chain.enable_lightclient_server = true;
+        client_config.chain.enable_light_client_server = true;
     }
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {

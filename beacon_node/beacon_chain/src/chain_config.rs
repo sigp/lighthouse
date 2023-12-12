@@ -84,7 +84,7 @@ pub struct ChainConfig {
     /// Number of epochs between each migration of data from the hot database to the freezer.
     pub epochs_per_migration: u64,
     /// When set to true Light client server computes and caches state proofs for serving updates
-    pub enable_lightclient_server: bool,
+    pub enable_light_client_server: bool,
 }
 
 impl Default for ChainConfig {
@@ -116,7 +116,7 @@ impl Default for ChainConfig {
             always_prepare_payload: false,
             progressive_balances_mode: ProgressiveBalancesMode::Fast,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
-            enable_lightclient_server: false,
+            enable_light_client_server: false,
         }
     }
 }

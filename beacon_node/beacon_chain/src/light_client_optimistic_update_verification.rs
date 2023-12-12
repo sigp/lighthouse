@@ -1,4 +1,4 @@
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainTypes};
 use derivative::Derivative;
 use eth2::types::Hash256;
 use slot_clock::SlotClock;
@@ -60,7 +60,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         }
 
         let latest_optimistic_update = chain
-            .lightclient_server_cache
+            .light_client_server_cache
             .get_latest_optimistic_update()
             .ok_or(Error::FailedConstructingUpdate)?;
 

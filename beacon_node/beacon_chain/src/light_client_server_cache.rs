@@ -18,7 +18,7 @@ const PREV_BLOCK_CACHE_SIZE: usize = 32;
 /// requests. These messages include proofs on historical states, so on-demand computation is
 /// expensive.
 ///
-pub struct LightclientServerCache<T: BeaconChainTypes> {
+pub struct LightClientServerCache<T: BeaconChainTypes> {
     /// Tracks a single global latest finality update out of all imported blocks.
     ///
     /// TODO: Active discussion with @etan-status if this cache should be fork aware to return
@@ -29,10 +29,10 @@ pub struct LightclientServerCache<T: BeaconChainTypes> {
     /// Tracks a single global latest optimistic update out of all imported blocks.
     latest_optimistic_update: RwLock<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
     /// Caches state proofs by block root
-    prev_block_cache: Mutex<lru::LruCache<Hash256, LightclientCachedData>>,
+    prev_block_cache: Mutex<lru::LruCache<Hash256, LightClientCachedData>>,
 }
 
-impl<T: BeaconChainTypes> LightclientServerCache<T> {
+impl<T: BeaconChainTypes> LightClientServerCache<T> {
     pub fn new() -> Self {
         Self {
             latest_finality_update: None.into(),
@@ -57,7 +57,7 @@ impl<T: BeaconChainTypes> LightclientServerCache<T> {
 
         // Persist in memory cache for a descendent block
 
-        let cached_data = LightclientCachedData::from_state(block_post_state)?;
+        let cached_data = LightClientCachedData::from_state(block_post_state)?;
         self.prev_block_cache.lock().put(block_root, cached_data);
 
         Ok(())
@@ -124,7 +124,7 @@ impl<T: BeaconChainTypes> LightclientServerCache<T> {
             {
                 *self.latest_finality_update.write() = Some(LightClientFinalityUpdate {
                     // TODO: may want to cache this result from latest_optimistic_update if producing a
-                    // lightclient header becomes expensive
+                    // light_client header becomes expensive
                     attested_header: block_to_light_client_header(attested_block.message()),
                     finalized_header: block_to_light_client_header(finalized_block.message()),
                     finality_branch: cached_parts.finality_branch.clone(),
@@ -134,7 +134,7 @@ impl<T: BeaconChainTypes> LightclientServerCache<T> {
             } else {
                 debug!(
                     log,
-                    "Finalized block not available in store for lightclient server";
+                    "Finalized block not available in store for light_client server";
                     "finalized_block_root" => format!("{}", cached_parts.finalized_block_root),
                 );
             }
@@ -153,7 +153,7 @@ impl<T: BeaconChainTypes> LightclientServerCache<T> {
         block_root: &Hash256,
         block_state_root: &Hash256,
         block_slot: Slot,
-    ) -> Result<LightclientCachedData, BeaconChainError> {
+    ) -> Result<LightClientCachedData, BeaconChainError> {
         // Attempt to get the value from the cache first.
         if let Some(cached_parts) = self.prev_block_cache.lock().get(block_root) {
             return Ok(cached_parts.clone());
@@ -165,7 +165,7 @@ impl<T: BeaconChainTypes> LightclientServerCache<T> {
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!("Missing state {:?}", block_state_root))
             })?;
-        let new_value = LightclientCachedData::from_state(&mut state)?;
+        let new_value = LightClientCachedData::from_state(&mut state)?;
 
         // Insert value and return owned
         self.prev_block_cache
@@ -183,7 +183,7 @@ impl<T: BeaconChainTypes> LightclientServerCache<T> {
     }
 }
 
-impl<T: BeaconChainTypes> Default for LightclientServerCache<T> {
+impl<T: BeaconChainTypes> Default for LightClientServerCache<T> {
     fn default() -> Self {
         Self::new()
     }
@@ -192,12 +192,12 @@ impl<T: BeaconChainTypes> Default for LightclientServerCache<T> {
 type FinalityBranch = FixedVector<Hash256, FinalizedRootProofLen>;
 
 #[derive(Clone)]
-struct LightclientCachedData {
+struct LightClientCachedData {
     finality_branch: FinalityBranch,
     finalized_block_root: Hash256,
 }
 
-impl LightclientCachedData {
+impl LightClientCachedData {
     fn from_state<T: EthSpec>(state: &mut BeaconState<T>) -> Result<Self, BeaconChainError> {
         Ok(Self {
             finality_branch: state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?.into(),
