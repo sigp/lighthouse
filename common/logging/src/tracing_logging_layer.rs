@@ -7,7 +7,7 @@ use std::thread;
 
 lazy_static! {
     pub static ref TRACING_LOGGING_DEPENDENCIES: Vec<String> =
-        vec!["libp2p".to_string(), "discv5".to_string()];
+        vec!["libp2p_gossipsub".to_string(), "discv5".to_string()];
 }
 
 /// Layer that handles `INFO`, `WARN` and `ERROR` logs emitted per dependency and
@@ -39,18 +39,7 @@ impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for Loggin
 
         event.record(&mut visitor);
 
-        match *meta.level() {
-            tracing_core::Level::INFO => {
-                let _ = file_writer.write(visitor.message);
-            }
-            tracing_core::Level::WARN => {
-                let _ = file_writer.write(visitor.message);
-            }
-            tracing_core::Level::ERROR => {
-                let _ = file_writer.write(visitor.message);
-            }
-            _ => {}
-        }
+        let _ = file_writer.write(visitor.message);
     }
 }
 
@@ -132,6 +121,6 @@ struct LogMessageExtractor {
 
 impl tracing_core::field::Visit for LogMessageExtractor {
     fn record_debug(&mut self, _: &tracing_core::Field, value: &dyn std::fmt::Debug) {
-        self.message = format!("{:?}", value);
+        self.message = format!("{} {:?}", self.message, value);
     }
 }
