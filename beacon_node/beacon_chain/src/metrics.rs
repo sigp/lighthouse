@@ -40,6 +40,10 @@ lazy_static! {
         "beacon_block_processing_block_root_seconds",
         "Time spent calculating the block root when processing a block."
     );
+    pub static ref BLOCK_HEADER_PROCESSING_BLOCK_ROOT: Result<Histogram> = try_create_histogram(
+        "beacon_block_header_processing_block_root_seconds",
+        "Time spent calculating the block root for a beacon block header."
+    );
     pub static ref BLOCK_PROCESSING_BLOB_ROOT: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_blob_root_seconds",
         "Time spent calculating the blob root when processing a block."
