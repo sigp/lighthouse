@@ -322,6 +322,18 @@ impl BeaconNodeHttpClient {
             .map_err(Into::into)
     }
 
+    async fn post_with_opt_response<T: Serialize, U: IntoUrl, R: DeserializeOwned>(
+        &self,
+        url: U,
+        body: &T,
+    ) -> Result<Option<R>, Error> {
+        if let Some(response) = self.post_generic(url, body, None).await.optional()? {
+            response.json().await.map_err(Into::into)
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Perform a HTTP POST request with a custom timeout.
     async fn post_with_timeout<T: Serialize, U: IntoUrl>(
         &self,
@@ -529,6 +541,29 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
+    /// `POST beacon/states/{state_id}/validator_balances`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_states_validator_balances(
+        &self,
+        state_id: StateId,
+        ids: Vec<ValidatorId>,
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorBalanceData>>>, Error>
+    {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validator_balances");
+
+        let request = ValidatorBalancesRequestBody { ids };
+
+        self.post_with_opt_response(path, &request).await
+    }
+
     /// `GET beacon/states/{state_id}/validators?id,status`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -566,6 +601,29 @@ impl BeaconNodeHttpClient {
         }
 
         self.get_opt(path).await
+    }
+
+    /// `POST beacon/states/{state_id}/validators`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_states_validators(
+        &self,
+        state_id: StateId,
+        ids: Option<Vec<ValidatorId>>,
+        statuses: Option<Vec<ValidatorStatus>>,
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorData>>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validators");
+
+        let request = ValidatorsRequestBody { ids, statuses };
+
+        self.post_with_opt_response(path, &request).await
     }
 
     /// `GET beacon/states/{state_id}/committees?slot,index,epoch`
@@ -774,9 +832,9 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn post_beacon_blocks<T: EthSpec>(
         &self,
-        block_contents: &SignedBlockContents<T, Payload>,
+        block_contents: &PublishBlockRequest<T>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -794,9 +852,9 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn post_beacon_blocks_ssz<T: EthSpec>(
         &self,
-        block_contents: &SignedBlockContents<T, Payload>,
+        block_contents: &PublishBlockRequest<T>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -818,9 +876,9 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blinded_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn post_beacon_blinded_blocks<T: EthSpec>(
         &self,
-        block: &SignedBlockContents<T, Payload>,
+        block: &SignedBlindedBeaconBlock<T>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -838,9 +896,9 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blinded_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn post_beacon_blinded_blocks_ssz<T: EthSpec>(
         &self,
-        block: &SignedBlockContents<T, Payload>,
+        block: &SignedBlindedBeaconBlock<T>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -892,9 +950,9 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST v2/beacon/blocks`
-    pub async fn post_beacon_blocks_v2<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn post_beacon_blocks_v2<T: EthSpec>(
         &self,
-        block_contents: &SignedBlockContents<T, Payload>,
+        block_contents: &PublishBlockRequest<T>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
         self.post_generic_with_consensus_version(
@@ -909,9 +967,9 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST v2/beacon/blocks`
-    pub async fn post_beacon_blocks_v2_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn post_beacon_blocks_v2_ssz<T: EthSpec>(
         &self,
-        block_contents: &SignedBlockContents<T, Payload>,
+        block_contents: &PublishBlockRequest<T>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
         self.post_generic_with_consensus_version_and_ssz_body(
@@ -926,16 +984,16 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST v2/beacon/blinded_blocks`
-    pub async fn post_beacon_blinded_blocks_v2<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn post_beacon_blinded_blocks_v2<T: EthSpec>(
         &self,
-        block_contents: &SignedBlockContents<T, Payload>,
+        signed_block: &SignedBlindedBeaconBlock<T>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
         self.post_generic_with_consensus_version(
             self.post_beacon_blinded_blocks_v2_path(validation_level)?,
-            block_contents,
+            signed_block,
             Some(self.timeouts.proposal),
-            block_contents.signed_block().message().body().fork_name(),
+            signed_block.message().body().fork_name(),
         )
         .await?;
 
@@ -945,14 +1003,14 @@ impl BeaconNodeHttpClient {
     /// `POST v2/beacon/blinded_blocks`
     pub async fn post_beacon_blinded_blocks_v2_ssz<T: EthSpec>(
         &self,
-        block_contents: &SignedBlindedBlockContents<T>,
+        signed_block: &SignedBlindedBeaconBlock<T>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
         self.post_generic_with_consensus_version_and_ssz_body(
             self.post_beacon_blinded_blocks_v2_path(validation_level)?,
-            block_contents.as_ssz_bytes(),
+            signed_block.as_ssz_bytes(),
             Some(self.timeouts.proposal),
-            block_contents.signed_block().message().body().fork_name(),
+            signed_block.message().body().fork_name(),
         )
         .await?;
 
@@ -1705,38 +1763,33 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_validator_blocks<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload>>, Error> {
+    ) -> Result<ForkVersionedResponse<FullBlockContents<T>>, Error> {
         self.get_validator_blocks_modular(slot, randao_reveal, graffiti, SkipRandaoVerification::No)
             .await
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks_modular<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_validator_blocks_modular<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload>>, Error> {
+    ) -> Result<ForkVersionedResponse<FullBlockContents<T>>, Error> {
         let path = self
-            .get_validator_blocks_path::<T, Payload>(
-                slot,
-                randao_reveal,
-                graffiti,
-                skip_randao_verification,
-            )
+            .get_validator_blocks_path::<T>(slot, randao_reveal, graffiti, skip_randao_verification)
             .await?;
 
         self.get(path).await
     }
 
     /// returns `GET v2/validator/blocks/{slot}` URL path
-    pub async fn get_validator_blocks_path<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_validator_blocks_path<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
@@ -1842,12 +1895,12 @@ impl BeaconNodeHttpClient {
 
         if is_blinded_payload {
             let blinded_payload = response
-                .json::<ForkVersionedResponse<BlockContents<T, BlindedPayload<T>>>>()
+                .json::<ForkVersionedResponse<BlindedBeaconBlock<T>>>()
                 .await?;
             Ok(ForkVersionedBeaconBlockType::Blinded(blinded_payload))
         } else {
             let full_payload = response
-                .json::<ForkVersionedResponse<BlockContents<T, FullPayload<T>>>>()
+                .json::<ForkVersionedResponse<FullBlockContents<T>>>()
                 .await?;
             Ok(ForkVersionedBeaconBlockType::Full(full_payload))
         }
@@ -1906,13 +1959,13 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blocks/{slot}` in ssz format
-    pub async fn get_validator_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_validator_blocks_ssz<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<Option<Vec<u8>>, Error> {
-        self.get_validator_blocks_modular_ssz::<T, Payload>(
+        self.get_validator_blocks_modular_ssz::<T>(
             slot,
             randao_reveal,
             graffiti,
@@ -1922,7 +1975,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blocks/{slot}` in ssz format
-    pub async fn get_validator_blocks_modular_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_validator_blocks_modular_ssz<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
@@ -1930,12 +1983,7 @@ impl BeaconNodeHttpClient {
         skip_randao_verification: SkipRandaoVerification,
     ) -> Result<Option<Vec<u8>>, Error> {
         let path = self
-            .get_validator_blocks_path::<T, Payload>(
-                slot,
-                randao_reveal,
-                graffiti,
-                skip_randao_verification,
-            )
+            .get_validator_blocks_path::<T>(slot, randao_reveal, graffiti, skip_randao_verification)
             .await?;
 
         self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block_ssz)
@@ -1943,12 +1991,12 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blinded_blocks/{slot}`
-    pub async fn get_validator_blinded_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_validator_blinded_blocks<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload>>, Error> {
+    ) -> Result<ForkVersionedResponse<BlindedBeaconBlock<T>>, Error> {
         self.get_validator_blinded_blocks_modular(
             slot,
             randao_reveal,
@@ -1959,7 +2007,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// returns `GET v1/validator/blinded_blocks/{slot}` URL path
-    pub async fn get_validator_blinded_blocks_path<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_validator_blinded_blocks_path<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
@@ -1991,18 +2039,15 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v1/validator/blinded_blocks/{slot}`
-    pub async fn get_validator_blinded_blocks_modular<
-        T: EthSpec,
-        Payload: AbstractExecPayload<T>,
-    >(
+    pub async fn get_validator_blinded_blocks_modular<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload>>, Error> {
+    ) -> Result<ForkVersionedResponse<BlindedBeaconBlock<T>>, Error> {
         let path = self
-            .get_validator_blinded_blocks_path::<T, Payload>(
+            .get_validator_blinded_blocks_path::<T>(
                 slot,
                 randao_reveal,
                 graffiti,
@@ -2014,13 +2059,13 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blinded_blocks/{slot}` in ssz format
-    pub async fn get_validator_blinded_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_validator_blinded_blocks_ssz<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<Option<Vec<u8>>, Error> {
-        self.get_validator_blinded_blocks_modular_ssz::<T, Payload>(
+        self.get_validator_blinded_blocks_modular_ssz::<T>(
             slot,
             randao_reveal,
             graffiti,
@@ -2029,10 +2074,7 @@ impl BeaconNodeHttpClient {
         .await
     }
 
-    pub async fn get_validator_blinded_blocks_modular_ssz<
-        T: EthSpec,
-        Payload: AbstractExecPayload<T>,
-    >(
+    pub async fn get_validator_blinded_blocks_modular_ssz<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
@@ -2040,7 +2082,7 @@ impl BeaconNodeHttpClient {
         skip_randao_verification: SkipRandaoVerification,
     ) -> Result<Option<Vec<u8>>, Error> {
         let path = self
-            .get_validator_blinded_blocks_path::<T, Payload>(
+            .get_validator_blinded_blocks_path::<T>(
                 slot,
                 randao_reveal,
                 graffiti,
@@ -2150,7 +2192,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_validator_liveness_epoch(
         &self,
         epoch: Epoch,
-        indices: Vec<u64>,
+        indices: &Vec<u64>,
     ) -> Result<GenericResponse<Vec<StandardLivenessResponseData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2160,7 +2202,7 @@ impl BeaconNodeHttpClient {
             .push("liveness")
             .push(&epoch.to_string());
 
-        self.post_with_timeout_and_response(path, &indices, self.timeouts.liveness)
+        self.post_with_timeout_and_response(path, indices, self.timeouts.liveness)
             .await
     }
 

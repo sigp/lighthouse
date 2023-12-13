@@ -576,10 +576,9 @@ fn wrong_broadcast_flag() {
         .run()
         .with_config(|config| {
             assert_eq!(
-                            config.broadcast_topics,
-                            vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
-            >>>>>>> unstable
-                        );
+                config.broadcast_topics,
+                vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
+            );
         });
 }
 

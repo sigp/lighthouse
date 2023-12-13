@@ -162,8 +162,6 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
     current_epoch: Epoch,
     validator_indices: Vec<u64>,
 ) -> LivenessResponses {
-    let validator_indices = validator_indices.as_slice();
-
     let previous_epoch = current_epoch.saturating_sub(1_u64);
 
     let previous_epoch_responses = if previous_epoch == current_epoch {
@@ -176,12 +174,25 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
     } else {
         // Request the previous epoch liveness state from the beacon node.
         beacon_nodes
-            .first_success(|beacon_node| async move {
-                beacon_node
-                    .post_lighthouse_liveness(validator_indices, previous_epoch)
+            .first_success(|beacon_node| async {
+                let owned_beacon_node = beacon_node.clone();
+                drop(beacon_node);
+
+                owned_beacon_node
+                    .post_validator_liveness_epoch(previous_epoch, &validator_indices)
                     .await
                     .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
-                    .map(|result| result.data)
+                    .map(|result| {
+                        result
+                            .data
+                            .into_iter()
+                            .map(|response| LivenessResponseData {
+                                index: response.index,
+                                epoch: previous_epoch,
+                                is_live: response.is_live,
+                            })
+                            .collect()
+                    })
             })
             .await
             .unwrap_or_else(|e| {
@@ -199,12 +210,25 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
 
     // Request the current epoch liveness state from the beacon node.
     let current_epoch_responses = beacon_nodes
-        .first_success(|beacon_node| async move {
-            beacon_node
-                .post_lighthouse_liveness(validator_indices, current_epoch)
+        .first_success(|beacon_node| async {
+            let owned_beacon_node = beacon_node.clone();
+            drop(beacon_node);
+
+            owned_beacon_node
+                .post_validator_liveness_epoch(current_epoch, &validator_indices)
                 .await
                 .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
-                .map(|result| result.data)
+                .map(|result| {
+                    result
+                        .data
+                        .into_iter()
+                        .map(|response| LivenessResponseData {
+                            index: response.index,
+                            epoch: current_epoch,
+                            is_live: response.is_live,
+                        })
+                        .collect()
+                })
         })
         .await
         .unwrap_or_else(|e| {

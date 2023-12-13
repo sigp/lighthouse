@@ -22,14 +22,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Create docker network
-        run: docker network create book
-
       - name: Run mdbook server
-        run: docker run -v ${{ github.workspace }}/book:/book --network book --name book -p 3000:3000 -d peaceiris/mdbook:v0.4.20-rust serve --hostname 0.0.0.0
+        run: |
+          docker run -v ${{ github.workspace }}/book:/book --name book -p 3000:3000 -d peaceiris/mdbook:latest serve --hostname 0.0.0.0
+          sleep 5
 
       - name: Print logs
         run: docker logs book
 
       - name: Run linkcheck
-        run: docker run  --network book tennox/linkcheck:latest book:3000
+        run: |
+          curl -sL https://github.com/filiph/linkcheck/releases/download/3.0.0/linkcheck-3.0.0-linux-x64.tar.gz | tar xvzf - linkcheck/linkcheck --strip 1
+          ./linkcheck localhost:3000 -d

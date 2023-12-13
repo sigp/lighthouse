@@ -5,8 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use std::sync::Arc;
-use types::{BlobSidecar, EthSpec, Hash256, Slot};
+use types::{BlobSidecar, EthSpec, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -29,8 +28,8 @@ pub enum Error {
 /// like checking the proposer signature.
 pub struct ObservedBlobSidecars<T: EthSpec> {
     finalized_slot: Slot,
-    /// Stores all received blob indices for a given `(Root, Slot)` tuple.
-    items: HashMap<(Hash256, Slot), HashSet<u64>>,
+    /// Stores all received blob indices for a given `(ValidatorIndex, Slot)` tuple.
+    items: HashMap<(u64, Slot), HashSet<u64>>,
     _phantom: PhantomData<T>,
 }
 
@@ -46,16 +45,16 @@ impl<E: EthSpec> Default for ObservedBlobSidecars<E> {
 }
 
 impl<T: EthSpec> ObservedBlobSidecars<T> {
-    /// Observe the `blob_sidecar` at (`blob_sidecar.block_root, blob_sidecar.slot`).
+    /// Observe the `blob_sidecar` at (`blob_sidecar.block_proposer_index, blob_sidecar.slot`).
     /// This will update `self` so future calls to it indicate that this `blob_sidecar` is known.
     ///
     /// The supplied `blob_sidecar` **MUST** have completed proposer signature verification.
-    pub fn observe_sidecar(&mut self, blob_sidecar: &Arc<BlobSidecar<T>>) -> Result<bool, Error> {
+    pub fn observe_sidecar(&mut self, blob_sidecar: &BlobSidecar<T>) -> Result<bool, Error> {
         self.sanitize_blob_sidecar(blob_sidecar)?;
 
         let did_not_exist = self
             .items
-            .entry((blob_sidecar.block_root, blob_sidecar.slot))
+            .entry((blob_sidecar.block_proposer_index(), blob_sidecar.slot()))
             .or_insert_with(|| HashSet::with_capacity(T::max_blobs_per_block()))
             .insert(blob_sidecar.index);
 
@@ -63,23 +62,23 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
     }
 
     /// Returns `true` if the `blob_sidecar` has already been observed in the cache within the prune window.
-    pub fn is_known(&self, blob_sidecar: &Arc<BlobSidecar<T>>) -> Result<bool, Error> {
+    pub fn is_known(&self, blob_sidecar: &BlobSidecar<T>) -> Result<bool, Error> {
         self.sanitize_blob_sidecar(blob_sidecar)?;
         let is_known = self
             .items
-            .get(&(blob_sidecar.block_root, blob_sidecar.slot))
+            .get(&(blob_sidecar.block_proposer_index(), blob_sidecar.slot()))
             .map_or(false, |set| set.contains(&blob_sidecar.index));
         Ok(is_known)
     }
 
-    fn sanitize_blob_sidecar(&self, blob_sidecar: &Arc<BlobSidecar<T>>) -> Result<(), Error> {
+    fn sanitize_blob_sidecar(&self, blob_sidecar: &BlobSidecar<T>) -> Result<(), Error> {
         if blob_sidecar.index >= T::max_blobs_per_block() as u64 {
             return Err(Error::InvalidBlobIndex(blob_sidecar.index));
         }
         let finalized_slot = self.finalized_slot;
-        if finalized_slot > 0 && blob_sidecar.slot <= finalized_slot {
+        if finalized_slot > 0 && blob_sidecar.slot() <= finalized_slot {
             return Err(Error::FinalizedBlob {
-                slot: blob_sidecar.slot,
+                slot: blob_sidecar.slot(),
                 finalized_slot,
             });
         }
@@ -101,14 +100,15 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{BlobSidecar, Hash256, MainnetEthSpec};
+    use std::sync::Arc;
+    use types::{BlobSidecar, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
-    fn get_blob_sidecar(slot: u64, block_root: Hash256, index: u64) -> Arc<BlobSidecar<E>> {
+    fn get_blob_sidecar(slot: u64, proposer_index: u64, index: u64) -> Arc<BlobSidecar<E>> {
         let mut blob_sidecar = BlobSidecar::empty();
-        blob_sidecar.block_root = block_root;
-        blob_sidecar.slot = slot.into();
+        blob_sidecar.signed_block_header.message.slot = slot.into();
+        blob_sidecar.signed_block_header.message.proposer_index = proposer_index;
         blob_sidecar.index = index;
         Arc::new(blob_sidecar)
     }
@@ -121,8 +121,8 @@ mod tests {
         assert_eq!(cache.items.len(), 0, "no slots should be present");
 
         // Slot 0, index 0
-        let block_root_a = Hash256::random();
-        let sidecar_a = get_blob_sidecar(0, block_root_a, 0);
+        let proposer_index_a = 420;
+        let sidecar_a = get_blob_sidecar(0, proposer_index_a, 0);
 
         assert_eq!(
             cache.observe_sidecar(&sidecar_a),
@@ -138,12 +138,12 @@ mod tests {
         assert_eq!(
             cache.items.len(),
             1,
-            "only one (slot, root) tuple should be present"
+            "only one (validator_index, slot) tuple should be present"
         );
         assert_eq!(
             cache
                 .items
-                .get(&(block_root_a, Slot::new(0)))
+                .get(&(proposer_index_a, Slot::new(0)))
                 .expect("slot zero should be present")
                 .len(),
             1,
@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(
             cache
                 .items
-                .get(&(block_root_a, Slot::new(0)))
+                .get(&(proposer_index_a, Slot::new(0)))
                 .expect("slot zero should be present")
                 .len(),
             1,
@@ -185,7 +185,7 @@ mod tests {
          */
 
         // First slot of finalized epoch
-        let block_b = get_blob_sidecar(E::slots_per_epoch(), Hash256::random(), 0);
+        let block_b = get_blob_sidecar(E::slots_per_epoch(), 419, 0);
 
         assert_eq!(
             cache.observe_sidecar(&block_b),
@@ -205,8 +205,8 @@ mod tests {
         let three_epochs = E::slots_per_epoch() * 3;
 
         // First slot of finalized epoch
-        let block_root_b = Hash256::random();
-        let block_b = get_blob_sidecar(three_epochs, block_root_b, 0);
+        let proposer_index_b = 421;
+        let block_b = get_blob_sidecar(three_epochs, proposer_index_b, 0);
 
         assert_eq!(
             cache.observe_sidecar(&block_b),
@@ -218,7 +218,7 @@ mod tests {
         assert_eq!(
             cache
                 .items
-                .get(&(block_root_b, Slot::new(three_epochs)))
+                .get(&(proposer_index_b, Slot::new(three_epochs)))
                 .expect("the three epochs slot should be present")
                 .len(),
             1,
@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(
             cache
                 .items
-                .get(&(block_root_b, Slot::new(three_epochs)))
+                .get(&(proposer_index_b, Slot::new(three_epochs)))
                 .expect("the three epochs slot should be present")
                 .len(),
             1,
@@ -255,8 +255,8 @@ mod tests {
         let mut cache = ObservedBlobSidecars::default();
 
         // Slot 0, index 0
-        let block_root_a = Hash256::random();
-        let sidecar_a = get_blob_sidecar(0, block_root_a, 0);
+        let proposer_index_a = 420;
+        let sidecar_a = get_blob_sidecar(0, proposer_index_a, 0);
 
         assert_eq!(
             cache.is_known(&sidecar_a),
@@ -287,7 +287,7 @@ mod tests {
         assert_eq!(
             cache
                 .items
-                .get(&(block_root_a, Slot::new(0)))
+                .get(&(proposer_index_a, Slot::new(0)))
                 .expect("slot zero should be present")
                 .len(),
             1,
@@ -296,8 +296,8 @@ mod tests {
 
         // Slot 1, proposer 0
 
-        let block_root_b = Hash256::random();
-        let sidecar_b = get_blob_sidecar(1, block_root_b, 0);
+        let proposer_index_b = 421;
+        let sidecar_b = get_blob_sidecar(1, proposer_index_b, 0);
 
         assert_eq!(
             cache.is_known(&sidecar_b),
@@ -325,7 +325,7 @@ mod tests {
         assert_eq!(
             cache
                 .items
-                .get(&(block_root_a, Slot::new(0)))
+                .get(&(proposer_index_a, Slot::new(0)))
                 .expect("slot zero should be present")
                 .len(),
             1,
@@ -334,7 +334,7 @@ mod tests {
         assert_eq!(
             cache
                 .items
-                .get(&(block_root_b, Slot::new(1)))
+                .get(&(proposer_index_b, Slot::new(1)))
                 .expect("slot zero should be present")
                 .len(),
             1,
@@ -342,7 +342,7 @@ mod tests {
         );
 
         // Slot 0, index 1
-        let sidecar_c = get_blob_sidecar(0, block_root_a, 1);
+        let sidecar_c = get_blob_sidecar(0, proposer_index_a, 1);
 
         assert_eq!(
             cache.is_known(&sidecar_c),
@@ -370,7 +370,7 @@ mod tests {
         assert_eq!(
             cache
                 .items
-                .get(&(block_root_a, Slot::new(0)))
+                .get(&(proposer_index_a, Slot::new(0)))
                 .expect("slot zero should be present")
                 .len(),
             2,
@@ -379,7 +379,7 @@ mod tests {
 
         // Try adding an out of bounds index
         let invalid_index = E::max_blobs_per_block() as u64;
-        let sidecar_d = get_blob_sidecar(0, block_root_a, invalid_index);
+        let sidecar_d = get_blob_sidecar(0, proposer_index_a, invalid_index);
         assert_eq!(
             cache.observe_sidecar(&sidecar_d),
             Err(Error::InvalidBlobIndex(invalid_index)),
