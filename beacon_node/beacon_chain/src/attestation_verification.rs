@@ -381,6 +381,11 @@ fn process_slash_info<T: BeaconChainTypes>(
     if let Some(slasher) = chain.slasher.as_ref() {
         let (indexed_attestation, check_signature, err) = match slash_info {
             SignatureNotChecked(attestation, err) => {
+                if let Error::UnknownHeadBlock { .. } = err {
+                    if attestation.data.beacon_block_root == attestation.data.target.root {
+                        return err;
+                    }
+                }
                 match obtain_indexed_attestation_and_committees_per_slot(chain, attestation) {
                     Ok((indexed, _)) => (indexed, true, err),
                     Err(e) => {
