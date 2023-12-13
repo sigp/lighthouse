@@ -476,11 +476,13 @@ fn monitoring_endpoint() {
         });
 }
 #[test]
-fn disable_run_on_all_default() {
-    CommandLineTest::new().run().with_config(|config| {
-        assert!(!config.beacon_node_fallback.disable_run_on_all);
-        assert_eq!(config.broadcast_topics, vec![]);
-    });
+fn disable_run_on_all_flag() {
+    CommandLineTest::new()
+        .flag("disable-run-on-all", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![]);
+        });
     // --broadcast flag takes precedence
     CommandLineTest::new()
         .flag("disable-run-on-all", None)
