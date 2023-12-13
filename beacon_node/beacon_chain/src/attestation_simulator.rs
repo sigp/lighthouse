@@ -83,9 +83,9 @@ pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
                 .set_unaggregated_attestation(unaggregated_attestation);
         }
         Err(e) => {
-            error!(
+            debug!(
                 inner_chain.log,
-                "Produce unagg. attestation failed";
+                "Failed to simulate attestation";
                 "error" => ?e
             );
         }
