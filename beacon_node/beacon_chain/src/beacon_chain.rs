@@ -7,7 +7,7 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::blob_verification::{self, GossipBlobError, GossipVerifiedBlob};
+use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
@@ -119,7 +119,6 @@ use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
 use types::payload::BlockProductionVersion;
-use types::sidecar::BlobItems;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -478,16 +477,49 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub kzg: Option<Arc<Kzg>>,
 }
 
-pub enum BeaconBlockResponseType<T: EthSpec> {
+pub enum BeaconBlockResponseWrapper<T: EthSpec> {
     Full(BeaconBlockResponse<T, FullPayload<T>>),
     Blinded(BeaconBlockResponse<T, BlindedPayload<T>>),
 }
 
+impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
+    pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
+        Ok(match self {
+            BeaconBlockResponseWrapper::Full(resp) => resp.block.to_ref().fork_name(spec)?,
+            BeaconBlockResponseWrapper::Blinded(resp) => resp.block.to_ref().fork_name(spec)?,
+        })
+    }
+
+    pub fn execution_payload_value(&self) -> Option<Uint256> {
+        match self {
+            BeaconBlockResponseWrapper::Full(resp) => resp.execution_payload_value,
+            BeaconBlockResponseWrapper::Blinded(resp) => resp.execution_payload_value,
+        }
+    }
+
+    pub fn consensus_block_value(&self) -> Option<u64> {
+        match self {
+            BeaconBlockResponseWrapper::Full(resp) => resp.consensus_block_value,
+            BeaconBlockResponseWrapper::Blinded(resp) => resp.consensus_block_value,
+        }
+    }
+
+    pub fn is_blinded(&self) -> bool {
+        matches!(self, BeaconBlockResponseWrapper::Blinded(_))
+    }
+}
+
+/// The components produced when the local beacon node creates a new block to extend the chain
 pub struct BeaconBlockResponse<T: EthSpec, Payload: AbstractExecPayload<T>> {
+    /// The newly produced beacon block
     pub block: BeaconBlock<T, Payload>,
+    /// The post-state after applying the new block
     pub state: BeaconState<T>,
-    pub maybe_side_car: Option<SidecarList<T, <Payload as AbstractExecPayload<T>>::Sidecar>>,
+    /// The Blobs / Proofs associated with the new block
+    pub blob_items: Option<(KzgProofs<T>, BlobsList<T>)>,
+    /// The execution layer reward for the block
     pub execution_payload_value: Option<Uint256>,
+    /// The consensus layer reward to the proposer
     pub consensus_block_value: Option<u64>,
 }
 
@@ -1987,17 +2019,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn verify_blob_sidecar_for_gossip(
         self: &Arc<Self>,
-        blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+        blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
         subnet_id: u64,
     ) -> Result<GossipVerifiedBlob<T>, GossipBlobError<T::EthSpec>> {
         metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self).map(
-            |v| {
-                metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_SUCCESSES);
-                v
-            },
-        )
+        GossipVerifiedBlob::new(blob_sidecar, subnet_id, self).map(|v| {
+            metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_SUCCESSES);
+            v
+        })
     }
 
     /// Accepts some 'LightClientOptimisticUpdate' from the network and attempts to verify it
@@ -2797,7 +2827,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         self.data_availability_checker
-            .notify_gossip_blob(blob.as_blob().slot, block_root, &blob);
+            .notify_gossip_blob(blob.slot(), block_root, &blob);
         let r = self.check_gossip_blob_availability_and_import(blob).await;
         self.remove_notified(&block_root, r)
     }
@@ -2906,6 +2936,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Increment the Prometheus counter for block processing requests.
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
+
+        // Set observed time if not already set. Usually this should be set by gossip or RPC,
+        // but just in case we set it again here (useful for tests).
+        if let (Some(seen_timestamp), Some(current_slot)) =
+            (self.slot_clock.now_duration(), self.slot_clock.now())
+        {
+            self.block_times_cache.write().set_time_observed(
+                block_root,
+                current_slot,
+                seen_timestamp,
+                None,
+                None,
+            );
+        }
 
         let block_slot = unverified_block.block().slot();
 
@@ -3062,6 +3106,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let slot = blob.slot();
+        if let Some(slasher) = self.slasher.as_ref() {
+            slasher.accept_block_header(blob.signed_block_header());
+        }
         let availability = self.data_availability_checker.put_gossip_blob(blob)?;
 
         self.process_availability(slot, availability).await
@@ -3075,6 +3122,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        if let Some(slasher) = self.slasher.as_ref() {
+            for blob_sidecar in blobs.iter().filter_map(|blob| blob.clone()) {
+                slasher.accept_block_header(blob_sidecar.signed_block_header.clone());
+            }
+        }
         let availability = self
             .data_availability_checker
             .put_rpc_blobs(block_root, blobs)?;
@@ -3916,7 +3968,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
         block_production_version: BlockProductionVersion,
-    ) -> Result<BeaconBlockResponseType<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockResponseWrapper<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
         // Part 1/2 (blocking)
@@ -4303,7 +4355,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This function uses heuristics that align quite closely but not exactly with the re-org
     /// conditions set out in `get_state_for_re_org` and `get_proposer_head`. The differences are
     /// documented below.
-    fn overridden_forkchoice_update_params(
+    pub fn overridden_forkchoice_update_params(
         &self,
         canonical_forkchoice_params: ForkchoiceUpdateParameters,
     ) -> Result<ForkchoiceUpdateParameters, Error> {
@@ -4321,7 +4373,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
     }
 
-    fn overridden_forkchoice_update_params_or_failure_reason(
+    pub fn overridden_forkchoice_update_params_or_failure_reason(
         &self,
         canonical_forkchoice_params: &ForkchoiceUpdateParameters,
     ) -> Result<ForkchoiceUpdateParameters, ProposerHeadError<Error>> {
@@ -4462,7 +4514,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .unwrap_or_else(|| Duration::from_secs(0)),
         );
         block_delays.observed.map_or(false, |delay| {
-            delay > self.slot_clock.unagg_attestation_production_delay()
+            delay >= self.slot_clock.unagg_attestation_production_delay()
         })
     }
 
@@ -4488,7 +4540,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
         block_production_version: BlockProductionVersion,
-    ) -> Result<BeaconBlockResponseType<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockResponseWrapper<T::EthSpec>, BlockProductionError> {
         // Part 1/3 (blocking)
         //
         // Perform the state advance and block-packing functions.
@@ -4547,7 +4599,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .await
                         .map_err(BlockProductionError::TokioJoin)??;
 
-                    Ok(BeaconBlockResponseType::Full(beacon_block_response))
+                    Ok(BeaconBlockResponseWrapper::Full(beacon_block_response))
                 }
                 BlockProposalContentsType::Blinded(block_contents) => {
                     let chain = self.clone();
@@ -4567,7 +4619,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .await
                         .map_err(BlockProductionError::TokioJoin)??;
 
-                    Ok(BeaconBlockResponseType::Blinded(beacon_block_response))
+                    Ok(BeaconBlockResponseWrapper::Blinded(beacon_block_response))
                 }
             }
         } else {
@@ -4588,7 +4640,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .await
                 .map_err(BlockProductionError::TokioJoin)??;
 
-            Ok(BeaconBlockResponseType::Full(beacon_block_response))
+            Ok(BeaconBlockResponseWrapper::Full(beacon_block_response))
         }
     }
 
@@ -4868,7 +4920,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
-        let (inner_block, blobs_opt, proofs_opt, execution_payload_value) = match &state {
+        let (inner_block, maybe_blobs_and_proofs, execution_payload_value) = match &state {
             BeaconState::Base(_) => (
                 BeaconBlock::Base(BeaconBlockBase {
                     slot,
@@ -4887,7 +4939,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         _phantom: PhantomData,
                     },
                 }),
-                None,
                 None,
                 Uint256::zero(),
             ),
@@ -4911,7 +4962,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         _phantom: PhantomData,
                     },
                 }),
-                None,
                 None,
                 Uint256::zero(),
             ),
@@ -4942,7 +4992,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                         },
                     }),
-                    None,
                     None,
                     execution_payload_value,
                 )
@@ -4977,12 +5026,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         },
                     }),
                     None,
-                    None,
                     execution_payload_value,
                 )
             }
             BeaconState::Deneb(_) => {
-                let (payload, kzg_commitments, blobs, proofs, execution_payload_value) =
+                let (payload, kzg_commitments, maybe_blobs_and_proofs, execution_payload_value) =
                     block_contents
                         .ok_or(BlockProductionError::MissingExecutionPayload)?
                         .deconstruct();
@@ -5012,8 +5060,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                         },
                     }),
-                    blobs,
-                    proofs,
+                    maybe_blobs_and_proofs,
                     execution_payload_value,
                 )
             }
@@ -5072,8 +5119,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let blobs_verification_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
-        let maybe_sidecar_list = match (blobs_opt, proofs_opt) {
-            (Some(blobs_or_blobs_roots), Some(proofs)) => {
+        let blob_items = match maybe_blobs_and_proofs {
+            Some((blobs, proofs)) => {
                 let expected_kzg_commitments =
                     block.body().blob_kzg_commitments().map_err(|_| {
                         BlockProductionError::InvalidBlockVariant(
@@ -5081,42 +5128,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         )
                     })?;
 
-                if expected_kzg_commitments.len() != blobs_or_blobs_roots.len() {
+                if expected_kzg_commitments.len() != blobs.len() {
                     return Err(BlockProductionError::MissingKzgCommitment(format!(
                         "Missing KZG commitment for slot {}. Expected {}, got: {}",
                         block.slot(),
-                        blobs_or_blobs_roots.len(),
+                        blobs.len(),
                         expected_kzg_commitments.len()
                     )));
                 }
 
                 let kzg_proofs = Vec::from(proofs);
 
-                if let Some(blobs) = blobs_or_blobs_roots.blobs() {
-                    let kzg = self
-                        .kzg
-                        .as_ref()
-                        .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
-                    kzg_utils::validate_blobs::<T::EthSpec>(
-                        kzg,
-                        expected_kzg_commitments,
-                        blobs.iter().collect(),
-                        &kzg_proofs,
-                    )
-                    .map_err(BlockProductionError::KzgError)?;
-                }
-
-                Some(
-                    Sidecar::build_sidecar(
-                        blobs_or_blobs_roots,
-                        &block,
-                        expected_kzg_commitments,
-                        kzg_proofs,
-                    )
-                    .map_err(BlockProductionError::FailedToBuildBlobSidecars)?,
+                let kzg = self
+                    .kzg
+                    .as_ref()
+                    .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
+                kzg_utils::validate_blobs::<T::EthSpec>(
+                    kzg,
+                    expected_kzg_commitments,
+                    blobs.iter().collect(),
+                    &kzg_proofs,
                 )
+                .map_err(BlockProductionError::KzgError)?;
+
+                Some((kzg_proofs.into(), blobs))
             }
-            _ => None,
+            None => None,
         };
 
         drop(blobs_verification_timer);
@@ -5134,7 +5171,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(BeaconBlockResponse {
             block,
             state,
-            maybe_side_car: maybe_sidecar_list,
+            blob_items,
             execution_payload_value: Some(execution_payload_value),
             consensus_block_value: Some(consensus_block_value),
         })

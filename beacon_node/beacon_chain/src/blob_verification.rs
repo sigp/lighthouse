@@ -3,19 +3,19 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
-use crate::block_verification::cheap_state_advance_to_obtain_committees;
-use crate::data_availability_checker::AvailabilityCheckError;
+use crate::block_verification::{
+    cheap_state_advance_to_obtain_committees, process_block_slash_info, BlockSlashInfo,
+};
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::{metrics, BeaconChainError};
-use kzg::{Kzg, KzgCommitment};
+use kzg::{Error as KzgError, Kzg, KzgCommitment};
+use merkle_proof::MerkleTreeError;
 use slog::debug;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
-use types::{
-    BeaconStateError, BlobSidecar, BlobSidecarList, EthSpec, Hash256, SignedBlobSidecar, Slot,
-};
+use types::{BeaconStateError, BlobSidecar, EthSpec, Hash256, SignedBeaconBlockHeader, Slot};
 
 /// An error occurred while validating a gossip blob.
 #[derive(Debug)]
@@ -71,7 +71,7 @@ pub enum GossipBlobError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The blob is invalid and the peer is faulty.
-    ProposerSignatureInvalid,
+    ProposalSignatureInvalid,
 
     /// The proposal_index corresponding to blob.beacon_block_root is not known.
     ///
@@ -94,6 +94,12 @@ pub enum GossipBlobError<T: EthSpec> {
     /// We cannot process the blob without validating its parent, the peer isn't necessarily faulty.
     BlobParentUnknown(Arc<BlobSidecar<T>>),
 
+    /// Invalid kzg commitment inclusion proof
+    /// ## Peer scoring
+    ///
+    /// The blob sidecar is invalid and the peer is faulty
+    InvalidInclusionProof,
+
     /// A blob has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
     /// over gossip or no gossip sources.
     ///
@@ -105,6 +111,42 @@ pub enum GossipBlobError<T: EthSpec> {
         slot: Slot,
         index: u64,
     },
+
+    /// `Kzg` struct hasn't been initialized. This is an internal error.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer isn't faulty, This is an internal error.
+    KzgNotInitialized,
+
+    /// The kzg verification failed.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob sidecar is invalid and the peer is faulty.
+    KzgError(kzg::Error),
+
+    /// The kzg commitment inclusion proof failed.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob sidecar is invalid
+    InclusionProof(MerkleTreeError),
+
+    /// The pubkey cache timed out.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob sidecar may be valid, this is an internal error.
+    PubkeyCacheTimeout,
+
+    /// The block conflicts with finalization, no need to propagate.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
+    /// imported.
+    NotFinalizedDescendant { block_parent_root: Hash256 },
 }
 
 impl<T: EthSpec> std::fmt::Display for GossipBlobError<T> {
@@ -114,7 +156,7 @@ impl<T: EthSpec> std::fmt::Display for GossipBlobError<T> {
                 write!(
                     f,
                     "BlobParentUnknown(parent_root:{})",
-                    blob_sidecar.block_parent_root
+                    blob_sidecar.block_parent_root()
                 )
             }
             other => write!(f, "{:?}", other),
@@ -143,63 +185,199 @@ pub type GossipVerifiedBlobList<T> = VariableList<
 /// the p2p network.
 #[derive(Debug)]
 pub struct GossipVerifiedBlob<T: BeaconChainTypes> {
-    blob: SignedBlobSidecar<T::EthSpec>,
+    block_root: Hash256,
+    blob: KzgVerifiedBlob<T::EthSpec>,
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     pub fn new(
-        blob: SignedBlobSidecar<T::EthSpec>,
+        blob: Arc<BlobSidecar<T::EthSpec>>,
+        subnet_id: u64,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipBlobError<T::EthSpec>> {
-        let blob_index = blob.message.index;
-        validate_blob_sidecar_for_gossip(blob, blob_index, chain)
+        let header = blob.signed_block_header.clone();
+        // We only process slashing info if the gossip verification failed
+        // since we do not process the blob any further in that case.
+        validate_blob_sidecar_for_gossip(blob, subnet_id, chain).map_err(|e| {
+            process_block_slash_info::<_, GossipBlobError<T::EthSpec>>(
+                chain,
+                BlockSlashInfo::from_early_error_blob(header, e),
+            )
+        })
     }
     /// Construct a `GossipVerifiedBlob` that is assumed to be valid.
     ///
     /// This should ONLY be used for testing.
-    pub fn __assumed_valid(blob: SignedBlobSidecar<T::EthSpec>) -> Self {
-        Self { blob }
+    pub fn __assumed_valid(blob: Arc<BlobSidecar<T::EthSpec>>) -> Self {
+        Self {
+            block_root: blob.block_root(),
+            blob: KzgVerifiedBlob { blob },
+        }
     }
     pub fn id(&self) -> BlobIdentifier {
-        self.blob.message.id()
+        BlobIdentifier {
+            block_root: self.block_root,
+            index: self.blob.blob_index(),
+        }
     }
     pub fn block_root(&self) -> Hash256 {
-        self.blob.message.block_root
-    }
-    pub fn to_blob(self) -> Arc<BlobSidecar<T::EthSpec>> {
-        self.blob.message
-    }
-    pub fn as_blob(&self) -> &BlobSidecar<T::EthSpec> {
-        &self.blob.message
-    }
-    pub fn signed_blob(&self) -> SignedBlobSidecar<T::EthSpec> {
-        self.blob.clone()
+        self.block_root
     }
     pub fn slot(&self) -> Slot {
-        self.blob.message.slot
+        self.blob.blob.slot()
     }
     pub fn index(&self) -> u64 {
-        self.blob.message.index
+        self.blob.blob.index
     }
     pub fn kzg_commitment(&self) -> KzgCommitment {
-        self.blob.message.kzg_commitment
+        self.blob.blob.kzg_commitment
     }
-    pub fn proposer_index(&self) -> u64 {
-        self.blob.message.proposer_index
+    pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
+        self.blob.blob.signed_block_header.clone()
+    }
+    pub fn block_proposer_index(&self) -> u64 {
+        self.blob.blob.block_proposer_index()
+    }
+    pub fn into_inner(self) -> KzgVerifiedBlob<T::EthSpec> {
+        self.blob
+    }
+    pub fn as_blob(&self) -> &BlobSidecar<T::EthSpec> {
+        self.blob.as_blob()
+    }
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_blob(&self) -> Arc<BlobSidecar<T::EthSpec>> {
+        self.blob.clone_blob()
     }
 }
 
+/// Wrapper over a `BlobSidecar` for which we have completed kzg verification.
+/// i.e. `verify_blob_kzg_proof(blob, commitment, proof) == true`.
+#[derive(Debug, Derivative, Clone, Encode, Decode)]
+#[derivative(PartialEq, Eq)]
+#[ssz(struct_behaviour = "transparent")]
+pub struct KzgVerifiedBlob<T: EthSpec> {
+    blob: Arc<BlobSidecar<T>>,
+}
+
+impl<T: EthSpec> PartialOrd for KzgVerifiedBlob<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T: EthSpec> Ord for KzgVerifiedBlob<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.blob.cmp(&other.blob)
+    }
+}
+
+impl<T: EthSpec> KzgVerifiedBlob<T> {
+    pub fn new(blob: Arc<BlobSidecar<T>>, kzg: &Kzg) -> Result<Self, KzgError> {
+        verify_kzg_for_blob(blob, kzg)
+    }
+    pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
+        self.blob
+    }
+    pub fn as_blob(&self) -> &BlobSidecar<T> {
+        &self.blob
+    }
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_blob(&self) -> Arc<BlobSidecar<T>> {
+        self.blob.clone()
+    }
+    pub fn blob_index(&self) -> u64 {
+        self.blob.index
+    }
+    /// Construct a `KzgVerifiedBlob` that is assumed to be valid.
+    ///
+    /// This should ONLY be used for testing.
+    #[cfg(test)]
+    pub fn __assumed_valid(blob: Arc<BlobSidecar<T>>) -> Self {
+        Self { blob }
+    }
+}
+
+/// Complete kzg verification for a `BlobSidecar`.
+///
+/// Returns an error if the kzg verification check fails.
+pub fn verify_kzg_for_blob<T: EthSpec>(
+    blob: Arc<BlobSidecar<T>>,
+    kzg: &Kzg,
+) -> Result<KzgVerifiedBlob<T>, KzgError> {
+    validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)?;
+    Ok(KzgVerifiedBlob { blob })
+}
+
+pub struct KzgVerifiedBlobList<E: EthSpec> {
+    verified_blobs: Vec<KzgVerifiedBlob<E>>,
+}
+
+impl<E: EthSpec> KzgVerifiedBlobList<E> {
+    pub fn new<I: IntoIterator<Item = Arc<BlobSidecar<E>>>>(
+        blob_list: I,
+        kzg: &Kzg,
+    ) -> Result<Self, KzgError> {
+        let blobs = blob_list.into_iter().collect::<Vec<_>>();
+        verify_kzg_for_blob_list(blobs.iter(), kzg)?;
+        Ok(Self {
+            verified_blobs: blobs
+                .into_iter()
+                .map(|blob| KzgVerifiedBlob { blob })
+                .collect(),
+        })
+    }
+}
+
+impl<E: EthSpec> IntoIterator for KzgVerifiedBlobList<E> {
+    type Item = KzgVerifiedBlob<E>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.verified_blobs.into_iter()
+    }
+}
+
+/// Complete kzg verification for a list of `BlobSidecar`s.
+/// Returns an error if any of the `BlobSidecar`s fails kzg verification.
+///
+/// Note: This function should be preferred over calling `verify_kzg_for_blob`
+/// in a loop since this function kzg verifies a list of blobs more efficiently.
+pub fn verify_kzg_for_blob_list<'a, T: EthSpec, I>(
+    blob_iter: I,
+    kzg: &'a Kzg,
+) -> Result<(), KzgError>
+where
+    I: Iterator<Item = &'a Arc<BlobSidecar<T>>>,
+{
+    let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_iter
+        .map(|blob| (&blob.blob, (blob.kzg_commitment, blob.kzg_proof)))
+        .unzip();
+    validate_blobs::<T>(kzg, commitments.as_slice(), blobs, proofs.as_slice())
+}
+
 pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
-    signed_blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+    blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
     subnet: u64,
     chain: &BeaconChain<T>,
 ) -> Result<GossipVerifiedBlob<T>, GossipBlobError<T::EthSpec>> {
-    let blob_slot = signed_blob_sidecar.message.slot;
-    let blob_index = signed_blob_sidecar.message.index;
-    let block_parent_root = signed_blob_sidecar.message.block_parent_root;
-    let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
-    let block_root = signed_blob_sidecar.message.block_root;
+    let blob_slot = blob_sidecar.slot();
+    let blob_index = blob_sidecar.index;
+    let block_parent_root = blob_sidecar.block_parent_root();
+    let blob_proposer_index = blob_sidecar.block_proposer_index();
+    let block_root = blob_sidecar.block_root();
     let blob_epoch = blob_slot.epoch(T::EthSpec::slots_per_epoch());
+    let signed_block_header = &blob_sidecar.signed_block_header;
+
+    // This condition is not possible if we have received the blob from the network
+    // since we only subscribe to `MaxBlobsPerBlock` subnets over gossip network.
+    // We include this check only for completeness.
+    // Getting this error would imply something very wrong with our networking decoding logic.
+    if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
+        return Err(GossipBlobError::InvalidSubnet {
+            expected: subnet,
+            received: blob_index,
+        });
+    }
 
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
@@ -208,8 +386,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             received: subnet,
         });
     }
-
-    let blob_root = get_blob_root(&signed_blob_sidecar);
 
     // Verify that the sidecar is not from a future slot.
     let latest_permissible_slot = chain
@@ -236,11 +412,12 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    // Verify that this is the first blob sidecar received for the (sidecar.block_root, sidecar.index) tuple
+    // Verify that this is the first blob sidecar received for the tuple:
+    // (block_header.slot, block_header.proposer_index, blob_sidecar.index)
     if chain
         .observed_blob_sidecars
         .read()
-        .is_known(&signed_blob_sidecar.message)
+        .is_known(&blob_sidecar)
         .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
     {
         return Err(GossipBlobError::RepeatBlob {
@@ -250,17 +427,30 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
+    // Verify the inclusion proof in the sidecar
+    let _timer = metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_VERIFICATION);
+    if !blob_sidecar
+        .verify_blob_sidecar_inclusion_proof()
+        .map_err(GossipBlobError::InclusionProof)?
+    {
+        return Err(GossipBlobError::InvalidInclusionProof);
+    }
+    drop(_timer);
+
+    let fork_choice = chain.canonical_head.fork_choice_read_lock();
+
     // We have already verified that the blob is past finalization, so we can
     // just check fork choice for the block's parent.
-    let Some(parent_block) = chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .get_block(&block_parent_root)
-    else {
-        return Err(GossipBlobError::BlobParentUnknown(
-            signed_blob_sidecar.message,
-        ));
+    let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
+        return Err(GossipBlobError::BlobParentUnknown(blob_sidecar));
     };
+
+    // Do not process a blob that does not descend from the finalized root.
+    // We just loaded the parent_block, so we can be sure that it exists in fork choice.
+    if !fork_choice.is_finalized_checkpoint_or_descendant(block_parent_root) {
+        return Err(GossipBlobError::NotFinalizedDescendant { block_parent_root });
+    }
+    drop(fork_choice);
 
     if parent_block.slot >= blob_slot {
         return Err(GossipBlobError::BlobIsNotLaterThanParent {
@@ -269,8 +459,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    // Note: We check that the proposer_index matches against the shuffling first to avoid
-    // signature verification against an invalid proposer_index.
     let proposer_shuffling_root =
         if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) == blob_epoch {
             parent_block
@@ -326,23 +514,14 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         (proposer_index, state.fork())
     };
 
-    if proposer_index != blob_proposer_index as usize {
-        return Err(GossipBlobError::ProposerIndexMismatch {
-            sidecar: blob_proposer_index as usize,
-            local: proposer_index,
-        });
-    }
-
-    // Signature verification
+    // Signature verify the signed block header.
     let signature_is_valid = {
         let pubkey_cache = chain.validator_pubkey_cache.read();
 
         let pubkey = pubkey_cache
             .get(proposer_index)
             .ok_or_else(|| GossipBlobError::UnknownValidator(proposer_index as u64))?;
-
-        signed_blob_sidecar.verify_signature(
-            Some(blob_root),
+        signed_block_header.verify_signature::<T::EthSpec>(
             pubkey,
             &fork,
             chain.genesis_validators_root,
@@ -351,7 +530,14 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     };
 
     if !signature_is_valid {
-        return Err(GossipBlobError::ProposerSignatureInvalid);
+        return Err(GossipBlobError::ProposalSignatureInvalid);
+    }
+
+    if proposer_index != blob_proposer_index as usize {
+        return Err(GossipBlobError::ProposerIndexMismatch {
+            sidecar: blob_proposer_index as usize,
+            local: proposer_index,
+        });
     }
 
     // Now the signature is valid, store the proposal so we don't accept another blob sidecar
@@ -368,7 +554,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     if chain
         .observed_blob_sidecars
         .write()
-        .observe_sidecar(&signed_blob_sidecar.message)
+        .observe_sidecar(&blob_sidecar)
         .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
     {
         return Err(GossipBlobError::RepeatBlob {
@@ -378,106 +564,27 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
+    // Kzg verification for gossip blob sidecar
+    let kzg = chain
+        .kzg
+        .as_ref()
+        .ok_or(GossipBlobError::KzgNotInitialized)?;
+    let kzg_verified_blob =
+        KzgVerifiedBlob::new(blob_sidecar, kzg).map_err(GossipBlobError::KzgError)?;
+
     Ok(GossipVerifiedBlob {
-        blob: signed_blob_sidecar,
+        block_root,
+        blob: kzg_verified_blob,
     })
-}
-
-/// Wrapper over a `BlobSidecar` for which we have completed kzg verification.
-/// i.e. `verify_blob_kzg_proof(blob, commitment, proof) == true`.
-#[derive(Debug, Derivative, Clone, Encode, Decode)]
-#[derivative(PartialEq, Eq)]
-#[ssz(struct_behaviour = "transparent")]
-pub struct KzgVerifiedBlob<T: EthSpec> {
-    blob: Arc<BlobSidecar<T>>,
-}
-
-impl<T: EthSpec> PartialOrd for KzgVerifiedBlob<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<T: EthSpec> Ord for KzgVerifiedBlob<T> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.blob.cmp(&other.blob)
-    }
-}
-
-impl<T: EthSpec> KzgVerifiedBlob<T> {
-    pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
-        self.blob
-    }
-    pub fn as_blob(&self) -> &BlobSidecar<T> {
-        &self.blob
-    }
-    pub fn clone_blob(&self) -> Arc<BlobSidecar<T>> {
-        self.blob.clone()
-    }
-    pub fn block_root(&self) -> Hash256 {
-        self.blob.block_root
-    }
-    pub fn blob_index(&self) -> u64 {
-        self.blob.index
-    }
-}
-
-#[cfg(test)]
-impl<T: EthSpec> KzgVerifiedBlob<T> {
-    pub fn new(blob: BlobSidecar<T>) -> Self {
-        Self {
-            blob: Arc::new(blob),
-        }
-    }
-}
-
-/// Complete kzg verification for a `GossipVerifiedBlob`.
-///
-/// Returns an error if the kzg verification check fails.
-pub fn verify_kzg_for_blob<T: EthSpec>(
-    blob: Arc<BlobSidecar<T>>,
-    kzg: &Kzg,
-) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
-    let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
-    if validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)
-        .map_err(AvailabilityCheckError::Kzg)?
-    {
-        Ok(KzgVerifiedBlob { blob })
-    } else {
-        Err(AvailabilityCheckError::KzgVerificationFailed)
-    }
-}
-
-/// Complete kzg verification for a list of `BlobSidecar`s.
-/// Returns an error if any of the `BlobSidecar`s fails kzg verification.
-///
-/// Note: This function should be preferred over calling `verify_kzg_for_blob`
-/// in a loop since this function kzg verifies a list of blobs more efficiently.
-pub fn verify_kzg_for_blob_list<T: EthSpec>(
-    blob_list: &BlobSidecarList<T>,
-    kzg: &Kzg,
-) -> Result<(), AvailabilityCheckError> {
-    let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_BATCH_TIMES);
-    let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
-        .iter()
-        .map(|blob| (&blob.blob, (blob.kzg_commitment, blob.kzg_proof)))
-        .unzip();
-    if validate_blobs::<T>(kzg, commitments.as_slice(), blobs, proofs.as_slice())
-        .map_err(AvailabilityCheckError::Kzg)?
-    {
-        Ok(())
-    } else {
-        Err(AvailabilityCheckError::KzgVerificationFailed)
-    }
 }
 
 /// Returns the canonical root of the given `blob`.
 ///
 /// Use this function to ensure that we report the blob hashing time Prometheus metric.
-pub fn get_blob_root<E: EthSpec>(blob: &SignedBlobSidecar<E>) -> Hash256 {
+pub fn get_blob_root<E: EthSpec>(blob: &BlobSidecar<E>) -> Hash256 {
     let blob_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOB_ROOT);
 
-    let blob_root = blob.message.tree_hash_root();
+    let blob_root = blob.tree_hash_root();
 
     metrics::stop_timer(blob_root_timer);
 

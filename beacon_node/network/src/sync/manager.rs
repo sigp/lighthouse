@@ -34,7 +34,7 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
-use super::block_lookups::{BlockLookups, PeerShouldHave};
+use super::block_lookups::BlockLookups;
 use super::network_context::{BlockOrBlob, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
@@ -138,13 +138,6 @@ pub enum SyncMessage<T: EthSpec> {
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
-
-    /// A peer has sent a blob that references a block that is unknown or a peer has sent a block for
-    /// which we haven't received blobs.
-    ///
-    /// We will either attempt to find the block matching the unknown hash immediately or queue a lookup,
-    /// which will then trigger the request when we receive `MissingGossipBlockComponentsDelayed`.
-    MissingGossipBlockComponents(Vec<PeerId>, Hash256),
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -637,9 +630,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
-                let blob_slot = blob.slot;
-                let block_root = blob.block_root;
-                let parent_root = blob.block_parent_root;
+                let blob_slot = blob.slot();
+                let block_root = blob.block_root();
+                let parent_root = blob.block_parent_root();
                 let blob_index = blob.index;
                 if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
                     warn!(self.log, "Peer sent blob with invalid index"; "index" => blob_index, "peer_id" => %peer_id);
@@ -658,31 +651,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
                 // If we are not synced, ignore this block.
                 if self.synced_and_connected(&peer_id) {
-                    self.block_lookups.search_block(
-                        block_hash,
-                        &[PeerShouldHave::BlockAndBlobs(peer_id)],
-                        &mut self.network,
-                    );
-                }
-            }
-            SyncMessage::MissingGossipBlockComponents(peer_id, block_root) => {
-                let peers_guard = self.network_globals().peers.read();
-                let connected_peers = peer_id
-                    .into_iter()
-                    .filter_map(|peer_id| {
-                        if peers_guard.is_connected(&peer_id) {
-                            Some(PeerShouldHave::Neither(peer_id))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                drop(peers_guard);
-
-                // If we are not synced, ignore this block.
-                if self.synced() && !connected_peers.is_empty() {
                     self.block_lookups
-                        .search_block(block_root, &connected_peers, &mut self.network)
+                        .search_block(block_hash, &[peer_id], &mut self.network);
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
@@ -766,7 +736,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.block_lookups.search_child_block(
                 block_root,
                 child_components,
-                &[PeerShouldHave::Neither(peer_id)],
+                &[peer_id],
                 &mut self.network,
             );
         }

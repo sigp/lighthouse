@@ -19,7 +19,7 @@ use beacon_processor::{
     AsyncFn, BlockingFn, DuplicateCache,
 };
 use lighthouse_network::PeerAction;
-use slog::{debug, error, info, trace, warn};
+use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,7 +28,7 @@ use store::KzgCommitment;
 use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{Epoch, Hash256, Slot};
+use types::{Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -292,7 +292,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let Some(slot) = blobs
             .iter()
-            .find_map(|blob| blob.as_ref().map(|blob| blob.slot))
+            .find_map(|blob| blob.as_ref().map(|blob| blob.slot()))
         else {
             return;
         };
@@ -371,27 +371,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             process_type,
             result: result.into(),
         });
-    }
-
-    /// Poll the beacon chain for any delayed lookups that are now available.
-    pub fn poll_delayed_lookups(&self, slot: Slot) {
-        let block_roots = self
-            .chain
-            .data_availability_checker
-            .incomplete_processing_components(slot);
-        if block_roots.is_empty() {
-            trace!(self.log, "No delayed lookups found on poll");
-        } else {
-            debug!(self.log, "Found delayed lookups on poll"; "lookup_count" => block_roots.len());
-        }
-        for block_root in block_roots {
-            if let Some(peer_ids) = self.delayed_lookup_peers.lock().pop(&block_root) {
-                self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
-                    peer_ids.into_iter().collect(),
-                    block_root,
-                ));
-            }
-        }
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync

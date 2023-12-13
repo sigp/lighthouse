@@ -533,8 +533,8 @@ pub fn serve<E: EthSpec>(
                                     .as_deneb()
                                     .map_err(|_| reject("incorrect payload variant"))?
                                     .into(),
-                                blinded_blobs_bundle: maybe_blobs_bundle
-                                    .map(Into::into)
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
                                     .unwrap_or_default(),
                                 value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
                                 pubkey: builder.builder_sk.public_key().compress(),
@@ -572,8 +572,8 @@ pub fn serve<E: EthSpec>(
                                     .as_deneb()
                                     .map_err(|_| reject("incorrect payload variant"))?
                                     .into(),
-                                blinded_blobs_bundle: maybe_blobs_bundle
-                                    .map(Into::into)
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
                                     .unwrap_or_default(),
                                 value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
                                 pubkey: builder.builder_sk.public_key().compress(),
