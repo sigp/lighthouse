@@ -5165,8 +5165,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                             bls_to_execution_changes: bls_to_execution_changes.into(),
-                            blob_kzg_commitments: kzg_commitments
-                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                            blob_kzg_commitments: kzg_commitments.ok_or(
+                                BlockProductionError::MissingKzgCommitment(
+                                    "Kzg commitments missing from block contents".to_string(),
+                                ),
+                            )?,
                         },
                     }),
                     maybe_blobs_and_proofs,
