@@ -7,7 +7,8 @@
 use futures::future::FutureExt;
 use handler::RPCHandler;
 use libp2p::swarm::{
-    handler::ConnectionHandler, ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm,
+    handler::ConnectionHandler, CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
+    ToSwarm,
 };
 use libp2p::swarm::{FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
@@ -292,68 +293,78 @@ where
         conn_id: ConnectionId,
         event: <Self::ConnectionHandler as ConnectionHandler>::ToBehaviour,
     ) {
-        if let HandlerEvent::Ok(RPCReceived::Request(ref id, ref req)) = event {
-            if let Some(limiter) = self.limiter.as_mut() {
-                // check if the request is conformant to the quota
-                match limiter.allows(&peer_id, req) {
-                    Ok(()) => {
-                        // send the event to the user
-                        self.events.push(ToSwarm::GenerateEvent(RPCMessage {
-                            peer_id,
-                            conn_id,
-                            event,
-                        }))
-                    }
-                    Err(RateLimitedErr::TooLarge) => {
-                        // we set the batch sizes, so this is a coding/config err for most protocols
-                        let protocol = req.versioned_protocol().protocol();
-                        if matches!(protocol, Protocol::BlocksByRange)
-                            || matches!(protocol, Protocol::BlobsByRange)
-                        {
-                            debug!(self.log, "By range request will never be processed"; "request" => %req, "protocol" => %protocol);
-                        } else {
-                            crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
+        match event {
+            HandlerEvent::Ok(RPCReceived::Request(ref id, ref req)) => {
+                if let Some(limiter) = self.limiter.as_mut() {
+                    // check if the request is conformant to the quota
+                    match limiter.allows(&peer_id, req) {
+                        Ok(()) => {
+                            // send the event to the user
+                            self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                                peer_id,
+                                conn_id,
+                                event,
+                            }))
                         }
-                        // send an error code to the peer.
-                        // the handler upon receiving the error code will send it back to the behaviour
-                        self.send_response(
-                            peer_id,
-                            (conn_id, *id),
-                            RPCCodedResponse::Error(
-                                RPCResponseErrorCode::RateLimited,
-                                "Rate limited. Request too large".into(),
-                            ),
-                        );
-                    }
-                    Err(RateLimitedErr::TooSoon(wait_time)) => {
-                        debug!(self.log, "Request exceeds the rate limit";
+                        Err(RateLimitedErr::TooLarge) => {
+                            // we set the batch sizes, so this is a coding/config err for most protocols
+                            let protocol = req.versioned_protocol().protocol();
+                            if matches!(protocol, Protocol::BlocksByRange)
+                                || matches!(protocol, Protocol::BlobsByRange)
+                            {
+                                debug!(self.log, "By range request will never be processed"; "request" => %req, "protocol" => %protocol);
+                            } else {
+                                crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
+                            }
+                            // send an error code to the peer.
+                            // the handler upon receiving the error code will send it back to the behaviour
+                            self.send_response(
+                                peer_id,
+                                (conn_id, *id),
+                                RPCCodedResponse::Error(
+                                    RPCResponseErrorCode::RateLimited,
+                                    "Rate limited. Request too large".into(),
+                                ),
+                            );
+                        }
+                        Err(RateLimitedErr::TooSoon(wait_time)) => {
+                            debug!(self.log, "Request exceeds the rate limit";
                         "request" => %req, "peer_id" => %peer_id, "wait_time_ms" => wait_time.as_millis());
-                        // send an error code to the peer.
-                        // the handler upon receiving the error code will send it back to the behaviour
-                        self.send_response(
-                            peer_id,
-                            (conn_id, *id),
-                            RPCCodedResponse::Error(
-                                RPCResponseErrorCode::RateLimited,
-                                format!("Wait {:?}", wait_time).into(),
-                            ),
-                        );
+                            // send an error code to the peer.
+                            // the handler upon receiving the error code will send it back to the behaviour
+                            self.send_response(
+                                peer_id,
+                                (conn_id, *id),
+                                RPCCodedResponse::Error(
+                                    RPCResponseErrorCode::RateLimited,
+                                    format!("Wait {:?}", wait_time).into(),
+                                ),
+                            );
+                        }
                     }
+                } else {
+                    // No rate limiting, send the event to the user
+                    self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                        peer_id,
+                        conn_id,
+                        event,
+                    }))
                 }
-            } else {
-                // No rate limiting, send the event to the user
+            }
+            HandlerEvent::Close(_) => {
+                // Handle the close event here.
+                self.events.push(ToSwarm::CloseConnection {
+                    peer_id,
+                    connection: CloseConnection::All,
+                });
+            }
+            _ => {
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
                     conn_id,
                     event,
-                }))
+                }));
             }
-        } else {
-            self.events.push(ToSwarm::GenerateEvent(RPCMessage {
-                peer_id,
-                conn_id,
-                event,
-            }));
         }
     }
 
