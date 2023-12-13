@@ -4,7 +4,7 @@ use crate::{
     SlasherDB,
 };
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::convert::TryFrom;
@@ -159,9 +159,8 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         config: &Config,
     ) -> Result<Option<Self>, Error> {
         let disk_key = config.disk_key(validator_chunk_index, chunk_index);
-        let chunk_bytes = match txn.get(Self::select_db(db), &disk_key.to_be_bytes())? {
-            Some(chunk_bytes) => chunk_bytes,
-            None => return Ok(None),
+        let Some(chunk_bytes) = txn.get(Self::select_db(db), &disk_key.to_be_bytes())? else {
+            return Ok(None);
         };
 
         let chunk = bincode::deserialize_from(ZlibDecoder::new(chunk_bytes.borrow()))?;
@@ -448,11 +447,9 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
         return Ok(slashing_status);
     }
 
-    let mut start_epoch = if let Some(start_epoch) =
+    let Some(mut start_epoch) =
         T::first_start_epoch(attestation.data.source.epoch, current_epoch, config)
-    {
-        start_epoch
-    } else {
+    else {
         return Ok(slashing_status);
     };
 
@@ -536,12 +533,10 @@ pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
     current_epoch: Epoch,
     config: &Config,
 ) -> Result<(), Error> {
-    let previous_current_epoch =
-        if let Some(epoch) = db.get_current_epoch_for_validator(validator_index, txn)? {
-            epoch
-        } else {
-            return Ok(());
-        };
+    let Some(previous_current_epoch) = db.get_current_epoch_for_validator(validator_index, txn)?
+    else {
+        return Ok(());
+    };
 
     let mut epoch = previous_current_epoch;
 

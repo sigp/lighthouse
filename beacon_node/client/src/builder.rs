@@ -3,6 +3,7 @@ use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
 use beacon_chain::attestation_simulator::start_attestation_simulator_service;
+use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
@@ -68,7 +69,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth1_service: Option<Eth1Service>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     network_senders: Option<NetworkSenders<T::EthSpec>>,
-    gossipsub_registry: Option<Registry>,
+    libp2p_registry: Option<Registry>,
     db_path: Option<PathBuf>,
     freezer_db_path: Option<PathBuf>,
     http_api_config: http_api::Config,
@@ -102,7 +103,7 @@ where
             eth1_service: None,
             network_globals: None,
             network_senders: None,
-            gossipsub_registry: None,
+            libp2p_registry: None,
             db_path: None,
             freezer_db_path: None,
             http_api_config: <_>::default(),
@@ -191,15 +192,7 @@ where
             .graffiti(graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
-            .monitor_validators(
-                config.validator_monitor_auto,
-                config.validator_monitor_pubkeys.clone(),
-                config.validator_monitor_individual_tracking_threshold,
-                runtime_context
-                    .service_context("val_mon".to_string())
-                    .log()
-                    .clone(),
-            );
+            .validator_monitor_config(config.validator_monitor.clone());
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
@@ -509,6 +502,12 @@ where
             ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
         };
 
+        let beacon_chain_builder = if let Some(trusted_setup) = config.trusted_setup {
+            beacon_chain_builder.trusted_setup(trusted_setup)
+        } else {
+            beacon_chain_builder
+        };
+
         if config.sync_eth1_chain {
             self.eth1_service = eth1_service_option;
         }
@@ -533,7 +532,7 @@ where
             .ok_or("network requires beacon_processor_channels")?;
 
         // If gossipsub metrics are required we build a registry to record them
-        let mut gossipsub_registry = if config.metrics_enabled {
+        let mut libp2p_registry = if config.metrics_enabled {
             Some(Registry::default())
         } else {
             None
@@ -543,9 +542,7 @@ where
             beacon_chain,
             config,
             context.executor,
-            gossipsub_registry
-                .as_mut()
-                .map(|registry| registry.sub_registry_with_prefix("gossipsub")),
+            libp2p_registry.as_mut(),
             beacon_processor_channels.beacon_processor_tx.clone(),
             beacon_processor_channels.work_reprocessing_tx.clone(),
         )
@@ -554,7 +551,7 @@ where
 
         self.network_globals = Some(network_globals);
         self.network_senders = Some(network_senders);
-        self.gossipsub_registry = gossipsub_registry;
+        self.libp2p_registry = libp2p_registry;
 
         Ok(self)
     }
@@ -720,7 +717,7 @@ where
                 chain: self.beacon_chain.clone(),
                 db_path: self.db_path.clone(),
                 freezer_db_path: self.freezer_db_path.clone(),
-                gossipsub_registry: self.gossipsub_registry.take().map(std::sync::Mutex::new),
+                gossipsub_registry: self.libp2p_registry.take().map(std::sync::Mutex::new),
                 log: log.clone(),
             });
 
@@ -839,6 +836,10 @@ where
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
             start_otb_verification_service(runtime_context.executor.clone(), beacon_chain.clone());
+            start_availability_cache_maintenance_service(
+                runtime_context.executor.clone(),
+                beacon_chain.clone(),
+            );
             start_attestation_simulator_service(
                 beacon_chain.task_executor.clone(),
                 beacon_chain.clone(),
@@ -903,6 +904,7 @@ where
         mut self,
         hot_path: &Path,
         cold_path: &Path,
+        blobs_path: &Path,
         config: StoreConfig,
         log: Logger,
     ) -> Result<Self, String> {
@@ -940,6 +942,7 @@ where
         let store = HotColdDB::open(
             hot_path,
             cold_path,
+            blobs_path,
             schema_upgrade,
             config,
             spec,

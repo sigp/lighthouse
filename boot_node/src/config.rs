@@ -7,7 +7,7 @@ use lighthouse_network::{
     discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};
 use std::time::Duration;
@@ -60,19 +60,25 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         // Set the Enr Discovery ports to the listening ports if not present.
         if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
-            network_config.enr_udp4_port = Some(
-                network_config
-                    .enr_udp4_port
-                    .unwrap_or(listening_addr_v4.disc_port),
-            )
+            if network_config.enr_udp4_port.is_none() {
+                network_config.enr_udp4_port =
+                    Some(network_config.enr_udp4_port.unwrap_or(
+                        listening_addr_v4.disc_port.try_into().map_err(|_| {
+                            "boot node enr-udp-port not set and listening port is zero"
+                        })?,
+                    ))
+            }
         };
 
         if let Some(listening_addr_v6) = network_config.listen_addrs().v6() {
-            network_config.enr_udp6_port = Some(
-                network_config
-                    .enr_udp6_port
-                    .unwrap_or(listening_addr_v6.disc_port),
-            )
+            if network_config.enr_udp6_port.is_none() {
+                network_config.enr_udp6_port =
+                    Some(network_config.enr_udp6_port.unwrap_or(
+                        listening_addr_v6.disc_port.try_into().map_err(|_| {
+                            "boot node enr-udp-port not set and listening port is zero"
+                        })?,
+                    ))
+            }
         };
 
         // By default this is enabled. If it is not set, revert to false.

@@ -16,7 +16,6 @@ ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 store = { workspace = true }
 bitvec = { workspace = true }
 rand = { workspace = true }
@@ -25,3 +24,6 @@ rand = { workspace = true }
 beacon_chain = { workspace = true }
 tokio = { workspace = true }
 maplit = { workspace = true }
+
+[features]
+portable = ["beacon_chain/portable"]

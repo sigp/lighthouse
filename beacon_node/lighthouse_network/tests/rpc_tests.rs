@@ -13,9 +13,9 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, ChainSpec, EmptyBlock,
-    Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock,
-    Slot,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BlobSidecar, ChainSpec,
+    EmptyBlock, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Signature,
+    SignedBeaconBlock, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -261,6 +261,118 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                             }
                             // send the stream termination
                             receiver.send_response(peer_id, id, Response::BlocksByRange(None));
+                        }
+                    }
+                    _ => {} // Ignore other events
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                    panic!("Future timed out");
+            }
+        }
+    })
+}
+
+// Tests a streamed BlobsByRange RPC Message
+#[test]
+#[allow(clippy::single_match)]
+fn test_blobs_by_range_chunked_rpc() {
+    // set up the logging. The level and enabled logging or not
+    let log_level = Level::Debug;
+    let enable_logging = false;
+
+    let slot_count = 32;
+    let messages_to_send = 34;
+
+    let log = common::build_log(log_level, enable_logging);
+
+    let rt = Arc::new(Runtime::new().unwrap());
+
+    rt.block_on(async {
+        // get sender/receiver
+        let spec = E::default_spec();
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Deneb,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
+
+        // BlobsByRange Request
+        let rpc_request = Request::BlobsByRange(BlobsByRangeRequest {
+            start_slot: 0,
+            count: slot_count,
+        });
+
+        // BlocksByRange Response
+        let blob = BlobSidecar::<E>::empty();
+
+        let rpc_response = Response::BlobsByRange(Some(Arc::new(blob)));
+
+        // keep count of the number of messages received
+        let mut messages_received = 0;
+        let request_id = messages_to_send as usize;
+        // build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        // Send a STATUS message
+                        debug!(log, "Sending RPC");
+                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id: _,
+                        id: _,
+                        response,
+                    } => {
+                        warn!(log, "Sender received a response");
+                        match response {
+                            Response::BlobsByRange(Some(_)) => {
+                                assert_eq!(response, rpc_response.clone());
+                                messages_received += 1;
+                                warn!(log, "Chunk received");
+                            }
+                            Response::BlobsByRange(None) => {
+                                // should be exactly `messages_to_send` messages before terminating
+                                assert_eq!(messages_received, messages_to_send);
+                                // end the test
+                                return;
+                            }
+                            _ => panic!("Invalid RPC received"),
+                        }
+                    }
+                    _ => {} // Ignore other behaviour events
+                }
+            }
+        };
+
+        // build the receiver future
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::RequestReceived {
+                        peer_id,
+                        id,
+                        request,
+                    } => {
+                        if request == rpc_request {
+                            // send the response
+                            warn!(log, "Receiver got request");
+                            for _ in 0..messages_to_send {
+                                // Send first third of responses as base blocks,
+                                // second as altair and third as merge.
+                                receiver.send_response(peer_id, id, rpc_response.clone());
+                            }
+                            // send the stream termination
+                            receiver.send_response(peer_id, id, Response::BlobsByRange(None));
                         }
                     }
                     _ => {} // Ignore other events
@@ -603,7 +715,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
 }
 
 // Tests a streamed, chunked BlocksByRoot RPC Message
-// The size of the reponse is a full `BeaconBlock`
+// The size of the response is a full `BeaconBlock`
 // which is greater than the Snappy frame size. Hence, this test
 // serves to test the snappy framing format as well.
 #[test]
