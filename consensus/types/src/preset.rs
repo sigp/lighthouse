@@ -1,5 +1,5 @@
 use crate::{ChainSpec, Epoch, EthSpec, Unsigned};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// Value-level representation of an Ethereum consensus "preset".
 ///
@@ -205,6 +205,27 @@ impl CapellaPreset {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct DenebPreset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_blobs_per_block: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_blob_commitments_per_block: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub field_elements_per_blob: u64,
+}
+
+impl DenebPreset {
+    pub fn from_chain_spec<T: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {
+            max_blobs_per_block: T::max_blobs_per_block() as u64,
+            max_blob_commitments_per_block: T::max_blob_commitments_per_block() as u64,
+            field_elements_per_blob: T::field_elements_per_blob() as u64,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -243,6 +264,9 @@ mod test {
 
         let capella: CapellaPreset = preset_from_file(&preset_name, "capella.yaml");
         assert_eq!(capella, CapellaPreset::from_chain_spec::<E>(&spec));
+
+        let deneb: DenebPreset = preset_from_file(&preset_name, "deneb.yaml");
+        assert_eq!(deneb, DenebPreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]

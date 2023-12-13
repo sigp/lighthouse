@@ -280,7 +280,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                             old_id = Some(Some(syncing_id));
                         } else {
                             // chains have the same number of peers, pick the currently syncing
-                            // chain to avoid unnecesary switchings and try to advance it
+                            // chain to avoid unnecessary switchings and try to advance it
                             new_id = syncing_id;
                             old_id = Some(None);
                         }

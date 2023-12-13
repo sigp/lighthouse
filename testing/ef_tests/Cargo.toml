@@ -9,6 +9,7 @@ edition = { workspace = true }
 ef_tests = []
 milagro = ["bls/milagro"]
 fake_crypto = ["bls/fake_crypto"]
+portable = ["beacon_chain/portable"]
 
 [dependencies]
 bls = { workspace = true }
@@ -17,11 +18,14 @@ compare_fields_derive = { workspace = true }
 derivative = { workspace = true }
 ethereum-types = { workspace = true }
 hex = { workspace = true }
+kzg = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
+serde_json = { workspace = true }
 serde_repr = { workspace = true }
 serde_yaml = { workspace = true }
+eth2_network_config = { workspace = true }
+ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 tree_hash = { workspace = true }
@@ -36,3 +40,4 @@ beacon_chain = { workspace = true }
 store = { workspace = true }
 fork_choice = { workspace = true }
 execution_layer = { workspace = true }
+logging = { workspace = true }

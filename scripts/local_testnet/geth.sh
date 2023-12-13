@@ -33,7 +33,6 @@ http_port=${@:$OPTIND+2:1}
 auth_port=${@:$OPTIND+3:1}
 genesis_file=${@:$OPTIND+4:1}
 
-
 # Init
 $GETH_BINARY init \
     --datadir $data_dir \

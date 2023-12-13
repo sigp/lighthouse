@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result_detailed;
 use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use compare_fields_derive::CompareFields;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use state_processing::{

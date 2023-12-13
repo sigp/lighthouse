@@ -1,7 +1,7 @@
 //! Identifies each shard by an integer identifier.
 use crate::{AttestationData, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 use swap_or_not_shuffle::compute_shuffled_index;
 

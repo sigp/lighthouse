@@ -1,6 +1,6 @@
 use super::*;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use state_processing::is_valid_genesis_state;
 use std::path::Path;
 use types::{BeaconState, EthSpec, ForkName};

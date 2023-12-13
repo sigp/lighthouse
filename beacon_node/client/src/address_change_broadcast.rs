@@ -99,7 +99,7 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
                 messages: vec![pubsub_message],
             };
             // It seems highly unlikely that this unbounded send will fail, but
-            // we handle the result nontheless.
+            // we handle the result nonetheless.
             if let Err(e) = network_send.send(message) {
                 debug!(
                     log,
