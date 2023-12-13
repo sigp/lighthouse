@@ -1,6 +1,7 @@
 //! Exposes [`MetricsLayer`]: A tracing layer that registers metrics of logging events.
 
 use lighthouse_metrics as metrics;
+use tracing_log::NormalizeEvent;
 
 lazy_static! {
     /// Count of `INFO` logs registered per enabled dependency.
@@ -36,15 +37,21 @@ impl<S: tracing_core::Subscriber> tracing_subscriber::layer::Layer<S> for Metric
         event: &tracing_core::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        let meta = event.metadata();
+        // get the event's normalized metadata
+        // this is necessary to get the correct module path for libp2p events
+        let normalized_meta = event.normalized_metadata();
+        let meta = normalized_meta.as_ref().unwrap_or_else(|| event.metadata());
+
         if !meta.is_event() {
             // ignore tracing span events
             return;
         }
-        let target = match meta.target().split_once("::") {
-            Some((crate_name, _)) => crate_name,
-            None => "unknown",
-        };
+
+        let full_target = meta.module_path().unwrap_or_else(|| meta.target());
+        let target = full_target
+            .split_once("::")
+            .map(|(name, _rest)| name)
+            .unwrap_or(full_target);
         let target = &[target];
         match *meta.level() {
             tracing_core::Level::INFO => metrics::inc_counter_vec(&DEP_INFOS_TOTAL, target),

@@ -364,11 +364,6 @@ fn main() {
         }
     }
 
-    // Debugging output for discv5, libp2p and external crates.
-    if matches.is_present("env_log") {
-        eprintln!("The -l flag is DEPRECATED. Dependency logging will be on by default.");
-    }
-
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {
         let eth_spec_id = eth2_network_config.eth_spec_id()?;
 
