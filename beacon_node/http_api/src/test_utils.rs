@@ -187,6 +187,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     } = BeaconProcessorChannels::new(&beacon_processor_config);
 
     let beacon_processor_send = beacon_processor_tx;
+    let reprocess_send = work_reprocessing_tx.clone();
     BeaconProcessor {
         network_globals: network_globals.clone(),
         executor: test_runtime.task_executor.clone(),
@@ -216,6 +217,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
         network_senders: Some(network_senders),
         network_globals: Some(network_globals),
         beacon_processor_send: Some(beacon_processor_send),
+        beacon_processor_reprocess_send: Some(reprocess_send),
         eth1_service: Some(eth1_service),
         sse_logging_components: None,
         log,

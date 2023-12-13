@@ -442,6 +442,7 @@ where
                         network_senders: None,
                         network_globals: None,
                         beacon_processor_send: None,
+                        beacon_processor_reprocess_send: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
                         sse_logging_components: runtime_context.sse_logging_components.clone(),
@@ -684,6 +685,9 @@ where
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
+                beacon_processor_reprocess_send: Some(
+                    beacon_processor_channels.work_reprocessing_tx.clone(),
+                ),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
                 log: log.clone(),
             });
