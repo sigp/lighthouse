@@ -348,10 +348,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
+            let reprocess_tx = processor.reprocess_tx.clone();
             processor.process_gossip_optimistic_update(
                 message_id,
                 peer_id,
                 light_client_optimistic_update,
+                Some(reprocess_tx),
                 seen_timestamp,
             )
         };

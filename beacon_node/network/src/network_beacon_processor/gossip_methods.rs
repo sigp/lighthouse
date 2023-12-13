@@ -40,7 +40,8 @@ use types::{
 
 use beacon_processor::{
     work_reprocessing_queue::{
-        QueuedAggregate, QueuedGossipBlock, QueuedUnaggregate, ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
+        ReprocessQueueMessage,
     },
     DuplicateCache, GossipAggregatePackage, GossipAttestationPackage,
 };
@@ -1692,6 +1693,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         seen_timestamp: Duration,
     ) {
         match self.chain.verify_optimistic_update_for_gossip(
@@ -1710,6 +1712,56 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(e) => {
                 match e {
+                    LightClientOptimisticUpdateError::UnknownBlockParentRoot(parent_root) => {
+                        metrics::inc_counter(
+                            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_SENT_OPTIMISTIC_UPDATES,
+                        );
+                        debug!(
+                            self.log,
+                            "Optimistic update for unknown block";
+                            "peer_id" => %peer_id,
+                            "parent_root" => ?parent_root
+                        );
+
+                        if let Some(sender) = reprocess_tx {
+                            let processor = self.clone();
+                            let msg = ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(
+                                QueuedLightClientUpdate {
+                                    parent_root,
+                                    process_fn: Box::new(move || {
+                                        processor.process_gossip_optimistic_update(
+                                            message_id,
+                                            peer_id,
+                                            light_client_optimistic_update,
+                                            None, // Do not reprocess this message again.
+                                            seen_timestamp,
+                                        )
+                                    }),
+                                },
+                            );
+
+                            if sender.try_send(msg).is_err() {
+                                error!(
+                                    self.log,
+                                    "Failed to send optimistic update for re-processing";
+                                )
+                            }
+                        } else {
+                            debug!(
+                                self.log,
+                                "Not sending light client update because it had been reprocessed";
+                                "peer_id" => %peer_id,
+                                "parent_root" => ?parent_root
+                            );
+
+                            self.propagate_validation_result(
+                                message_id,
+                                peer_id,
+                                MessageAcceptance::Ignore,
+                            );
+                        }
+                        return;
+                    }
                     LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate => {
                         metrics::register_optimistic_update_error(&e);
 

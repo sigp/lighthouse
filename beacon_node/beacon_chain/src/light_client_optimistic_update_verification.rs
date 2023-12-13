@@ -28,6 +28,8 @@ pub enum Error {
     SigSlotStartIsNone,
     /// Failed to construct a LightClientOptimisticUpdate from state.
     FailedConstructingUpdate,
+    /// Unknown block with parent root.
+    UnknownBlockParentRoot(Hash256),
 }
 
 /// Wraps a `LightClientOptimisticUpdate` that has been verified for propagation on the gossip network.
@@ -57,6 +59,19 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             < start_time + one_third_slot_duration
         {
             return Err(Error::TooEarly);
+        }
+
+        let head = chain.canonical_head.cached_head();
+        let head_block = &head.snapshot.beacon_block;
+        // check if we can process the optimistic update immediately
+        // otherwise queue
+        let canonical_root = rcv_optimistic_update
+            .attested_header
+            .beacon
+            .canonical_root();
+
+        if canonical_root != head_block.message().parent_root() {
+            return Err(Error::UnknownBlockParentRoot(canonical_root));
         }
 
         let latest_optimistic_update = chain
