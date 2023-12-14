@@ -1,7 +1,6 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
 use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RpcBlock};
-use beacon_chain::test_utils::BlobSignatureKey;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, ExecutionPendingBlock,
@@ -77,10 +76,8 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<BlobSidecarL
     (segment, segment_blobs)
 }
 
-async fn get_chain_segment_with_signed_blobs() -> (
-    Vec<BeaconSnapshot<E>>,
-    Vec<Option<VariableList<SignedBlobSidecar<E>, <E as EthSpec>::MaxBlobsPerBlock>>>,
-) {
+async fn get_chain_segment_with_blob_sidecars(
+) -> (Vec<BeaconSnapshot<E>>, Vec<Option<BlobSidecarList<E>>>) {
     let harness = get_harness(VALIDATOR_COUNT);
 
     harness
@@ -111,27 +108,11 @@ async fn get_chain_segment_with_signed_blobs() -> (
             beacon_block: Arc::new(full_block),
             beacon_state: snapshot.beacon_state,
         });
-        let signed_blobs = harness
+        let blob_sidecars = harness
             .chain
             .get_blobs(&snapshot.beacon_block_root)
-            .unwrap()
-            .into_iter()
-            .map(|blob| {
-                let block_root = blob.block_root;
-                let blob_index = blob.index;
-                SignedBlobSidecar {
-                    message: blob,
-                    signature: harness
-                        .blob_signature_cache
-                        .read()
-                        .get(&BlobSignatureKey::new(block_root, blob_index))
-                        .unwrap()
-                        .clone(),
-                    _phantom: PhantomData,
-                }
-            })
-            .collect::<Vec<_>>();
-        segment_blobs.push(Some(VariableList::from(signed_blobs)))
+            .unwrap();
+        segment_blobs.push(Some(blob_sidecars))
     }
     (segment, segment_blobs)
 }
@@ -159,7 +140,7 @@ fn chain_segment_blocks(
 ) -> Vec<RpcBlock<E>> {
     chain_segment
         .iter()
-        .zip(blobs.into_iter())
+        .zip(blobs.iter())
         .map(|(snapshot, blobs)| {
             RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
         })
@@ -214,34 +195,30 @@ fn update_parent_roots(
             let (mut block, signature) = child.beacon_block.as_ref().clone().deconstruct();
             *block.parent_root_mut() = root;
             let new_child = Arc::new(SignedBeaconBlock::from_block(block, signature));
-            let new_child_root = new_child.canonical_root();
-            child.beacon_block = new_child;
             if let Some(blobs) = child_blobs {
-                update_blob_roots(new_child_root, blobs);
+                update_blob_signed_header(&new_child, blobs);
             }
+            child.beacon_block = new_child;
         }
     }
 }
 
-fn update_blob_roots<E: EthSpec>(block_root: Hash256, blobs: &mut BlobSidecarList<E>) {
+fn update_blob_signed_header<E: EthSpec>(
+    signed_block: &SignedBeaconBlock<E>,
+    blobs: &mut BlobSidecarList<E>,
+) {
     for old_blob_sidecar in blobs.iter_mut() {
-        let index = old_blob_sidecar.index;
-        let slot = old_blob_sidecar.slot;
-        let block_parent_root = old_blob_sidecar.block_parent_root;
-        let proposer_index = old_blob_sidecar.proposer_index;
-        let blob = old_blob_sidecar.blob.clone();
-        let kzg_commitment = old_blob_sidecar.kzg_commitment;
-        let kzg_proof = old_blob_sidecar.kzg_proof;
-
         let new_blob = Arc::new(BlobSidecar::<E> {
-            block_root,
-            index,
-            slot,
-            block_parent_root,
-            proposer_index,
-            blob,
-            kzg_commitment,
-            kzg_proof,
+            index: old_blob_sidecar.index,
+            blob: old_blob_sidecar.blob.clone(),
+            kzg_commitment: old_blob_sidecar.kzg_commitment,
+            kzg_proof: old_blob_sidecar.kzg_proof,
+            signed_block_header: signed_block.signed_block_header(),
+            kzg_commitment_inclusion_proof: signed_block
+                .message()
+                .body()
+                .kzg_commitment_merkle_proof(old_blob_sidecar.index as usize)
+                .unwrap(),
         });
         *old_blob_sidecar = new_blob;
     }
@@ -253,7 +230,6 @@ async fn chain_segment_full_segment() {
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     let blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
         .into_iter()
-        .map(|block| block.into())
         .collect();
 
     harness
@@ -292,7 +268,6 @@ async fn chain_segment_varying_chunk_size() {
         let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
         let blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
             .into_iter()
-            .map(|block| block.into())
             .collect();
 
         harness
@@ -334,7 +309,6 @@ async fn chain_segment_non_linear_parent_roots() {
      */
     let mut blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
         .into_iter()
-        .map(|block| block.into())
         .collect();
     blocks.remove(2);
 
@@ -355,7 +329,6 @@ async fn chain_segment_non_linear_parent_roots() {
      */
     let mut blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
         .into_iter()
-        .map(|block| block.into())
         .collect();
 
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
@@ -393,7 +366,6 @@ async fn chain_segment_non_linear_slots() {
 
     let mut blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
         .into_iter()
-        .map(|block| block.into())
         .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
@@ -420,7 +392,6 @@ async fn chain_segment_non_linear_slots() {
 
     let mut blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
         .into_iter()
-        .map(|block| block.into())
         .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
@@ -879,7 +850,7 @@ fn unwrap_err<T, E>(result: Result<T, E>) -> E {
 #[tokio::test]
 async fn block_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
-    let (chain_segment, chain_segment_blobs) = get_chain_segment_with_signed_blobs().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment_with_blob_sidecars().await;
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
 
@@ -909,12 +880,12 @@ async fn block_gossip_verification() {
             )
             .await
             .expect("should import valid gossip verified block");
-        if let Some(blobs) = blobs_opt {
-            for blob in blobs {
-                let blob_index = blob.message.index;
+        if let Some(blob_sidecars) = blobs_opt {
+            for blob_sidecar in blob_sidecars {
+                let blob_index = blob_sidecar.index;
                 let gossip_verified = harness
                     .chain
-                    .verify_blob_sidecar_for_gossip(blob.clone(), blob_index)
+                    .verify_blob_sidecar_for_gossip(blob_sidecar.clone(), blob_index)
                     .expect("should obtain gossip verified blob");
 
                 harness
@@ -948,7 +919,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_block_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)).into()).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::FutureSlot {
                 present_slot,
                 block_slot,
@@ -982,7 +953,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_finalized_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)).into()).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::WouldRevertFinalizedSlot {
                 block_slot,
                 finalized_slot,
@@ -1012,9 +983,10 @@ async fn block_gossip_verification() {
             unwrap_err(
                 harness
                     .chain
-                    .verify_block_for_gossip(
-                        Arc::new(SignedBeaconBlock::from_block(block, junk_signature())).into()
-                    )
+                    .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
+                        block,
+                        junk_signature()
+                    )))
                     .await
             ),
             BlockError::ProposalSignatureInvalid
@@ -1039,7 +1011,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)).into()).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::ParentUnknown(block)
             if block.parent_root() == parent_root
         ),
@@ -1065,7 +1037,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)).into()).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::NotFinalizedDescendant { block_parent_root }
             if block_parent_root == parent_root
         ),
@@ -1091,7 +1063,6 @@ async fn block_gossip_verification() {
         .0;
     let expected_proposer = block.proposer_index();
     let other_proposer = (0..VALIDATOR_COUNT as u64)
-        .into_iter()
         .find(|i| *i != block.proposer_index())
         .expect("there must be more than one validator in this test");
     *block.proposer_index_mut() = other_proposer;
@@ -1103,7 +1074,7 @@ async fn block_gossip_verification() {
     );
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone()).into()).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
             BlockError::IncorrectBlockProposer {
                 block,
                 local_shuffling,
@@ -1115,7 +1086,7 @@ async fn block_gossip_verification() {
     // Check to ensure that we registered this is a valid block from this proposer.
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone()).into()).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
             BlockError::BlockIsAlreadyKnown,
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
@@ -1141,10 +1112,9 @@ async fn block_gossip_verification() {
         matches!(
             harness
                 .chain
-                .verify_block_for_gossip(block.clone().into())
+                .verify_block_for_gossip(block.clone())
                 .await
-                .err()
-                .expect("should error when processing known block"),
+                .expect_err("should error when processing known block"),
             BlockError::BlockIsAlreadyKnown
         ),
         "the second proposal by this validator should be rejected"
@@ -1178,12 +1148,14 @@ async fn verify_block_for_gossip_slashing_detection() {
         .await
         .unwrap();
 
-    if let Some(blobs) = blobs1 {
-        for blob in blobs {
-            let blob_index = blob.message.index;
+    if let Some((kzg_proofs, blobs)) = blobs1 {
+        let sidecars =
+            BlobSidecar::build_sidecars(blobs, verified_block.block(), kzg_proofs).unwrap();
+        for sidecar in sidecars {
+            let blob_index = sidecar.index;
             let verified_blob = harness
                 .chain
-                .verify_blob_sidecar_for_gossip(blob, blob_index)
+                .verify_blob_sidecar_for_gossip(sidecar, blob_index)
                 .unwrap();
             harness
                 .chain
@@ -1368,10 +1340,9 @@ async fn add_base_block_to_altair_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(base_block.clone()).into())
+            .verify_block_for_gossip(Arc::new(base_block.clone()))
             .await
-            .err()
-            .expect("should error when processing base block"),
+            .expect_err("should error when processing base block"),
         BlockError::InconsistentFork(InconsistentFork {
             fork_at_slot: ForkName::Altair,
             object_fork: ForkName::Base,
@@ -1389,8 +1360,7 @@ async fn add_base_block_to_altair_chain() {
                 || Ok(()),
             )
             .await
-            .err()
-            .expect("should error when processing base block"),
+            .expect_err("should error when processing base block"),
         BlockError::InconsistentFork(InconsistentFork {
             fork_at_slot: ForkName::Altair,
             object_fork: ForkName::Base,
@@ -1506,10 +1476,9 @@ async fn add_altair_block_to_base_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(altair_block.clone()).into())
+            .verify_block_for_gossip(Arc::new(altair_block.clone()))
             .await
-            .err()
-            .expect("should error when processing altair block"),
+            .expect_err("should error when processing altair block"),
         BlockError::InconsistentFork(InconsistentFork {
             fork_at_slot: ForkName::Base,
             object_fork: ForkName::Altair,
@@ -1527,8 +1496,7 @@ async fn add_altair_block_to_base_chain() {
                 || Ok(()),
             )
             .await
-            .err()
-            .expect("should error when processing altair block"),
+            .expect_err("should error when processing altair block"),
         BlockError::InconsistentFork(InconsistentFork {
             fork_at_slot: ForkName::Base,
             object_fork: ForkName::Altair,
@@ -1584,10 +1552,12 @@ async fn import_duplicate_block_unrealized_justification() {
 
     // The store's justified checkpoint must still be at epoch 0, while unrealized justification
     // must be at epoch 1.
-    let fc = chain.canonical_head.fork_choice_read_lock();
-    assert_eq!(fc.justified_checkpoint().epoch, 0);
-    assert_eq!(fc.unrealized_justified_checkpoint().epoch, 1);
-    drop(fc);
+    {
+        let fc = chain.canonical_head.fork_choice_read_lock();
+        assert_eq!(fc.justified_checkpoint().epoch, 0);
+        assert_eq!(fc.unrealized_justified_checkpoint().epoch, 1);
+        drop(fc);
+    }
 
     // Produce a block to justify epoch 2.
     let state = harness.get_current_state();
@@ -1602,10 +1572,10 @@ async fn import_duplicate_block_unrealized_justification() {
     let notify_execution_layer = NotifyExecutionLayer::Yes;
     let verified_block1 = block
         .clone()
-        .into_execution_pending_block(block_root, &chain, notify_execution_layer)
+        .into_execution_pending_block(block_root, chain, notify_execution_layer)
         .unwrap();
     let verified_block2 = block
-        .into_execution_pending_block(block_root, &chain, notify_execution_layer)
+        .into_execution_pending_block(block_root, chain, notify_execution_layer)
         .unwrap();
 
     // Import the first block, simulating a block processed via a finalized chain segment.
@@ -1614,18 +1584,20 @@ async fn import_duplicate_block_unrealized_justification() {
         .unwrap();
 
     // Unrealized justification should NOT have updated.
-    let fc = chain.canonical_head.fork_choice_read_lock();
-    assert_eq!(fc.justified_checkpoint().epoch, 0);
-    let unrealized_justification = fc.unrealized_justified_checkpoint();
-    assert_eq!(unrealized_justification.epoch, 2);
-
-    // The fork choice node for the block should have unrealized justification.
-    let fc_block = fc.get_block(&block_root).unwrap();
-    assert_eq!(
-        fc_block.unrealized_justified_checkpoint,
-        Some(unrealized_justification)
-    );
-    drop(fc);
+    let unrealized_justification = {
+        let fc = chain.canonical_head.fork_choice_read_lock();
+        assert_eq!(fc.justified_checkpoint().epoch, 0);
+        let unrealized_justification = fc.unrealized_justified_checkpoint();
+        assert_eq!(unrealized_justification.epoch, 2);
+        // The fork choice node for the block should have unrealized justification.
+        let fc_block = fc.get_block(&block_root).unwrap();
+        assert_eq!(
+            fc_block.unrealized_justified_checkpoint,
+            Some(unrealized_justification)
+        );
+        drop(fc);
+        unrealized_justification
+    };
 
     // Import the second verified block, simulating a block processed via RPC.
     import_execution_pending_block(chain.clone(), verified_block2)
@@ -1633,15 +1605,16 @@ async fn import_duplicate_block_unrealized_justification() {
         .unwrap();
 
     // Unrealized justification should still be updated.
-    let fc = chain.canonical_head.fork_choice_read_lock();
-    assert_eq!(fc.justified_checkpoint().epoch, 0);
+    let fc3 = chain.canonical_head.fork_choice_read_lock();
+    assert_eq!(fc3.justified_checkpoint().epoch, 0);
     assert_eq!(
-        fc.unrealized_justified_checkpoint(),
+        fc3.unrealized_justified_checkpoint(),
         unrealized_justification
     );
 
     // The fork choice node for the block should still have the unrealized justified checkpoint.
-    let fc_block = fc.get_block(&block_root).unwrap();
+    let fc_block = fc3.get_block(&block_root).unwrap();
+    drop(fc3);
     assert_eq!(
         fc_block.unrealized_justified_checkpoint,
         Some(unrealized_justification)

@@ -26,6 +26,7 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
+use store::chunked_vector::Chunk;
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
 use store::{
     chunked_vector::{chunk_key, Field},
@@ -106,10 +107,10 @@ fn get_harness_generic(
     harness
 }
 
-/// Tests that `store.heal_freezer_block_roots` inserts block roots between last restore point
+/// Tests that `store.heal_freezer_block_roots_at_split` inserts block roots between last restore point
 /// slot and the split slot.
 #[tokio::test]
-async fn heal_freezer_block_roots() {
+async fn heal_freezer_block_roots_at_split() {
     // chunk_size is hard-coded to 128
     let num_blocks_produced = E::slots_per_epoch() * 20;
     let db_path = tempdir().unwrap();
@@ -136,7 +137,7 @@ async fn heal_freezer_block_roots() {
 
     // Do a heal before deleting to make sure that it doesn't break.
     let last_restore_point_slot = Slot::new(16 * E::slots_per_epoch());
-    store.heal_freezer_block_roots().unwrap();
+    store.heal_freezer_block_roots_at_split().unwrap();
     check_freezer_block_roots(&harness, last_restore_point_slot, split_slot);
 
     // Delete block roots between `last_restore_point_slot` and `split_slot`.
@@ -164,7 +165,7 @@ async fn heal_freezer_block_roots() {
     assert!(matches!(block_root_err, store::Error::NoContinuationData));
 
     // Re-insert block roots
-    store.heal_freezer_block_roots().unwrap();
+    store.heal_freezer_block_roots_at_split().unwrap();
     check_freezer_block_roots(&harness, last_restore_point_slot, split_slot);
 
     // Run for another two epochs to check that the invariant is maintained.
@@ -243,7 +244,7 @@ async fn heal_freezer_block_roots_with_skip_slots() {
     assert!(matches!(block_root_err, store::Error::NoContinuationData));
 
     // heal function
-    store.heal_freezer_block_roots().unwrap();
+    store.heal_freezer_block_roots_at_split().unwrap();
     check_freezer_block_roots(&harness, last_restore_point_slot, split_slot);
 
     // Run for another two epochs to check that the invariant is maintained.
@@ -257,12 +258,84 @@ async fn heal_freezer_block_roots_with_skip_slots() {
     check_iterators(&harness);
 }
 
-fn check_freezer_block_roots(
-    harness: &TestHarness,
-    last_restore_point_slot: Slot,
-    split_slot: Slot,
-) {
-    for slot in (last_restore_point_slot.as_u64()..split_slot.as_u64()).map(Slot::new) {
+/// Tests that `store.heal_freezer_block_roots_at_genesis` replaces 0x0 block roots between slot
+/// 0 and the first non-skip slot with genesis block root.
+#[tokio::test]
+async fn heal_freezer_block_roots_at_genesis() {
+    // Run for a few epochs to ensure we're past finalization.
+    let num_blocks_produced = E::slots_per_epoch() * 4;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Start with 2 skip slots.
+    harness.advance_slot();
+    harness.advance_slot();
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Do a heal before deleting to make sure that it doesn't break.
+    store.heal_freezer_block_roots_at_genesis().unwrap();
+    check_freezer_block_roots(
+        &harness,
+        Slot::new(0),
+        Epoch::new(1).end_slot(E::slots_per_epoch()),
+    );
+
+    // Write 0x0 block roots at slot 1 and slot 2.
+    let chunk_index = 0;
+    let chunk_db_key = chunk_key(chunk_index);
+    let mut chunk =
+        Chunk::<Hash256>::load(&store.cold_db, DBColumn::BeaconBlockRoots, &chunk_db_key)
+            .unwrap()
+            .unwrap();
+
+    chunk.values[1] = Hash256::zero();
+    chunk.values[2] = Hash256::zero();
+
+    let mut ops = vec![];
+    chunk
+        .store(DBColumn::BeaconBlockRoots, &chunk_db_key, &mut ops)
+        .unwrap();
+    store.cold_db.do_atomically(ops).unwrap();
+
+    // Ensure the DB is corrupted
+    let block_roots = store
+        .forwards_block_roots_iterator_until(
+            Slot::new(1),
+            Slot::new(2),
+            || unreachable!(),
+            &harness.chain.spec,
+        )
+        .unwrap()
+        .map(Result::unwrap)
+        .take(2)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        block_roots,
+        vec![
+            (Hash256::zero(), Slot::new(1)),
+            (Hash256::zero(), Slot::new(2))
+        ]
+    );
+
+    // Insert genesis block roots at skip slots before first block slot
+    store.heal_freezer_block_roots_at_genesis().unwrap();
+    check_freezer_block_roots(
+        &harness,
+        Slot::new(0),
+        Epoch::new(1).end_slot(E::slots_per_epoch()),
+    );
+}
+
+fn check_freezer_block_roots(harness: &TestHarness, start_slot: Slot, end_slot: Slot) {
+    for slot in (start_slot.as_u64()..end_slot.as_u64()).map(Slot::new) {
         let (block_root, result_slot) = harness
             .chain
             .store

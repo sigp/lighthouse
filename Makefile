@@ -175,7 +175,7 @@ test-network-%:
 	env FORK_NAME=$* cargo nextest run --release \
 		--features "fork_from_env,$(TEST_FEATURES)" \
 		-p network
-		
+
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
 	cargo nextest run --release -p slasher --features "lmdb,$(TEST_FEATURES)"
@@ -200,6 +200,12 @@ test-exec-engine:
 # test vectors.
 test: test-release
 
+# Updates the CLI help text pages in the Lighthouse book.
+cli:
+	docker run --rm --user=root \
+	-v ${PWD}:/home/runner/actions-runner/lighthouse sigmaprime/github-runner \
+	bash -c 'cd lighthouse && make && ./scripts/cli.sh'
+	
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
