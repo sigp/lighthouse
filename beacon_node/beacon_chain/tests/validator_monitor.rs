@@ -110,7 +110,7 @@ async fn produces_missed_blocks() {
         // Let's validate the state which will call the function responsible for
         // adding the missed blocks to the validator monitor
         let mut validator_monitor = harness1.chain.validator_monitor.write();
-        validator_monitor.process_valid_state(nb_epoch_to_simulate, _state);
+        validator_monitor.process_valid_state(nb_epoch_to_simulate, _state, &harness1.chain.spec);
 
         // We should have one entry in the missed blocks map
         assert_eq!(
@@ -193,7 +193,7 @@ async fn produces_missed_blocks() {
         // Let's validate the state which will call the function responsible for
         // adding the missed blocks to the validator monitor
         let mut validator_monitor2 = harness2.chain.validator_monitor.write();
-        validator_monitor2.process_valid_state(epoch, _state2);
+        validator_monitor2.process_valid_state(epoch, _state2, &harness2.chain.spec);
         // We should have one entry in the missed blocks map
         assert_eq!(
             validator_monitor2.get_monitored_validator_missed_block_count(validator_index as u64),
@@ -219,7 +219,7 @@ async fn produces_missed_blocks() {
 
         // Let's validate the state which will call the function responsible for
         // adding the missed blocks to the validator monitor
-        validator_monitor2.process_valid_state(epoch, _state2);
+        validator_monitor2.process_valid_state(epoch, _state2, &harness2.chain.spec);
 
         // We shouldn't have any entry in the missed blocks map
         assert_ne!(validator_index, not_monitored_validator_index);
@@ -288,7 +288,7 @@ async fn produces_missed_blocks() {
         // Let's validate the state which will call the function responsible for
         // adding the missed blocks to the validator monitor
         let mut validator_monitor3 = harness3.chain.validator_monitor.write();
-        validator_monitor3.process_valid_state(epoch, _state3);
+        validator_monitor3.process_valid_state(epoch, _state3, &harness3.chain.spec);
 
         // We shouldn't have one entry in the missed blocks map
         assert_eq!(
