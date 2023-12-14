@@ -10,7 +10,7 @@ The required Api token may be found in the default data directory of the validat
 If you receive a red notification with a BEACON or VALIDATOR NODE NETWORK ERROR you can refer to the lighthouse ui configuration and [`connecting to clients section`](./ui-configuration.md#connecting-to-the-clients).
 
 ## 4. How do I connect Siren to Lighthouse from a different computer on the same network?
-The most effective approach to enable access for a local network computer to Lighthouse's HTTP API ports is by configuring the `--http-address` to match the local LAN IP of the system running the beacon node and validator client. For instance, if the said node operates at `192.168.0.200`, this IP can be specified using the `--http-address` parameter as `--http-address 192.168.0.200`.
+The most effective approach to enable access for a local network computer to Lighthouse's HTTP API ports is by configuring the `--http-address` to match the local LAN IP of the system running the beacon node and validator client. For instance, if the said node operates at `192.168.0.200`, this IP can be specified using the `--http-address` parameter as `--http-address 192.168.0.200`. When this is set, the validator client requires the flag `--beacon-nodes http://192.168.0.200:5052` to connect tot he beacon node. 
 Subsequently, by designating the host as `192.168.0.200`, you can seamlessly connect Siren to this specific beacon node and validator client pair from any computer situated within the same network.
 
 ## 5. How can I use Siren to monitor my validators remotely when I am not at home?
