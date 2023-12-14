@@ -176,15 +176,26 @@ impl<T: EthSpec> From<BlockProposalContents<T, FullPayload<T>>>
     for BlockProposalContents<T, BlindedPayload<T>>
 {
     fn from(item: BlockProposalContents<T, FullPayload<T>>) -> Self {
-        let block_value = item.block_value().to_owned();
-
-        let blinded_payload: BlockProposalContents<T, BlindedPayload<T>> =
+        match item {
             BlockProposalContents::Payload {
-                payload: item.to_payload().execution_payload().into(),
+                payload,
                 block_value,
-            };
-
-        blinded_payload
+            } => BlockProposalContents::Payload {
+                payload: payload.execution_payload().into(),
+                block_value,
+            },
+            BlockProposalContents::PayloadAndBlobs {
+                payload,
+                block_value,
+                kzg_commitments,
+                blobs_and_proofs: _,
+            } => BlockProposalContents::PayloadAndBlobs {
+                payload: payload.execution_payload().into(),
+                block_value,
+                kzg_commitments,
+                blobs_and_proofs: None,
+            },
+        }
     }
 }
 
