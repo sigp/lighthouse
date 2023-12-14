@@ -1288,5 +1288,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("64")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("disable-duplicate-warn-logs")
+                .long("disable-duplicate-warn-logs")
+                .help("Disable warning logs for duplicate gossip messages. The WARN level log is \
+                    useful for detecting a duplicate validator key running elsewhere. However, this may \
+                    result in excessive warning logs if the validator is broadcasting messages to \
+                    multiple beacon nodes via the validator client --broadcast flag. In this case, \
+                    disabling these warn logs may be useful.")
+                .takes_value(false)
+        )
         .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))
 }
