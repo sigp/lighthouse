@@ -11,6 +11,7 @@ use std::io::{Result, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tracing_logging_layer::TRACING_LOGGING_DEPENDENCIES;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
@@ -23,7 +24,6 @@ pub use sse_logging_components::SSELoggingComponents;
 pub use tracing_logging_layer::LoggingLayer;
 pub use tracing_logging_layer::NonBlockingFileWriter;
 pub use tracing_metrics_layer::MetricsLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
@@ -225,7 +225,6 @@ impl TimeLatch {
 }
 
 pub fn create_tracing_layer(logfile_max_size: u64, base_tracing_log_path: PathBuf) {
-    
     let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
         .or_else(|_| tracing_subscriber::EnvFilter::try_new("debug"))
     {

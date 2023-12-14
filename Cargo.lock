@@ -4711,6 +4711,7 @@ dependencies = [
  "slog-term",
  "sloggers",
  "take_mut",
+ "tempfile",
  "tokio",
  "tracing-core",
  "tracing-log",
