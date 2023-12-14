@@ -14,7 +14,7 @@ pub type Enr = discv5::enr::Enr<discv5::enr::CombinedKey>;
 
 pub use globals::NetworkGlobals;
 pub use pubsub::{PubsubMessage, SnappyTransform};
-pub use subnet::{Subnet, SubnetDiscovery};
+pub use subnet::{DiscoveryTarget, Subnet, SubnetDiscovery, TargetedSubnetDiscovery};
 pub use sync_state::{BackFillState, SyncState};
 pub use topics::{
     core_topics_to_subscribe, fork_core_topics, subnet_from_topic_hash, GossipEncoding, GossipKind,

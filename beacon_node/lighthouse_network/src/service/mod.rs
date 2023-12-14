@@ -18,9 +18,9 @@ use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
-    fork_core_topics, subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic,
-    SnappyTransform, Subnet, SubnetDiscovery, ALTAIR_CORE_TOPICS, BASE_CORE_TOPICS,
-    CAPELLA_CORE_TOPICS, DENEB_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
+    fork_core_topics, subnet_from_topic_hash, DiscoveryTarget, GossipEncoding, GossipKind,
+    GossipTopic, SnappyTransform, Subnet, TargetedSubnetDiscovery, ALTAIR_CORE_TOPICS,
+    BASE_CORE_TOPICS, CAPELLA_CORE_TOPICS, DENEB_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
 };
 use crate::EnrExt;
 use crate::Eth2Enr;
@@ -32,7 +32,6 @@ use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::{identify, PeerId, SwarmBuilder};
 use slog::{crit, debug, info, o, trace, warn};
-use slot_clock::SlotClock;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{
@@ -50,6 +49,7 @@ mod behaviour;
 mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
 pub mod utils;
+
 /// The number of peers we target per subnet for discovery queries.
 pub const TARGET_SUBNET_PEERS: usize = 3;
 
@@ -108,8 +108,8 @@ pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
 /// behaviours.
-pub struct Network<AppReqId: ReqId, TSpec: EthSpec, TSlotClock: SlotClock + 'static> {
-    swarm: libp2p::swarm::Swarm<Behaviour<AppReqId, TSpec, TSlotClock>>,
+pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
+    swarm: libp2p::swarm::Swarm<Behaviour<AppReqId, TSpec>>,
     /* Auxiliary Fields */
     /// A collections of variables accessible outside the network service.
     network_globals: Arc<NetworkGlobals<TSpec>>,
@@ -132,12 +132,11 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec, TSlotClock: SlotClock + 'sta
 }
 
 /// Implements the combined behaviour for the libp2p service.
-impl<AppReqId: ReqId, TSpec: EthSpec, TSlotClock: SlotClock> Network<AppReqId, TSpec, TSlotClock> {
+impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
         log: &slog::Logger,
-        slot_clock: TSlotClock,
     ) -> error::Result<(Self, Arc<NetworkGlobals<TSpec>>)> {
         let log = log.new(o!("service"=> "libp2p"));
 
@@ -301,8 +300,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec, TSlotClock: SlotClock> Network<AppReqId, T
                 &config,
                 network_globals.clone(),
                 &log,
-                ctx.chain_spec.clone(),
-                slot_clock,
             )
             .await?;
             // start searching for peers
@@ -567,7 +564,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec, TSlotClock: SlotClock> Network<AppReqId, T
         &mut self.swarm.behaviour_mut().eth2_rpc
     }
     /// Discv5 Discovery protocol.
-    pub fn discovery_mut(&mut self) -> &mut Discovery<TSpec, TSlotClock> {
+    pub fn discovery_mut(&mut self) -> &mut Discovery<TSpec> {
         &mut self.swarm.behaviour_mut().discovery
     }
     /// Provides IP addresses and peer information.
@@ -588,7 +585,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec, TSlotClock: SlotClock> Network<AppReqId, T
         &self.swarm.behaviour().eth2_rpc
     }
     /// Discv5 Discovery protocol.
-    pub fn discovery(&self) -> &Discovery<TSpec, TSlotClock> {
+    pub fn discovery(&self) -> &Discovery<TSpec> {
         &self.swarm.behaviour().discovery
     }
     /// Provides IP addresses and peer information.
@@ -952,13 +949,13 @@ impl<AppReqId: ReqId, TSpec: EthSpec, TSlotClock: SlotClock> Network<AppReqId, T
 
     /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
     /// would like to retain the peers for.
-    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
+    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<TargetedSubnetDiscovery>) {
         // If discovery is not started or disabled, ignore the request
         if !self.discovery().started {
             return;
         }
 
-        let filtered: Vec<SubnetDiscovery> = subnets_to_discover
+        let filtered: Vec<TargetedSubnetDiscovery> = subnets_to_discover
             .into_iter()
             .filter(|s| {
                 // Extend min_ttl of connected peers on required subnets
@@ -1582,7 +1579,15 @@ impl<AppReqId: ReqId, TSpec: EthSpec, TSlotClock: SlotClock> Network<AppReqId, T
             }
             PeerManagerEvent::DiscoverSubnetPeers(subnets_to_discover) => {
                 // Peer manager has requested a subnet discovery query for more peers.
-                self.discover_subnet_peers(subnets_to_discover);
+                let subnet_discoveries = subnets_to_discover
+                    .into_iter()
+                    .map(|s| TargetedSubnetDiscovery {
+                        subnet: s.subnet,
+                        min_ttl: s.min_ttl,
+                        target: DiscoveryTarget::Random,
+                    })
+                    .collect::<Vec<_>>();
+                self.discover_subnet_peers(subnet_discoveries);
                 None
             }
             PeerManagerEvent::Ping(peer_id) => {

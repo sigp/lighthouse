@@ -1,3 +1,4 @@
+use discv5::enr::NodeId;
 use serde::Serialize;
 use std::time::Instant;
 use types::{SubnetId, SyncSubnetId};
@@ -25,4 +26,15 @@ impl PartialEq for SubnetDiscovery {
     fn eq(&self, other: &SubnetDiscovery) -> bool {
         self.subnet.eq(&other.subnet)
     }
+}
+
+pub struct TargetedSubnetDiscovery {
+    pub subnet: Subnet,
+    pub min_ttl: Option<Instant>,
+    pub target: DiscoveryTarget,
+}
+
+pub enum DiscoveryTarget {
+    Random,
+    Prefix(Vec<NodeId>),
 }

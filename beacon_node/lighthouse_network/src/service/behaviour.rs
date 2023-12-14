@@ -17,11 +17,10 @@ pub type SubscriptionFilter =
 pub type Gossipsub = gossipsub::Behaviour<SnappyTransform, SubscriptionFilter>;
 
 #[derive(NetworkBehaviour)]
-pub(crate) struct Behaviour<AppReqId, TSpec, TSlotClock>
+pub(crate) struct Behaviour<AppReqId, TSpec>
 where
     AppReqId: ReqId,
     TSpec: EthSpec,
-    TSlotClock: SlotClock,
 {
     /// Keep track of active and pending connections to enforce hard limits.
     pub connection_limits: libp2p::connection_limits::Behaviour,
@@ -30,7 +29,7 @@ where
     /// The Eth2 RPC specified in the wire-0 protocol.
     pub eth2_rpc: RPC<RequestId<AppReqId>, TSpec>,
     /// Discv5 Discovery protocol.
-    pub discovery: Discovery<TSpec, TSlotClock>,
+    pub discovery: Discovery<TSpec>,
     /// Keep regular connection to peers and disconnect if absent.
     // NOTE: The id protocol is used for initial interop. This will be removed by mainnet.
     /// Provides IP addresses and peer information.
