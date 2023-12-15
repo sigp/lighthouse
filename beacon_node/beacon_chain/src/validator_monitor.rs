@@ -442,7 +442,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     /// Add some validators to `self` for additional monitoring.
-    fn add_validator_pubkey(&mut self, pubkey: PublicKeyBytes) {
+    pub fn add_validator_pubkey(&mut self, pubkey: PublicKeyBytes) {
         let index_opt = self
             .indices
             .iter()
