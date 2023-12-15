@@ -1,4 +1,5 @@
 pub mod attestation_rewards;
+pub mod attestation_simulator;
 pub mod attestation_verification;
 mod attester_cache;
 pub mod beacon_block_reward;
