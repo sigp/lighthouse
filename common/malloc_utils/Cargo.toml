@@ -13,7 +13,11 @@ jemalloc-ctl = { version = "0.5.0", optional = true }
 
 # Jemalloc's background_threads feature requires Linux (pthreads).
 [target.'cfg(target_os = "linux")'.dependencies]
-jemallocator = { version = "0.5.0", optional = true, features = ["stats", "background_threads"] }
+jemallocator = { version = "0.5.0", optional = true, features = [
+    "stats",
+    "background_threads",
+] }
+jemalloc-sys = { version = "0.5.0" }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 jemallocator = { version = "0.5.0", optional = true, features = ["stats"] }
@@ -21,4 +25,4 @@ jemallocator = { version = "0.5.0", optional = true, features = ["stats"] }
 [features]
 mallinfo2 = []
 jemalloc = ["jemallocator", "jemalloc-ctl"]
-jemalloc-profiling = ["jemallocator/profiling"]
+jemalloc_profiling = ["jemallocator/profiling"]

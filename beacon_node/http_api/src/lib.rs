@@ -63,10 +63,11 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::str::FromStr;
 use std::sync::Arc;
 use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_bn;
-use task_spawner::{Priority, TaskSpawner};
+use task_spawner::{convert_rejection, Priority, TaskSpawner};
 use tokio::sync::{
     mpsc::{Sender, UnboundedSender},
     oneshot,
@@ -4416,6 +4417,53 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/malloc/prof_dump
+    let post_lighthouse_malloc_prof_dump = warp::path("lighthouse")
+        .and(warp::path("malloc"))
+        .and(warp::path("prof_dump"))
+        .and(warp::body::json())
+        .and(warp::path::end())
+        // Skip the `BeaconProcessor` for memory dumps so we can execute them as
+        // quickly as possible. Memory dumps should be uncommon and very
+        // deliberate.
+        .then(|filename: String| {
+            let dump = || {
+                let path = PathBuf::from_str(&filename).map_err(|e| {
+                    warp_utils::reject::custom_bad_request(format!(
+                        "Unable to parse {filename} as path: {e:?}"
+                    ))
+                })?;
+                if path.exists() {
+                    Err(warp_utils::reject::custom_bad_request(format!(
+                        "{filename} already exists"
+                    )))
+                } else {
+                    malloc_utils::prof_dump(&filename)
+                        .map(|()| warp::reply::json(&filename).into_response())
+                        .map_err(warp_utils::reject::custom_bad_request)
+                }
+            };
+
+            convert_rejection(dump())
+        });
+
+    // POST lighthouse/malloc/prof_active
+    let post_lighthouse_malloc_prof_active = warp::path("lighthouse")
+        .and(warp::path("malloc"))
+        .and(warp::path("prof_active"))
+        .and(warp::body::json())
+        .and(warp::path::end())
+        // Skip the `BeaconProcessor` for profiling so we can execute it as
+        // quickly as possible. Memory dumps should be uncommon and very
+        // deliberate.
+        .then(|enable: bool| {
+            let result = malloc_utils::prof_active(enable)
+                .map(|()| warp::reply::json(&enable).into_response())
+                .map_err(warp_utils::reject::custom_bad_request);
+
+            convert_rejection(result)
+        });
+
     let get_events = eth_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -4677,6 +4725,8 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)
+                    .uor(post_lighthouse_malloc_prof_dump)
+                    .uor(post_lighthouse_malloc_prof_active)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )

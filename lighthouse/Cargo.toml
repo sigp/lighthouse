@@ -7,7 +7,8 @@ autotests = false
 rust-version = "1.73.0"
 
 [features]
-default = ["slasher-lmdb"]
+# TODO(paul): revert these default-feature changes.
+default = ["slasher-lmdb", "jemalloc", "jemalloc_profiling"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -26,6 +27,8 @@ slasher-mdbx = ["slasher/mdbx"]
 slasher-lmdb = ["slasher/lmdb"]
 # Use jemalloc.
 jemalloc = ["malloc_utils/jemalloc"]
+# Enable profiling in jemalloc.
+jemalloc_profiling = ["malloc_utils/jemalloc_profiling"]
 
 [dependencies]
 beacon_node = { workspace = true }

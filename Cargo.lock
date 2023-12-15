@@ -3427,6 +3427,7 @@ dependencies = [
  "lighthouse_version",
  "logging",
  "lru 0.7.8",
+ "malloc_utils",
  "network",
  "operation_pool",
  "parking_lot 0.12.1",
@@ -4807,6 +4808,7 @@ name = "malloc_utils"
 version = "0.1.0"
 dependencies = [
  "jemalloc-ctl",
+ "jemalloc-sys",
  "jemallocator",
  "lazy_static",
  "libc",
