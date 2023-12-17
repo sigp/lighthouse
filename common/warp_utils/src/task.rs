@@ -11,6 +11,7 @@ where
         .await
         .unwrap_or_else(|_| Err(warp::reject::reject()))
 }
+
 /// A convenience wrapper around `blocking_task` that returns a `warp::reply::Response`.
 ///
 /// Using this method consistently makes it possible to simplify types using `.unify()` or `.uor()`.
