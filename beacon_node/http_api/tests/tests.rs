@@ -2725,52 +2725,58 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            let (fork_version_response_bytes, is_blinded_payload) = self
+            let (response, metadata) = self
                 .client
                 .get_validator_blocks_v3_ssz::<E>(slot, &randao_reveal, None)
                 .await
+                .unwrap()
                 .unwrap();
 
-            if is_blinded_payload {
-                let blinded_block = <BlindedBeaconBlock<E>>::from_ssz_bytes(
-                    &fork_version_response_bytes.unwrap(),
-                    &self.chain.spec,
-                )
-                .expect("block contents bytes can be decoded");
+            match response {
+                ProduceBlockV3Response::Blinded(blinded_block) => {
+                    assert!(metadata.execution_payload_blinded);
+                    assert_eq!(
+                        metadata.consensus_version,
+                        blinded_block.to_ref().fork_name(&self.chain.spec).unwrap()
+                    );
+                    let signed_blinded_block =
+                        blinded_block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
-                let signed_blinded_block =
-                    blinded_block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+                    self.client
+                        .post_beacon_blinded_blocks_ssz(&signed_blinded_block)
+                        .await
+                        .unwrap();
 
-                self.client
-                    .post_beacon_blinded_blocks_ssz(&signed_blinded_block)
-                    .await
-                    .unwrap();
+                    let head_block = self.chain.head_beacon_block().clone_as_blinded();
+                    assert_eq!(head_block, signed_blinded_block);
 
-                let head_block = self.chain.head_beacon_block().clone_as_blinded();
-                assert_eq!(head_block, signed_blinded_block);
+                    self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                }
+                ProduceBlockV3Response::Full(block_contents) => {
+                    assert!(!metadata.execution_payload_blinded);
+                    assert_eq!(
+                        metadata.consensus_version,
+                        block_contents
+                            .block()
+                            .to_ref()
+                            .fork_name(&self.chain.spec)
+                            .unwrap()
+                    );
+                    let signed_block_contents =
+                        block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
-                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
-            } else {
-                let block_contents = <FullBlockContents<E>>::from_ssz_bytes(
-                    &fork_version_response_bytes.unwrap(),
-                    &self.chain.spec,
-                )
-                .expect("block contents bytes can be decoded");
+                    self.client
+                        .post_beacon_blocks_ssz(&signed_block_contents)
+                        .await
+                        .unwrap();
 
-                let signed_block_contents =
-                    block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+                    assert_eq!(
+                        self.chain.head_beacon_block().as_ref(),
+                        signed_block_contents.signed_block()
+                    );
 
-                self.client
-                    .post_beacon_blocks_ssz(&signed_block_contents)
-                    .await
-                    .unwrap();
-
-                assert_eq!(
-                    self.chain.head_beacon_block().as_ref(),
-                    signed_block_contents.signed_block()
-                );
-
-                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                    self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                }
             }
         }
 

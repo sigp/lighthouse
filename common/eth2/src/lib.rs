@@ -67,6 +67,8 @@ pub enum Error {
     InvalidJson(serde_json::Error),
     /// The server returned an invalid server-sent event.
     InvalidServerSentEvent(String),
+    /// The server sent invalid response headers.
+    InvalidHeaders(String),
     /// The server returned an invalid SSZ response.
     InvalidSsz(ssz::DecodeError),
     /// An I/O error occurred while loading an API token from disk.
@@ -97,6 +99,7 @@ impl Error {
             Error::MissingSignatureHeader => None,
             Error::InvalidJson(_) => None,
             Error::InvalidServerSentEvent(_) => None,
+            Error::InvalidHeaders(_) => None,
             Error::InvalidSsz(_) => None,
             Error::TokenReadError(..) => None,
             Error::NoServerPubkey | Error::NoToken => None,
@@ -1907,7 +1910,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<(Option<Vec<u8>>, bool), Error> {
+    ) -> Result<Option<(ProduceBlockV3Response<T>, ProduceBlockV3Metadata)>, Error> {
         self.get_validator_blocks_v3_modular_ssz::<T>(
             slot,
             randao_reveal,
@@ -1924,7 +1927,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<(Option<Vec<u8>>, bool), Error> {
+    ) -> Result<Option<(ProduceBlockV3Response<T>, ProduceBlockV3Metadata)>, Error> {
         let path = self
             .get_validator_blocks_v3_path::<T>(
                 slot,
@@ -1934,7 +1937,7 @@ impl BeaconNodeHttpClient {
             )
             .await?;
 
-        let (response_content, response_headers) = self
+        let (opt_response_bytes, opt_response_headers) = self
             .get_bytes_response_with_response_headers(
                 path,
                 Accept::Ssz,
@@ -1942,15 +1945,37 @@ impl BeaconNodeHttpClient {
             )
             .await?;
 
-        let is_blinded_payload = match response_headers {
-            Some(headers) => headers
-                .get(EXECUTION_PAYLOAD_BLINDED_HEADER)
-                .map(|value| value.to_str().unwrap_or_default().to_lowercase() == "true")
-                .unwrap_or(false),
-            None => false,
-        };
+        opt_response_bytes
+            .map(|response_bytes| {
+                // Try to parse metadata only if response content exists.
+                let response_headers = opt_response_headers
+                    .as_ref()
+                    .ok_or(Error::InvalidHeaders("no headers".into()))?;
+                let metadata = ProduceBlockV3Metadata::try_from(response_headers)
+                    .map_err(Error::InvalidHeaders)?;
 
-        Ok((response_content, is_blinded_payload))
+                // Parse bytes based on metadata.
+                let response = if metadata.execution_payload_blinded {
+                    ProduceBlockV3Response::Blinded(
+                        BlindedBeaconBlock::from_ssz_bytes_for_fork(
+                            &response_bytes,
+                            metadata.consensus_version,
+                        )
+                        .map_err(Error::InvalidSsz)?,
+                    )
+                } else {
+                    ProduceBlockV3Response::Full(
+                        FullBlockContents::from_ssz_bytes_for_fork(
+                            &response_bytes,
+                            metadata.consensus_version,
+                        )
+                        .map_err(Error::InvalidSsz)?,
+                    )
+                };
+
+                Ok((response, metadata))
+            })
+            .transpose()
     }
 
     /// `GET v2/validator/blocks/{slot}` in ssz format
