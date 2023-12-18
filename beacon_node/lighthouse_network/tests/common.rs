@@ -1,5 +1,4 @@
 #![cfg(test)]
-use libp2p::gossipsub;
 use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
@@ -8,7 +7,6 @@ use lighthouse_network::{NetworkConfig, NetworkEvent};
 use slog::{debug, error, o, Drain};
 use std::sync::Arc;
 use std::sync::Weak;
-use std::time::Duration;
 use tokio::runtime::Runtime;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Slot,
