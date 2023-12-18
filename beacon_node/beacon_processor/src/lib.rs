@@ -106,7 +106,7 @@ const MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 1_024;
 /// before we start dropping them.
 const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
 
-/// The maximum number of queued `SignedBlobSidecar` objects received on gossip that
+/// The maximum number of queued `BlobSidecar` objects received on gossip that
 /// will be stored before we start dropping them.
 const MAX_GOSSIP_BLOB_QUEUE_LEN: usize = 1_024;
 
@@ -1304,7 +1304,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_GOSSIP_BLOB_QUEUE_TOTAL,
-                    gossip_block_queue.len() as i64,
+                    gossip_blob_queue.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL,
