@@ -229,6 +229,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some blob column sidecar.
+    pub fn send_gossip_blob_column_sidecar(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        subnet_id: SubnetId,
+        column_sidecar: Arc<BlobColumnSidecar<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_blob_column_sidecar(
+                    message_id,
+                    peer_id,
+                    peer_client,
+                    subnet_id,
+                    column_sidecar,
+                    seen_timestamp,
+                )
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipBlobColumnSidecar(Box::pin(process_fn)),
+        })
+    }
+
     /// Create a new `Work` event for some sync committee signature.
     pub fn send_gossip_sync_signature(
         self: &Arc<Self>,

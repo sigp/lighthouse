@@ -17,7 +17,8 @@ use ssz_types::VariableList;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconStateError, BlobSidecar, CloneConfig, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
+    BeaconStateError, BlobColumnSidecar, BlobSidecar, CloneConfig, EthSpec, Hash256,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip blob.
@@ -183,6 +184,29 @@ pub type GossipVerifiedBlobList<T> = VariableList<
     GossipVerifiedBlob<T>,
     <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
 >;
+
+#[derive(Debug)]
+pub struct GossipVerifiedBlobColumnSidecar<T: BeaconChainTypes> {
+    blob_column_sidecar: Arc<BlobColumnSidecar<T::EthSpec>>,
+}
+
+impl<T: BeaconChainTypes> GossipVerifiedBlobColumnSidecar<T> {
+    pub fn new(
+        column_sidecar: Arc<BlobColumnSidecar<T::EthSpec>>,
+        subnet_id: u64,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, GossipBlobError<T::EthSpec>> {
+        let header = column_sidecar.signed_block_header.clone();
+        // We only process slashing info if the gossip verification failed
+        // since we do not process the blob any further in that case.
+        validate_blob_column_sidecar_for_gossip(column_sidecar, subnet_id, chain).map_err(|e| {
+            process_block_slash_info::<_, GossipBlobError<T::EthSpec>>(
+                chain,
+                BlockSlashInfo::from_early_error_blob(header, e),
+            )
+        })
+    }
+}
 
 /// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
@@ -634,6 +658,17 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     Ok(GossipVerifiedBlob {
         block_root,
         blob: kzg_verified_blob,
+    })
+}
+
+pub fn validate_blob_column_sidecar_for_gossip<T: BeaconChainTypes>(
+    blob_column_sidecar: Arc<BlobColumnSidecar<T::EthSpec>>,
+    _subnet: u64,
+    _chain: &BeaconChain<T>,
+) -> Result<GossipVerifiedBlobColumnSidecar<T>, GossipBlobError<T::EthSpec>> {
+    // TODO(das): validate
+    Ok(GossipVerifiedBlobColumnSidecar {
+        blob_column_sidecar: blob_column_sidecar.clone(),
     })
 }
 

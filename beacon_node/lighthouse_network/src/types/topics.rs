@@ -15,6 +15,7 @@ pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const BLOB_SIDECAR_PREFIX: &str = "blob_sidecar_";
+pub const BLOB_COLUMN_SIDECAR_PREFIX: &str = "blob_column_sidecar_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
@@ -98,6 +99,8 @@ pub enum GossipKind {
     BeaconAggregateAndProof,
     /// Topic for publishing BlobSidecars.
     BlobSidecar(u64),
+    /// Topic for publishing BlobColumnSidecars.
+    BlobColumnSidecar(SubnetId),
     /// Topic for publishing raw attestations on a particular subnet.
     #[strum(serialize = "beacon_attestation")]
     Attestation(SubnetId),
@@ -129,6 +132,9 @@ impl std::fmt::Display for GossipKind {
             }
             GossipKind::BlobSidecar(blob_index) => {
                 write!(f, "{}{}", BLOB_SIDECAR_PREFIX, blob_index)
+            }
+            GossipKind::BlobColumnSidecar(column_index) => {
+                write!(f, "{}{}", BLOB_COLUMN_SIDECAR_PREFIX, column_index)
             }
             x => f.write_str(x.as_ref()),
         }
@@ -255,6 +261,9 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::BlobSidecar(blob_index) => {
                 format!("{}{}", BLOB_SIDECAR_PREFIX, blob_index)
             }
+            GossipKind::BlobColumnSidecar(index) => {
+                format!("{}{}", BLOB_COLUMN_SIDECAR_PREFIX, *index)
+            }
             GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
             GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
             GossipKind::LightClientOptimisticUpdate => LIGHT_CLIENT_OPTIMISTIC_UPDATE.into(),
@@ -298,6 +307,10 @@ fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
         )));
     } else if let Some(index) = topic.strip_prefix(BLOB_SIDECAR_PREFIX) {
         return Some(GossipKind::BlobSidecar(index.parse::<u64>().ok()?));
+    } else if let Some(index) = topic.strip_prefix(BLOB_COLUMN_SIDECAR_PREFIX) {
+        return Some(GossipKind::BlobColumnSidecar(SubnetId::new(
+            index.parse::<u64>().ok()?,
+        )));
     }
     None
 }

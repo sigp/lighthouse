@@ -7,7 +7,9 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
+use crate::blob_verification::{
+    GossipBlobError, GossipVerifiedBlob, GossipVerifiedBlobColumnSidecar,
+};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
@@ -2048,6 +2050,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
         .map(|v| {
             metrics::inc_counter(&metrics::FINALITY_UPDATE_PROCESSING_SUCCESSES);
+            v
+        })
+    }
+
+    pub fn verify_blob_column_sidecar_for_gossip(
+        self: &Arc<Self>,
+        blob_column_sidecar: Arc<BlobColumnSidecar<T::EthSpec>>,
+        subnet_id: u64,
+    ) -> Result<GossipVerifiedBlobColumnSidecar<T>, GossipBlobError<T::EthSpec>> {
+        metrics::inc_counter(&metrics::BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::BLOBS_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
+        GossipVerifiedBlobColumnSidecar::new(blob_column_sidecar, subnet_id, self).map(|v| {
+            metrics::inc_counter(&metrics::BLOB_COLUMNS_SIDECAR_PROCESSING_SUCCESSES);
             v
         })
     }
