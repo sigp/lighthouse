@@ -376,8 +376,15 @@ fn main() {
         }
     };
 
+    let turn_on_terminal_logs = matches.is_present("env_log");
+
     if let Err(e) = tracing_subscriber::fmt()
         .with_env_filter(filter_layer)
+        .with_writer(move || {
+            tracing_subscriber::fmt::writer::OptionalWriter::<std::io::Stdout>::from(
+                turn_on_terminal_logs.then(std::io::stdout),
+            )
+        })
         .finish()
         .with(logging::MetricsLayer)
         .try_init()
