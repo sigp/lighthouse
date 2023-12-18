@@ -113,7 +113,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     let (gossip_verified_block, gossip_verified_blobs) =
         match block_contents.into_gossip_verified_block(&chain) {
             Ok(b) => b,
-            Err(BlockContentsError::BlockError(BlockError::BlockIsAlreadyKnown)) => {
+            Err(BlockContentsError::BlockError(BlockError::BlockIsAlreadyKnown))
+            | Err(BlockContentsError::BlobError(
+                beacon_chain::blob_verification::GossipBlobError::RepeatBlob { .. },
+            )) => {
                 // Allow the status code for duplicate blocks to be overridden based on config.
                 return Ok(warp::reply::with_status(
                     warp::reply::json(&ErrorMessage {
@@ -182,6 +185,23 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                 warn!(
                     log_clone,
                     "Not publishing equivocating block";
+                    "slot" => block_clone.slot()
+                );
+                Err(BlockError::Slashable)
+            } else if chain_clone
+                .observed_blob_sidecars
+                .read()
+                .proposer_has_been_observed(
+                    block_clone.slot(),
+                    block_clone.message().proposer_index(),
+                    block_root,
+                )
+                .map_err(|e| BlockError::BeaconChainError(e.into()))?
+                .is_slashable()
+            {
+                warn!(
+                    log_clone,
+                    "Not publishing equivocating blob";
                     "slot" => block_clone.slot()
                 );
                 Err(BlockError::Slashable)
