@@ -86,12 +86,6 @@ pub fn build_config(mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
-    // Reduce gossipsub heartbeat parameters
-    config.gs_config = gossipsub::ConfigBuilder::from(config.gs_config)
-        .heartbeat_initial_delay(Duration::from_millis(500))
-        .heartbeat_interval(Duration::from_millis(500))
-        .build()
-        .unwrap();
     config
 }
 
