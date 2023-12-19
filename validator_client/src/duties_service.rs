@@ -1005,13 +1005,13 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                 continue;
             };
 
-            let selection_look_ahead = if duties_service.distributed {
+            let selection_lookahead = if duties_service.distributed {
                 SELECTION_PROOF_SLOT_LOOKAHEAD_DVT
             } else {
                 SELECTION_PROOF_SLOT_LOOKAHEAD
             };
 
-            let lookahead_slot = current_slot + selection_look_ahead;
+            let lookahead_slot = current_slot + selection_lookahead;
 
             let mut relevant_duties = duties_by_slot.split_off(&lookahead_slot);
             std::mem::swap(&mut relevant_duties, &mut duties_by_slot);
