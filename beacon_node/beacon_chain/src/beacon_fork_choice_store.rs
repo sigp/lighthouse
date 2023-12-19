@@ -321,9 +321,17 @@ where
                 .deconstruct()
                 .0;
 
-            let state = self
+            let max_slot = self
+                .justified_checkpoint
+                .epoch
+                .start_slot(E::slots_per_epoch());
+            let (_, state) = self
                 .store
-                .get_state(&justified_block.state_root(), Some(justified_block.slot()))
+                .get_advanced_hot_state(
+                    self.justified_checkpoint.root,
+                    max_slot,
+                    justified_block.state_root(),
+                )
                 .map_err(Error::FailedToReadState)?
                 .ok_or_else(|| Error::MissingState(justified_block.state_root()))?;
 

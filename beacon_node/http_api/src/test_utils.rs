@@ -1,8 +1,6 @@
 use crate::{Config, Context};
 use beacon_chain::{
-    test_utils::{
-        BeaconChainHarness, BoxedMutator, Builder as HarnessBuilder, EphemeralHarnessType,
-    },
+    test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig};
@@ -23,7 +21,7 @@ use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
@@ -53,9 +51,8 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub external_peer_id: PeerId,
 }
 
-type Initializer<E> = Box<
-    dyn FnOnce(HarnessBuilder<EphemeralHarnessType<E>>) -> HarnessBuilder<EphemeralHarnessType<E>>,
->;
+type HarnessBuilder<E> = Builder<EphemeralHarnessType<E>>;
+type Initializer<E> = Box<dyn FnOnce(HarnessBuilder<E>) -> HarnessBuilder<E>>;
 type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
 
 impl<E: EthSpec> InteractiveTester<E> {
@@ -129,17 +126,9 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     test_runtime: &TestRuntime,
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
-    // Get a random unused port.
-    let port = unused_port::unused_tcp4_port().unwrap();
-    create_api_server_on_port(chain, test_runtime, log, port).await
-}
+    // Use port 0 to allocate a new unused port.
+    let port = 0;
 
-pub async fn create_api_server_on_port<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
-    test_runtime: &TestRuntime,
-    log: Logger,
-    port: u16,
-) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
     let (network_senders, network_receivers) = NetworkSenders::new();
 
     // Default metadata
@@ -152,8 +141,6 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
     let network_globals = Arc::new(NetworkGlobals::new(
         enr.clone(),
-        Some(TCP_PORT),
-        None,
         meta_data,
         vec![],
         false,
@@ -184,7 +171,14 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let eth1_service =
         eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone()).unwrap();
 
-    let beacon_processor_config = BeaconProcessorConfig::default();
+    let beacon_processor_config = BeaconProcessorConfig {
+        // The number of workers must be greater than one. Tests which use the
+        // builder workflow sometimes require an internal HTTP request in order
+        // to fulfill an already in-flight HTTP request, therefore having only
+        // one worker will result in a deadlock.
+        max_workers: 2,
+        ..BeaconProcessorConfig::default()
+    };
     let BeaconProcessorChannels {
         beacon_processor_tx,
         beacon_processor_rx,
@@ -196,11 +190,6 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     BeaconProcessor {
         network_globals: network_globals.clone(),
         executor: test_runtime.task_executor.clone(),
-        // The number of workers must be greater than one. Tests which use the
-        // builder workflow sometimes require an internal HTTP request in order
-        // to fulfill an already in-flight HTTP request, therefore having only
-        // one worker will result in a deadlock.
-        max_workers: 2,
         current_workers: 0,
         config: beacon_processor_config,
         log: log.clone(),
@@ -218,14 +207,10 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let ctx = Arc::new(Context {
         config: Config {
             enabled: true,
-            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: port,
-            allow_origin: None,
-            tls_config: None,
-            allow_sync_stalled: false,
             data_dir: std::path::PathBuf::from(DEFAULT_ROOT_DIR),
-            spec_fork_name: None,
-            enable_beacon_processor: true,
+            enable_light_client_server: true,
+            ..Config::default()
         },
         chain: Some(chain),
         network_senders: Some(network_senders),

@@ -87,7 +87,7 @@ pub fn scrape_process_health_metrics() {
     // This will silently fail if we are unable to observe the health. This is desired behaviour
     // since we don't support `Health` for all platforms.
     if let Ok(health) = ProcessHealth::observe() {
-        set_gauge(&PROCESS_NUM_THREADS, health.pid_num_threads as i64);
+        set_gauge(&PROCESS_NUM_THREADS, health.pid_num_threads);
         set_gauge(&PROCESS_RES_MEM, health.pid_mem_resident_set_size as i64);
         set_gauge(&PROCESS_VIRT_MEM, health.pid_mem_virtual_memory_size as i64);
         set_gauge(&PROCESS_SECONDS, health.pid_process_seconds_total as i64);

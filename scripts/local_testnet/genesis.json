@@ -13,6 +13,7 @@
     "londonBlock": 0,
     "mergeNetsplitBlock": 0,
     "shanghaiTime": 0,
+    "cancunTime": 0,
     "terminalTotalDifficulty": 0,
     "terminalTotalDifficultyPassed": true
   },

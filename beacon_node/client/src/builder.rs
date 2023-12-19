@@ -2,6 +2,8 @@ use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
+use beacon_chain::attestation_simulator::start_attestation_simulator_service;
+use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
@@ -29,7 +31,6 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
-use std::cmp;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -68,7 +69,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth1_service: Option<Eth1Service>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     network_senders: Option<NetworkSenders<T::EthSpec>>,
-    gossipsub_registry: Option<Registry>,
+    libp2p_registry: Option<Registry>,
     db_path: Option<PathBuf>,
     freezer_db_path: Option<PathBuf>,
     http_api_config: http_api::Config,
@@ -102,7 +103,7 @@ where
             eth1_service: None,
             network_globals: None,
             network_senders: None,
-            gossipsub_registry: None,
+            libp2p_registry: None,
             db_path: None,
             freezer_db_path: None,
             http_api_config: <_>::default(),
@@ -155,14 +156,18 @@ where
         let runtime_context =
             runtime_context.ok_or("beacon_chain_start_method requires a runtime context")?;
         let context = runtime_context.service_context("beacon".into());
+        let log = context.log();
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
-            Some(ServerSentEventHandler::new(context.log().clone()))
+            Some(ServerSentEventHandler::new(
+                context.log().clone(),
+                self.http_api_config.sse_capacity_multiplier,
+            ))
         } else {
             None
         };
 
-        let execution_layer = if let Some(config) = config.execution_layer {
+        let execution_layer = if let Some(config) = config.execution_layer.clone() {
             let context = runtime_context.service_context("exec".into());
             let execution_layer = ExecutionLayer::from_config(
                 config,
@@ -187,15 +192,7 @@ where
             .graffiti(graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
-            .monitor_validators(
-                config.validator_monitor_auto,
-                config.validator_monitor_pubkeys.clone(),
-                config.validator_monitor_individual_tracking_threshold,
-                runtime_context
-                    .service_context("val_mon".to_string())
-                    .log()
-                    .clone(),
-            );
+            .validator_monitor_config(config.validator_monitor.clone());
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
@@ -247,23 +244,19 @@ where
                 )?;
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
-            ClientGenesis::SszBytes {
-                genesis_state_bytes,
-            } => {
+            ClientGenesis::GenesisState => {
                 info!(
                     context.log(),
                     "Starting from known genesis state";
                 );
 
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
-                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
             ClientGenesis::WeakSubjSszBytes {
                 anchor_state_bytes,
                 anchor_block_bytes,
-                genesis_state_bytes,
             } => {
                 info!(context.log(), "Starting checkpoint sync");
                 if config.chain.genesis_backfill {
@@ -277,17 +270,13 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
-                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 builder
                     .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
                     .map(|v| (v, None))?
             }
-            ClientGenesis::CheckpointSyncUrl {
-                genesis_state_bytes,
-                url,
-            } => {
+            ClientGenesis::CheckpointSyncUrl { url } => {
                 info!(
                     context.log(),
                     "Starting checkpoint sync";
@@ -306,7 +295,6 @@ where
                         config.chain.checkpoint_sync_url_timeout,
                     )),
                 );
-                let slots_per_epoch = TEthSpec::slots_per_epoch();
 
                 let deposit_snapshot = if config.sync_eth1_chain {
                     // We want to fetch deposit snapshot before fetching the finalized beacon state to
@@ -353,10 +341,23 @@ where
                     None
                 };
 
-                debug!(context.log(), "Downloading finalized block");
-                // Find a suitable finalized block on an epoch boundary.
-                let mut block = remote
-                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
+                debug!(
+                    context.log(),
+                    "Downloading finalized state";
+                );
+                let state = remote
+                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Finalized, &spec)
+                    .await
+                    .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
+                    .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
+
+                debug!(context.log(), "Downloaded finalized state"; "slot" => ?state.slot());
+
+                let finalized_block_slot = state.latest_block_header().slot;
+
+                debug!(context.log(), "Downloading finalized block"; "block_slot" => ?finalized_block_slot);
+                let block = remote
+                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(finalized_block_slot), &spec)
                     .await
                     .map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
@@ -370,65 +371,14 @@ where
 
                 debug!(context.log(), "Downloaded finalized block");
 
-                let mut block_slot = block.slot();
-
-                while block.slot() % slots_per_epoch != 0 {
-                    block_slot = (block_slot / slots_per_epoch - 1) * slots_per_epoch;
-
-                    debug!(
-                        context.log(),
-                        "Searching for aligned checkpoint block";
-                        "block_slot" => block_slot
-                    );
-
-                    if let Some(found_block) = remote
-                        .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(block_slot), &spec)
-                        .await
-                        .map_err(|e| {
-                            format!("Error fetching block at slot {}: {:?}", block_slot, e)
-                        })?
-                    {
-                        block = found_block;
-                    }
-                }
-
-                debug!(
-                    context.log(),
-                    "Downloaded aligned finalized block";
-                    "block_root" => ?block.canonical_root(),
-                    "block_slot" => block.slot(),
-                );
-
-                let state_root = block.state_root();
-                debug!(
-                    context.log(),
-                    "Downloading finalized state";
-                    "state_root" => ?state_root
-                );
-                let state = remote
-                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Root(state_root), &spec)
-                    .await
-                    .map_err(|e| {
-                        format!(
-                            "Error loading checkpoint state from remote {:?}: {:?}",
-                            state_root, e
-                        )
-                    })?
-                    .ok_or_else(|| {
-                        format!("Checkpoint state missing from remote: {:?}", state_root)
-                    })?;
-
-                debug!(context.log(), "Downloaded finalized state");
-
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
-                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 info!(
                     context.log(),
                     "Loaded checkpoint block and state";
-                    "slot" => block.slot(),
+                    "block_slot" => block.slot(),
+                    "state_slot" => state.slot(),
                     "block_root" => ?block.canonical_root(),
-                    "state_root" => ?state_root,
                 );
 
                 let service =
@@ -552,6 +502,12 @@ where
             ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
         };
 
+        let beacon_chain_builder = if let Some(trusted_setup) = config.trusted_setup {
+            beacon_chain_builder.trusted_setup(trusted_setup)
+        } else {
+            beacon_chain_builder
+        };
+
         if config.sync_eth1_chain {
             self.eth1_service = eth1_service_option;
         }
@@ -576,7 +532,7 @@ where
             .ok_or("network requires beacon_processor_channels")?;
 
         // If gossipsub metrics are required we build a registry to record them
-        let mut gossipsub_registry = if config.metrics_enabled {
+        let mut libp2p_registry = if config.metrics_enabled {
             Some(Registry::default())
         } else {
             None
@@ -586,9 +542,7 @@ where
             beacon_chain,
             config,
             context.executor,
-            gossipsub_registry
-                .as_mut()
-                .map(|registry| registry.sub_registry_with_prefix("gossipsub")),
+            libp2p_registry.as_mut(),
             beacon_processor_channels.beacon_processor_tx.clone(),
             beacon_processor_channels.work_reprocessing_tx.clone(),
         )
@@ -597,7 +551,7 @@ where
 
         self.network_globals = Some(network_globals);
         self.network_senders = Some(network_senders);
-        self.gossipsub_registry = gossipsub_registry;
+        self.libp2p_registry = libp2p_registry;
 
         Ok(self)
     }
@@ -763,7 +717,7 @@ where
                 chain: self.beacon_chain.clone(),
                 db_path: self.db_path.clone(),
                 freezer_db_path: self.freezer_db_path.clone(),
-                gossipsub_registry: self.gossipsub_registry.take().map(std::sync::Mutex::new),
+                gossipsub_registry: self.libp2p_registry.take().map(std::sync::Mutex::new),
                 log: log.clone(),
             });
 
@@ -792,7 +746,6 @@ where
                 BeaconProcessor {
                     network_globals: network_globals.clone(),
                     executor: beacon_processor_context.executor.clone(),
-                    max_workers: cmp::max(1, num_cpus::get()),
                     current_workers: 0,
                     config: beacon_processor_config,
                     log: beacon_processor_context.log().clone(),
@@ -883,6 +836,14 @@ where
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
             start_otb_verification_service(runtime_context.executor.clone(), beacon_chain.clone());
+            start_availability_cache_maintenance_service(
+                runtime_context.executor.clone(),
+                beacon_chain.clone(),
+            );
+            start_attestation_simulator_service(
+                beacon_chain.task_executor.clone(),
+                beacon_chain.clone(),
+            );
         }
 
         Ok(Client {
@@ -943,6 +904,7 @@ where
         mut self,
         hot_path: &Path,
         cold_path: &Path,
+        blobs_path: &Path,
         config: StoreConfig,
         log: Logger,
     ) -> Result<Self, String> {
@@ -980,6 +942,7 @@ where
         let store = HotColdDB::open(
             hot_path,
             cold_path,
+            blobs_path,
             schema_upgrade,
             config,
             spec,
@@ -1125,4 +1088,24 @@ where
         self.slot_clock = Some(slot_clock);
         Ok(self)
     }
+}
+
+/// Obtain the genesis state from the `eth2_network_config` in `context`.
+async fn genesis_state<T: EthSpec>(
+    context: &RuntimeContext<T>,
+    config: &ClientConfig,
+    log: &Logger,
+) -> Result<BeaconState<T>, String> {
+    let eth2_network_config = context
+        .eth2_network_config
+        .as_ref()
+        .ok_or("An eth2_network_config is required to obtain the genesis state")?;
+    eth2_network_config
+        .genesis_state::<T>(
+            config.genesis_state_url.as_deref(),
+            config.genesis_state_url_timeout,
+            log,
+        )
+        .await?
+        .ok_or_else(|| "Genesis state is unknown".to_string())
 }

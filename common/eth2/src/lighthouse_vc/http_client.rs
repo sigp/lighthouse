@@ -226,9 +226,30 @@ impl ValidatorClientHttpClient {
         ok_or_error(response).await
     }
 
+    /// Perform a HTTP DELETE request, returning the `Response` for further processing.
+    async fn delete_response<U: IntoUrl>(&self, url: U) -> Result<Response, Error> {
+        let response = self
+            .client
+            .delete(url)
+            .headers(self.headers()?)
+            .send()
+            .await
+            .map_err(Error::from)?;
+        ok_or_error(response).await
+    }
+
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
         let response = self.get_response(url).await?;
         self.signed_json(response).await
+    }
+
+    async fn delete<U: IntoUrl>(&self, url: U) -> Result<(), Error> {
+        let response = self.delete_response(url).await?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(Error::StatusCode(response.status()))
+        }
     }
 
     async fn get_unsigned<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
@@ -537,6 +558,18 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
+    fn make_graffiti_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
+        let mut url = self.server.full.clone();
+        url.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push(&pubkey.to_string())
+            .push("graffiti");
+        Ok(url)
+    }
+
     fn make_gas_limit_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
         let mut url = self.server.full.clone();
         url.path_segments_mut()
@@ -666,7 +699,7 @@ impl ValidatorClientHttpClient {
         &self,
         pubkey: &PublicKeyBytes,
         epoch: Option<Epoch>,
-    ) -> Result<SignedVoluntaryExit, Error> {
+    ) -> Result<GenericResponse<SignedVoluntaryExit>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -683,6 +716,34 @@ impl ValidatorClientHttpClient {
         }
 
         self.post(path, &()).await
+    }
+
+    /// `GET /eth/v1/validator/{pubkey}/graffiti`
+    pub async fn get_graffiti(
+        &self,
+        pubkey: &PublicKeyBytes,
+    ) -> Result<GetGraffitiResponse, Error> {
+        let url = self.make_graffiti_url(pubkey)?;
+        self.get(url)
+            .await
+            .map(|generic: GenericResponse<GetGraffitiResponse>| generic.data)
+    }
+
+    /// `POST /eth/v1/validator/{pubkey}/graffiti`
+    pub async fn set_graffiti(
+        &self,
+        pubkey: &PublicKeyBytes,
+        graffiti: GraffitiString,
+    ) -> Result<(), Error> {
+        let url = self.make_graffiti_url(pubkey)?;
+        let set_graffiti_request = SetGraffitiRequest { graffiti };
+        self.post(url, &set_graffiti_request).await
+    }
+
+    /// `DELETE /eth/v1/validator/{pubkey}/graffiti`
+    pub async fn delete_graffiti(&self, pubkey: &PublicKeyBytes) -> Result<(), Error> {
+        let url = self.make_graffiti_url(pubkey)?;
+        self.delete(url).await
     }
 }
 

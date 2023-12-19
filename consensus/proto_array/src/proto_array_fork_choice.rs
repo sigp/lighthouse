@@ -7,7 +7,7 @@ use crate::{
     ssz_container::SszContainer,
     JustifiedBalances,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::{
@@ -188,7 +188,7 @@ where
 }
 
 /// Information about the proposer head used for opportunistic re-orgs.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ProposerHeadInfo {
     /// Information about the *current* head block, which may be re-orged.
     pub head_node: ProtoNode,
@@ -206,7 +206,7 @@ pub struct ProposerHeadInfo {
 ///
 /// This type intentionally does not implement `Debug` so that callers are forced to handle the
 /// enum.
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ProposerHeadError<E> {
     DoNotReOrg(DoNotReOrg),
     Error(E),
@@ -243,7 +243,7 @@ impl<E1> ProposerHeadError<E1> {
 /// Reasons why a re-org should not be attempted.
 ///
 /// This type intentionally does not implement `Debug` so that the `Display` impl must be used.
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DoNotReOrg {
     MissingHeadOrParentNode,
     MissingHeadFinalizedCheckpoint,
@@ -345,6 +345,7 @@ pub struct ProtoArrayForkChoice {
 impl ProtoArrayForkChoice {
     #[allow(clippy::too_many_arguments)]
     pub fn new<E: EthSpec>(
+        current_slot: Slot,
         finalized_block_slot: Slot,
         finalized_block_state_root: Hash256,
         justified_checkpoint: Checkpoint,
@@ -380,7 +381,7 @@ impl ProtoArrayForkChoice {
         };
 
         proto_array
-            .on_block::<E>(block, finalized_block_slot)
+            .on_block::<E>(block, current_slot)
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
@@ -984,6 +985,7 @@ mod test_compute_deltas {
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
+            genesis_slot,
             state_root,
             genesis_checkpoint,
             genesis_checkpoint,
@@ -1108,6 +1110,7 @@ mod test_compute_deltas {
         };
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            genesis_slot,
             genesis_slot,
             junk_state_root,
             genesis_checkpoint,

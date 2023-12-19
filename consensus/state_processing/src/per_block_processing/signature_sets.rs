@@ -387,12 +387,23 @@ where
     let exit = &signed_exit.message;
     let proposer_index = exit.validator_index as usize;
 
-    let domain = spec.get_domain(
-        exit.epoch,
-        Domain::VoluntaryExit,
-        &state.fork(),
-        state.genesis_validators_root(),
-    );
+    let domain = match state {
+        BeaconState::Base(_)
+        | BeaconState::Altair(_)
+        | BeaconState::Merge(_)
+        | BeaconState::Capella(_) => spec.get_domain(
+            exit.epoch,
+            Domain::VoluntaryExit,
+            &state.fork(),
+            state.genesis_validators_root(),
+        ),
+        // EIP-7044
+        BeaconState::Deneb(_) => spec.compute_domain(
+            Domain::VoluntaryExit,
+            spec.capella_fork_version,
+            state.genesis_validators_root(),
+        ),
+    };
 
     let message = exit.signing_root(domain);
 

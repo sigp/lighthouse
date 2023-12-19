@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result;
 use crate::impl_bls_load_case;
 use bls::{PublicKeyBytes, Signature, SignatureBytes};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::convert::TryInto;
 use types::Hash256;
 

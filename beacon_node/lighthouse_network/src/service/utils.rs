@@ -4,11 +4,12 @@ use crate::types::{
     error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind,
 };
 use crate::{GossipTopic, NetworkConfig};
-use libp2p::bandwidth::BandwidthSinks;
+use futures::future::Either;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::gossipsub;
 use libp2p::identity::{secp256k1, Keypair};
-use libp2p::{core, noise, yamux, PeerId, Transport, TransportExt};
+use libp2p::quic;
+use libp2p::{core, noise, yamux, PeerId, Transport};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
 use ssz::Decode;
@@ -32,37 +33,54 @@ pub struct Context<'a> {
     pub enr_fork_id: EnrForkId,
     pub fork_context: Arc<ForkContext>,
     pub chain_spec: &'a ChainSpec,
-    pub gossipsub_registry: Option<&'a mut Registry>,
+    pub libp2p_registry: Option<&'a mut Registry>,
 }
 
 type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 
-/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
-/// mplex as the multiplexing layer.
+/// The implementation supports TCP/IP, QUIC (experimental) over UDP, noise as the encryption layer, and
+/// mplex/yamux as the multiplexing layer (when using TCP).
 pub fn build_transport(
     local_private_key: Keypair,
-) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
-    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true));
-    let transport = libp2p::dns::TokioDnsConfig::system(tcp)?;
-    #[cfg(feature = "libp2p-websocket")]
-    let transport = {
-        let trans_clone = transport.clone();
-        transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
-    };
+    quic_support: bool,
+) -> std::io::Result<BoxedTransport> {
+    // mplex config
+    let mut mplex_config = libp2p_mplex::MplexConfig::new();
+    mplex_config.set_max_buffer_size(256);
+    mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
 
     // yamux config
     let mut yamux_config = yamux::Config::default();
     yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());
-    let (transport, bandwidth) = transport
+    // Creates the TCP transport layer
+    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(yamux_config)
-        .timeout(Duration::from_secs(10))
-        .boxed()
-        .with_bandwidth_logging();
+        .multiplex(core::upgrade::SelectUpgrade::new(
+            yamux_config,
+            mplex_config,
+        ))
+        .timeout(Duration::from_secs(10));
+    let transport = if quic_support {
+        // Enables Quic
+        // The default quic configuration suits us for now.
+        let quic_config = quic::Config::new(&local_private_key);
+        let quic = quic::tokio::Transport::new(quic_config);
+        let transport = tcp
+            .or_transport(quic)
+            .map(|either_output, _| match either_output {
+                Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
+                Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
+            });
+        transport.boxed()
+    } else {
+        tcp.boxed()
+    };
 
-    // Authentication
-    Ok((transport, bandwidth))
+    // Enables DNS over the transport.
+    let transport = libp2p::dns::tokio::Transport::system(transport)?.boxed();
+
+    Ok(transport)
 }
 
 // Useful helper functions for debugging. Currently not used in the client.
@@ -214,6 +232,7 @@ pub(crate) fn create_whitelist_filter(
     possible_fork_digests: Vec<[u8; 4]>,
     attestation_subnet_count: u64,
     sync_committee_subnet_count: u64,
+    blob_sidecar_subnet_count: u64,
 ) -> gossipsub::WhitelistSubscriptionFilter {
     let mut possible_hashes = HashSet::new();
     for fork_digest in possible_fork_digests {
@@ -238,6 +257,9 @@ pub(crate) fn create_whitelist_filter(
         }
         for id in 0..sync_committee_subnet_count {
             add(SyncCommitteeMessage(SyncSubnetId::new(id)));
+        }
+        for id in 0..blob_sidecar_subnet_count {
+            add(BlobSidecar(id));
         }
     }
     gossipsub::WhitelistSubscriptionFilter(possible_hashes)

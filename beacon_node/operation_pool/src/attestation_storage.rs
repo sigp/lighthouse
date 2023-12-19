@@ -151,14 +151,8 @@ impl<T: EthSpec> AttestationMap<T> {
             indexed,
         } = SplitAttestation::new(attestation, attesting_indices);
 
-        let attestation_map = self
-            .checkpoint_map
-            .entry(checkpoint)
-            .or_insert_with(AttestationDataMap::default);
-        let attestations = attestation_map
-            .attestations
-            .entry(data)
-            .or_insert_with(Vec::new);
+        let attestation_map = self.checkpoint_map.entry(checkpoint).or_default();
+        let attestations = attestation_map.attestations.entry(data).or_default();
 
         // Greedily aggregate the attestation with all existing attestations.
         // NOTE: this is sub-optimal and in future we will remove this in favour of max-clique

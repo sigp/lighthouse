@@ -47,6 +47,7 @@ use crate::status::ToStatusMessage;
 use crate::sync::manager::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::PeerId;
@@ -55,7 +56,7 @@ use lru_cache::LRUTimeCache;
 use slog::{crit, debug, trace, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// For how long we store failed finalized chains to prevent retries.
 const FAILED_CHAINS_EXPIRY_SECONDS: u64 = 30;
@@ -141,13 +142,20 @@ where
                 debug!(self.log, "Finalization sync peer joined"; "peer_id" => %peer_id);
                 self.awaiting_head_peers.remove(&peer_id);
 
+                // Because of our change in finalized sync batch size from 2 to 1 and our transition
+                // to using exact epoch boundaries for batches (rather than one slot past the epoch
+                // boundary), we need to sync finalized sync to 2 epochs + 1 slot past our peer's
+                // finalized slot in order to finalize the chain locally.
+                let target_head_slot =
+                    remote_finalized_slot + (2 * T::EthSpec::slots_per_epoch()) + 1;
+
                 // Note: We keep current head chains. These can continue syncing whilst we complete
                 // this new finalized chain.
 
                 self.chains.add_peer_or_create_chain(
                     local_info.finalized_epoch,
                     remote_info.finalized_root,
-                    remote_finalized_slot,
+                    target_head_slot,
                     peer_id,
                     RangeSyncType::Finalized,
                     network,
@@ -202,7 +210,7 @@ where
         chain_id: ChainId,
         batch_id: BatchId,
         request_id: Id,
-        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<RpcBlock<T::EthSpec>>,
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {
@@ -376,22 +384,21 @@ mod tests {
     use crate::NetworkMessage;
 
     use super::*;
+    use crate::sync::network_context::BlockOrBlob;
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::parking_lot::RwLock;
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use beacon_chain::EngineState;
     use beacon_processor::WorkEvent as BeaconWorkEvent;
-    use lighthouse_network::rpc::BlocksByRangeRequest;
-    use lighthouse_network::Request;
     use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
     use slog::{o, Drain};
-    use tokio::sync::mpsc;
-
-    use slot_clock::ManualSlotClock;
+    use slot_clock::TestingSlotClock;
     use std::collections::HashSet;
     use std::sync::Arc;
     use store::MemoryStore;
-    use types::{Hash256, MinimalEthSpec as E};
+    use tokio::sync::mpsc;
+    use types::{ForkName, Hash256, MinimalEthSpec as E};
 
     #[derive(Debug)]
     struct FakeStorage {
@@ -438,7 +445,7 @@ mod tests {
     }
 
     type TestBeaconChainType =
-        Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+        Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
     fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -457,7 +464,7 @@ mod tests {
         log: slog::Logger,
         /// To check what does sync send to the beacon processor.
         beacon_processor_rx: mpsc::Receiver<BeaconWorkEvent<E>>,
-        /// To set up different scenarios where sync is told about known/unkown blocks.
+        /// To set up different scenarios where sync is told about known/unknown blocks.
         chain: Arc<FakeStorage>,
         /// Needed by range to handle communication with the network.
         cx: SyncNetworkContext<TestBeaconChainType>,
@@ -507,18 +514,39 @@ mod tests {
 
         /// Reads an BlocksByRange request to a given peer from the network receiver channel.
         #[track_caller]
-        fn grab_request(&mut self, expected_peer: &PeerId) -> (RequestId, BlocksByRangeRequest) {
-            if let Ok(NetworkMessage::SendRequest {
+        fn grab_request(
+            &mut self,
+            expected_peer: &PeerId,
+            fork_name: ForkName,
+        ) -> (RequestId, Option<RequestId>) {
+            let block_req_id = if let Ok(NetworkMessage::SendRequest {
                 peer_id,
-                request: Request::BlocksByRange(request),
+                request: _,
                 request_id,
             }) = self.network_rx.try_recv()
             {
                 assert_eq!(&peer_id, expected_peer);
-                (request_id, request)
+                request_id
             } else {
                 panic!("Should have sent a batch request to the peer")
-            }
+            };
+            let blob_req_id = match fork_name {
+                ForkName::Deneb => {
+                    if let Ok(NetworkMessage::SendRequest {
+                        peer_id,
+                        request: _,
+                        request_id,
+                    }) = self.network_rx.try_recv()
+                    {
+                        assert_eq!(&peer_id, expected_peer);
+                        Some(request_id)
+                    } else {
+                        panic!("Should have sent a batch request to the peer")
+                    }
+                }
+                _ => None,
+            };
+            (block_req_id, blob_req_id)
         }
 
         /// Produce a head peer
@@ -592,10 +620,19 @@ mod tests {
     }
 
     fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
-        let chain = Arc::new(FakeStorage::default());
         let log = build_log(slog::Level::Trace, log_enabled);
+        // Initialise a new beacon chain
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
+            .default_spec()
+            .logger(log.clone())
+            .deterministic_keypairs(1)
+            .fresh_ephemeral_store()
+            .build();
+        let chain = harness.chain;
+
+        let fake_store = Arc::new(FakeStorage::default());
         let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
-            chain.clone(),
+            fake_store.clone(),
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
@@ -605,12 +642,13 @@ mod tests {
         let cx = SyncNetworkContext::new(
             network_tx,
             Arc::new(network_beacon_processor),
+            chain,
             log.new(o!("component" => "network_context")),
         );
         let test_rig = TestRig {
             log,
             beacon_processor_rx,
-            chain,
+            chain: fake_store,
             cx,
             network_rx,
             globals,
@@ -628,8 +666,14 @@ mod tests {
         range.add_peer(&mut rig.cx, local_info, head_peer, remote_info);
         range.assert_state(RangeSyncType::Head);
 
+        let fork = rig
+            .cx
+            .chain
+            .spec
+            .fork_name_at_epoch(rig.cx.chain.epoch().unwrap());
+
         // Sync should have requested a batch, grab the request.
-        let _request = rig.grab_request(&head_peer);
+        let _ = rig.grab_request(&head_peer, fork);
 
         // Now get a peer with an advanced finalized epoch.
         let (finalized_peer, local_info, remote_info) = rig.finalized_peer();
@@ -637,7 +681,7 @@ mod tests {
         range.assert_state(RangeSyncType::Finalized);
 
         // Sync should have requested a batch, grab the request
-        let _second_request = rig.grab_request(&finalized_peer);
+        let _ = rig.grab_request(&finalized_peer, fork);
 
         // Fail the head chain by disconnecting the peer.
         range.remove_peer(&mut rig.cx, &head_peer);
@@ -655,8 +699,14 @@ mod tests {
         range.add_peer(&mut rig.cx, local_info, head_peer, head_info);
         range.assert_state(RangeSyncType::Head);
 
+        let fork = rig
+            .cx
+            .chain
+            .spec
+            .fork_name_at_epoch(rig.cx.chain.epoch().unwrap());
+
         // Sync should have requested a batch, grab the request.
-        let _request = rig.grab_request(&head_peer);
+        let _ = rig.grab_request(&head_peer, fork);
 
         // Now get a peer with an advanced finalized epoch.
         let (finalized_peer, local_info, remote_info) = rig.finalized_peer();
@@ -665,7 +715,7 @@ mod tests {
         range.assert_state(RangeSyncType::Finalized);
 
         // Sync should have requested a batch, grab the request
-        let _second_request = rig.grab_request(&finalized_peer);
+        let _ = rig.grab_request(&finalized_peer, fork);
 
         // Now the chain knows both chains target roots.
         rig.chain.remember_block(head_peer_root);
@@ -679,15 +729,39 @@ mod tests {
     #[test]
     fn pause_and_resume_on_ee_offline() {
         let (mut rig, mut range) = range(true);
+        let fork = rig
+            .cx
+            .chain
+            .spec
+            .fork_name_at_epoch(rig.cx.chain.epoch().unwrap());
 
         // add some peers
         let (peer1, local_info, head_info) = rig.head_peer();
         range.add_peer(&mut rig.cx, local_info, peer1, head_info);
-        let ((chain1, batch1), id1) = match rig.grab_request(&peer1).0 {
-            RequestId::Sync(crate::sync::manager::RequestId::RangeSync { id }) => {
-                (rig.cx.range_sync_response(id, true).unwrap(), id)
+        let (block_req, blob_req_opt) = rig.grab_request(&peer1, fork);
+
+        let (chain1, batch1, id1) = if blob_req_opt.is_some() {
+            match block_req {
+                RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
+                    let _ = rig
+                        .cx
+                        .range_sync_block_and_blob_response(id, BlockOrBlob::Block(None));
+                    let (chain1, response) = rig
+                        .cx
+                        .range_sync_block_and_blob_response(id, BlockOrBlob::Blob(None))
+                        .unwrap();
+                    (chain1, response.batch_id, id)
+                }
+                other => panic!("unexpected request {:?}", other),
             }
-            other => panic!("unexpected request {:?}", other),
+        } else {
+            match block_req {
+                RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
+                    let (chain, batch) = rig.cx.range_sync_block_only_response(id, true).unwrap();
+                    (chain, batch, id)
+                }
+                other => panic!("unexpected request {:?}", other),
+            }
         };
 
         // make the ee offline
@@ -702,11 +776,30 @@ mod tests {
         // while the ee is offline, more peers might arrive. Add a new finalized peer.
         let (peer2, local_info, finalized_info) = rig.finalized_peer();
         range.add_peer(&mut rig.cx, local_info, peer2, finalized_info);
-        let ((chain2, batch2), id2) = match rig.grab_request(&peer2).0 {
-            RequestId::Sync(crate::sync::manager::RequestId::RangeSync { id }) => {
-                (rig.cx.range_sync_response(id, true).unwrap(), id)
+        let (block_req, blob_req_opt) = rig.grab_request(&peer2, fork);
+
+        let (chain2, batch2, id2) = if blob_req_opt.is_some() {
+            match block_req {
+                RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
+                    let _ = rig
+                        .cx
+                        .range_sync_block_and_blob_response(id, BlockOrBlob::Block(None));
+                    let (chain2, response) = rig
+                        .cx
+                        .range_sync_block_and_blob_response(id, BlockOrBlob::Blob(None))
+                        .unwrap();
+                    (chain2, response.batch_id, id)
+                }
+                other => panic!("unexpected request {:?}", other),
             }
-            other => panic!("unexpected request {:?}", other),
+        } else {
+            match block_req {
+                RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
+                    let (chain, batch) = rig.cx.range_sync_block_only_response(id, true).unwrap();
+                    (chain, batch, id)
+                }
+                other => panic!("unexpected request {:?}", other),
+            }
         };
 
         // send the response to the request

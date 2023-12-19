@@ -51,7 +51,7 @@ mod tests {
 
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
     /// assume it failed to start.
-    const UPCHECK_TIMEOUT: Duration = Duration::from_secs(20);
+    const UPCHECK_TIMEOUT: Duration = Duration::from_secs(30);
 
     /// Set to `false` to send the Web3Signer logs to the console during tests. Logs are useful when
     /// debugging.

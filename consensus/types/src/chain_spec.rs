@@ -1,8 +1,8 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::*;
 use int_to_bytes::int_to_bytes4;
+use serde::Deserialize;
 use serde::{Deserializer, Serialize, Serializer};
-use serde_derive::Deserialize;
 use serde_utils::quoted_u64::MaybeQuoted;
 use std::fs::File;
 use std::path::Path;
@@ -50,6 +50,7 @@ pub struct ChainSpec {
     pub max_committees_per_slot: usize,
     pub target_committee_size: usize,
     pub min_per_epoch_churn_limit: u64,
+    pub max_per_epoch_activation_churn_limit: u64,
     pub churn_limit_quotient: u64,
     pub shuffle_round_count: u8,
     pub min_genesis_active_validator_count: u64,
@@ -161,6 +162,12 @@ pub struct ChainSpec {
     pub max_validators_per_withdrawals_sweep: u64,
 
     /*
+     * Deneb hard fork params
+     */
+    pub deneb_fork_version: [u8; 4],
+    pub deneb_fork_epoch: Option<Epoch>,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -254,13 +261,16 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.capella_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-            _ => match self.bellatrix_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-                _ => match self.altair_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                    _ => ForkName::Base,
+        match self.deneb_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
+            _ => match self.capella_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+                _ => match self.bellatrix_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+                    _ => match self.altair_fork_epoch {
+                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                        _ => ForkName::Base,
+                    },
                 },
             },
         }
@@ -273,6 +283,7 @@ impl ChainSpec {
             ForkName::Altair => self.altair_fork_version,
             ForkName::Merge => self.bellatrix_fork_version,
             ForkName::Capella => self.capella_fork_version,
+            ForkName::Deneb => self.deneb_fork_version,
         }
     }
 
@@ -283,6 +294,7 @@ impl ChainSpec {
             ForkName::Altair => self.altair_fork_epoch,
             ForkName::Merge => self.bellatrix_fork_epoch,
             ForkName::Capella => self.capella_fork_epoch,
+            ForkName::Deneb => self.deneb_fork_epoch,
         }
     }
 
@@ -293,6 +305,7 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
             BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
+            BeaconState::Deneb(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -306,6 +319,7 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
             BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
             BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
+            BeaconState::Deneb(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -319,6 +333,7 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
             BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
+            BeaconState::Deneb(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -493,6 +508,7 @@ impl ChainSpec {
             max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
+            max_per_epoch_activation_churn_limit: 8,
             churn_limit_quotient: 65_536,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 16_384,
@@ -622,6 +638,12 @@ impl ChainSpec {
             max_validators_per_withdrawals_sweep: 16384,
 
             /*
+             * Deneb hard fork params
+             */
+            deneb_fork_version: [0x04, 0x00, 0x00, 0x00],
+            deneb_fork_epoch: None,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -662,6 +684,8 @@ impl ChainSpec {
             config_name: None,
             max_committees_per_slot: 4,
             target_committee_size: 4,
+            min_per_epoch_churn_limit: 2,
+            max_per_epoch_activation_churn_limit: 4,
             churn_limit_quotient: 32,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
@@ -693,6 +717,9 @@ impl ChainSpec {
             capella_fork_version: [0x03, 0x00, 0x00, 0x01],
             capella_fork_epoch: None,
             max_validators_per_withdrawals_sweep: 16,
+            // Deneb
+            deneb_fork_version: [0x04, 0x00, 0x00, 0x01],
+            deneb_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -723,6 +750,7 @@ impl ChainSpec {
             max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
+            max_per_epoch_activation_churn_limit: 8,
             churn_limit_quotient: 4_096,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 4_096,
@@ -854,6 +882,12 @@ impl ChainSpec {
             max_validators_per_withdrawals_sweep: 8192,
 
             /*
+             * Deneb hard fork params
+             */
+            deneb_fork_version: [0x04, 0x00, 0x00, 0x64],
+            deneb_fork_epoch: None,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -950,6 +984,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub capella_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_deneb_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    deneb_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub deneb_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -972,6 +1014,9 @@ pub struct Config {
     ejection_balance: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
+    #[serde(default = "default_max_per_epoch_activation_churn_limit")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_per_epoch_activation_churn_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     churn_limit_quotient: u64,
 
@@ -1023,6 +1068,11 @@ fn default_capella_fork_version() -> [u8; 4] {
     [0xff, 0xff, 0xff, 0xff]
 }
 
+fn default_deneb_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
 /// Placeholder value: 2^256-2^10 (115792089237316195423570985008687907853269984665640564039457584007913129638912).
 ///
 /// Taken from https://github.com/ethereum/consensus-specs/blob/d5e4828aecafaf1c57ef67a5f23c4ae7b08c5137/configs/mainnet.yaml#L15-L16
@@ -1049,6 +1099,10 @@ fn default_safe_slots_to_import_optimistically() -> u64 {
 
 fn default_subnets_per_node() -> u8 {
     2u8
+}
+
+const fn default_max_per_epoch_activation_churn_limit() -> u64 {
+    8
 }
 
 const fn default_gossip_max_size() -> u64 {
@@ -1163,6 +1217,10 @@ impl Config {
             capella_fork_epoch: spec
                 .capella_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+            deneb_fork_version: spec.deneb_fork_version,
+            deneb_fork_epoch: spec
+                .deneb_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
@@ -1176,6 +1234,7 @@ impl Config {
             ejection_balance: spec.ejection_balance,
             churn_limit_quotient: spec.churn_limit_quotient,
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
+            max_per_epoch_activation_churn_limit: spec.max_per_epoch_activation_churn_limit,
 
             proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
 
@@ -1221,6 +1280,8 @@ impl Config {
             bellatrix_fork_version,
             capella_fork_epoch,
             capella_fork_version,
+            deneb_fork_epoch,
+            deneb_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1231,6 +1292,7 @@ impl Config {
             inactivity_score_recovery_rate,
             ejection_balance,
             min_per_epoch_churn_limit,
+            max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost,
             deposit_chain_id,
@@ -1263,6 +1325,8 @@ impl Config {
             bellatrix_fork_version,
             capella_fork_epoch: capella_fork_epoch.map(|q| q.value),
             capella_fork_version,
+            deneb_fork_epoch: deneb_fork_epoch.map(|q| q.value),
+            deneb_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1273,6 +1337,7 @@ impl Config {
             inactivity_score_recovery_rate,
             ejection_balance,
             min_per_epoch_churn_limit,
+            max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost: proposer_score_boost.map(|q| q.value),
             deposit_chain_id,
@@ -1525,6 +1590,7 @@ mod yaml_tests {
         INACTIVITY_SCORE_RECOVERY_RATE: 16
         EJECTION_BALANCE: 16000000000
         MIN_PER_EPOCH_CHURN_LIMIT: 4
+        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
         CHURN_LIMIT_QUOTIENT: 65536
         PROPOSER_SCORE_BOOST: 40
         DEPOSIT_CHAIN_ID: 1
