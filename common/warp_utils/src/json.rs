@@ -1,4 +1,4 @@
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use serde::de::DeserializeOwned;
 use std::error::Error as StdError;
 use warp::{Filter, Rejection};
@@ -10,13 +10,13 @@ struct Json;
 type BoxError = Box<dyn StdError + Send + Sync>;
 
 impl Json {
-    fn decode<B: Buf, T: DeserializeOwned>(mut buf: B) -> Result<T, BoxError> {
-        serde_json::from_slice(&buf.copy_to_bytes(buf.remaining())).map_err(Into::into)
+    fn decode<T: DeserializeOwned>(bytes: Bytes) -> Result<T, BoxError> {
+        serde_json::from_slice(&bytes).map_err(Into::into)
     }
 }
 
 pub fn json<T: DeserializeOwned + Send>() -> impl Filter<Extract = (T,), Error = Rejection> + Copy {
-    warp::body::bytes().and_then(|buf: Bytes| async move {
-        Json::decode(buf).map_err(|err| reject::custom_bad_request(format!("{:?}", err)))
+    warp::body::bytes().and_then(|bytes: Bytes| async move {
+        Json::decode(bytes).map_err(|err| reject::custom_bad_request(format!("{:?}", err)))
     })
 }

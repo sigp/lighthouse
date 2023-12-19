@@ -383,7 +383,7 @@ impl BeaconNodeHttpClient {
             builder = builder.timeout(timeout);
         }
 
-        let serialized_body = serde_json::to_vec(body).unwrap();
+        let serialized_body = serde_json::to_vec(body).map_err(Error::InvalidJson)?;
 
         let response = builder.body(serialized_body).send().await?;
         ok_or_error(response).await
