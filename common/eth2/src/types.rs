@@ -1434,12 +1434,6 @@ pub mod serde_status_code {
     }
 }
 
-// FIXME(sproul): replace by ForkVersionedResponse<ProduceBlockV3Response>?
-pub enum ForkVersionedBeaconBlockType<T: EthSpec> {
-    Full(ForkVersionedResponse<FullBlockContents<T>>),
-    Blinded(ForkVersionedResponse<BlindedBeaconBlock<T>>),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
