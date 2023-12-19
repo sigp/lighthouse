@@ -112,8 +112,8 @@ async fn state_by_root_pruned_from_fork_choice() {
             .unwrap()
             .unwrap();
 
-        assert!(response.finalized.unwrap());
-        assert!(!response.execution_optimistic.unwrap());
+        assert!(response.metadata.finalized.unwrap());
+        assert!(!response.metadata.execution_optimistic.unwrap());
 
         let mut state = response.data;
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
@@ -624,7 +624,7 @@ pub async fn proposer_boost_re_org_test(
         .await
         .unwrap();
 
-    let (unsigned_block_c, block_c_blobs) = match unsigned_block_type {
+    let (unsigned_block_c, block_c_blobs) = match unsigned_block_type.data {
         ProduceBlockV3Response::Full(unsigned_block_contents_c) => {
             unsigned_block_contents_c.deconstruct()
         }

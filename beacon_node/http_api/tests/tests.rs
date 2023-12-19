@@ -655,6 +655,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
+                .metadata
                 .finalized
                 .unwrap();
 
@@ -691,6 +692,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
+                .metadata
                 .finalized
                 .unwrap();
 
@@ -728,6 +730,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
+                .metadata
                 .finalized
                 .unwrap();
 
@@ -3554,7 +3557,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: BlindedPayload<E> = match payload_type {
+        let payload: BlindedPayload<E> = match payload_type.data {
             ProduceBlockV3Response::Blinded(payload) => {
                 payload.body().execution_payload().unwrap().into()
             }
@@ -3658,7 +3661,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: BlindedPayload<E> = match payload_type {
+        let payload: BlindedPayload<E> = match payload_type.data {
             ProduceBlockV3Response::Blinded(payload) => {
                 payload.body().execution_payload().unwrap().into()
             }
@@ -3734,7 +3737,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: BlindedPayload<E> = match payload_type {
+        let payload: BlindedPayload<E> = match payload_type.data {
             ProduceBlockV3Response::Blinded(payload) => {
                 payload.body().execution_payload().unwrap().into()
             }
@@ -3824,7 +3827,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
+        let payload: FullPayload<E> = match payload_type.data {
             ProduceBlockV3Response::Full(payload) => {
                 payload.block().body().execution_payload().unwrap().into()
             }
@@ -3910,7 +3913,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
+        let payload: FullPayload<E> = match payload_type.data {
             ProduceBlockV3Response::Full(payload) => {
                 payload.block().body().execution_payload().unwrap().into()
             }
@@ -3996,7 +3999,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
+        let payload: FullPayload<E> = match payload_type.data {
             ProduceBlockV3Response::Full(payload) => {
                 payload.block().body().execution_payload().unwrap().into()
             }
@@ -4080,7 +4083,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
+        let payload: FullPayload<E> = match payload_type.data {
             ProduceBlockV3Response::Full(payload) => {
                 payload.block().body().execution_payload().unwrap().into()
             }
@@ -4136,7 +4139,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        match payload_type {
+        match payload_type.data {
             ProduceBlockV3Response::Full(_) => (),
             ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
@@ -4202,7 +4205,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        match payload_type {
+        match payload_type.data {
             ProduceBlockV3Response::Full(_) => (),
             ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
@@ -4310,7 +4313,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        match payload_type {
+        match payload_type.data {
             ProduceBlockV3Response::Blinded(_) => (),
             ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
         };
@@ -4330,7 +4333,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        match payload_type {
+        match payload_type.data {
             ProduceBlockV3Response::Full(_) => (),
             ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
@@ -4458,7 +4461,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        match payload_type {
+        match payload_type.data {
             ProduceBlockV3Response::Full(_) => (),
             ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
@@ -4488,7 +4491,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        match payload_type {
+        match payload_type.data {
             ProduceBlockV3Response::Blinded(_) => (),
             ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
         };
@@ -4568,7 +4571,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let payload: FullPayload<E> = match payload_type {
+        let payload: FullPayload<E> = match payload_type.data {
             ProduceBlockV3Response::Full(payload) => {
                 payload.block().body().execution_payload().unwrap().into()
             }
@@ -4637,7 +4640,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        match payload_type {
+        match payload_type.data {
             ProduceBlockV3Response::Full(_) => (),
             ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
@@ -4701,7 +4704,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        match payload_type {
+        match payload_type.data {
             ProduceBlockV3Response::Blinded(_) => (),
             ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
         };
@@ -4765,7 +4768,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        match payload_type {
+        match payload_type.data {
             ProduceBlockV3Response::Full(_) => (),
             ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
@@ -4829,7 +4832,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        match payload_type {
+        match payload_type.data {
             ProduceBlockV3Response::Full(_) => (),
             ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
@@ -4891,7 +4894,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let _block_contents = match payload_type {
+        let _block_contents = match payload_type.data {
             ProduceBlockV3Response::Blinded(payload) => payload,
             ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
         };
@@ -4963,7 +4966,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        match payload_type {
+        match payload_type.data {
             ProduceBlockV3Response::Full(_) => (),
             ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };

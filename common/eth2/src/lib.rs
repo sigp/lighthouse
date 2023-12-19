@@ -1858,7 +1858,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<(ProduceBlockV3Response<T>, ProduceBlockV3Metadata), Error> {
+    ) -> Result<(JsonProduceBlockV3Response<T>, ProduceBlockV3Metadata), Error> {
         self.get_validator_blocks_v3_modular(
             slot,
             randao_reveal,
@@ -1875,7 +1875,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<(ProduceBlockV3Response<T>, ProduceBlockV3Metadata), Error> {
+    ) -> Result<(JsonProduceBlockV3Response<T>, ProduceBlockV3Metadata), Error> {
         let path = self
             .get_validator_blocks_v3_path(slot, randao_reveal, graffiti, skip_randao_verification)
             .await?;
@@ -1886,20 +1886,22 @@ impl BeaconNodeHttpClient {
                 Accept::Json,
                 self.timeouts.get_validator_block,
                 |response, headers| async move {
-                    let metadata = ProduceBlockV3Metadata::try_from(&headers)
+                    let header_metadata = ProduceBlockV3Metadata::try_from(&headers)
                         .map_err(Error::InvalidHeaders)?;
-                    if metadata.execution_payload_blinded {
-                        let blinded_block = response
-                            .json::<ForkVersionedResponse<BlindedBeaconBlock<T>>>()
+                    if header_metadata.execution_payload_blinded {
+                        let blinded_response = response
+                            .json::<ForkVersionedResponse<BlindedBeaconBlock<T>,
+                                ProduceBlockV3Metadata>>()
                             .await?
-                            .data;
-                        Ok((ProduceBlockV3Response::Blinded(blinded_block), metadata))
+                            .map_data(ProduceBlockV3Response::Blinded);
+                        Ok((blinded_response, header_metadata))
                     } else {
-                        let full_block_contents = response
-                            .json::<ForkVersionedResponse<FullBlockContents<T>>>()
+                        let full_block_response= response
+                            .json::<ForkVersionedResponse<FullBlockContents<T>,
+                            ProduceBlockV3Metadata>>()
                             .await?
-                            .data;
-                        Ok((ProduceBlockV3Response::Full(full_block_contents), metadata))
+                            .map_data(ProduceBlockV3Response::Full);
+                        Ok((full_block_response, header_metadata))
                     }
                 },
             )

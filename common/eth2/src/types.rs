@@ -1520,6 +1520,9 @@ pub enum ProduceBlockV3Response<E: EthSpec> {
     Blinded(BlindedBeaconBlock<E>),
 }
 
+pub type JsonProduceBlockV3Response<E> =
+    ForkVersionedResponse<ProduceBlockV3Response<E>, ProduceBlockV3Metadata>;
+
 /// A wrapper over a [`BeaconBlock`] or a [`BlockContents`].
 #[derive(Debug, Encode, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -1534,12 +1537,24 @@ pub enum FullBlockContents<T: EthSpec> {
 
 pub type BlockContentsTuple<T> = (BeaconBlock<T>, Option<(KzgProofs<T>, BlobsList<T>)>);
 
-/// Metadata about a `ProduceBlockV3Response` which is returned in headers.
-#[derive(Debug)]
+// This value should never be used
+fn dummy_consensus_version() -> ForkName {
+    ForkName::Base
+}
+
+/// Metadata about a `ProduceBlockV3Response` which is returned in the body & headers.
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProduceBlockV3Metadata {
+    // The consensus version is serialized & deserialized by `ForkVersionedResponse`.
+    #[serde(
+        skip_serializing,
+        skip_deserializing,
+        default = "dummy_consensus_version"
+    )]
     pub consensus_version: ForkName,
     pub execution_payload_blinded: bool,
     pub execution_payload_value: Uint256,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub consensus_block_value: u64,
 }
 
