@@ -42,7 +42,7 @@ const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
 /// At start-up selection proofs will be computed with less lookahead out of necessity.
 const SELECTION_PROOF_SLOT_LOOKAHEAD: u64 = 8;
 
-/// The attestation selection proof lookahead for those running with the --dvt flag.
+/// The attestation selection proof lookahead for those running with the --distributed flag.
 const SELECTION_PROOF_SLOT_LOOKAHEAD_DVT: u64 = 1;
 
 /// Fraction of a slot at which selection proof signing should happen (2 means half way).
