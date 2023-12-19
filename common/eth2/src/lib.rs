@@ -287,7 +287,6 @@ impl BeaconNodeHttpClient {
             .await
             .optional()?;
 
-        // let headers = opt_response.headers();
         match opt_response {
             Some(resp) => {
                 let response_headers = resp.headers().clone();
