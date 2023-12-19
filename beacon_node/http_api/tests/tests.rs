@@ -7,7 +7,9 @@ use environment::null_logger;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
-    types::{BlockId as CoreBlockId, ForkChoiceNode, StateId as CoreStateId, *},
+    types::{
+        BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, StateId as CoreStateId, *,
+    },
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
 use execution_layer::test_utils::{
@@ -37,8 +39,6 @@ use types::{
     AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash, Hash256, Keypair,
     MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
-
-use eth2::types::ForkVersionedBeaconBlockType::{Blinded, Full};
 
 type E = MainnetEthSpec;
 
@@ -2729,7 +2729,6 @@ impl ApiTester {
                 .client
                 .get_validator_blocks_v3_ssz::<E>(slot, &randao_reveal, None)
                 .await
-                .unwrap()
                 .unwrap();
 
             match response {
@@ -3549,15 +3548,17 @@ impl ApiTester {
 
         let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         let payload: BlindedPayload<E> = match payload_type {
-            Blinded(payload) => payload.data.body().execution_payload().unwrap().into(),
-            Full(_) => panic!("Expecting a blinded payload"),
+            ProduceBlockV3Response::Blinded(payload) => {
+                payload.body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
         };
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
@@ -3651,15 +3652,17 @@ impl ApiTester {
 
         let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         let payload: BlindedPayload<E> = match payload_type {
-            Blinded(payload) => payload.data.body().execution_payload().unwrap().into(),
-            Full(_) => panic!("Expecting a blinded payload"),
+            ProduceBlockV3Response::Blinded(payload) => {
+                payload.body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
         };
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
@@ -3725,15 +3728,17 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         let payload: BlindedPayload<E> = match payload_type {
-            Blinded(payload) => payload.data.body().execution_payload().unwrap().into(),
-            Full(_) => panic!("Expecting a blinded payload"),
+            ProduceBlockV3Response::Blinded(payload) => {
+                payload.body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
         };
 
         assert_eq!(payload.fee_recipient(), test_fee_recipient);
@@ -3813,21 +3818,17 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
-            Blinded(_) => panic!("Expecting a blinded payload"),
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a blinded payload"),
         };
 
         assert_eq!(payload.parent_hash(), expected_parent_hash);
@@ -3903,21 +3904,17 @@ impl ApiTester {
             .unwrap();
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
-            Blinded(_) => panic!("Expecting a full payload"),
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
 
         assert_eq!(payload.prev_randao(), expected_prev_randao);
@@ -3993,21 +3990,17 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
-            Blinded(_) => panic!("Expecting a full payload"),
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
 
         assert_eq!(payload.block_number(), expected_block_number);
@@ -4081,21 +4074,17 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
-            Blinded(_) => panic!("Expecting a blinded payload"),
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a blinded payload"),
         };
 
         assert!(payload.timestamp() > min_expected_timestamp);
@@ -4141,15 +4130,15 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         match payload_type {
-            Full(_) => (),
-            Blinded(_) => panic!("Expecting a full payload"),
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
 
         self
@@ -4207,15 +4196,15 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         match payload_type {
-            Full(_) => (),
-            Blinded(_) => panic!("Expecting a full payload"),
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
 
         self
@@ -4315,15 +4304,15 @@ impl ApiTester {
             .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
             .await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap();
 
         match payload_type {
-            Blinded(_) => (),
-            Full(_) => panic!("Expecting a blinded payload"),
+            ProduceBlockV3Response::Blinded(_) => (),
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
         };
 
         // Without proposing, advance into the next slot, this should make us cross the threshold
@@ -4335,15 +4324,15 @@ impl ApiTester {
             .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
             .await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap();
 
         match payload_type {
-            Full(_) => (),
-            Blinded(_) => panic!("Expecting a full payload"),
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
 
         self
@@ -4463,15 +4452,15 @@ impl ApiTester {
             .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
             .await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap();
 
         match payload_type {
-            Full(_) => (),
-            Blinded(_) => panic!("Expecting a full payload"),
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
 
         // Fill another epoch with blocks, should be enough to finalize. (Sneaky plus 1 because this
@@ -4493,15 +4482,15 @@ impl ApiTester {
             .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
             .await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap();
 
         match payload_type {
-            Blinded(_) => (),
-            Full(_) => panic!("Expecting a blinded payload"),
+            ProduceBlockV3Response::Blinded(_) => (),
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
         };
 
         self
@@ -4573,21 +4562,17 @@ impl ApiTester {
 
         let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         let payload: FullPayload<E> = match payload_type {
-            Full(payload) => payload
-                .data
-                .block()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .into(),
-            Blinded(_) => panic!("Expecting a full payload"),
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
@@ -4646,15 +4631,15 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         match payload_type {
-            Full(_) => (),
-            Blinded(_) => panic!("Expecting a full payload"),
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
 
         self
@@ -4710,15 +4695,15 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         match payload_type {
-            Blinded(_) => (),
-            Full(_) => panic!("Expecting a blinded payload"),
+            ProduceBlockV3Response::Blinded(_) => (),
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
         };
 
         self
@@ -4774,15 +4759,15 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         match payload_type {
-            Full(_) => (),
-            Blinded(_) => panic!("Expecting a full payload"),
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
 
         self
@@ -4838,15 +4823,15 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         match payload_type {
-            Full(_) => (),
-            Blinded(_) => panic!("Expecting a full payload"),
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
 
         self
@@ -4900,15 +4885,15 @@ impl ApiTester {
         let epoch = self.chain.epoch().unwrap();
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         let _block_contents = match payload_type {
-            Blinded(payload) => payload.data,
-            Full(_) => panic!("Expecting a blinded payload"),
+            ProduceBlockV3Response::Blinded(payload) => payload,
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
         };
 
         self
@@ -4972,15 +4957,15 @@ impl ApiTester {
         let epoch = self.chain.epoch().unwrap();
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload_type = self
+        let (payload_type, _) = self
             .client
             .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
             .await
             .unwrap();
 
         match payload_type {
-            Full(_) => (),
-            Blinded(_) => panic!("Expecting a full payload"),
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
         };
 
         self
