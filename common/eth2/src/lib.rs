@@ -128,8 +128,7 @@ pub struct Timeouts {
     pub get_beacon_blocks_ssz: Duration,
     pub get_debug_beacon_states: Duration,
     pub get_deposit_snapshot: Duration,
-    // FIXME(sproul): rename to get_validator_block
-    pub get_validator_block_ssz: Duration,
+    pub get_validator_block: Duration,
 }
 
 impl Timeouts {
@@ -145,7 +144,7 @@ impl Timeouts {
             get_beacon_blocks_ssz: timeout,
             get_debug_beacon_states: timeout,
             get_deposit_snapshot: timeout,
-            get_validator_block_ssz: timeout,
+            get_validator_block: timeout,
         }
     }
 }
@@ -1885,7 +1884,7 @@ impl BeaconNodeHttpClient {
             .get_response_with_response_headers(
                 path,
                 Accept::Json,
-                self.timeouts.get_validator_block_ssz,
+                self.timeouts.get_validator_block,
                 |response, headers| async move {
                     let metadata = ProduceBlockV3Metadata::try_from(&headers)
                         .map_err(Error::InvalidHeaders)?;
@@ -1943,7 +1942,7 @@ impl BeaconNodeHttpClient {
             .get_response_with_response_headers(
                 path,
                 Accept::Ssz,
-                self.timeouts.get_validator_block_ssz,
+                self.timeouts.get_validator_block,
                 |response, headers| async move {
                     let metadata = ProduceBlockV3Metadata::try_from(&headers)
                         .map_err(Error::InvalidHeaders)?;
@@ -2006,7 +2005,7 @@ impl BeaconNodeHttpClient {
             .get_validator_blocks_path::<T>(slot, randao_reveal, graffiti, skip_randao_verification)
             .await?;
 
-        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block_ssz)
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block)
             .await
     }
 
@@ -2110,7 +2109,7 @@ impl BeaconNodeHttpClient {
             )
             .await?;
 
-        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block_ssz)
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block)
             .await
     }
 
