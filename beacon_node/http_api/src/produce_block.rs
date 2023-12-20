@@ -82,12 +82,11 @@ pub fn build_response_v3<T: BeaconChainTypes>(
     let consensus_block_value = block_response.consensus_block_value();
     let execution_payload_blinded = block_response.is_blinded();
 
-    // FIXME(sproul): block values shouldn't be optional
     let metadata = ProduceBlockV3Metadata {
         consensus_version: fork_name,
         execution_payload_blinded,
-        execution_payload_value: execution_payload_value.unwrap_or_default(),
-        consensus_block_value: consensus_block_value.unwrap_or_default(),
+        execution_payload_value,
+        consensus_block_value,
     };
 
     let block_contents = build_block_contents::build_block_contents(fork_name, block_response)?;
