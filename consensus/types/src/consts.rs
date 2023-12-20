@@ -29,4 +29,6 @@ pub mod deneb {
     pub const BLOB_SIDECAR_SUBNET_COUNT: u64 = 6;
     pub const MAX_BLOBS_PER_BLOCK: u64 = BLOB_SIDECAR_SUBNET_COUNT;
     pub const MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS: Epoch = Epoch::new(4096);
+    /// DAS constants
+    pub const BLOB_COLUMN_SUBNET_COUNT: u64 = 128;
 }

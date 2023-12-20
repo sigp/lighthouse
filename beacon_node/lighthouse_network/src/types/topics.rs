@@ -1,7 +1,7 @@
 use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
-use types::consts::deneb::BLOB_SIDECAR_SUBNET_COUNT;
+use types::consts::deneb::{BLOB_COLUMN_SUBNET_COUNT, BLOB_SIDECAR_SUBNET_COUNT};
 use types::{EthSpec, ForkName, SubnetId, SyncSubnetId};
 
 use crate::Subnet;
@@ -134,7 +134,7 @@ impl std::fmt::Display for GossipKind {
                 write!(f, "{}{}", BLOB_SIDECAR_PREFIX, blob_index)
             }
             GossipKind::BlobColumnSidecar(column_index) => {
-                write!(f, "{}{}", BLOB_COLUMN_SIDECAR_PREFIX, column_index)
+                write!(f, "{}{}", BLOB_COLUMN_SIDECAR_PREFIX, **column_index)
             }
             x => f.write_str(x.as_ref()),
         }
@@ -223,6 +223,8 @@ impl GossipTopic {
         match self.kind() {
             GossipKind::Attestation(subnet_id) => Some(Subnet::Attestation(*subnet_id)),
             GossipKind::SyncCommitteeMessage(subnet_id) => Some(Subnet::SyncCommittee(*subnet_id)),
+            // TODO(das)
+            // GossipKind::BlobColumnSidecar(subnet_id) => Some(Subnet::BlobColumn(*subnet_id)),
             _ => None,
         }
     }

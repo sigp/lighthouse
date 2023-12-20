@@ -32,7 +32,9 @@ pub struct BlobColumnSidecar<T: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub data: FixedVector<u8, T::BytesPerColumnSample>,
     pub signed_block_header: SignedBeaconBlockHeader,
+    /// All of the KZG commitments associated with the block.
     pub kzg_commitments: KzgCommitments<T>,
+    /// An inclusion proof, proving the inclusion of `blob_kzg_commitments` in `BeaconBlockBody`.
     pub kzg_commitments_inclusion_proof:
         FixedVector<Hash256, T::AllKzgCommitmentsInclusionProofDepth>,
     // List of cell proofs proving each column sample is part of the extended blob.

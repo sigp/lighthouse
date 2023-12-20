@@ -41,7 +41,8 @@ use std::{
 };
 use types::ForkName;
 use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, consts::deneb::BLOB_SIDECAR_SUBNET_COUNT,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+    consts::deneb::{BLOB_COLUMN_SUBNET_COUNT, BLOB_SIDECAR_SUBNET_COUNT},
     EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
@@ -227,6 +228,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let max_topics = ctx.chain_spec.attestation_subnet_count as usize
                 + SYNC_COMMITTEE_SUBNET_COUNT as usize
                 + BLOB_SIDECAR_SUBNET_COUNT as usize
+                + BLOB_COLUMN_SUBNET_COUNT as usize
                 + BASE_CORE_TOPICS.len()
                 + ALTAIR_CORE_TOPICS.len()
                 + CAPELLA_CORE_TOPICS.len()
@@ -240,6 +242,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     ctx.chain_spec.attestation_subnet_count,
                     SYNC_COMMITTEE_SUBNET_COUNT,
                     BLOB_SIDECAR_SUBNET_COUNT,
+                    BLOB_COLUMN_SUBNET_COUNT,
                 ),
                 // during a fork we subscribe to both the old and new topics
                 max_subscribed_topics: max_topics * 4,
