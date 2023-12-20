@@ -13,7 +13,7 @@ pub trait ForkVersionDeserialize: Sized + DeserializeOwned {
 
 /// Deserialize is only implemented for types that implement ForkVersionDeserialize.
 ///
-/// The metadata of type M should be set to `()` if you don't care about adding fields other than
+/// The metadata of type M should be set to `EmptyMetadata` if you don't care about adding fields other than
 /// version. If you *do* care about adding other fields you can mix in any type that implements
 /// `Deserialize`.
 #[derive(Debug, PartialEq, Clone, Serialize)]
