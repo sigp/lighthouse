@@ -1492,84 +1492,120 @@ mod tests {
         assert!(matches!(
             parse_listening_addresses("bn"),
             ListenAddress::V4(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 9000 && disc_port == tcp_port && quic_port == tcp_port + 1
+            if tcp_port == 9000
+                && disc_port == tcp_port
+                && quic_port == tcp_port + 1
         ));
         assert!(matches!(
             parse_listening_addresses("bn --zero-ports"),
             ListenAddress::V4(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port > 1023 && disc_port > 1023 && quic_port > 1023
+            if tcp_port > 1023
+                && disc_port > 1023
+                && quic_port > 1023
         ));
         assert!(matches!(
             parse_listening_addresses("bn --port 0"),
             ListenAddress::V4(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port > 1023 && disc_port == tcp_port && quic_port == tcp_port + 1
+            if tcp_port > 1023
+                && disc_port == tcp_port
+                && quic_port == tcp_port + 1
         ));
         assert!(matches!(
             parse_listening_addresses("bn --port 19000"),
             ListenAddress::V4(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 19000 && disc_port == tcp_port && quic_port == tcp_port + 1
+            if tcp_port == 19000
+                && disc_port == tcp_port
+                && quic_port == tcp_port + 1
         ));
         assert!(matches!(
             parse_listening_addresses("bn --port 19000 --discovery-port 0"),
             ListenAddress::V4(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 19000 && (disc_port != tcp_port && disc_port > 1023) && quic_port == tcp_port + 1
+            if tcp_port == 19000
+                && disc_port != tcp_port
+                && disc_port > 1023
+                && quic_port == tcp_port + 1
         ));
         assert!(matches!(
             parse_listening_addresses("bn --port 19000 --quic-port 0"),
             ListenAddress::V4(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 19000 && disc_port == tcp_port && (quic_port != tcp_port + 1 && quic_port > 1023)
+            if tcp_port == 19000
+                && disc_port == tcp_port
+                && quic_port != tcp_port + 1
+                && quic_port > 1023
         ));
         assert!(matches!(
             parse_listening_addresses("bn --port 19000 --discovery-port 19001 --quic-port 19002"),
             ListenAddress::V4(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 19000 && disc_port == 19001 && quic_port == 19002
+            if tcp_port == 19000
+                && disc_port == 19001
+                && quic_port == 19002
         ));
 
         // V6
         assert!(matches!(
             parse_listening_addresses("bn --listen-address ::"),
             ListenAddress::V6(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 9000 && disc_port == tcp_port && quic_port == tcp_port + 1
+            if tcp_port == 9000
+                && disc_port == tcp_port
+                && quic_port == tcp_port + 1
         ));
         assert!(matches!(
             parse_listening_addresses("bn --listen-address :: --zero-ports"),
             ListenAddress::V6(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port > 1023 && disc_port > 1023 && quic_port > 1023
+            if tcp_port > 1023
+                && disc_port > 1023
+                && quic_port > 1023
         ));
         assert!(matches!(
             parse_listening_addresses("bn --listen-address :: --port 0"),
             ListenAddress::V6(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port > 1023 && disc_port == tcp_port && quic_port == tcp_port + 1
+            if tcp_port > 1023
+                && disc_port == tcp_port
+                && quic_port == tcp_port + 1
         ));
         assert!(matches!(
             parse_listening_addresses("bn --listen-address :: --port 19000"),
             ListenAddress::V6(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 19000 && disc_port == tcp_port && quic_port == tcp_port + 1
+            if tcp_port == 19000
+                && disc_port == tcp_port
+                && quic_port == tcp_port + 1
         ));
         assert!(matches!(
             parse_listening_addresses("bn --listen-address :: --port 19000 --port6 29000"),
             ListenAddress::V6(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 19000 && disc_port == tcp_port && quic_port == tcp_port + 1
+            if tcp_port == 19000
+                && disc_port == tcp_port
+                && quic_port == tcp_port + 1
         ));
         assert!(matches!(
             parse_listening_addresses("bn --listen-address :: --port 19000 --discovery-port 0"),
             ListenAddress::V6(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 19000 && (disc_port != tcp_port && disc_port > 1023) && quic_port == tcp_port + 1
+            if tcp_port == 19000 &&
+                disc_port != tcp_port
+                && disc_port > 1023
+                && quic_port == tcp_port + 1
         ));
         assert!(matches!(
             parse_listening_addresses("bn --listen-address :: --port 19000 --quic-port 0"),
             ListenAddress::V6(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 19000 && disc_port == tcp_port && (quic_port != tcp_port + 1 && quic_port > 1023)
+            if tcp_port == 19000
+                && disc_port == tcp_port
+                && quic_port != tcp_port + 1
+                && quic_port > 1023
         ));
         assert!(matches!(
             parse_listening_addresses("bn --listen-address :: --port 19000 --discovery-port 19001 --quic-port 19002"),
             ListenAddress::V6(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 19000 && disc_port == 19001 && quic_port == 19002
+            if tcp_port == 19000
+                && disc_port == 19001
+                && quic_port == 19002
         ));
         assert!(matches!(
             parse_listening_addresses("bn --listen-address :: --port 19000 --discovery-port 19001 --discovery-port6 29001 --quic-port 19002 --quic-port6 29002"),
             ListenAddress::V6(ListenAddr {tcp_port, disc_port, quic_port, ..})
-            if tcp_port == 19000 && disc_port == 19001 && quic_port == 19002
+            if tcp_port == 19000
+                && disc_port == 19001
+                && quic_port == 19002
         ));
 
         // DualStack
