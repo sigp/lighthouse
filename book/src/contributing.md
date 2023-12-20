@@ -49,7 +49,7 @@ into the canonical spec.
 ## Rust
 
 Lighthouse adheres to Rust code conventions as outlined in the [**Rust
-Styleguide**](https://github.com/rust-lang/rust/tree/HEAD/src/doc/style-guide/src).
+Styleguide**](https://doc.rust-lang.org/nightly/style-guide/).
 
 Please use [clippy](https://github.com/rust-lang/rust-clippy) and
 [rustfmt](https://github.com/rust-lang/rustfmt) to detect common mistakes and
