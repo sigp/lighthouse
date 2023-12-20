@@ -26,8 +26,11 @@ pub struct ForkVersionedResponse<T, M = EmptyMetadata> {
 }
 
 /// Metadata type similar to unit (i.e. `()`) but deserializes from a map (`serde_json::Value`).
+///
+/// Unfortunately the braces are semantically significant, i.e. `struct EmptyMetadata;` does not
+/// work.
 #[derive(Debug, PartialEq, Clone, Default, Deserialize, Serialize)]
-pub struct EmptyMetadata;
+pub struct EmptyMetadata {}
 
 /// Fork versioned response with extra information about finalization & optimistic execution.
 pub type ExecutionOptimisticFinalizedForkVersionedResponse<T> =

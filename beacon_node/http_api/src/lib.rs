@@ -2399,7 +2399,7 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => Ok(warp::reply::json(&ForkVersionedResponse {
                             version: Some(fork_name),
-                            metadata: EmptyMetadata,
+                            metadata: EmptyMetadata {},
                             data: bootstrap,
                         })
                         .into_response()),
@@ -2447,7 +2447,7 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => Ok(warp::reply::json(&ForkVersionedResponse {
                             version: Some(fork_name),
-                            metadata: EmptyMetadata,
+                            metadata: EmptyMetadata {},
                             data: update,
                         })
                         .into_response()),
@@ -2495,7 +2495,7 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => Ok(warp::reply::json(&ForkVersionedResponse {
                             version: Some(fork_name),
-                            metadata: EmptyMetadata,
+                            metadata: EmptyMetadata {},
                             data: update,
                         })
                         .into_response()),
