@@ -60,7 +60,10 @@ impl<T: EthSpec> BlobColumnSidecar<T> {
         let kzg_commitments_inclusion_proof: FixedVector<
             Hash256,
             T::AllKzgCommitmentsInclusionProofDepth,
-        > = first_blob_sidecar.kzg_commitment_inclusion_proof.to_vec()[body_proof_start..]
+        > = first_blob_sidecar
+            .kzg_commitment_inclusion_proof
+            .get(body_proof_start..)
+            .ok_or("kzg_commitment_inclusion_proof index out of bounds")?
             .to_vec()
             .into();
 
@@ -72,13 +75,18 @@ impl<T: EthSpec> BlobColumnSidecar<T> {
                 let mut data = vec![0u8; T::bytes_per_column_sample()];
                 // Prefix with column index
                 let prefix = index.to_le_bytes();
-                data[..prefix.len()].copy_from_slice(&prefix);
+                data.get_mut(..prefix.len())
+                    .ok_or("blob column index out of bounds")?
+                    .copy_from_slice(&prefix);
                 // Fill the rest of the array with random values
-                rng.fill(&mut data[prefix.len()..]);
+                rng.fill(
+                    data.get_mut(prefix.len()..)
+                        .ok_or("blob column index out of bounds")?,
+                );
 
                 Ok(BlobColumnSidecar {
                     index,
-                    data: FixedVector::new(Vec::from(data)).map_err(|e| format!("{e:?}"))?,
+                    data: FixedVector::new(data).map_err(|e| format!("{e:?}"))?,
                     signed_block_header: first_blob_sidecar.signed_block_header.clone(),
                     kzg_commitments: blob_sidecars
                         .iter()
@@ -139,7 +147,7 @@ mod test {
         num_of_blobs: usize,
         spec: &ChainSpec,
     ) -> BlobSidecarList<E> {
-        let mut block = BeaconBlock::Deneb(BeaconBlockDeneb::empty(&spec));
+        let mut block = BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec));
         let mut body = block.body_mut();
         let blob_kzg_commitments = body.blob_kzg_commitments_mut().unwrap();
         *blob_kzg_commitments =
@@ -149,7 +157,6 @@ mod test {
         let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
 
         (0..num_of_blobs)
-            .into_iter()
             .map(|index| {
                 BlobSidecar::new(
                     index,

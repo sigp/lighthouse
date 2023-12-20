@@ -98,7 +98,8 @@ pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
-pub mod blob_sample;
+pub mod blob_column_sidecar;
+pub mod blob_column_subnet_id;
 pub mod blob_sidecar;
 pub mod light_client_header;
 pub mod non_zero_usize;
@@ -121,7 +122,8 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
-pub use crate::blob_sample::BlobColumnSidecar;
+pub use crate::blob_column_sidecar::BlobColumnSidecar;
+pub use crate::blob_column_subnet_id::BlobColumnSubnetId;
 pub use crate::blob_sidecar::{BlobSidecar, BlobSidecarList, BlobsList};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};

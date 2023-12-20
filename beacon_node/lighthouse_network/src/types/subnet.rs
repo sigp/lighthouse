@@ -14,7 +14,7 @@ pub enum Subnet {
     SyncCommittee(SyncSubnetId),
     // Represents a gossipsub blob column subnet and the metadata `blbcolnets` field.
     // TODO(das)
-    // BlobColumn(SubnetId),
+    // BlobColumn(BlobColumnSubnetId),
 }
 
 /// A subnet to discover peers on along with the instant after which it's no longer useful.

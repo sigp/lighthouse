@@ -20,7 +20,9 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, SubnetId, SyncSubnetId};
+use types::{
+    BlobColumnSubnetId, ChainSpec, EnrForkId, EthSpec, ForkContext, SubnetId, SyncSubnetId,
+};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
@@ -263,7 +265,7 @@ pub(crate) fn create_whitelist_filter(
             add(BlobSidecar(id));
         }
         for id in 0..blob_column_subnet_count {
-            add(BlobColumnSidecar(SubnetId::new(id)));
+            add(BlobColumnSidecar(BlobColumnSubnetId::new(id)));
         }
     }
     gossipsub::WhitelistSubscriptionFilter(possible_hashes)

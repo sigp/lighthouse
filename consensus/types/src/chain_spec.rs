@@ -168,6 +168,11 @@ pub struct ChainSpec {
     pub deneb_fork_epoch: Option<Epoch>,
 
     /*
+     * DAS params
+     */
+    pub blob_custody_requirement: u64,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -644,6 +649,11 @@ impl ChainSpec {
             deneb_fork_epoch: None,
 
             /*
+             * DAS params
+             */
+            blob_custody_requirement: 2,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -886,7 +896,10 @@ impl ChainSpec {
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x64],
             deneb_fork_epoch: None,
-
+            /*
+             * DAS params
+             */
+            blob_custody_requirement: 2,
             /*
              * Network specific
              */

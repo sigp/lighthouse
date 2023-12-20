@@ -1,8 +1,8 @@
 use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
-use types::consts::deneb::{BLOB_COLUMN_SUBNET_COUNT, BLOB_SIDECAR_SUBNET_COUNT};
-use types::{EthSpec, ForkName, SubnetId, SyncSubnetId};
+use types::consts::deneb::BLOB_SIDECAR_SUBNET_COUNT;
+use types::{BlobColumnSubnetId, EthSpec, ForkName, SubnetId, SyncSubnetId};
 
 use crate::Subnet;
 
@@ -100,7 +100,7 @@ pub enum GossipKind {
     /// Topic for publishing BlobSidecars.
     BlobSidecar(u64),
     /// Topic for publishing BlobColumnSidecars.
-    BlobColumnSidecar(SubnetId),
+    BlobColumnSidecar(BlobColumnSubnetId),
     /// Topic for publishing raw attestations on a particular subnet.
     #[strum(serialize = "beacon_attestation")]
     Attestation(SubnetId),
@@ -310,7 +310,7 @@ fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
     } else if let Some(index) = topic.strip_prefix(BLOB_SIDECAR_PREFIX) {
         return Some(GossipKind::BlobSidecar(index.parse::<u64>().ok()?));
     } else if let Some(index) = topic.strip_prefix(BLOB_COLUMN_SIDECAR_PREFIX) {
-        return Some(GossipKind::BlobColumnSidecar(SubnetId::new(
+        return Some(GossipKind::BlobColumnSidecar(BlobColumnSubnetId::new(
             index.parse::<u64>().ok()?,
         )));
     }

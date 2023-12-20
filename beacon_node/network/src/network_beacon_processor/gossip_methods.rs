@@ -33,9 +33,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobColumnSidecar, BlobSidecar, EthSpec, Hash256,
-    IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    Attestation, AttesterSlashing, BlobColumnSidecar, BlobColumnSubnetId, BlobSidecar, EthSpec,
+    Hash256, IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
     SyncSubnetId,
 };
@@ -606,7 +606,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         _peer_client: Client,
-        subnet_id: SubnetId,
+        subnet_id: BlobColumnSubnetId,
         column_sidecar: Arc<BlobColumnSidecar<T::EthSpec>>,
         seen_duration: Duration,
     ) {

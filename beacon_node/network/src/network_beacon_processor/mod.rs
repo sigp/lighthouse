@@ -235,7 +235,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        subnet_id: SubnetId,
+        subnet_id: BlobColumnSubnetId,
         column_sidecar: Arc<BlobColumnSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {

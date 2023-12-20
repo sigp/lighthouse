@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 use swap_or_not_shuffle::compute_shuffled_index;
 
-// TODO(das): do we reuse this for das subnets?
-const MAX_SUBNET_ID: usize = 128;
+const MAX_SUBNET_ID: usize = 64;
 
 lazy_static! {
     static ref SUBNET_ID_TO_STRING: Vec<String> = {
