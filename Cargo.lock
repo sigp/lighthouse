@@ -583,7 +583,6 @@ dependencies = [
  "hyper",
  "lighthouse_network",
  "lighthouse_version",
- "logging",
  "monitoring_api",
  "node_test_rig",
  "sensitive_url",

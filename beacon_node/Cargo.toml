@@ -13,7 +13,6 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 node_test_rig = { path = "../testing/node_test_rig" }
-logging = { workspace = true }
 
 [features]
 write_ssz_files = [
