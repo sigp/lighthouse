@@ -2,6 +2,7 @@
 use crate::consts::deneb::BLOB_COLUMN_SUBNET_COUNT;
 use crate::{ChainSpec, EthSpec};
 use ethereum_types::U256;
+use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
@@ -36,6 +37,16 @@ impl BlobColumnSubnetId {
         id.into()
     }
 
+    pub fn try_from_column_index<T: EthSpec>(column_index: usize) -> Result<Self, Error> {
+        let cols_per_subnet = T::blob_column_count().safe_div(T::blob_column_subnet_count())?;
+        let subnet_id = column_index.safe_div(cols_per_subnet)?;
+        if subnet_id < T::blob_column_subnet_count() {
+            Ok((subnet_id as u64).into())
+        } else {
+            Err(Error::InvalidColumn(column_index))
+        }
+    }
+
     #[allow(clippy::arithmetic_side_effects)]
     /// Compute required subnets to subscribe to given the node id.
     /// TODO(das): Add epoch param
@@ -43,11 +54,11 @@ impl BlobColumnSubnetId {
         node_id: U256,
         spec: &ChainSpec,
     ) -> impl Iterator<Item = BlobColumnSubnetId> {
-        let num_of_columns = T::number_of_blob_columns() as u64;
+        let num_of_column_subnets = T::blob_column_subnet_count() as u64;
         (0..spec.blob_custody_requirement)
             .map(move |i| {
-                let node_offset = (node_id % U256::from(num_of_columns)).as_u64();
-                node_offset.saturating_add(i) % num_of_columns
+                let node_offset = (node_id % U256::from(num_of_column_subnets)).as_u64();
+                node_offset.saturating_add(i) % num_of_column_subnets
             })
             .map(BlobColumnSubnetId::new)
     }
@@ -97,6 +108,18 @@ impl AsRef<str> for BlobColumnSubnetId {
     }
 }
 
+#[derive(Debug)]
+pub enum Error {
+    ArithError(ArithError),
+    InvalidColumn(usize),
+}
+
+impl From<ArithError> for Error {
+    fn from(e: ArithError) -> Self {
+        Error::ArithError(e)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::blob_column_subnet_id::BlobColumnSubnetId;
@@ -121,16 +144,16 @@ mod test {
         .collect::<Vec<_>>();
 
         let expected_subnets = vec![
-            vec![0, 1],
-            vec![61, 62],
-            vec![124, 125],
-            vec![52, 53],
-            vec![62, 63],
-            vec![73, 74],
-            vec![82, 83],
-            vec![21, 22],
-            vec![87, 88],
-            vec![93, 94],
+            vec![0],
+            vec![29],
+            vec![28],
+            vec![20],
+            vec![30],
+            vec![9],
+            vec![18],
+            vec![21],
+            vec![23],
+            vec![29],
         ];
 
         let spec = ChainSpec::mainnet();

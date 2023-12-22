@@ -19,9 +19,9 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobColumnSidecar, BlobSidecarList, EthSpec, ExecPayload,
-    ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, VariableList,
+    AbstractExecPayload, BeaconBlockRef, BlobColumnSidecar, BlobColumnSubnetId, BlobSidecarList,
+    EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, VariableList,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
@@ -97,7 +97,14 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                         })?;
                     for (col_index, col_sidecar) in col_sidecars.into_iter().enumerate() {
                         pubsub_messages.push(PubsubMessage::BlobColumnSidecar(Box::new((
-                            (col_index as u64).into(),
+                            BlobColumnSubnetId::try_from_column_index::<T::EthSpec>(col_index)
+                                .map_err(|e| {
+                                    BlockError::BeaconChainError(
+                                        BeaconChainError::UnableToBuildBlobColumnSidecar(format!(
+                                            "{e:?}"
+                                        )),
+                                    )
+                                })?,
                             Arc::new(col_sidecar),
                         ))));
                     }

@@ -612,7 +612,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let slot = column_sidecar.slot();
         let root = column_sidecar.block_root();
-        let index = *subnet_id;
+        let index = column_sidecar.index;
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
@@ -625,7 +625,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         match self
             .chain
-            .verify_blob_column_sidecar_for_gossip(column_sidecar, index)
+            .verify_blob_column_sidecar_for_gossip(column_sidecar, *subnet_id)
         {
             Ok(gossip_verified_blob_column) => {
                 metrics::inc_counter(

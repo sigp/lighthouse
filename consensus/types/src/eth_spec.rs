@@ -114,7 +114,8 @@ pub trait EthSpec:
     /*
      * New in PeerDAS
      */
-    type NumberOfBlobColumns: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type BlobColumnSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type BlobColumnCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerColumnSample: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerRowSample: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type AllKzgCommitmentsInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -285,8 +286,12 @@ pub trait EthSpec:
         Self::KzgCommitmentInclusionProofDepth::to_usize()
     }
 
-    fn number_of_blob_columns() -> usize {
-        Self::NumberOfBlobColumns::to_usize()
+    fn blob_column_count() -> usize {
+        Self::BlobColumnCount::to_usize()
+    }
+
+    fn blob_column_subnet_count() -> usize {
+        Self::BlobColumnSubnetCount::to_usize()
     }
 
     fn bytes_per_column_sample() -> usize {
@@ -345,7 +350,8 @@ impl EthSpec for MainnetEthSpec {
     type FieldElementsPerBlob = U4096;
     type BytesPerBlob = U131072;
     type KzgCommitmentInclusionProofDepth = U17;
-    type NumberOfBlobColumns = U128;
+    type BlobColumnSubnetCount = U32;
+    type BlobColumnCount = U128;
     // Column samples are entire columns in 1D DAS.
     // data size = row_size * num_of_rows / num_of_columns
     // 256kb * 32 / 128 = 64kb
@@ -390,7 +396,8 @@ impl EthSpec for MinimalEthSpec {
     type MaxBlobCommitmentsPerBlock = U16;
     type KzgCommitmentInclusionProofDepth = U9;
     // DAS spec values copied from `MainnetEthSpec`
-    type NumberOfBlobColumns = U128;
+    type BlobColumnSubnetCount = U32;
+    type BlobColumnCount = U128;
     type BytesPerColumnSample = U65536;
     type BytesPerRowSample = U262144;
     type AllKzgCommitmentsInclusionProofDepth = U4;
@@ -469,7 +476,8 @@ impl EthSpec for GnosisEthSpec {
     type BytesPerBlob = U131072;
     type KzgCommitmentInclusionProofDepth = U17;
     // DAS spec values copied from `MainnetEthSpec`
-    type NumberOfBlobColumns = U128;
+    type BlobColumnSubnetCount = U32;
+    type BlobColumnCount = U128;
     type BytesPerColumnSample = U65536;
     type BytesPerRowSample = U262144;
     type AllKzgCommitmentsInclusionProofDepth = U4;

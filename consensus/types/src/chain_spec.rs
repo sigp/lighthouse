@@ -651,7 +651,7 @@ impl ChainSpec {
             /*
              * DAS params
              */
-            blob_custody_requirement: 2,
+            blob_custody_requirement: 1,
 
             /*
              * Network specific
@@ -899,7 +899,7 @@ impl ChainSpec {
             /*
              * DAS params
              */
-            blob_custody_requirement: 2,
+            blob_custody_requirement: 1,
             /*
              * Network specific
              */

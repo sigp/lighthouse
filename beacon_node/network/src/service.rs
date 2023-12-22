@@ -809,7 +809,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         }
                     }
                     // Subscribe to all blob column subnets
-                    for column_subnet in 0..T::EthSpec::number_of_blob_columns() as u64 {
+                    for column_subnet in 0..T::EthSpec::blob_column_subnet_count() as u64 {
                         for fork_digest in self.required_gossip_fork_digests() {
                             let gossip_kind =
                                 Subnet::BlobColumn(BlobColumnSubnetId::new(column_subnet)).into();

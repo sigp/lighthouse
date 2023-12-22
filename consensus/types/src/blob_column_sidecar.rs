@@ -69,7 +69,7 @@ impl<T: EthSpec> BlobColumnSidecar<T> {
 
         let mut rng = StdRng::seed_from_u64(slot.as_u64());
 
-        (0..T::number_of_blob_columns())
+        (0..T::blob_column_count())
             .map(|col_index| {
                 let index = col_index as u64;
                 let mut data = vec![0u8; T::bytes_per_column_sample()];
@@ -130,7 +130,7 @@ mod test {
 
         let column_sidecars = BlobColumnSidecar::random_from_blob_sidecars(&blob_sidecars).unwrap();
 
-        assert_eq!(column_sidecars.len(), E::number_of_blob_columns());
+        assert_eq!(column_sidecars.len(), E::blob_column_count());
 
         for (idx, col_sidecar) in column_sidecars.iter().enumerate() {
             assert_eq!(col_sidecar.index, idx as u64);
