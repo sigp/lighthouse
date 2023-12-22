@@ -30,6 +30,7 @@ use lighthouse_network::{
 use slog::{crit, debug, error, info, o, trace, warn};
 use slot_clock::SlotClock;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
+use rand::seq::SliceRandom;
 use store::HotColdDB;
 use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
@@ -878,8 +879,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                                 Subnet::SyncCommittee(_) => unreachable!("sync committee subnet should not be here"),
                             };
                             match self.prefix_mapping.get::<T::EthSpec>(subnet_id, current_epoch) {
-                                Ok(node_ids) => {
-                                    // TODO: randomize the order
+                                Ok(mut node_ids) => {
+                                    node_ids.shuffle(&mut rand::thread_rng());
                                     DiscoveryTarget::Prefix(node_ids)
                                 }
                                 Err(e) => {
