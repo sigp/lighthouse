@@ -16,7 +16,6 @@ use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
-use lighthouse_network::discv5::enr::NodeId;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::{DiscoveryTarget, GossipKind, TargetedSubnetDiscovery};
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};

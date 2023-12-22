@@ -1,4 +1,3 @@
-use ethereum_types::U256;
 use lighthouse_network::discv5::enr::NodeId;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -35,7 +34,7 @@ impl PrefixMapping {
             }
             Entry::Vacant(entry) => {
                 // compute prefixes
-                let mut computed_mapping = SubnetId::compute_prefix_mapping_for_epoch::<TSpec>(
+                let computed_mapping = SubnetId::compute_prefix_mapping_for_epoch::<TSpec>(
                     current_epoch,
                     &self.chain_spec,
                 )?;
@@ -50,7 +49,7 @@ impl PrefixMapping {
                                 NodeId::from(raw_node_id)
                             })
                             .collect::<Vec<_>>(),
-                    )
+                    );
                 }
                 let mapping = entry.insert(mapping);
                 let node_ids = mapping
