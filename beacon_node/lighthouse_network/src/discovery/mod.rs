@@ -46,7 +46,7 @@ use tokio::sync::mpsc;
 use types::{EnrForkId, EthSpec};
 
 mod subnet_predicate;
-use crate::types::TargetedSubnetDiscovery;
+use crate::types::{DiscoveryTarget, TargetedSubnetDiscovery};
 pub use subnet_predicate::subnet_predicate;
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -98,6 +98,7 @@ struct SubnetQuery {
     subnet: Subnet,
     min_ttl: Option<Instant>,
     retries: usize,
+    target: DiscoveryTarget,
 }
 
 impl SubnetQuery {
@@ -373,7 +374,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>()
         );
         for subnet in subnets_to_discover {
-            self.add_subnet_query(subnet.subnet, subnet.min_ttl, 0);
+            self.add_subnet_query(subnet.subnet, subnet.min_ttl, 0, subnet.target);
         }
     }
 
@@ -600,7 +601,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     /// Adds a subnet query if one doesn't exist. If a subnet query already exists, this
     /// updates the min_ttl field.
-    fn add_subnet_query(&mut self, subnet: Subnet, min_ttl: Option<Instant>, retries: usize) {
+    fn add_subnet_query(
+        &mut self,
+        subnet: Subnet,
+        min_ttl: Option<Instant>,
+        retries: usize,
+        target: DiscoveryTarget,
+    ) {
         // remove the entry and complete the query if greater than the maximum search count
         if retries > MAX_DISCOVERY_RETRY {
             debug!(
@@ -632,6 +639,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 subnet,
                 min_ttl,
                 retries,
+                target,
             });
             metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
         }
@@ -858,7 +866,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     Ok(r) if r.is_empty() => {
                         debug!(self.log, "Grouped subnet discovery query yielded no results."; "subnets_searched_for" => ?subnets_searched_for);
                         queries.iter().for_each(|query| {
-                            self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
+                            self.add_subnet_query(
+                                query.subnet,
+                                query.min_ttl,
+                                query.retries + 1,
+                                query.target,
+                            );
                         })
                     }
                     Ok(r) => {
@@ -885,7 +898,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                                 v.inc();
                             }
                             // A subnet query has completed. Add back to the queue, incrementing retries.
-                            self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
+                            self.add_subnet_query(
+                                query.subnet,
+                                query.min_ttl,
+                                query.retries + 1,
+                                query.target,
+                            );
 
                             // Check the specific subnet against the enr
                             let subnet_predicate =
@@ -1238,12 +1256,18 @@ mod tests {
             subnet_query.subnet,
             subnet_query.min_ttl,
             subnet_query.retries,
+            DiscoveryTarget::Random,
         );
         assert_eq!(discovery.queued_queries.back(), Some(&subnet_query));
 
         // New query should replace old query
         subnet_query.min_ttl = Some(now + Duration::from_secs(1));
-        discovery.add_subnet_query(subnet_query.subnet, subnet_query.min_ttl, 1);
+        discovery.add_subnet_query(
+            subnet_query.subnet,
+            subnet_query.min_ttl,
+            1,
+            DiscoveryTarget::Random,
+        );
 
         subnet_query.retries += 1;
 
@@ -1259,6 +1283,7 @@ mod tests {
             subnet_query.subnet,
             subnet_query.min_ttl,
             MAX_DISCOVERY_RETRY + 1,
+            DiscoveryTarget::Random,
         );
 
         assert_eq!(discovery.queued_queries.len(), 0);
