@@ -94,6 +94,8 @@ impl<T: EthSpec> PeerInfo<T> {
                         .syncnets()
                         .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
                 }
+                // TODO(das) Add blob column nets bitfield
+                Subnet::BlobColumn(_) => return false,
             }
         }
         false

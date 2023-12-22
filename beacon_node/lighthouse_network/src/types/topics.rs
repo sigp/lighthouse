@@ -223,8 +223,7 @@ impl GossipTopic {
         match self.kind() {
             GossipKind::Attestation(subnet_id) => Some(Subnet::Attestation(*subnet_id)),
             GossipKind::SyncCommitteeMessage(subnet_id) => Some(Subnet::SyncCommittee(*subnet_id)),
-            // TODO(das)
-            // GossipKind::BlobColumnSidecar(subnet_id) => Some(Subnet::BlobColumn(*subnet_id)),
+            GossipKind::BlobColumnSidecar(subnet_id) => Some(Subnet::BlobColumn(*subnet_id)),
             _ => None,
         }
     }
@@ -286,6 +285,7 @@ impl From<Subnet> for GossipKind {
         match subnet_id {
             Subnet::Attestation(s) => GossipKind::Attestation(s),
             Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeMessage(s),
+            Subnet::BlobColumn(s) => GossipKind::BlobColumnSidecar(s),
         }
     }
 }

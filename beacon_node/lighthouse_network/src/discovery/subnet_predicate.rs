@@ -33,6 +33,8 @@ where
             Subnet::SyncCommittee(s) => sync_committee_bitfield
                 .as_ref()
                 .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
+            // TODO(das) discovery to be implemented at a later phase. Initially we just use a large peer count.
+            Subnet::BlobColumn(_) => false,
         });
 
         if !predicate {

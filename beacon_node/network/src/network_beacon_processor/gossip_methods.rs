@@ -870,11 +870,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_gossip_verified_blob_column(
         self: &Arc<Self>,
         _peer_id: PeerId,
-        _verified_blob: GossipVerifiedBlobColumnSidecar<T>,
+        verified_blob_column: GossipVerifiedBlobColumnSidecar<T>,
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
-        todo!()
+        self.chain.process_gossip_blob_column(verified_blob_column);
     }
 
     /// Process the beacon block received from the gossip network and:

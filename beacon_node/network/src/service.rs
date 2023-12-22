@@ -34,8 +34,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
-    Unsigned, ValidatorSubscription,
+    BlobColumnSubnetId, ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -752,6 +752,29 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
 
+                if !self.subscribe_all_subnets {
+                    for column_subnet in
+                        BlobColumnSubnetId::compute_subnets_for_blob_column::<T::EthSpec>(
+                            self.network_globals.local_enr().node_id().raw().into(),
+                            &self.beacon_chain.spec,
+                        )
+                    {
+                        for fork_digest in self.required_gossip_fork_digests() {
+                            let gossip_kind = Subnet::BlobColumn(column_subnet).into();
+                            let topic = GossipTopic::new(
+                                gossip_kind,
+                                GossipEncoding::default(),
+                                fork_digest,
+                            );
+                            if self.libp2p.subscribe(topic.clone()) {
+                                subscribed_topics.push(topic);
+                            } else {
+                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
+                            }
+                        }
+                    }
+                }
+
                 // If we are to subscribe to all subnets we do it here
                 if self.subscribe_all_subnets {
                     for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
@@ -775,6 +798,23 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         for fork_digest in self.required_gossip_fork_digests() {
                             let topic = GossipTopic::new(
                                 subnet.into(),
+                                GossipEncoding::default(),
+                                fork_digest,
+                            );
+                            if self.libp2p.subscribe(topic.clone()) {
+                                subscribed_topics.push(topic);
+                            } else {
+                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
+                            }
+                        }
+                    }
+                    // Subscribe to all blob column subnets
+                    for column_subnet in 0..T::EthSpec::number_of_blob_columns() as u64 {
+                        for fork_digest in self.required_gossip_fork_digests() {
+                            let gossip_kind =
+                                Subnet::BlobColumn(BlobColumnSubnetId::new(column_subnet)).into();
+                            let topic = GossipTopic::new(
+                                gossip_kind,
                                 GossipEncoding::default(),
                                 fork_digest,
                             );

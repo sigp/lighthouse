@@ -206,6 +206,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlobColumnSidecar<T> {
             )
         })
     }
+
+    pub fn as_blob_column(&self) -> &Arc<BlobColumnSidecar<T::EthSpec>> {
+        &self.blob_column_sidecar
+    }
 }
 
 /// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
@@ -666,7 +670,7 @@ pub fn validate_blob_column_sidecar_for_gossip<T: BeaconChainTypes>(
     _subnet: u64,
     _chain: &BeaconChain<T>,
 ) -> Result<GossipVerifiedBlobColumnSidecar<T>, GossipBlobError<T::EthSpec>> {
-    // TODO(das): validate
+    // TODO(das): validate kzg commitments, cell proofs etc
     Ok(GossipVerifiedBlobColumnSidecar {
         blob_column_sidecar: blob_column_sidecar.clone(),
     })

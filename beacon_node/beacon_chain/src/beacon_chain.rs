@@ -2882,6 +2882,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.remove_notified(&block_root, r)
     }
 
+    pub fn process_gossip_blob_column(
+        self: &Arc<Self>,
+        blob_column: GossipVerifiedBlobColumnSidecar<T>,
+    ) {
+        let blob_column = blob_column.as_blob_column();
+        // TODO(das) send to DA checker
+        info!(
+            self.log,
+            "Processed gossip blob column";
+            "index" => blob_column.index,
+            "slot" => blob_column.slot().as_u64()
+        );
+    }
+
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
     pub async fn process_rpc_blobs(
