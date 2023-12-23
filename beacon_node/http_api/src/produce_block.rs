@@ -58,7 +58,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti.map(Into::into),
+            query.graffiti,
             randao_verification,
             BlockProductionVersion::V3,
         )
