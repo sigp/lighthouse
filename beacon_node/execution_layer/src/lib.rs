@@ -29,6 +29,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -42,6 +43,7 @@ use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::builder_bid::BuilderBid;
+use types::non_zero_usize::new_non_zero_usize;
 use types::payload::BlockProductionVersion;
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, KzgProofs, SignedBlindedBeaconBlock,
@@ -68,7 +70,7 @@ pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
 
 /// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
 /// in an LRU cache to avoid redundant lookups. This is the size of that cache.
-const EXECUTION_BLOCKS_LRU_CACHE_SIZE: usize = 128;
+const EXECUTION_BLOCKS_LRU_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.

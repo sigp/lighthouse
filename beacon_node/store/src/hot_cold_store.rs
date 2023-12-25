@@ -35,6 +35,7 @@ use state_processing::{
 use std::cmp::min;
 use std::convert::TryInto;
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -85,7 +86,7 @@ struct BlockCache<E: EthSpec> {
 }
 
 impl<E: EthSpec> BlockCache<E> {
-    pub fn new(size: usize) -> Self {
+    pub fn new(size: NonZeroUsize) -> Self {
         Self {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),

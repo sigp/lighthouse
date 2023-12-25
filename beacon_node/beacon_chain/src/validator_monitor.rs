@@ -442,7 +442,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     /// Add some validators to `self` for additional monitoring.
-    fn add_validator_pubkey(&mut self, pubkey: PublicKeyBytes) {
+    pub fn add_validator_pubkey(&mut self, pubkey: PublicKeyBytes) {
         let index_opt = self
             .indices
             .iter()
@@ -602,8 +602,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
         let end_slot = current_slot.saturating_sub(MISSED_BLOCK_LAG_SLOTS).as_u64();
 
-        // List of proposers per epoch from the beacon_proposer_cache
-        let mut proposers_per_epoch: Option<SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> = None;
+        // List of proposers per epoch from the beacon_proposer_cache, and the epoch at which the
+        // cache is valid.
+        let mut proposers_per_epoch: Option<(SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>, Epoch)> =
+            None;
 
         for (prev_slot, slot) in (start_slot.as_u64()..=end_slot)
             .map(Slot::new)
@@ -617,25 +619,30 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 // Found missed block
                 if block_root == prev_block_root {
                     let slot_epoch = slot.epoch(T::slots_per_epoch());
-                    let prev_slot_epoch = prev_slot.epoch(T::slots_per_epoch());
 
                     if let Ok(shuffling_decision_block) =
                         state.proposer_shuffling_decision_root_at_epoch(slot_epoch, *block_root)
                     {
-                        // Only update the cache if it needs to be initialised or because
-                        // slot is at epoch + 1
-                        if proposers_per_epoch.is_none() || slot_epoch != prev_slot_epoch {
-                            proposers_per_epoch = self.get_proposers_by_epoch_from_cache(
-                                slot_epoch,
-                                shuffling_decision_block,
-                            );
+                        // Update the cache if it has not yet been initialised, or if it is
+                        // initialised for a prior epoch. This is an optimisation to avoid bouncing
+                        // the proposer shuffling cache lock when there are lots of missed blocks.
+                        if proposers_per_epoch
+                            .as_ref()
+                            .map_or(true, |(_, cached_epoch)| *cached_epoch != slot_epoch)
+                        {
+                            proposers_per_epoch = self
+                                .get_proposers_by_epoch_from_cache(
+                                    slot_epoch,
+                                    shuffling_decision_block,
+                                )
+                                .map(|cache| (cache, slot_epoch));
                         }
 
                         // Only add missed blocks for the proposer if it's in the list of monitored validators
                         let slot_in_epoch = slot % T::slots_per_epoch();
                         if let Some(proposer_index) = proposers_per_epoch
-                            .as_deref()
-                            .and_then(|proposers| proposers.get(slot_in_epoch.as_usize()))
+                            .as_ref()
+                            .and_then(|(proposers, _)| proposers.get(slot_in_epoch.as_usize()))
                         {
                             let i = *proposer_index as u64;
                             if let Some(pub_key) = self.indices.get(&i) {
@@ -674,7 +681,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             debug!(
                                 self.log,
                                 "Could not get proposers from cache";
-                                "epoch" => ?slot_epoch
+                                "epoch" => ?slot_epoch,
+                                "decision_root" => ?shuffling_decision_block,
                             );
                         }
                     }
