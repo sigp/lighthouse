@@ -1429,6 +1429,11 @@ pub fn set_network_config(
             Some(config_str.parse()?)
         }
     };
+
+    if cli_args.is_present("prefix-search-for-subnet") {
+        config.prefix_search_for_subnet = true;
+    }
+
     Ok(())
 }
 

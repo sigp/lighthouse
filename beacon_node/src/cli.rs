@@ -1290,5 +1290,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("This flag is deprecated and has no effect.")
                 .takes_value(false)
         )
+        .arg(
+            Arg::with_name("prefix-search-for-subnet")
+                .long("prefix-search-for-subnet")
+                .help("Enable prefix search for attestation subnets. Disabled by default.")
+                .takes_value(false),
+        )
         .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))
 }

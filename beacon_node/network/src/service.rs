@@ -206,6 +206,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     enable_light_client_server: bool,
     /// The logger for the network service.
     fork_context: Arc<ForkContext>,
+    /// Prefix search for attestation subnets.
+    prefix_search_for_subnet: bool,
     /// Mappings of `SubnetId` to `NodeId`s for subnet discovery.
     prefix_mapping: PrefixMapping,
     log: slog::Logger,
@@ -367,6 +369,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             metrics_update,
             gossipsub_parameter_update,
             fork_context,
+            prefix_search_for_subnet: config.prefix_search_for_subnet,
             prefix_mapping,
             log: network_log,
             enable_light_client_server: config.enable_light_client_server,
@@ -838,9 +841,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     }
 
     fn on_attestation_service_msg(&mut self, msg: SubnetServiceMessage) {
-        // TODO: add cli flag
-        let prefix_search_for_subnet = true;
-
         match msg {
             SubnetServiceMessage::Subscribe(subnet) => {
                 for fork_digest in self.required_gossip_fork_digests() {
@@ -873,7 +873,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 let subnet_discoveries = subnets_to_discover
                     .into_iter()
                     .map(|s| {
-                        let target = if prefix_search_for_subnet {
+                        let target = if self.prefix_search_for_subnet {
                             let subnet_id = match &s.subnet {
                                 Subnet::Attestation(subnet_id) => subnet_id,
                                 Subnet::SyncCommittee(_) => unreachable!("sync committee subnet should not be here"),
