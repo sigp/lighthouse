@@ -27,10 +27,10 @@ use lighthouse_network::{
     types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
+use rand::seq::SliceRandom;
 use slog::{crit, debug, error, info, o, trace, warn};
 use slot_clock::SlotClock;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
-use rand::seq::SliceRandom;
 use store::HotColdDB;
 use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
