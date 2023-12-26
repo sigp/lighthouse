@@ -123,6 +123,7 @@ impl std::fmt::Debug for SubnetQuery {
             .field("subnet", &self.subnet)
             .field("min_ttl_secs", &min_ttl_secs)
             .field("retries", &self.retries)
+            .field("target", &self.target)
             .finish()
     }
 }

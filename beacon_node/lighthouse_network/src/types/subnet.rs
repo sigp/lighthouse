@@ -34,7 +34,7 @@ pub struct TargetedSubnetDiscovery {
     pub target: DiscoveryTarget,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DiscoveryTarget {
     Random,
     Prefix(Vec<NodeId>),
