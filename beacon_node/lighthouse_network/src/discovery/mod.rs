@@ -758,29 +758,28 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     // Target node
                     let target_node = match &prefix_query.target {
                         DiscoveryTarget::Random => unreachable!("target should be Prefix here"),
+                        DiscoveryTarget::Prefix(node_ids) if node_ids.is_empty() => {
+                            warn!(
+                                self.log,
+                                "No NodeIds given for prefix search, falling back to random search.";
+                                "subnet" => ?prefix_query,
+                            );
+                            NodeId::random()
+                        }
                         DiscoveryTarget::Prefix(node_ids) => {
-                            if node_ids.is_empty() {
+                            let pos = prefix_query.retries % node_ids.len();
+                            if let Some(id) = node_ids.get(pos) {
+                                id.clone()
+                            } else {
                                 warn!(
                                     self.log,
-                                    "No NodeIds given for prefix search, falling back to random search.";
+                                    "NodeIds were given for prefix search, but the offset was wrong. Choosing the first one instead.";
                                     "subnet" => ?prefix_query,
                                 );
-                                NodeId::random()
-                            } else {
-                                let pos = prefix_query.retries % node_ids.len();
-                                if let Some(id) = node_ids.get(pos) {
-                                    id.clone()
-                                } else {
-                                    warn!(
-                                        self.log,
-                                        "NodeIds were given for prefix search, but the offset was wrong. Choosing the first one instead.";
-                                        "subnet" => ?prefix_query,
-                                    );
-                                    node_ids
-                                        .first()
-                                        .expect("Already checked that `node_ids` is not empty.")
-                                        .clone()
-                                }
+                                node_ids
+                                    .first()
+                                    .expect("Already checked that `node_ids` is not empty.")
+                                    .clone()
                             }
                         }
                     };
