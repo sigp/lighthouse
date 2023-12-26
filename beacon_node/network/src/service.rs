@@ -878,7 +878,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                                 Subnet::Attestation(subnet_id) => subnet_id,
                                 Subnet::SyncCommittee(_) => unreachable!("sync committee subnet should not be here"),
                             };
-                            match self.prefix_mapping.get::<T::EthSpec>(subnet_id, current_epoch) {
+                            match self.prefix_mapping.get_target_nodes::<T::EthSpec>(subnet_id, current_epoch) {
                                 Ok(mut node_ids) => {
                                     node_ids.shuffle(&mut rand::thread_rng());
                                     DiscoveryTarget::Prefix(node_ids)
