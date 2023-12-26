@@ -1,6 +1,6 @@
 use lighthouse_network::discv5::enr::NodeId;
 use std::collections::HashMap;
-use types::{ChainSpec, Epoch, EthSpec, MainnetEthSpec, SubnetId};
+use types::{ChainSpec, Epoch, EthSpec, SubnetId};
 
 /// Stores mappings of `SubnetId` to `NodeId`s for prefix search.
 pub(crate) struct PrefixMapping {
@@ -60,18 +60,24 @@ impl PrefixMapping {
     }
 }
 
-#[test]
-fn test_get_target_nodes() {
-    let mut prefix_mapping = PrefixMapping::new(ChainSpec::mainnet());
-    assert_eq!(prefix_mapping.epoch, Epoch::new(0));
-    assert_eq!(prefix_mapping.mapping.len(), 0);
+#[cfg(test)]
+mod test {
+    use super::*;
+    use types::MainnetEthSpec;
 
-    let current_epoch = Epoch::new(54321);
-    let node_ids = prefix_mapping
-        .get_target_nodes::<MainnetEthSpec>(&SubnetId::new(1), current_epoch)
-        .unwrap();
-    assert!(!node_ids.is_empty());
+    #[test]
+    fn test_get_target_nodes() {
+        let mut prefix_mapping = PrefixMapping::new(ChainSpec::mainnet());
+        assert_eq!(prefix_mapping.epoch, Epoch::new(0));
+        assert_eq!(prefix_mapping.mapping.len(), 0);
 
-    assert_eq!(prefix_mapping.epoch, current_epoch);
-    assert_ne!(prefix_mapping.mapping.len(), 0);
+        let current_epoch = Epoch::new(54321);
+        let node_ids = prefix_mapping
+            .get_target_nodes::<MainnetEthSpec>(&SubnetId::new(1), current_epoch)
+            .unwrap();
+        assert!(!node_ids.is_empty());
+
+        assert_eq!(prefix_mapping.epoch, current_epoch);
+        assert_ne!(prefix_mapping.mapping.len(), 0);
+    }
 }
