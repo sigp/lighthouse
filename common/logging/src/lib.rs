@@ -6,11 +6,12 @@ use lighthouse_metrics::{
 };
 use slog::Logger;
 use slog_term::Decorator;
-use std::collections::HashMap;
 use std::io::{Result, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use tracing_logging_layer::TRACING_LOGGING_DEPENDENCIES;
+use tracing_appender::non_blocking::NonBlocking;
+use tracing_logging_layer::LoggingLayer;
+use tracing_subscriber::fmt::format::Format;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
@@ -21,8 +22,6 @@ mod tracing_logging_layer;
 mod tracing_metrics_layer;
 
 pub use sse_logging_components::SSELoggingComponents;
-pub use tracing_logging_layer::LoggingLayer;
-pub use tracing_logging_layer::NonBlockingFileWriter;
 pub use tracing_metrics_layer::MetricsLayer;
 
 /// The minimum interval between log messages indicating that a queue is full.
@@ -224,9 +223,9 @@ impl TimeLatch {
     }
 }
 
-pub fn create_tracing_layer(logfile_max_size: u64, base_tracing_log_path: PathBuf) {
+pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
     let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
-        .or_else(|_| tracing_subscriber::EnvFilter::try_new("debug"))
+        .or_else(|_| tracing_subscriber::EnvFilter::try_new("info"))
     {
         Ok(filter) => filter,
         Err(e) => {
@@ -235,43 +234,31 @@ pub fn create_tracing_layer(logfile_max_size: u64, base_tracing_log_path: PathBu
         }
     };
 
-    let mut file_writer_streams: HashMap<String, NonBlockingFileWriter> = HashMap::new();
+    let libp2p_writer =
+        tracing_appender::rolling::daily(base_tracing_log_path.clone(), "libp2p.log");
+    let discv5_writer =
+        tracing_appender::rolling::daily(base_tracing_log_path.clone(), "discv5.log");
 
-    for dependency in TRACING_LOGGING_DEPENDENCIES.iter() {
-        init_file_writer_stream(
-            &mut file_writer_streams,
-            base_tracing_log_path.clone(),
-            dependency,
-            logfile_max_size * 1_024 * 1_024,
-        );
-    }
+    let (libp2p_non_blocking_writer, libp2p_guard) = NonBlocking::new(libp2p_writer);
+    let (discv5_non_blocking_writer, discv5_guard) = NonBlocking::new(discv5_writer);
+
+    let custom_layer = LoggingLayer {
+        libp2p_non_blocking_writer,
+        libp2p_guard,
+        discv5_non_blocking_writer,
+        discv5_guard,
+        formatter: Format::default(),
+    };
 
     if let Err(e) = tracing_subscriber::fmt()
         .with_env_filter(filter_layer)
         .finish()
         .with(MetricsLayer)
-        .with(LoggingLayer {
-            file_writer_streams,
-        })
+        .with(custom_layer)
         .try_init()
     {
         eprintln!("Failed to initialize dependency tracing {e}");
     }
-}
-
-fn init_file_writer_stream(
-    file_writer_streams: &mut HashMap<String, NonBlockingFileWriter>,
-    base_path: PathBuf,
-    file_name: &str,
-    max_file_size: u64,
-) {
-    let file_path = base_path.join(file_name).with_extension("log");
-    let Ok(file_writer) = NonBlockingFileWriter::new(file_path.as_path(), max_file_size) else {
-        eprintln!("Failed to create tracing file stream for {file_name}");
-        return;
-    };
-
-    file_writer_streams.insert(file_name.to_string(), file_writer);
 }
 
 /// Return a logger suitable for test usage.

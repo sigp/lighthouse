@@ -540,7 +540,7 @@ fn run<E: EthSpec>(
 
     let path = tracing_log_path.clone().unwrap();
 
-    logging::create_tracing_layer(logfile_max_size, path);
+    logging::create_tracing_layer(path);
 
     // Allow Prometheus to export the time at which the process was started.
     metrics::expose_process_start_time(&log);
