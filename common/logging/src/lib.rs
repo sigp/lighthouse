@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_logging_layer::LoggingLayer;
-use tracing_subscriber::fmt::format::Format;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
@@ -247,7 +246,6 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf, turn_on_terminal_log
         libp2p_guard,
         discv5_non_blocking_writer,
         discv5_guard,
-        formatter: Format::default(),
     };
 
     if let Err(e) = tracing_subscriber::fmt()
@@ -263,7 +261,6 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf, turn_on_terminal_log
         .try_init()
     {
         eprintln!("Failed to initialize dependency logging {e}");
-        return;
     }
 }
 

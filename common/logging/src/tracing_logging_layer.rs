@@ -2,7 +2,6 @@ use chrono::prelude::Local;
 use std::io::Write;
 use tracing::Subscriber;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
-use tracing_subscriber::fmt::format::Format;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::Layer;
 
@@ -11,7 +10,6 @@ pub struct LoggingLayer {
     pub libp2p_guard: WorkerGuard,
     pub discv5_non_blocking_writer: NonBlocking,
     pub discv5_guard: WorkerGuard,
-    pub formatter: Format,
 }
 
 impl<S> Layer<S> for LoggingLayer
