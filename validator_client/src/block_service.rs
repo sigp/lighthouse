@@ -659,7 +659,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 // via the API.
                 warn!(
                     log,
-                    "Missing pubkey for block randao";
+                    "Missing pubkey for block";
                     "info" => "a validator may have recently been removed from this VC",
                     "pubkey" => ?pubkey,
                     "slot" => ?slot
@@ -668,7 +668,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             }
             Err(e) => {
                 return Err(BlockError::Recoverable(format!(
-                    "Unable to produce randao reveal signature: {:?}",
+                    "Unable to sign block: {:?}",
                     e
                 )))
             }
@@ -793,7 +793,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "slot" => slot.as_u64(),
         );
         if proposer_index != Some(unsigned_block.proposer_index()) {
-            return Err(BlockError::Recoverable(
+            return Err(BlockError::Irrecoverable(
                 "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
             ));
         }
