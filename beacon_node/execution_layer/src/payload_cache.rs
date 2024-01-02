@@ -1,10 +1,12 @@
 use eth2::types::FullPayloadContents;
 use lru::LruCache;
 use parking_lot::Mutex;
+use std::num::NonZeroUsize;
 use tree_hash::TreeHash;
+use types::non_zero_usize::new_non_zero_usize;
 use types::{EthSpec, Hash256};
 
-pub const DEFAULT_PAYLOAD_CACHE_SIZE: usize = 10;
+pub const DEFAULT_PAYLOAD_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(10);
 
 /// A cache mapping execution payloads by tree hash roots.
 pub struct PayloadCache<T: EthSpec> {

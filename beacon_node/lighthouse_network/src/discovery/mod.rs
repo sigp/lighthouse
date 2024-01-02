@@ -29,12 +29,13 @@ pub use libp2p::{
     identity::PeerId,
     swarm::{
         dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour, NotifyHandler,
-        PollParameters, SubstreamProtocol, ToSwarm,
+        SubstreamProtocol, ToSwarm,
     },
 };
 use lru::LruCache;
 use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
+use std::num::NonZeroUsize;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -49,6 +50,7 @@ use types::{EnrForkId, EthSpec};
 
 mod subnet_predicate;
 pub use subnet_predicate::subnet_predicate;
+use types::non_zero_usize::new_non_zero_usize;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
@@ -70,6 +72,8 @@ const MAX_SUBNETS_IN_QUERY: usize = 3;
 pub const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 /// The threshold for updating `min_ttl` on a connected peer.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
+/// The capacity of the Discovery ENR cache.
+const ENR_CACHE_CAPACITY: NonZeroUsize = new_non_zero_usize(50);
 
 /// A query has completed. This result contains a mapping of discovered peer IDs to the `min_ttl`
 /// of the peer if it is specified.
@@ -318,7 +322,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         };
 
         Ok(Self {
-            cached_enrs: LruCache::new(50),
+            cached_enrs: LruCache::new(ENR_CACHE_CAPACITY),
             network_globals,
             find_peer_active: false,
             queued_queries: VecDeque::with_capacity(10),
@@ -955,11 +959,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     }
 
     // Main execution loop to drive the behaviour
-    fn poll(
-        &mut self,
-        cx: &mut Context,
-        _: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if !self.started {
             return Poll::Pending;
         }
@@ -1041,7 +1041,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         Poll::Pending
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         match event {
             FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
                 self.on_dial_failure(peer_id, error)
@@ -1114,17 +1114,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     Err(e) => warn!(self.log, "Failed to update ENR"; "error" => ?e),
                 }
             }
-            FromSwarm::ConnectionEstablished(_)
-            | FromSwarm::ConnectionClosed(_)
-            | FromSwarm::AddressChange(_)
-            | FromSwarm::ListenFailure(_)
-            | FromSwarm::NewListener(_)
-            | FromSwarm::ExpiredListenAddr(_)
-            | FromSwarm::ListenerError(_)
-            | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddrCandidate(_)
-            | FromSwarm::ExternalAddrExpired(_)
-            | FromSwarm::ExternalAddrConfirmed(_) => {
+            _ => {
                 // Ignore events not relevant to discovery
             }
         }

@@ -1,7 +1,7 @@
 use crate::block_verification_types::AsBlock;
 use crate::{
     block_verification_types::BlockImportData,
-    data_availability_checker::{AvailabilityCheckError, STATE_LRU_CAPACITY},
+    data_availability_checker::{AvailabilityCheckError, STATE_LRU_CAPACITY_NON_ZERO},
     eth1_finalization_cache::Eth1FinalizationData,
     AvailabilityPendingExecutedBlock, BeaconChainTypes, BeaconStore, PayloadVerificationOutcome,
 };
@@ -61,7 +61,7 @@ pub struct StateLRUCache<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> StateLRUCache<T> {
     pub fn new(store: BeaconStore<T>, spec: ChainSpec) -> Self {
         Self {
-            states: RwLock::new(LruCache::new(STATE_LRU_CAPACITY)),
+            states: RwLock::new(LruCache::new(STATE_LRU_CAPACITY_NON_ZERO)),
             store,
             spec,
         }

@@ -14,8 +14,8 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
+use eth2::types::FullPayloadContents;
 use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
-use eth2::types::{FullPayloadContents, SignedBlockContents};
 use ethers_core::types::Transaction as EthersTransaction;
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
@@ -29,6 +29,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -42,9 +43,11 @@ use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::builder_bid::BuilderBid;
+use types::non_zero_usize::new_non_zero_usize;
 use types::payload::BlockProductionVersion;
-use types::sidecar::{BlobItems, Sidecar};
-use types::{AbstractExecPayload, ExecutionPayloadDeneb, KzgProofs};
+use types::{
+    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, KzgProofs, SignedBlindedBeaconBlock,
+};
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadCapella,
     ExecutionPayloadMerge, FullPayload, ProposerPreparationData, PublicKeyBytes, Signature, Slot,
@@ -67,7 +70,7 @@ pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
 
 /// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
 /// in an LRU cache to avoid redundant lookups. This is the size of that cache.
-const EXECUTION_BLOCKS_LRU_CACHE_SIZE: usize = 128;
+const EXECUTION_BLOCKS_LRU_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.
@@ -103,12 +106,8 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
             BuilderBid::Deneb(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Deneb(builder_bid.header).into(),
                 block_value: builder_bid.value,
-                kzg_commitments: builder_bid.blinded_blobs_bundle.commitments,
-                blobs: BlobItems::<E>::try_from_blob_roots(
-                    builder_bid.blinded_blobs_bundle.blob_roots,
-                )
-                .map_err(Error::InvalidBlobConversion)?,
-                proofs: builder_bid.blinded_blobs_bundle.proofs,
+                kzg_commitments: builder_bid.blob_kzg_commitments,
+                blobs_and_proofs: None,
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -170,8 +169,8 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         payload: Payload,
         block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
-        blobs: <Payload::Sidecar as Sidecar<T>>::BlobItems,
-        proofs: KzgProofs<T>,
+        /// `None` for blinded `PayloadAndBlobs`.
+        blobs_and_proofs: Option<(BlobsList<T>, KzgProofs<T>)>,
     },
 }
 
@@ -179,15 +178,26 @@ impl<T: EthSpec> From<BlockProposalContents<T, FullPayload<T>>>
     for BlockProposalContents<T, BlindedPayload<T>>
 {
     fn from(item: BlockProposalContents<T, FullPayload<T>>) -> Self {
-        let block_value = item.block_value().to_owned();
-
-        let blinded_payload: BlockProposalContents<T, BlindedPayload<T>> =
+        match item {
             BlockProposalContents::Payload {
-                payload: item.to_payload().execution_payload().into(),
+                payload,
                 block_value,
-            };
-
-        blinded_payload
+            } => BlockProposalContents::Payload {
+                payload: payload.execution_payload().into(),
+                block_value,
+            },
+            BlockProposalContents::PayloadAndBlobs {
+                payload,
+                block_value,
+                kzg_commitments,
+                blobs_and_proofs: _,
+            } => BlockProposalContents::PayloadAndBlobs {
+                payload: payload.execution_payload().into(),
+                block_value,
+                kzg_commitments,
+                blobs_and_proofs: None,
+            },
+        }
     }
 }
 
@@ -203,9 +213,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
                 payload: execution_payload.into(),
                 block_value,
                 kzg_commitments: bundle.commitments,
-                blobs: BlobItems::try_from_blobs(bundle.blobs)
-                    .map_err(Error::InvalidBlobConversion)?,
-                proofs: bundle.proofs,
+                blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
             }),
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),
@@ -233,26 +241,23 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
     ) -> (
         Payload,
         Option<KzgCommitments<T>>,
-        Option<<Payload::Sidecar as Sidecar<T>>::BlobItems>,
-        Option<KzgProofs<T>>,
+        Option<(BlobsList<T>, KzgProofs<T>)>,
         Uint256,
     ) {
         match self {
             Self::Payload {
                 payload,
                 block_value,
-            } => (payload, None, None, None, block_value),
+            } => (payload, None, None, block_value),
             Self::PayloadAndBlobs {
                 payload,
                 block_value,
                 kzg_commitments,
-                blobs,
-                proofs,
+                blobs_and_proofs,
             } => (
                 payload,
                 Some(kzg_commitments),
-                Some(blobs),
-                Some(proofs),
+                blobs_and_proofs,
                 block_value,
             ),
         }
@@ -275,23 +280,6 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             Self::Payload { block_value, .. } => block_value,
             Self::PayloadAndBlobs { block_value, .. } => block_value,
         }
-    }
-    pub fn default_at_fork(fork_name: ForkName) -> Result<Self, BeaconStateError> {
-        Ok(match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                BlockProposalContents::Payload {
-                    payload: Payload::default_at_fork(fork_name)?,
-                    block_value: Uint256::zero(),
-                }
-            }
-            ForkName::Deneb => BlockProposalContents::PayloadAndBlobs {
-                payload: Payload::default_at_fork(fork_name)?,
-                block_value: Uint256::zero(),
-                blobs: Payload::default_blobs_at_fork(fork_name)?,
-                kzg_commitments: VariableList::default(),
-                proofs: VariableList::default(),
-            },
-        })
     }
 }
 
@@ -751,6 +739,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 metrics::inc_counter(&metrics::EXECUTION_LAYER_PROPOSER_DATA_UPDATED);
             }
         }
+    }
+
+    /// Delete proposer preparation data for `proposer_index`. This is only useful in tests.
+    pub async fn clear_proposer_preparation(&self, proposer_index: u64) {
+        self.proposer_preparation_data()
+            .await
+            .remove(&proposer_index);
     }
 
     /// Removes expired entries from proposer_preparation_data and proposers caches
@@ -2003,7 +1998,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn propose_blinded_beacon_block(
         &self,
         block_root: Hash256,
-        block: &SignedBlockContents<T, BlindedPayload<T>>,
+        block: &SignedBlindedBeaconBlock<T>,
     ) -> Result<FullPayloadContents<T>, Error> {
         debug!(
             self.log(),
@@ -2052,7 +2047,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "relay_response_ms" => duration.as_millis(),
                         "block_root" => ?block_root,
                         "parent_hash" => ?block
-                            .signed_block()
                             .message()
                             .execution_payload()
                             .map(|payload| format!("{}", payload.parent_hash()))
