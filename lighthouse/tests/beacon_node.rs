@@ -50,6 +50,12 @@ struct CommandLineTest {
 }
 impl CommandLineTest {
     fn new() -> CommandLineTest {
+        let mut base_cmd = base_cmd();
+        base_cmd.arg("--allow-insecure-genesis-sync");
+        CommandLineTest { cmd: base_cmd }
+    }
+
+    fn without_allow_genesis_sync() -> CommandLineTest {
         let base_cmd = base_cmd();
         CommandLineTest { cmd: base_cmd }
     }
@@ -90,6 +96,12 @@ fn staking_flag() {
                 DEFAULT_ETH1_ENDPOINT
             );
         });
+}
+
+#[test]
+#[should_panic]
+fn run_without_allow_genesis_sync() {
+    CommandLineTest::without_allow_genesis_sync().run_with_zero_port();
 }
 
 #[test]
