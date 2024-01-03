@@ -518,8 +518,15 @@ pub fn get_config<E: EthSpec>(
                 .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
 
             ClientGenesis::CheckpointSyncUrl { url }
-        } else {
+        } else if cli_args.is_present("allow-insecure-genesis-sync") {
             ClientGenesis::GenesisState
+        } else {
+            return Err(
+                    "Syncing from genesis is not secure post-Capella! \
+                    You should instead perform a checkpoint sync from a trusted node using the --checkpoint-sync-url option. \
+                    For a list of public endpoints, see:\nhttps://eth-clients.github.io/checkpoint-sync-endpoints/"
+                        .to_string(),
+                );
         }
     } else {
         if cli_args.is_present("checkpoint-state") || cli_args.is_present("checkpoint-sync-url") {
