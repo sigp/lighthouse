@@ -1,10 +1,9 @@
 //! Provides the `ObservedBlockProducers` struct which allows for rejecting gossip blocks from
 //! validators that have already produced a block.
 
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::marker::PhantomData;
-use types::{BeaconBlockRef, Epoch, EthSpec, Hash256, Slot, Unsigned};
+use types::{BeaconBlockRef, Epoch, EthSpec, Slot, Unsigned};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -40,7 +39,7 @@ impl ProposalKey {
 /// known_distinct_shufflings` which is much smaller.
 pub struct ObservedBlockProducers<E: EthSpec> {
     finalized_slot: Slot,
-    items: HashMap<ProposalKey, HashSet<Hash256>>,
+    items: HashSet<ProposalKey>,
     _phantom: PhantomData<E>,
 }
 
@@ -49,27 +48,9 @@ impl<E: EthSpec> Default for ObservedBlockProducers<E> {
     fn default() -> Self {
         Self {
             finalized_slot: Slot::new(0),
-            items: HashMap::new(),
+            items: HashSet::new(),
             _phantom: PhantomData,
         }
-    }
-}
-
-pub enum SeenBlock {
-    Duplicate,
-    Slashable,
-    UniqueNonSlashable,
-}
-
-impl SeenBlock {
-    pub fn proposer_previously_observed(self) -> bool {
-        match self {
-            Self::Duplicate | Self::Slashable => true,
-            Self::UniqueNonSlashable => false,
-        }
-    }
-    pub fn is_slashable(&self) -> bool {
-        matches!(self, Self::Slashable)
     }
 }
 
@@ -83,11 +64,7 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     ///
     /// - `block.proposer_index` is greater than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `block.slot` is equal to or less than the latest pruned `finalized_slot`.
-    pub fn observe_proposal(
-        &mut self,
-        block_root: Hash256,
-        block: BeaconBlockRef<'_, E>,
-    ) -> Result<SeenBlock, Error> {
+    pub fn observe_proposal(&mut self, block: BeaconBlockRef<'_, E>) -> Result<bool, Error> {
         self.sanitize_block(block)?;
 
         let key = ProposalKey {
@@ -95,69 +72,9 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
             proposer: block.proposer_index(),
         };
 
-        let entry = self.items.entry(key);
+        let already_exists = self.items.insert(key);
 
-        let slashable_proposal = match entry {
-            Entry::Occupied(mut occupied_entry) => {
-                let block_roots = occupied_entry.get_mut();
-                let newly_inserted = block_roots.insert(block_root);
-
-                let is_equivocation = block_roots.len() > 1;
-
-                if is_equivocation {
-                    SeenBlock::Slashable
-                } else if !newly_inserted {
-                    SeenBlock::Duplicate
-                } else {
-                    SeenBlock::UniqueNonSlashable
-                }
-            }
-            Entry::Vacant(vacant_entry) => {
-                let block_roots = HashSet::from([block_root]);
-                vacant_entry.insert(block_roots);
-
-                SeenBlock::UniqueNonSlashable
-            }
-        };
-
-        Ok(slashable_proposal)
-    }
-
-    /// Returns `Ok(true)` if the `block` has been observed before, `Ok(false)` if not. Does not
-    /// update the cache, so calling this function multiple times will continue to return
-    /// `Ok(false)`, until `Self::observe_proposer` is called.
-    ///
-    /// ## Errors
-    ///
-    /// - `block.proposer_index` is greater than `VALIDATOR_REGISTRY_LIMIT`.
-    /// - `block.slot` is equal to or less than the latest pruned `finalized_slot`.
-    pub fn proposer_has_been_observed(
-        &self,
-        block: BeaconBlockRef<'_, E>,
-        block_root: Hash256,
-    ) -> Result<SeenBlock, Error> {
-        self.sanitize_block(block)?;
-
-        let key = ProposalKey {
-            slot: block.slot(),
-            proposer: block.proposer_index(),
-        };
-
-        if let Some(block_roots) = self.items.get(&key) {
-            let block_already_known = block_roots.contains(&block_root);
-            let no_prev_known_blocks =
-                block_roots.difference(&HashSet::from([block_root])).count() == 0;
-
-            if !no_prev_known_blocks {
-                Ok(SeenBlock::Slashable)
-            } else if block_already_known {
-                Ok(SeenBlock::Duplicate)
-            } else {
-                Ok(SeenBlock::UniqueNonSlashable)
-            }
-        } else {
-            Ok(SeenBlock::UniqueNonSlashable)
-        }
+        Ok(!already_exists)
     }
 
     /// Returns `Ok(())` if the given `block` is sane.
@@ -189,14 +106,14 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
         }
 
         self.finalized_slot = finalized_slot;
-        self.items.retain(|key, _| key.slot > finalized_slot);
+        self.items.retain(|key| key.slot > finalized_slot);
     }
 
     /// Returns `true` if the given `validator_index` has been stored in `self` at `epoch`.
     ///
     /// This is useful for doppelganger detection.
     pub fn index_seen_at_epoch(&self, validator_index: u64, epoch: Epoch) -> bool {
-        self.items.iter().any(|(key, _)| {
+        self.items.iter().any(|key| {
             key.slot.epoch(E::slots_per_epoch()) == epoch && key.proposer == validator_index
         })
     }
@@ -225,12 +142,9 @@ mod tests {
 
         // Slot 0, proposer 0
         let block_a = get_block(0, 0);
-        let block_root = block_a.canonical_root();
 
         assert_eq!(
-            cache
-                .observe_proposal(block_root, block_a.to_ref())
-                .map(SeenBlock::proposer_previously_observed),
+            cache.observe_proposal(block_a.to_ref()),
             Ok(false),
             "can observe proposer, indicates proposer unobserved"
         );
@@ -241,16 +155,14 @@ mod tests {
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        assert_eq!(
+        assert!(
             cache
                 .items
                 .get(&ProposalKey {
                     slot: Slot::new(0),
                     proposer: 0
                 })
-                .expect("slot zero should be present")
-                .len(),
-            1,
+                .is_some(),
             "only one proposer should be present"
         );
 
@@ -262,16 +174,14 @@ mod tests {
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        assert_eq!(
+        assert!(
             cache
                 .items
                 .get(&ProposalKey {
                     slot: Slot::new(0),
                     proposer: 0
                 })
-                .expect("slot zero should be present")
-                .len(),
-            1,
+                .is_some(),
             "only one proposer should be present"
         );
 
@@ -293,12 +203,9 @@ mod tests {
 
         // First slot of finalized epoch, proposer 0
         let block_b = get_block(E::slots_per_epoch(), 0);
-        let block_root_b = block_b.canonical_root();
 
         assert_eq!(
-            cache
-                .observe_proposal(block_root_b, block_b.to_ref())
-                .map(SeenBlock::proposer_previously_observed),
+            cache.observe_proposal(block_b.to_ref()),
             Err(Error::FinalizedBlock {
                 slot: E::slots_per_epoch().into(),
                 finalized_slot: E::slots_per_epoch().into(),
@@ -318,24 +225,20 @@ mod tests {
         let block_b = get_block(three_epochs, 0);
 
         assert_eq!(
-            cache
-                .observe_proposal(block_root_b, block_b.to_ref())
-                .map(SeenBlock::proposer_previously_observed),
+            cache.observe_proposal(block_b.to_ref()),
             Ok(false),
             "can insert non-finalized block"
         );
 
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        assert_eq!(
+        assert!(
             cache
                 .items
                 .get(&ProposalKey {
                     slot: Slot::new(three_epochs),
                     proposer: 0
                 })
-                .expect("the three epochs slot should be present")
-                .len(),
-            1,
+                .is_some(),
             "only one proposer should be present"
         );
 
@@ -353,16 +256,14 @@ mod tests {
         );
 
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        assert_eq!(
+        assert!(
             cache
                 .items
                 .get(&ProposalKey {
                     slot: Slot::new(three_epochs),
                     proposer: 0
                 })
-                .expect("the three epochs slot should be present")
-                .len(),
-            1,
+                .is_some(),
             "only one proposer should be present"
         );
     }
@@ -373,141 +274,78 @@ mod tests {
 
         // Slot 0, proposer 0
         let block_a = get_block(0, 0);
-        let block_root_a = block_a.canonical_root();
 
         assert_eq!(
-            cache
-                .proposer_has_been_observed(block_a.to_ref(), block_a.canonical_root())
-                .map(|x| x.proposer_previously_observed()),
-            Ok(false),
-            "no observation in empty cache"
-        );
-        assert_eq!(
-            cache
-                .observe_proposal(block_root_a, block_a.to_ref())
-                .map(SeenBlock::proposer_previously_observed),
+            cache.observe_proposal(block_a.to_ref()),
             Ok(false),
             "can observe proposer, indicates proposer unobserved"
         );
         assert_eq!(
-            cache
-                .proposer_has_been_observed(block_a.to_ref(), block_a.canonical_root())
-                .map(|x| x.proposer_previously_observed()),
-            Ok(true),
-            "observed block is indicated as true"
-        );
-        assert_eq!(
-            cache
-                .observe_proposal(block_root_a, block_a.to_ref())
-                .map(SeenBlock::proposer_previously_observed),
+            cache.observe_proposal(block_a.to_ref()),
             Ok(true),
             "observing again indicates true"
         );
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        assert_eq!(
+        assert!(
             cache
                 .items
                 .get(&ProposalKey {
                     slot: Slot::new(0),
                     proposer: 0
                 })
-                .expect("slot zero should be present")
-                .len(),
-            1,
+                .is_some(),
             "only one proposer should be present"
         );
 
         // Slot 1, proposer 0
         let block_b = get_block(1, 0);
-        let block_root_b = block_b.canonical_root();
 
         assert_eq!(
-            cache
-                .proposer_has_been_observed(block_b.to_ref(), block_b.canonical_root())
-                .map(|x| x.proposer_previously_observed()),
-            Ok(false),
-            "no observation for new slot"
-        );
-        assert_eq!(
-            cache
-                .observe_proposal(block_root_b, block_b.to_ref())
-                .map(SeenBlock::proposer_previously_observed),
+            cache.observe_proposal(block_b.to_ref()),
             Ok(false),
             "can observe proposer for new slot, indicates proposer unobserved"
         );
         assert_eq!(
-            cache
-                .proposer_has_been_observed(block_b.to_ref(), block_b.canonical_root())
-                .map(|x| x.proposer_previously_observed()),
-            Ok(true),
-            "observed block in slot 1 is indicated as true"
-        );
-        assert_eq!(
-            cache
-                .observe_proposal(block_root_b, block_b.to_ref())
-                .map(SeenBlock::proposer_previously_observed),
+            cache.observe_proposal(block_b.to_ref()),
             Ok(true),
             "observing slot 1 again indicates true"
         );
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 2, "two slots should be present");
-        assert_eq!(
+        assert!(
             cache
                 .items
                 .get(&ProposalKey {
                     slot: Slot::new(0),
                     proposer: 0
                 })
-                .expect("slot zero should be present")
-                .len(),
-            1,
+                .is_some(),
             "only one proposer should be present in slot 0"
         );
-        assert_eq!(
+        assert!(
             cache
                 .items
                 .get(&ProposalKey {
                     slot: Slot::new(1),
                     proposer: 0
                 })
-                .expect("slot zero should be present")
-                .len(),
-            1,
+                .is_some(),
             "only one proposer should be present in slot 1"
         );
 
         // Slot 0, proposer 1
         let block_c = get_block(0, 1);
-        let block_root_c = block_c.canonical_root();
 
         assert_eq!(
-            cache
-                .proposer_has_been_observed(block_c.to_ref(), block_c.canonical_root())
-                .map(|x| x.proposer_previously_observed()),
-            Ok(false),
-            "no observation for new proposer"
-        );
-        assert_eq!(
-            cache
-                .observe_proposal(block_root_c, block_c.to_ref())
-                .map(SeenBlock::proposer_previously_observed),
+            cache.observe_proposal(block_c.to_ref()),
             Ok(false),
             "can observe new proposer, indicates proposer unobserved"
         );
         assert_eq!(
-            cache
-                .proposer_has_been_observed(block_c.to_ref(), block_c.canonical_root())
-                .map(|x| x.proposer_previously_observed()),
-            Ok(true),
-            "observed new proposer block is indicated as true"
-        );
-        assert_eq!(
-            cache
-                .observe_proposal(block_root_c, block_c.to_ref())
-                .map(SeenBlock::proposer_previously_observed),
+            cache.observe_proposal(block_c.to_ref()),
             Ok(true),
             "observing new proposer again indicates true"
         );
@@ -518,7 +356,7 @@ mod tests {
             cache
                 .items
                 .iter()
-                .filter(|(k, _)| k.slot == cache.finalized_slot)
+                .filter(|k| k.slot == cache.finalized_slot)
                 .count(),
             2,
             "two proposers should be present in slot 0"
@@ -527,7 +365,7 @@ mod tests {
             cache
                 .items
                 .iter()
-                .filter(|(k, _)| k.slot == Slot::new(1))
+                .filter(|k| k.slot == Slot::new(1))
                 .count(),
             1,
             "only one proposer should be present in slot 1"

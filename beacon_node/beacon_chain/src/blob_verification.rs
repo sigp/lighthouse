@@ -623,6 +623,16 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
+    chain
+        .observed_slashable
+        .write()
+        .observe_slashable(
+            blob_sidecar.slot(),
+            blob_sidecar.block_proposer_index(),
+            block_root,
+        )
+        .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?;
+
     // Kzg verification for gossip blob sidecar
     let kzg = chain
         .kzg

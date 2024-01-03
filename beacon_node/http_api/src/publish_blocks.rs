@@ -175,33 +175,34 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             seen_timestamp,
         ),
         BroadcastValidation::ConsensusAndEquivocation => {
-            if chain_clone
-                .observed_block_producers
-                .read()
-                .proposer_has_been_observed(block_clone.message(), block_root)
-                .map_err(|e| BlockError::BeaconChainError(e.into()))?
-                .is_slashable()
-            {
-                warn!(
-                    log_clone,
-                    "Not publishing equivocating block";
-                    "slot" => block_clone.slot()
-                );
-                Err(BlockError::Slashable)
-            } else if chain_clone
-                .observed_blob_sidecars
-                .read()
-                .proposer_has_been_observed(
+            let slashable_cache = chain_clone.observed_slashable.read();
+            if let Some(blobs) = blobs_opt.as_ref() {
+                blobs.iter().try_for_each(|blob| {
+                    if slashable_cache
+                        .is_slashable(blob.slot(), blob.block_proposer_index(), blob.block_root())
+                        .map_err(|e| BlockError::BeaconChainError(e.into()))?
+                    {
+                        warn!(
+                            log_clone,
+                            "Not publishing equivocating blob";
+                            "slot" => block_clone.slot()
+                        );
+                        return Err(BlockError::Slashable);
+                    }
+                    Ok(())
+                })?;
+            };
+            if slashable_cache
+                .is_slashable(
                     block_clone.slot(),
                     block_clone.message().proposer_index(),
                     block_root,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?
-                .is_slashable()
             {
                 warn!(
                     log_clone,
-                    "Not publishing equivocating blob";
+                    "Not publishing equivocating block";
                     "slot" => block_clone.slot()
                 );
                 Err(BlockError::Slashable)

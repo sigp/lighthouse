@@ -52,6 +52,7 @@ use crate::observed_attesters::{
 use crate::observed_blob_sidecars::ObservedBlobSidecars;
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
+use crate::observed_slashable::ObservedSlashable;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
@@ -407,6 +408,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of blob sidecars seen over the gossip network.
     pub observed_blob_sidecars: RwLock<ObservedBlobSidecars<T::EthSpec>>,
+    /// Maintains a record of slashable message seen over the gossip network or RPC.
+    pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
     pub(crate) observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
     /// Maintains a record of which validators we've seen proposer slashings for.
@@ -3159,6 +3162,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         if let Some(slasher) = self.slasher.as_ref() {
             for blob_sidecar in blobs.iter().filter_map(|blob| blob.clone()) {
+                self.observed_slashable
+                    .write()
+                    .observe_slashable(
+                        blob_sidecar.slot(),
+                        blob_sidecar.block_proposer_index(),
+                        block_root,
+                    )
+                    .map_err(|e| BlockError::BeaconChainError(e.into()))?;
                 slasher.accept_block_header(blob_sidecar.signed_block_header.clone());
             }
         }
