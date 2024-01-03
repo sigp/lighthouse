@@ -116,8 +116,7 @@ pub trait EthSpec:
      */
     type BlobColumnSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BlobColumnCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type BytesPerColumnSample: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type BytesPerRowSample: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxBytesPerColumn: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type AllKzgCommitmentsInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
@@ -141,6 +140,11 @@ pub trait EthSpec:
     ///
     /// Must be set to `BytesPerFieldElement * FieldElementsPerBlob`.
     type BytesPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
+    /// The total length of an extended blob in bytes.
+    ///
+    /// Must be set to `BytesPerBlob * 2`.
+    type BytesPerExtendedBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -281,6 +285,12 @@ pub trait EthSpec:
     fn bytes_per_blob() -> usize {
         Self::BytesPerBlob::to_usize()
     }
+
+    /// Returns the `BYTES_PER_EXTENDED_BLOB` constant for this specification.
+    fn bytes_per_extended_blob() -> usize {
+        Self::BytesPerExtendedBlob::to_usize()
+    }
+
     /// Returns the `KZG_COMMITMENT_INCLUSION_PROOF_DEPTH` preset for this specification.
     fn kzg_proof_inclusion_proof_depth() -> usize {
         Self::KzgCommitmentInclusionProofDepth::to_usize()
@@ -294,12 +304,8 @@ pub trait EthSpec:
         Self::BlobColumnSubnetCount::to_usize()
     }
 
-    fn bytes_per_column_sample() -> usize {
-        Self::BytesPerColumnSample::to_usize()
-    }
-
-    fn bytes_per_row_sample() -> usize {
-        Self::BytesPerRowSample::to_usize()
+    fn max_bytes_per_column() -> usize {
+        Self::MaxBytesPerColumn::to_usize()
     }
 
     fn all_kzg_commitments_inclusion_proof_depth() -> usize {
@@ -349,17 +355,14 @@ impl EthSpec for MainnetEthSpec {
     type BytesPerFieldElement = U32;
     type FieldElementsPerBlob = U4096;
     type BytesPerBlob = U131072;
+    type BytesPerExtendedBlob = U262144;
     type KzgCommitmentInclusionProofDepth = U17;
     type BlobColumnSubnetCount = U32;
     type BlobColumnCount = U128;
     // Column samples are entire columns in 1D DAS.
-    // data size = row_size * num_of_rows / num_of_columns
+    // max data size = extended_blob_bytes * max_blobs_per_block / num_of_columns
     // 256kb * 32 / 128 = 64kb
-    type BytesPerColumnSample = U65536;
-    // A 1D extended blob / row.
-    // data size = blob_size * 2
-    // 128kb * 2 = 256kb
-    type BytesPerRowSample = U262144;
+    type MaxBytesPerColumn = U65536;
     type AllKzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
@@ -393,13 +396,13 @@ impl EthSpec for MinimalEthSpec {
     type MaxWithdrawalsPerPayload = U4;
     type FieldElementsPerBlob = U4096;
     type BytesPerBlob = U131072;
+    type BytesPerExtendedBlob = U262144;
     type MaxBlobCommitmentsPerBlock = U16;
     type KzgCommitmentInclusionProofDepth = U9;
     // DAS spec values copied from `MainnetEthSpec`
     type BlobColumnSubnetCount = U32;
     type BlobColumnCount = U128;
-    type BytesPerColumnSample = U65536;
-    type BytesPerRowSample = U262144;
+    type MaxBytesPerColumn = U65536;
     type AllKzgCommitmentsInclusionProofDepth = U4;
 
     params_from_eth_spec!(MainnetEthSpec {
@@ -474,12 +477,12 @@ impl EthSpec for GnosisEthSpec {
     type FieldElementsPerBlob = U4096;
     type BytesPerFieldElement = U32;
     type BytesPerBlob = U131072;
+    type BytesPerExtendedBlob = U262144;
     type KzgCommitmentInclusionProofDepth = U17;
     // DAS spec values copied from `MainnetEthSpec`
     type BlobColumnSubnetCount = U32;
     type BlobColumnCount = U128;
-    type BytesPerColumnSample = U65536;
-    type BytesPerRowSample = U262144;
+    type MaxBytesPerColumn = U65536;
     type AllKzgCommitmentsInclusionProofDepth = U4;
 
     fn default_spec() -> ChainSpec {

@@ -6,7 +6,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::FixedVector;
+use ssz_types::{FixedVector, VariableList};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -29,8 +29,8 @@ use tree_hash_derive::TreeHash;
 pub struct BlobColumnSidecar<T: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
-    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
-    pub data: FixedVector<u8, T::BytesPerColumnSample>,
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub data: VariableList<u8, T::MaxBytesPerColumn>,
     pub signed_block_header: SignedBeaconBlockHeader,
     /// All of the KZG commitments associated with the block.
     pub kzg_commitments: KzgCommitments<T>,
@@ -68,11 +68,13 @@ impl<T: EthSpec> BlobColumnSidecar<T> {
             .into();
 
         let mut rng = StdRng::seed_from_u64(slot.as_u64());
+        let num_of_blobs = blob_sidecars.len();
+        let bytes_per_column = T::bytes_per_extended_blob() * num_of_blobs / T::blob_column_count();
 
         (0..T::blob_column_count())
             .map(|col_index| {
                 let index = col_index as u64;
-                let mut data = vec![0u8; T::bytes_per_column_sample()];
+                let mut data = vec![0u8; bytes_per_column];
                 // Prefix with column index
                 let prefix = index.to_le_bytes();
                 data.get_mut(..prefix.len())
@@ -86,7 +88,7 @@ impl<T: EthSpec> BlobColumnSidecar<T> {
 
                 Ok(BlobColumnSidecar {
                     index,
-                    data: FixedVector::new(data).map_err(|e| format!("{e:?}"))?,
+                    data: VariableList::new(data).map_err(|e| format!("{e:?}"))?,
                     signed_block_header: first_blob_sidecar.signed_block_header.clone(),
                     kzg_commitments: blob_sidecars
                         .iter()

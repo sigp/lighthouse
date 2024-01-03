@@ -50,6 +50,7 @@ impl BlobColumnSubnetId {
     #[allow(clippy::arithmetic_side_effects)]
     /// Compute required subnets to subscribe to given the node id.
     /// TODO(das): Add epoch param
+    /// TODO(das): Add num of subnets (from ENR)
     pub fn compute_subnets_for_blob_column<T: EthSpec>(
         node_id: U256,
         spec: &ChainSpec,
