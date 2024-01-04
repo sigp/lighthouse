@@ -765,17 +765,16 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         DiscoveryTarget::Prefix(node_ids) => {
                             let pos = prefix_query.retries % node_ids.len();
                             if let Some(id) = node_ids.get(pos) {
-                                id.clone()
+                                *id
                             } else {
                                 warn!(
                                     self.log,
                                     "NodeIds were given for prefix search, but the offset was wrong. Choosing the first one instead.";
                                     "subnet" => ?prefix_query,
                                 );
-                                node_ids
+                                *node_ids
                                     .first()
                                     .expect("Already checked that `node_ids` is not empty.")
-                                    .clone()
                             }
                         }
                     };

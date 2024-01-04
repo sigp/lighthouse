@@ -282,7 +282,7 @@ mod tests {
             assert_eq!(mapping.len(), 64);
 
             for (_, node_ids) in mapping.into_iter() {
-                assert!(node_ids.len() > 0);
+                assert!(!node_ids.is_empty());
             }
         }
     }
