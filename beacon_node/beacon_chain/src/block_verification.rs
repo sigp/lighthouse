@@ -945,6 +945,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             return Err(BlockError::ProposalSignatureInvalid);
         }
 
+        chain
+            .observed_slashable
+            .write()
+            .observe_slashable(block.slot(), block.message().proposer_index(), block_root)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         // Now the signature is valid, store the proposal so we don't accept another from this
         // validator and slot.
         //
@@ -958,12 +963,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         {
             return Err(BlockError::BlockIsAlreadyKnown);
         };
-
-        chain
-            .observed_slashable
-            .write()
-            .observe_slashable(block.slot(), block.message().proposer_index(), block_root)
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
 
         if block.message().proposer_index() != expected_proposer as u64 {
             return Err(BlockError::IncorrectBlockProposer {

@@ -599,6 +599,16 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
+    chain
+        .observed_slashable
+        .write()
+        .observe_slashable(
+            blob_sidecar.slot(),
+            blob_sidecar.block_proposer_index(),
+            block_root,
+        )
+        .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?;
+
     // Now the signature is valid, store the proposal so we don't accept another blob sidecar
     // with the same `BlobIdentifier`.
     // It's important to double-check that the proposer still hasn't been observed so we don't
@@ -622,16 +632,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             index: blob_index,
         });
     }
-
-    chain
-        .observed_slashable
-        .write()
-        .observe_slashable(
-            blob_sidecar.slot(),
-            blob_sidecar.block_proposer_index(),
-            block_root,
-        )
-        .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?;
 
     // Kzg verification for gossip blob sidecar
     let kzg = chain

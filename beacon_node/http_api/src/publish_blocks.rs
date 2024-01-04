@@ -19,9 +19,9 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, EthSpec, ExecPayload, ExecutionBlockHash,
-    ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock,
-    VariableList,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobSidecarList, EthSpec, ExecPayload,
+    ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, VariableList,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
@@ -117,6 +117,22 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             | Err(BlockContentsError::BlobError(
                 beacon_chain::blob_verification::GossipBlobError::RepeatBlob { .. },
             )) => {
+                if let Err(e) = check_slashable(
+                    &chain_clone,
+                    &None,
+                    block_root.unwrap_or(block.canonical_root()),
+                    &block,
+                    &log_clone,
+                ) {
+                    warn!(
+                        log,
+                        "Not publishing block - not gossip verified";
+                        "slot" => slot,
+                        "error" => ?e
+                    );
+                    return Err(warp_utils::reject::custom_bad_request(e.to_string()));
+                }
+
                 // Allow the status code for duplicate blocks to be overridden based on config.
                 return Ok(warp::reply::with_status(
                     warp::reply::json(&ErrorMessage {
@@ -175,46 +191,20 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             seen_timestamp,
         ),
         BroadcastValidation::ConsensusAndEquivocation => {
-            let slashable_cache = chain_clone.observed_slashable.read();
-            if let Some(blobs) = blobs_opt.as_ref() {
-                blobs.iter().try_for_each(|blob| {
-                    if slashable_cache
-                        .is_slashable(blob.slot(), blob.block_proposer_index(), blob.block_root())
-                        .map_err(|e| BlockError::BeaconChainError(e.into()))?
-                    {
-                        warn!(
-                            log_clone,
-                            "Not publishing equivocating blob";
-                            "slot" => block_clone.slot()
-                        );
-                        return Err(BlockError::Slashable);
-                    }
-                    Ok(())
-                })?;
-            };
-            if slashable_cache
-                .is_slashable(
-                    block_clone.slot(),
-                    block_clone.message().proposer_index(),
-                    block_root,
-                )
-                .map_err(|e| BlockError::BeaconChainError(e.into()))?
-            {
-                warn!(
-                    log_clone,
-                    "Not publishing equivocating block";
-                    "slot" => block_clone.slot()
-                );
-                Err(BlockError::Slashable)
-            } else {
-                publish_block(
-                    block_clone,
-                    blobs_opt,
-                    sender_clone,
-                    log_clone,
-                    seen_timestamp,
-                )
-            }
+            check_slashable(
+                &chain_clone,
+                &blobs_opt,
+                block_root,
+                &block_clone,
+                &log_clone,
+            )?;
+            publish_block(
+                block_clone,
+                blobs_opt,
+                sender_clone,
+                log_clone,
+                seen_timestamp,
+            )
         }
     };
 
@@ -470,4 +460,47 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
             "root" => ?root,
         )
     }
+}
+
+/// Check if any of the blobs or the block are slashable. Returns `BlockError::Slashable` if so.
+fn check_slashable<T: BeaconChainTypes>(
+    chain_clone: &BeaconChain<T>,
+    blobs_opt: &Option<BlobSidecarList<T::EthSpec>>,
+    block_root: Hash256,
+    block_clone: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
+    log_clone: &Logger,
+) -> Result<(), BlockError<T::EthSpec>> {
+    let slashable_cache = chain_clone.observed_slashable.read();
+    if let Some(blobs) = blobs_opt.as_ref() {
+        blobs.iter().try_for_each(|blob| {
+            if slashable_cache
+                .is_slashable(blob.slot(), blob.block_proposer_index(), blob.block_root())
+                .map_err(|e| BlockError::BeaconChainError(e.into()))?
+            {
+                warn!(
+                    log_clone,
+                    "Not publishing equivocating blob";
+                    "slot" => block_clone.slot()
+                );
+                return Err(BlockError::Slashable);
+            }
+            Ok(())
+        })?;
+    };
+    if slashable_cache
+        .is_slashable(
+            block_clone.slot(),
+            block_clone.message().proposer_index(),
+            block_root,
+        )
+        .map_err(|e| BlockError::BeaconChainError(e.into()))?
+    {
+        warn!(
+            log_clone,
+            "Not publishing equivocating block";
+            "slot" => block_clone.slot()
+        );
+        return Err(BlockError::Slashable);
+    }
+    Ok(())
 }
