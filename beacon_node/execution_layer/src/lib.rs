@@ -82,6 +82,9 @@ const EXECUTION_BLOCKS_LRU_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
+/// The default value used if a builder_boost_factor isn't provided in a block v3 request
+const DEFAULT_BUILDER_BOOST_FACTOR: u64 = 100;
+
 /// A payload alongside some information about where it came from.
 pub enum ProvenancedPayload<P> {
     /// A good old fashioned farm-to-table payload from your local EE.
@@ -1157,7 +1160,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     return ProvenancedPayload::try_from(relay.data.message);
                 }
 
-                let builder_boost_factor = builder_boost_factor.unwrap_or(100);
+                let builder_boost_factor =
+                    builder_boost_factor.unwrap_or(DEFAULT_BUILDER_BOOST_FACTOR);
 
                 let relay_value = *relay.data.message.value();
                 let boosted_relay_value =
