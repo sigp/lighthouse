@@ -147,7 +147,7 @@ impl<E: EthSpec> ObservedSlashable<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{BeaconBlock, MainnetEthSpec};
+    use types::{BeaconBlock, Graffiti, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -172,7 +172,7 @@ mod tests {
         assert_eq!(
             cache.observe_slashable(block_a.slot(), block_a.proposer_index(), block_root),
             Ok(()),
-            "can observe proposer, indicates proposer unobserved"
+            "can observe proposer"
         );
 
         /*
@@ -210,7 +210,7 @@ mod tests {
                 .expect("slot zero should be present")
                 .len(),
             1,
-            "only one proposer should be present"
+            "only one block root should be present"
         );
 
         /*
@@ -293,7 +293,7 @@ mod tests {
                 .expect("the three epochs slot should be present")
                 .len(),
             1,
-            "only one proposer should be present"
+            "only one block root should be present"
         );
     }
 
@@ -317,7 +317,7 @@ mod tests {
         assert_eq!(
             cache.observe_slashable(block_a.slot(), block_a.proposer_index(), block_root_a),
             Ok(()),
-            "can observe proposer, indicates proposer unobserved"
+            "can observe proposer"
         );
         assert_eq!(
             cache.is_slashable(
@@ -326,12 +326,12 @@ mod tests {
                 block_a.canonical_root()
             ),
             Ok(false),
-            "observed block is indicated as true"
+            "observed but unslashed block"
         );
         assert_eq!(
             cache.observe_slashable(block_a.slot(), block_a.proposer_index(), block_root_a),
             Ok(()),
-            "observing again indicates true"
+            "observing again"
         );
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
@@ -346,7 +346,7 @@ mod tests {
                 .expect("slot zero should be present")
                 .len(),
             1,
-            "only one proposer should be present"
+            "only one block root should be present"
         );
 
         // Slot 1, proposer 0
@@ -360,12 +360,12 @@ mod tests {
                 block_b.canonical_root()
             ),
             Ok(false),
-            "no observation for new slot"
+            "not slashable for new slot"
         );
         assert_eq!(
             cache.observe_slashable(block_b.slot(), block_b.proposer_index(), block_root_b),
             Ok(()),
-            "can observe proposer for new slot, indicates proposer unobserved"
+            "can observe proposer for new slot"
         );
         assert_eq!(
             cache.is_slashable(
@@ -374,12 +374,12 @@ mod tests {
                 block_b.canonical_root()
             ),
             Ok(false),
-            "observed block in slot 1 is indicated as true"
+            "observed but not slashable block in slot 1"
         );
         assert_eq!(
             cache.observe_slashable(block_b.slot(), block_b.proposer_index(), block_root_b),
             Ok(()),
-            "observing slot 1 again indicates true"
+            "observing slot 1 again"
         );
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
@@ -394,7 +394,7 @@ mod tests {
                 .expect("slot zero should be present")
                 .len(),
             1,
-            "only one proposer should be present in slot 0"
+            "only one block root should be present in slot 0"
         );
         assert_eq!(
             cache
@@ -406,7 +406,7 @@ mod tests {
                 .expect("slot zero should be present")
                 .len(),
             1,
-            "only one proposer should be present in slot 1"
+            "only one block root should be present in slot 1"
         );
 
         // Slot 0, proposer 1
@@ -420,7 +420,7 @@ mod tests {
                 block_c.canonical_root()
             ),
             Ok(false),
-            "no observation for new proposer"
+            "not slashable due to new proposer"
         );
         assert_eq!(
             cache.observe_slashable(block_c.slot(), block_c.proposer_index(), block_root_c),
@@ -434,12 +434,12 @@ mod tests {
                 block_c.canonical_root()
             ),
             Ok(false),
-            "observed new proposer block is indicated as true"
+            "not slashable due to new proposer"
         );
         assert_eq!(
             cache.observe_slashable(block_c.slot(), block_c.proposer_index(), block_root_c),
             Ok(()),
-            "observing new proposer again indicates true"
+            "observing new proposer again"
         );
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
@@ -461,6 +461,26 @@ mod tests {
                 .count(),
             1,
             "only one proposer should be present in slot 1"
+        );
+
+        // Slot 0, proposer 1 (again)
+        let mut block_d = get_block(0, 1);
+        *block_d.body_mut().graffiti_mut() = Graffiti::from(*b"this is slashable               ");
+        let block_root_d = block_d.canonical_root();
+
+        assert_eq!(
+            cache.is_slashable(
+                block_d.slot(),
+                block_d.proposer_index(),
+                block_d.canonical_root()
+            ),
+            Ok(true),
+            "slashable due to new proposer"
+        );
+        assert_eq!(
+            cache.observe_slashable(block_d.slot(), block_d.proposer_index(), block_root_d),
+            Ok(()),
+            "can observe new proposer, indicates proposer unobserved"
         );
     }
 }
