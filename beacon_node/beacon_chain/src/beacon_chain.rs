@@ -3161,9 +3161,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         if let Some(slasher) = self.slasher.as_ref() {
+            let mut slashable_cache = self.observed_slashable.write();
             for blob_sidecar in blobs.iter().filter_map(|blob| blob.clone()) {
-                self.observed_slashable
-                    .write()
+                slashable_cache
                     .observe_slashable(
                         blob_sidecar.slot(),
                         blob_sidecar.block_proposer_index(),

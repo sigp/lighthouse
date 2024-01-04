@@ -58,6 +58,7 @@ use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
 };
+use crate::observed_block_producers::SeenBlock;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -955,13 +956,17 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         //
         // It's important to double-check that the proposer still hasn't been observed so we don't
         // have a race-condition when verifying two blocks simultaneously.
-        if chain
+        match chain
             .observed_block_producers
             .write()
-            .observe_proposal(block.message())
+            .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
-            return Err(BlockError::BlockIsAlreadyKnown);
+            SeenBlock::Slashable => {
+                return Err(BlockError::Slashable);
+            }
+            SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown),
+            SeenBlock::UniqueNonSlashable => {}
         };
 
         if block.message().proposer_index() != expected_proposer as u64 {
@@ -1242,14 +1247,15 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         chain
-            .observed_block_producers
-            .write()
-            .observe_proposal(block.message())
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
-        chain
             .observed_slashable
             .write()
             .observe_slashable(block.slot(), block.message().proposer_index(), block_root)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+
+        chain
+            .observed_block_producers
+            .write()
+            .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?;
 
         if let Some(parent) = chain
