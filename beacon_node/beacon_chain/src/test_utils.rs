@@ -860,6 +860,7 @@ where
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await
@@ -921,6 +922,7 @@ where
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await

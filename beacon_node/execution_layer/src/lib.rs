@@ -836,6 +836,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         builder_params: BuilderParams,
         current_fork: ForkName,
         spec: &ChainSpec,
+        builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<BlockProposalContentsType<T>, Error> {
         let payload_result_type = match block_production_version {
@@ -846,6 +847,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     forkchoice_update_params,
                     builder_params,
                     current_fork,
+                    builder_boost_factor,
                     spec,
                 )
                 .await
@@ -870,6 +872,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     forkchoice_update_params,
                     builder_params,
                     current_fork,
+                    None,
                     spec,
                 )
                 .await?
@@ -990,6 +993,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         (relay_result, local_result)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn determine_and_fetch_payload(
         &self,
         parent_hash: ExecutionBlockHash,
@@ -997,6 +1001,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         forkchoice_update_params: ForkchoiceUpdateParameters,
         builder_params: BuilderParams,
         current_fork: ForkName,
+        builder_boost_factor: Option<u64>,
         spec: &ChainSpec,
     ) -> Result<ProvenancedPayload<BlockProposalContentsType<T>>, Error> {
         let Some(builder) = self.builder() else {
@@ -1152,22 +1157,28 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     return ProvenancedPayload::try_from(relay.data.message);
                 }
 
+                let builder_boost_factor = builder_boost_factor.unwrap_or(100);
+
                 let relay_value = *relay.data.message.value();
+                let boosted_relay_value =
+                    relay_value.saturating_mul((builder_boost_factor / 100).into());
                 let local_value = *local.block_value();
 
-                if local_value >= relay_value {
+                if local_value >= boosted_relay_value {
                     info!(
                         self.log(),
                         "Local block is more profitable than relay block";
                         "local_block_value" => %local_value,
-                        "relay_value" => %relay_value
+                        "relay_value" => %relay_value,
+                        "boosted_relay_value" => %boosted_relay_value,
+                        "builder_boost_factor" => %builder_boost_factor,
                     );
                     return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
                         local.try_into()?,
                     )));
                 }
 
-                if relay_value < self.inner.builder_profit_threshold {
+                if boosted_relay_value < self.inner.builder_profit_threshold {
                     info!(
                         self.log(),
                         "Builder payload ignored";
@@ -1175,6 +1186,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "reason" => format!("payload value of {} does not meet user-configured profit-threshold of {}", relay_value, self.inner.builder_profit_threshold),
                         "relay_block_hash" => ?header.block_hash(),
                         "parent_hash" => ?parent_hash,
+                        "boosted_relay_value" => %boosted_relay_value,
+                        "builder_boost_factor" => %builder_boost_factor,
                     );
                     return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
                         local.try_into()?,
@@ -1183,7 +1196,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                 if local.should_override_builder().unwrap_or(false) {
                     let percentage_difference =
-                        percentage_difference_u256(local_value, relay_value);
+                        percentage_difference_u256(local_value, boosted_relay_value);
                     if percentage_difference.map_or(false, |percentage| {
                         percentage < self.inner.ignore_builder_override_suggestion_threshold
                     }) {
@@ -1191,7 +1204,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             self.log(),
                             "Using local payload because execution engine suggested we ignore builder payload";
                             "local_block_value" => %local_value,
-                            "relay_value" => %relay_value
+                            "relay_value" => %relay_value,
+                            "boosted_relay_value" => %boosted_relay_value,
+                            "builder_boost_factor" => %builder_boost_factor
                         );
                         return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
                             local.try_into()?,
@@ -1203,7 +1218,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     self.log(),
                     "Relay block is more profitable than local block";
                     "local_block_value" => %local_value,
-                    "relay_value" => %relay_value
+                    "relay_value" => %relay_value,
+                    "boosted_relay_value" => %boosted_relay_value,
+                    "builder_boost_factor" => %builder_boost_factor
                 );
 
                 Ok(ProvenancedPayload::try_from(relay.data.message)?)

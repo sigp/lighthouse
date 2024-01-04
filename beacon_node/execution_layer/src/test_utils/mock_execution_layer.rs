@@ -143,6 +143,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 builder_params,
                 ForkName::Merge,
                 &self.spec,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await
@@ -182,6 +183,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 builder_params,
                 ForkName::Merge,
                 &self.spec,
+                None,
                 BlockProductionVersion::BlindedV2,
             )
             .await

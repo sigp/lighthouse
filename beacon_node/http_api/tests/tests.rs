@@ -2730,7 +2730,7 @@ impl ApiTester {
 
             let (response, metadata) = self
                 .client
-                .get_validator_blocks_v3_ssz::<E>(slot, &randao_reveal, None)
+                .get_validator_blocks_v3_ssz::<E>(slot, &randao_reveal, None, None)
                 .await
                 .unwrap();
 
@@ -3553,7 +3553,59 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+
+        let payload: BlindedPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Blinded(payload) => {
+                payload.body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
+        };
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(payload.fee_recipient(), expected_fee_recipient);
+        assert_eq!(payload.gas_limit(), 11_111_111);
+
+        self
+    }
+
+    pub async fn test_payload_v3_zero_builder_boost_factor(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, _) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(0))
+            .await
+            .unwrap();
+
+        let payload: FullPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(payload.fee_recipient(), expected_fee_recipient);
+        assert_eq!(payload.gas_limit(), 16_384);
+
+        self
+    }
+
+    pub async fn test_payload_v3_max_builder_boost_factor(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, _) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(u64::MAX))
             .await
             .unwrap();
 
@@ -3657,7 +3709,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -3733,7 +3785,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -3823,7 +3875,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -3909,7 +3961,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -3995,7 +4047,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4079,7 +4131,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4135,7 +4187,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4201,7 +4253,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4309,7 +4361,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4329,7 +4381,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4457,7 +4509,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4487,7 +4539,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4567,7 +4619,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4636,7 +4688,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4700,7 +4752,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4764,7 +4816,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4828,7 +4880,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4890,7 +4942,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -4962,7 +5014,7 @@ impl ApiTester {
 
         let (payload_type, _) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
             .unwrap();
 
@@ -6045,6 +6097,22 @@ async fn post_validator_register_valid() {
     ApiTester::new_mev_tester()
         .await
         .test_payload_respects_registration()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_zero_builder_boost_factor() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_zero_builder_boost_factor()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_max_builder_boost_factor() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_max_builder_boost_factor()
         .await;
 }
 

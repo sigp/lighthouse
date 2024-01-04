@@ -60,6 +60,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
             slot,
             query.graffiti.map(Into::into),
             randao_verification,
+            query.builder_boost_factor,
             BlockProductionVersion::V3,
         )
         .await
@@ -140,6 +141,7 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
             slot,
             query.graffiti.map(Into::into),
             randao_verification,
+            None,
             BlockProductionVersion::BlindedV2,
         )
         .await
@@ -170,6 +172,7 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
             slot,
             query.graffiti.map(Into::into),
             randao_verification,
+            None,
             BlockProductionVersion::FullV2,
         )
         .await
