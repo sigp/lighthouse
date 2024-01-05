@@ -3169,17 +3169,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .filter_map(|b| b.as_ref().map(|b| b.signed_block_header.clone()))
                 .unique()
             {
-                verify_header_signature::<T, BlockError<T::EthSpec>>(self, &header)?;
-
-                slashable_cache
-                    .observe_slashable(
-                        header.message.slot,
-                        header.message.proposer_index,
-                        block_root,
-                    )
-                    .map_err(|e| BlockError::BeaconChainError(e.into()))?;
-                if let Some(slasher) = self.slasher.as_ref() {
-                    slasher.accept_block_header(header);
+                if verify_header_signature::<T, BlockError<T::EthSpec>>(self, &header).is_ok() {
+                    slashable_cache
+                        .observe_slashable(
+                            header.message.slot,
+                            header.message.proposer_index,
+                            block_root,
+                        )
+                        .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                    if let Some(slasher) = self.slasher.as_ref() {
+                        slasher.accept_block_header(header);
+                    }
                 }
             }
         }
