@@ -77,12 +77,12 @@ use tokio_stream::{
     StreamExt,
 };
 use types::{
-    Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, ForkVersionedResponse, Hash256,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBlindedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
+    AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
+    ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
+    SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -2399,6 +2399,7 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => Ok(warp::reply::json(&ForkVersionedResponse {
                             version: Some(fork_name),
+                            metadata: EmptyMetadata {},
                             data: bootstrap,
                         })
                         .into_response()),
@@ -2446,6 +2447,7 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => Ok(warp::reply::json(&ForkVersionedResponse {
                             version: Some(fork_name),
+                            metadata: EmptyMetadata {},
                             data: update,
                         })
                         .into_response()),
@@ -2493,6 +2495,7 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => Ok(warp::reply::json(&ForkVersionedResponse {
                             version: Some(fork_name),
+                            metadata: EmptyMetadata {},
                             data: update,
                         })
                         .into_response()),
@@ -3193,7 +3196,7 @@ pub fn serve<T: BeaconChainTypes>(
                     );
 
                     if endpoint_version == V3 {
-                        produce_block_v3(endpoint_version, accept_header, chain, slot, query).await
+                        produce_block_v3(accept_header, chain, slot, query).await
                     } else {
                         produce_block_v2(endpoint_version, accept_header, chain, slot, query).await
                     }

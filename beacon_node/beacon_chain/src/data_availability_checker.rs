@@ -1,4 +1,4 @@
-use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlob};
+use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlobList};
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
@@ -17,6 +17,7 @@ use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
@@ -31,15 +32,17 @@ mod processing_cache;
 mod state_lru_cache;
 
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
+use types::non_zero_usize::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents` which can store up to
 /// `MAX_BLOBS_PER_BLOCK = 6` blobs each. A `BlobSidecar` is 0.131256 MB. So
 /// the maximum size of a `PendingComponents` is ~ 0.787536 MB. Setting this
 /// to 1024 means the maximum size of the cache is ~ 0.8 GB. But the cache
 /// will target a size of less than 75% of capacity.
-pub const OVERFLOW_LRU_CAPACITY: usize = 1024;
+pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(1024);
 /// Until tree-states is implemented, we can't store very many states in memory :(
-pub const STATE_LRU_CAPACITY: usize = 2;
+pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(2);
+pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
 /// This includes a cache for any blocks or blobs that have been received over gossip or RPC
 /// and are awaiting more components before they can be imported. Additionally the
@@ -196,15 +199,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let mut verified_blobs = vec![];
-        if let Some(kzg) = self.kzg.as_ref() {
-            for blob in Vec::from(blobs).into_iter().flatten() {
-                verified_blobs
-                    .push(KzgVerifiedBlob::new(blob, kzg).map_err(AvailabilityCheckError::Kzg)?);
-            }
-        } else {
+        let Some(kzg) = self.kzg.as_ref() else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
+
+        let verified_blobs = KzgVerifiedBlobList::new(Vec::from(blobs).into_iter().flatten(), kzg)
+            .map_err(AvailabilityCheckError::Kzg)?;
+
         self.availability_cache
             .put_kzg_verified_blobs(block_root, verified_blobs)
     }
@@ -260,7 +261,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .kzg
                         .as_ref()
                         .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                    verify_kzg_for_blob_list(&blob_list, kzg)
+                    verify_kzg_for_blob_list(blob_list.iter(), kzg)
                         .map_err(AvailabilityCheckError::Kzg)?;
                     Some(blob_list)
                 } else {
@@ -301,7 +302,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 .kzg
                 .as_ref()
                 .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-            verify_kzg_for_blob_list(&all_blobs, kzg)?;
+            verify_kzg_for_blob_list(all_blobs.iter(), kzg)?;
         }
 
         for block in blocks {

@@ -100,6 +100,7 @@ pub mod sqlite;
 
 pub mod blob_sidecar;
 pub mod light_client_header;
+pub mod non_zero_usize;
 pub mod runtime_var_list;
 
 use ethereum_types::{H160, H256};

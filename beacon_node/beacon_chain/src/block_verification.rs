@@ -780,7 +780,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // it to the slasher if an error occurs, because that's the end of this block's journey,
         // and it could be a repeat proposal (a likely cause for slashing!).
         let header = block.signed_block_header();
-        Self::new_without_slasher_checks(block, chain).map_err(|e| {
+        // The `SignedBeaconBlock` and `SignedBeaconBlockHeader` have the same canonical root,
+        // but it's way quicker to calculate root of the header since the hash of the tree rooted
+        // at `BeaconBlockBody` is already computed in the header.
+        Self::new_without_slasher_checks(block, &header, chain).map_err(|e| {
             process_block_slash_info::<_, BlockError<T::EthSpec>>(
                 chain,
                 BlockSlashInfo::from_early_error_block(header, e),
@@ -791,6 +794,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     /// As for new, but doesn't pass the block to the slasher.
     fn new_without_slasher_checks(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block_header: &SignedBeaconBlockHeader,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         // Ensure the block is the correct structure for the fork at `block.slot()`.
@@ -810,7 +814,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
-        let block_root = get_block_root(&block);
+        let block_root = get_block_header_root(block_header);
 
         // Disallow blocks that conflict with the anchor (weak subjectivity checkpoint), if any.
         check_block_against_anchor_slot(block.message(), chain)?;
@@ -838,10 +842,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             &fork_choice_read_lock,
             block,
         )?;
-        drop(fork_choice_read_lock);
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-        let (parent_block, block) = verify_parent_block_is_known(block_root, chain, block)?;
+        let (parent_block, block) =
+            verify_parent_block_is_known::<T>(block_root, &fork_choice_read_lock, block)?;
+        drop(fork_choice_read_lock);
 
         // Track the number of skip slots between the block and its parent.
         metrics::set_gauge(
@@ -1770,19 +1775,28 @@ pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
     block_root
 }
 
+/// Returns the canonical root of the given `block_header`.
+///
+/// Use this function to ensure that we report the block hashing time Prometheus metric.
+pub fn get_block_header_root(block_header: &SignedBeaconBlockHeader) -> Hash256 {
+    let block_root_timer = metrics::start_timer(&metrics::BLOCK_HEADER_PROCESSING_BLOCK_ROOT);
+
+    let block_root = block_header.message.canonical_root();
+
+    metrics::stop_timer(block_root_timer);
+
+    block_root
+}
+
 /// Verify the parent of `block` is known, returning some information about the parent block from
 /// fork choice.
 #[allow(clippy::type_complexity)]
 fn verify_parent_block_is_known<T: BeaconChainTypes>(
     block_root: Hash256,
-    chain: &BeaconChain<T>,
+    fork_choice_read_lock: &RwLockReadGuard<BeaconForkChoice<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError<T::EthSpec>> {
-    if let Some(proto_block) = chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .get_block(&block.parent_root())
-    {
+    if let Some(proto_block) = fork_choice_read_lock.get_block(&block.parent_root()) {
         Ok((proto_block, block))
     } else {
         Err(BlockError::ParentUnknown(RpcBlock::new_without_blobs(
