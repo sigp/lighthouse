@@ -1128,6 +1128,24 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false)
         )
         .arg(
+            Arg::with_name("builder-profit-threshold")
+                .long("builder-profit-threshold")
+                .value_name("WEI_VALUE")
+                .help("This flag is deprecated and has no effect.")
+                .hidden(true)
+                .default_value("0")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("ignore-builder-override-suggestion-threshold")
+                .long("ignore-builder-override-suggestion-threshold")
+                .value_name("PERCENTAGE")
+                .help("This flag is deprecated and has no effect.")
+                .hidden(true)
+                .default_value("10.0")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("builder-user-agent")
                 .long("builder-user-agent")
                 .value_name("STRING")
@@ -1172,6 +1190,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Enable the graphical user interface and all its requirements. \
                       This enables --http and --validator-monitor-auto and enables SSE logging.")
                 .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("always-prefer-builder-payload")
+            .long("always-prefer-builder-payload")
+            .hidden(true)
+            .help("This flag is deprecated and has no effect.")
+            // The builder profit threshold flag is used to provide preference
+            // to local payloads, therefore it fundamentally conflicts with
+            // always using the builder.
+            .conflicts_with("builder-profit-threshold")
+            .conflicts_with("ignore-builder-override-suggestion-threshold")
         )
         .arg(
             Arg::with_name("invalid-gossip-verified-blocks-path")

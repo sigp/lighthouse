@@ -1130,6 +1130,18 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     )));
                 }
 
+                if local.should_override_builder().unwrap_or(false) {
+                    info!(
+                        self.log(),
+                        "Using local payload because execution engine suggested we ignore builder payload";
+                        "local_block_value" => %local_value,
+                        "relay_value" => %relay_value
+                    );
+                    return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
+                        local.try_into()?,
+                    )));
+                }
+
                 info!(
                     self.log(),
                     "Relay block is more profitable than local block";

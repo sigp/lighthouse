@@ -13,7 +13,7 @@ use eth2::{
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
 use execution_layer::test_utils::{
-    MockBuilder, Operation, DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_BUILDER_THRESHOLD_WEI,
+    MockBuilder, Operation, DEFAULT_BUILDER_PAYLOAD_VALUE_WEI,
     DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
 };
 use futures::stream::{Stream, StreamExt};
@@ -79,8 +79,7 @@ struct ApiTester {
 
 struct ApiTesterConfig {
     spec: ChainSpec,
-    retain_historic_states: bool,
-    builder_threshold: Option<u128>,
+    retain_historic_states: bool
 }
 
 impl Default for ApiTesterConfig {
@@ -90,7 +89,6 @@ impl Default for ApiTesterConfig {
         Self {
             spec,
             retain_historic_states: false,
-            builder_threshold: None,
         }
     }
 }
@@ -132,7 +130,7 @@ impl ApiTester {
             .logger(logging::test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
-            .mock_execution_layer_with_config(config.builder_threshold)
+            .mock_execution_layer_with_config()
             .build();
 
         harness
@@ -394,16 +392,12 @@ impl ApiTester {
         tester
             .mock_builder
             .as_ref()
-            .unwrap()
-            .add_operation(Operation::Value(Uint256::from(
-                DEFAULT_BUILDER_THRESHOLD_WEI,
-            )));
+            .unwrap();
         tester
     }
 
-    pub async fn new_mev_tester_no_builder_threshold() -> Self {
+    pub async fn new_mev_tester_default_payload_value() -> Self {
         let mut config = ApiTesterConfig {
-            builder_threshold: Some(0),
             retain_historic_states: false,
             spec: E::default_spec(),
         };
@@ -6238,7 +6232,7 @@ async fn builder_chain_health_optimistic_head_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_payload_chosen_by_profit() {
-    ApiTester::new_mev_tester_no_builder_threshold()
+    ApiTester::new_mev_tester_default_payload_value()
         .await
         .test_builder_payload_chosen_when_more_profitable()
         .await
@@ -6250,7 +6244,7 @@ async fn builder_payload_chosen_by_profit() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_payload_chosen_by_profit_v3() {
-    ApiTester::new_mev_tester_no_builder_threshold()
+    ApiTester::new_mev_tester_default_payload_value()
         .await
         .test_builder_payload_v3_chosen_when_more_profitable()
         .await
@@ -6263,7 +6257,6 @@ async fn builder_payload_chosen_by_profit_v3() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_capella() {
     let mut config = ApiTesterConfig {
-        builder_threshold: Some(0),
         retain_historic_states: false,
         spec: E::default_spec(),
     };
@@ -6284,7 +6277,6 @@ async fn builder_works_post_capella() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_deneb() {
     let mut config = ApiTesterConfig {
-        builder_threshold: Some(0),
         retain_historic_states: false,
         spec: E::default_spec(),
     };

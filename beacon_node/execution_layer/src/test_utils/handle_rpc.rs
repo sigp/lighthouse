@@ -292,6 +292,7 @@ pub async fn handle_rpc<T: EthSpec>(
                                     GENERIC_ERROR_CODE,
                                 ))?
                                 .into(),
+                            should_override_builder: false,
                         })
                         .unwrap()
                     }
