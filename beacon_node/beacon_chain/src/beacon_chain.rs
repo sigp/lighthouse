@@ -12,8 +12,8 @@ use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
-    signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
-    IntoExecutionPendingBlock,
+    signature_verify_chain_segment, verify_header_signature, BlockError, ExecutionPendingBlock,
+    GossipVerifiedBlock, IntoExecutionPendingBlock,
 };
 use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RpcBlock,
@@ -3160,17 +3160,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        if let Some(slasher) = self.slasher.as_ref() {
+        // Need to scope this to ensure the lock is dropped before calling `process_availability`
+        // Even an explicit drop is not enough to convince the borrow checker.
+        {
             let mut slashable_cache = self.observed_slashable.write();
-            for blob_sidecar in blobs.iter().filter_map(|blob| blob.clone()) {
+            for header in blobs
+                .into_iter()
+                .filter_map(|b| b.as_ref().map(|b| b.signed_block_header.clone()))
+                .unique()
+            {
+                verify_header_signature::<T, BlockError<T::EthSpec>>(self, &header)?;
+
                 slashable_cache
                     .observe_slashable(
-                        blob_sidecar.slot(),
-                        blob_sidecar.block_proposer_index(),
+                        header.message.slot,
+                        header.message.proposer_index,
                         block_root,
                     )
                     .map_err(|e| BlockError::BeaconChainError(e.into()))?;
-                slasher.accept_block_header(blob_sidecar.signed_block_header.clone());
+                if let Some(slasher) = self.slasher.as_ref() {
+                    slasher.accept_block_header(header);
+                }
             }
         }
         let availability = self

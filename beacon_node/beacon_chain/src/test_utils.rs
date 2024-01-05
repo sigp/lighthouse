@@ -1758,6 +1758,32 @@ where
         ((signed_block, blobs), state)
     }
 
+    pub async fn make_blob_with_modifier(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+        blob_modifier: impl FnOnce(&mut BlobsList<E>),
+    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        let ((block, mut blobs), state) = self.make_block_return_pre_state(state, slot).await;
+
+        let (block, _) = block.deconstruct();
+
+        blob_modifier(&mut blobs.as_mut().unwrap().1);
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+        let signed_block = block.sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &state.fork(),
+            state.genesis_validators_root(),
+            &self.spec,
+        );
+        ((signed_block, blobs), state)
+    }
+
     pub fn make_deposits<'a>(
         &self,
         state: &'a mut BeaconState<E>,

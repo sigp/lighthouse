@@ -2077,7 +2077,7 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
 /// Verify that `header` was signed with a valid signature from its proposer.
 ///
 /// Return `Ok(())` if the signature is valid, and an `Err` otherwise.
-fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
+pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     chain: &BeaconChain<T>,
     header: &SignedBeaconBlockHeader,
 ) -> Result<(), Err> {
