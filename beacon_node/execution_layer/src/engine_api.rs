@@ -408,8 +408,6 @@ pub struct GetPayloadResponse<T: EthSpec> {
     pub block_value: Uint256,
     #[superstruct(only(Deneb))]
     pub blobs_bundle: BlobsBundle<T>,
-    #[superstruct(only(Deneb), partial_getter(copy))]
-    pub should_override_builder: bool,
 }
 
 impl<E: EthSpec> GetPayloadResponse<E> {

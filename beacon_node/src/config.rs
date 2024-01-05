@@ -317,12 +317,6 @@ pub fn get_config<E: EthSpec>(
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
         el_config.default_datadir = client_config.data_dir().clone();
-        el_config.builder_profit_threshold =
-            clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
-        el_config.always_prefer_builder_payload =
-            cli_args.is_present("always-prefer-builder-payload");
-        el_config.ignore_builder_override_suggestion_threshold =
-            clap_utils::parse_required(cli_args, "ignore-builder-override-suggestion-threshold")?;
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);

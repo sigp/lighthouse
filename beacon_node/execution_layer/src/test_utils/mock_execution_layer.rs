@@ -72,7 +72,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             execution_endpoints: vec![url],
             secret_files: vec![path],
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
-            builder_profit_threshold: builder_threshold.unwrap_or(DEFAULT_BUILDER_THRESHOLD_WEI),
             ..Default::default()
         };
         let el =

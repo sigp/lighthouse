@@ -298,8 +298,6 @@ pub struct JsonGetPayloadResponse<T: EthSpec> {
     pub block_value: Uint256,
     #[superstruct(only(V3))]
     pub blobs_bundle: JsonBlobsBundleV1<T>,
-    #[superstruct(only(V3))]
-    pub should_override_builder: bool,
 }
 
 impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
@@ -322,7 +320,6 @@ impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
-                    should_override_builder: response.should_override_builder,
                 })
             }
         }
