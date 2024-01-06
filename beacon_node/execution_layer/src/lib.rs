@@ -82,9 +82,6 @@ const EXECUTION_BLOCKS_LRU_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
-/// The default value used if a builder_boost_factor isn't provided in a block v3 request
-const DEFAULT_BUILDER_BOOST_FACTOR: u64 = 100;
-
 /// A payload alongside some information about where it came from.
 pub enum ProvenancedPayload<P> {
     /// A good old fashioned farm-to-table payload from your local EE.
@@ -1108,12 +1105,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     )));
                 }
 
-                let builder_boost_factor =
-                    builder_boost_factor.unwrap_or(DEFAULT_BUILDER_BOOST_FACTOR);
-
                 let relay_value = *relay.data.message.value();
-                let boosted_relay_value =
-                    relay_value.saturating_mul((builder_boost_factor / 100).into());
+
+                let boosted_relay_value = match builder_boost_factor {
+                    Some(builder_boost_factor) => {
+                        (relay_value / 100).saturating_mul(builder_boost_factor.into())
+                    }
+                    None => relay_value,
+                };
+
                 let local_value = *local.block_value();
 
                 if local_value >= boosted_relay_value {
@@ -1123,7 +1123,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "local_block_value" => %local_value,
                         "relay_value" => %relay_value,
                         "boosted_relay_value" => %boosted_relay_value,
-                        "builder_boost_factor" => %builder_boost_factor,
+                        "builder_boost_factor" => ?builder_boost_factor,
                     );
                     return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
                         local.try_into()?,
@@ -1148,7 +1148,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     "local_block_value" => %local_value,
                     "relay_value" => %relay_value,
                     "boosted_relay_value" => %boosted_relay_value,
-                    "builder_boost_factor" => %builder_boost_factor
+                    "builder_boost_factor" => ?builder_boost_factor
                 );
 
                 Ok(ProvenancedPayload::try_from(relay.data.message)?)

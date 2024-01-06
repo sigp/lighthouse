@@ -13,8 +13,7 @@ use eth2::{
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
 use execution_layer::test_utils::{
-    MockBuilder, Operation, DEFAULT_BUILDER_PAYLOAD_VALUE_WEI,
-    DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
+    MockBuilder, Operation, DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
@@ -79,7 +78,7 @@ struct ApiTester {
 
 struct ApiTesterConfig {
     spec: ChainSpec,
-    retain_historic_states: bool
+    retain_historic_states: bool,
 }
 
 impl Default for ApiTesterConfig {
@@ -389,10 +388,7 @@ impl ApiTester {
             .test_post_validator_register_validator()
             .await;
         // Make sure bids always meet the minimum threshold.
-        tester
-            .mock_builder
-            .as_ref()
-            .unwrap();
+        tester.mock_builder.as_ref().unwrap();
         tester
     }
 
