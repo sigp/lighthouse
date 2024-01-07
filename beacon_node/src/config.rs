@@ -309,6 +309,21 @@ pub fn get_config<E: EthSpec>(
                 clap_utils::parse_optional(cli_args, "builder-user-agent")?;
         }
 
+        if cli_args.is_present("builder-profit-threshold") {
+            warn!(
+                log,
+                "Ignoring --builder-profit-threshold";
+                "info" => "this flag is deprecated and will be removed"
+            );
+        }
+        if cli_args.is_present("always-prefer-builder-payload") {
+            warn!(
+                log,
+                "Ignoring --always-prefer-builder-payload";
+                "info" => "this flag is deprecated and will be removed"
+            );
+        }
+
         // Set config values from parse values.
         el_config.secret_files = vec![secret_file.clone()];
         el_config.execution_endpoints = vec![execution_endpoint.clone()];

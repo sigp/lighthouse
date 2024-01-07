@@ -9,6 +9,7 @@ USAGE:
     lighthouse beacon_node [FLAGS] [OPTIONS]
 
 FLAGS:
+        --always-prefer-builder-payload        This flag is deprecated and has no effect.
         --always-prepare-payload               Send payload attributes with every fork choice update. This is intended
                                                for use by block builders, relays and developers. You should set a fee
                                                recipient on this BN and also consider adjusting the --prepare-payload-
@@ -172,7 +173,10 @@ OPTIONS:
             If this node is proposing a block and has seen this number of skip slots on the canonical chain in the past
             `SLOTS_PER_EPOCH`, it will NOT query any connected builders, and will use the local execution engine for
             payload construction. [default: 8]
-       --builder-user-agent <STRING>
+        --builder-profit-threshold <WEI_VALUE>
+            This flag is deprecated and has no effect.
+
+        --builder-user-agent <STRING>
             The HTTP user agent to send alongside requests to the builder URL. The default is Lighthouse's version
             string.
         --checkpoint-block <BLOCK_SSZ>
