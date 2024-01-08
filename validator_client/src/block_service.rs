@@ -335,7 +335,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 self.inner.context.executor.spawn(
                     async move {
                         let result = service
-                            .clone()
                             .publish_block_v3(slot, validator_pubkey, builder_boost_factor)
                             .await;
 

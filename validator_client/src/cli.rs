@@ -141,8 +141,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("produce-block-v3")
                 .help("Enable block production via the block v3 endpoint for this validator client. \
                        This should only be enabled when paired with a beacon node \
-                       that has this endpoint implemented. This flag will be ignored \
-                       after the Deneb fork.")
+                       that has this endpoint implemented. This flag will be enabled by default in \
+                       future.")
                 .takes_value(false)
         )
         /* REST API related arguments */
@@ -303,15 +303,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     immediately.")
                 .takes_value(false),
         )
-        // TODO deprecate this flag post Deneb
         .arg(
             Arg::with_name("builder-proposals")
                 .long("builder-proposals")
                 .alias("private-tx-proposals")
                 .help("If this flag is set, Lighthouse will query the Beacon Node for only block \
                     headers during proposals and will sign over headers. Useful for outsourcing \
-                    execution payload construction during proposals. If the produce-block-v3 flag is present \
-                    this flag will be ignored. This flag will also be ignored after the Deneb fork.")
+                    execution payload construction during proposals.")
                 .takes_value(false),
         )
         .arg(
