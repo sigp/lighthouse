@@ -94,8 +94,19 @@ fn staking_flag() {
 
 #[test]
 #[should_panic]
-fn run_without_allow_genesis_sync() {
-    CommandLineTest::without_allow_genesis_sync().run_with_zero_port();
+fn allow_insecure_genesis_sync() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, false);
+        });
+
+    CommandLineTest::new()
+        .flag("allow-insecure-genesis-sync", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, true);
+        });
 }
 
 #[test]

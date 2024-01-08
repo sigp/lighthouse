@@ -272,15 +272,17 @@ where
                         .map_err(|e| format!("Unable to read system time: {e:}"))?
                         .as_secs();
                     let genesis_time = genesis_state.genesis_time();
-                    let blob_availability_window = MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS.as_u64()
-                        * TEthSpec::slots_per_epoch()
-                        * spec.seconds_per_slot;
                     // Shrink the blob availability window so users don't start
                     // a sync right before blobs start to disappear from the P2P
                     // network.
-                    let reduced_blob_availability_window = blob_availability_window.saturating_sub(TEthSpec::slots_per_epoch() * spec.seconds_per_slot * BLOB_AVAILABILITY_REDUCTION_EPOCHS)
+                    let reduced_p2p_availability_epochs = MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS
+                        .as_u64()
+                        .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
+                    let blob_availability_window = reduced_p2p_availability_epochs
+                        * TEthSpec::slots_per_epoch()
+                        * spec.seconds_per_slot;
 
-                    if now > genesis_time + reduced_blob_availability_window {
+                    if now > genesis_time + blob_availability_window {
                         return Err(
                                 "Syncing from genesis is insecure and incompatible with data availability checks. \
                                 You should instead perform a checkpoint sync from a trusted node using the --checkpoint-sync-url option. \
