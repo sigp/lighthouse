@@ -72,3 +72,66 @@ impl<T: Encode + Decode + Clone> RuntimeVariableList<T> {
         Ok(Self { vec, max_len })
     }
 }
+
+#[cfg(test)]
+mod test {
+    use ssz_types::{typenum::U4, VariableList};
+
+    use super::*;
+
+    #[test]
+    fn new() {
+        let vec = vec![42; 5];
+        let runtime_var_list: Result<RuntimeVariableList<u64>, _> =
+            RuntimeVariableList::new(vec, 4);
+        assert!(runtime_var_list.is_err());
+
+        let vec = vec![42; 3];
+        let runtime_var_list: Result<RuntimeVariableList<u64>, _> =
+            RuntimeVariableList::new(vec, 4);
+        assert!(runtime_var_list.is_ok());
+
+        let vec = vec![42; 4];
+        let runtime_var_list: Result<RuntimeVariableList<u64>, _> =
+            RuntimeVariableList::new(vec, 4);
+        assert!(runtime_var_list.is_ok());
+    }
+
+    #[test]
+    fn length() {
+        let vec = vec![42; 3];
+        let runtime_var_list: RuntimeVariableList<u64> =
+            RuntimeVariableList::new(vec.clone(), 4).unwrap();
+        let var_list: VariableList<u64, U4> = VariableList::from(vec.clone());
+        assert_eq!(&runtime_var_list.as_slice()[0..3], &vec[..]);
+        assert_eq!(runtime_var_list.as_slice(), &vec![42, 42, 42][..]);
+        assert_eq!(runtime_var_list.len(), var_list.len());
+
+        let vec = vec![];
+        let runtime_var_list: RuntimeVariableList<u64> = RuntimeVariableList::new(vec, 4).unwrap();
+        assert_eq!(runtime_var_list.as_slice(), &[] as &[u64]);
+        assert!(runtime_var_list.is_empty());
+    }
+
+    #[test]
+    fn encode() {
+        let runtime_var_list: RuntimeVariableList<u16> =
+            RuntimeVariableList::new(vec![0; 2], 2).unwrap();
+
+        assert_eq!(runtime_var_list.as_ssz_bytes(), vec![0, 0, 0, 0]);
+        assert_eq!(<RuntimeVariableList<u16> as Encode>::ssz_fixed_len(), 4);
+    }
+
+    #[test]
+    fn round_trip() {
+        let item = RuntimeVariableList::<u16>::new(vec![42; 8], 8).unwrap();
+        let encoded = &item.as_ssz_bytes();
+        assert_eq!(item.ssz_bytes_len(), encoded.len());
+        assert_eq!(RuntimeVariableList::from_ssz_bytes(encoded, 8), Ok(item));
+
+        let item = RuntimeVariableList::<u16>::new(vec![0; 8], 8).unwrap();
+        let encoded = &item.as_ssz_bytes();
+        assert_eq!(item.ssz_bytes_len(), encoded.len());
+        assert_eq!(RuntimeVariableList::from_ssz_bytes(encoded, 8), Ok(item));
+    }
+}
