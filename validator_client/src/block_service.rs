@@ -365,7 +365,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     async move {
                         if builder_proposals {
                             let result = service
-                                .clone()
                                 .publish_block(slot, validator_pubkey, true)
                                 .await;
 
@@ -435,7 +434,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         &self,
         proposer_fallback: ProposerFallback<T, E>,
         slot: Slot,
-        current_slot: Slot,
         graffiti: Option<Graffiti>,
         validator_pubkey: &PublicKeyBytes,
         unsigned_block: UnsignedBlock<E>,
@@ -447,13 +445,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             UnsignedBlock::Full(block_contents) => {
                 let (block, maybe_blobs) = block_contents.deconstruct();
                 self.validator_store
-                    .sign_block(*validator_pubkey, block, current_slot)
+                    .sign_block(*validator_pubkey, block, slot)
                     .await
                     .map(|b| SignedBlock::Full(PublishBlockRequest::new(b, maybe_blobs)))
             }
             UnsignedBlock::Blinded(block) => self
                 .validator_store
-                .sign_block(*validator_pubkey, block, current_slot)
+                .sign_block(*validator_pubkey, block, slot)
                 .await
                 .map(SignedBlock::Blinded),
         };
@@ -527,10 +525,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let log = self.context.log();
         let _timer =
             metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::BEACON_BLOCK]);
-
-        let current_slot = self.slot_clock.now().ok_or_else(|| {
-            BlockError::Irrecoverable("Unable to determine current slot from clock".to_string())
-        })?;
 
         let randao_reveal = match self
             .validator_store
@@ -619,7 +613,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .sign_and_publish_block(
                 proposer_fallback,
                 slot,
-                current_slot,
                 graffiti,
                 &validator_pubkey,
                 unsigned_block,
@@ -639,10 +632,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let log = self.context.log();
         let _timer =
             metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::BEACON_BLOCK]);
-
-        let current_slot = self.slot_clock.now().ok_or_else(|| {
-            BlockError::Recoverable("Unable to determine current slot from clock".to_string())
-        })?;
 
         let randao_reveal = match self
             .validator_store
@@ -718,7 +707,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .sign_and_publish_block(
                 proposer_fallback,
                 slot,
-                current_slot,
                 graffiti,
                 &validator_pubkey,
                 unsigned_block,
