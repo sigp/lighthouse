@@ -9,6 +9,9 @@ USAGE:
     lighthouse beacon_node [FLAGS] [OPTIONS]
 
 FLAGS:
+        --allow-insecure-genesis-sync          Enable syncing from genesis. This is insecure after Capella due to long-
+                                               range attacks. This should only be used for testing. DO NOT use on
+                                               mainnet!
         --always-prefer-builder-payload        If set, the beacon node always uses the payload from the builder instead
                                                of the local payload.
         --always-prepare-payload               Send payload attributes with every fork choice update. This is intended
