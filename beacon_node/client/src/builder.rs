@@ -49,7 +49,7 @@ pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
 
 /// Reduces the blob availability period by some epochs. Helps prevent the user
 /// from starting a genesis sync so near to the blob pruning window that blobs
-/// have been pruned before they can managed to sync the chain.
+/// have been pruned before they can manage to sync the chain.
 const BLOB_AVAILABILITY_REDUCTION_EPOCHS: u64 = 2;
 
 /// Builds a `Client` instance.
@@ -260,8 +260,8 @@ where
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 // If the user has not explicitly allowed genesis sync, prevent
-                // the user from trying to sync from genesis if we're outside of
-                // the blob P2P availability window.
+                // them from trying to sync from genesis if we're outside of the
+                // blob P2P availability window.
                 //
                 // It doesn't make sense to try and sync the chain if we can't
                 // verify blob availability by downloading blobs from the P2P
