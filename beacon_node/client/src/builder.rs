@@ -39,7 +39,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
 use types::{
-    consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS,
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
 };
@@ -279,8 +278,8 @@ where
                         // Shrink the blob availability window so users don't start
                         // a sync right before blobs start to disappear from the P2P
                         // network.
-                        let reduced_p2p_availability_epochs = MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS
-                            .as_u64()
+                        let reduced_p2p_availability_epochs = spec
+                            .min_epochs_for_blob_sidecars_requests
                             .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
                         let blob_availability_window = reduced_p2p_availability_epochs
                             * TEthSpec::slots_per_epoch()
