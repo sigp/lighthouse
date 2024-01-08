@@ -28,7 +28,10 @@ use types::{
 
 #[derive(Debug)]
 pub enum BlockError {
+    /// A recoverable error that can be retried, as the validator has not signed anything.
     Recoverable(String),
+    /// An irrecoverable error has occurred during block proposal and should not be retried, as a
+    /// block may have already been signed.
     Irrecoverable(String),
 }
 
@@ -545,7 +548,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 return Ok(());
             }
             Err(e) => {
-                return Err(BlockError::Irrecoverable(format!(
+                return Err(BlockError::Recoverable(format!(
                     "Unable to produce randao reveal signature: {:?}",
                     e
                 )))
@@ -598,7 +601,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     )
                     .await
                     .map_err(|e| {
-                        BlockError::Irrecoverable(format!(
+                        BlockError::Recoverable(format!(
                             "Error from beacon node when producing block: {:?}",
                             e
                         ))
@@ -766,7 +769,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
             .await
             .map_err(|e| {
-                BlockError::Irrecoverable(format!(
+                BlockError::Recoverable(format!(
                     "Error from beacon node when producing block: {:?}",
                     e
                 ))
@@ -783,7 +786,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "slot" => slot.as_u64(),
         );
         if proposer_index != Some(unsigned_block.proposer_index()) {
-            return Err(BlockError::Irrecoverable(
+            return Err(BlockError::Recoverable(
                 "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
             ));
         }
