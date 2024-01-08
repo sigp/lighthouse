@@ -320,27 +320,23 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         }
 
-        let deneb_fork_activated = self
-            .context
-            .eth2_config
-            .spec
-            .deneb_fork_epoch
-            .and_then(|fork_epoch| {
-                let current_epoch = self.slot_clock.now()?.epoch(E::slots_per_epoch());
-                Some(current_epoch >= fork_epoch)
-            })
-            .unwrap_or(false);
-
-        // TODO produce_block_v3 should be deprecated post deneb
-        if self.validator_store.produce_block_v3() || deneb_fork_activated {
+        if self.validator_store.produce_block_v3() {
             for validator_pubkey in proposers {
+                let builder_proposals = self
+                    .validator_store
+                    .get_builder_proposals(&validator_pubkey);
+                // Translate `builder_proposals` to a boost factor. Builder proposals set to `true`
+                // requires no boost factor, it just means "use a builder proposal if the BN returns
+                // one". On the contrary, `builder_proposals: false` indicates a preference for
+                // local payloads, so we set the builder boost factor to 0.
+                let builder_boost_factor = if !builder_proposals { Some(0) } else { None };
                 let service = self.clone();
                 let log = log.clone();
                 self.inner.context.executor.spawn(
                     async move {
                         let result = service
                             .clone()
-                            .publish_block_v3(slot, validator_pubkey)
+                            .publish_block_v3(slot, validator_pubkey, builder_boost_factor)
                             .await;
 
                         match result {
@@ -360,7 +356,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 )
             }
         } else {
-            // TODO block v2 endpoint usage can be deprecated post deneb
             for validator_pubkey in proposers {
                 let builder_proposals = self
                     .validator_store
@@ -528,6 +523,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         self,
         slot: Slot,
         validator_pubkey: PublicKeyBytes,
+        builder_boost_factor: Option<u64>,
     ) -> Result<(), BlockError> {
         let log = self.context.log();
         let _timer =
@@ -604,6 +600,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         randao_reveal_ref,
                         graffiti,
                         proposer_index,
+                        builder_boost_factor,
                         log,
                     )
                     .await
@@ -770,10 +767,16 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         randao_reveal_ref: &SignatureBytes,
         graffiti: Option<Graffiti>,
         proposer_index: Option<u64>,
+        builder_boost_factor: Option<u64>,
         log: &Logger,
     ) -> Result<UnsignedBlock<E>, BlockError> {
         let (block_response, _) = beacon_node
-            .get_validator_blocks_v3::<E>(slot, randao_reveal_ref, graffiti.as_ref())
+            .get_validator_blocks_v3::<E>(
+                slot,
+                randao_reveal_ref,
+                graffiti.as_ref(),
+                builder_boost_factor,
+            )
             .await
             .map_err(|e| {
                 BlockError::Irrecoverable(format!(
