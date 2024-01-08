@@ -958,7 +958,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("allow-insecure-genesis-sync")
                 .long("allow-insecure-genesis-sync")
-                .help("Enable syncing from genesis. This is insecure after Capella due to long-range attacks. This should only be used for testing. DO NOT use on mainnet!")
+                .help("Enable syncing from genesis, which is generally insecure and incompatible with data availability checks. \
+                    Checkpoint syncing is the preferred method for syncing a node. \
+                    Only use this flag when testing. DO NOT use on mainnet!")
                 .conflicts_with("checkpoint-sync-url")
                 .conflicts_with("checkpoint-state")
                 .takes_value(false)

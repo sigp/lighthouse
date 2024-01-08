@@ -50,12 +50,6 @@ struct CommandLineTest {
 }
 impl CommandLineTest {
     fn new() -> CommandLineTest {
-        let mut base_cmd = base_cmd();
-        base_cmd.arg("--allow-insecure-genesis-sync");
-        CommandLineTest { cmd: base_cmd }
-    }
-
-    fn without_allow_genesis_sync() -> CommandLineTest {
         let base_cmd = base_cmd();
         CommandLineTest { cmd: base_cmd }
     }

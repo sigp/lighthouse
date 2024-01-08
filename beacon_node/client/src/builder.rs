@@ -35,15 +35,22 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
 use types::{
+    consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS,
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
 };
 
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
+
+/// Reduces the blob availability period by some epochs. Helps prevent the user
+/// from starting a genesis sync so near to the blob pruning window that blobs
+/// have been pruned before they can managed to sync the chain.
+const BLOB_AVAILABILITY_REDUCTION_EPOCHS: u64 = 2;
 
 /// Builds a `Client` instance.
 ///
@@ -251,6 +258,37 @@ where
                 );
 
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
+
+                // If the user has not explicitly allowed genesis sync, prevent
+                // the user from trying to sync from genesis if we're outside of
+                // the blob P2P availability window.
+                //
+                // It doesn't make sense to try and sync the chain if we can't
+                // verify blob availability by downloading blobs from the P2P
+                // network. The user should do a checkpoint sync instead.
+                if !config.allow_insecure_genesis_sync {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map_err(|e| format!("Unable to read system time: {e:}"))?
+                        .as_secs();
+                    let genesis_time = genesis_state.genesis_time();
+                    let blob_availability_window = MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS.as_u64()
+                        * TEthSpec::slots_per_epoch()
+                        * spec.seconds_per_slot;
+                    // Shrink the blob availability window so users don't start
+                    // a sync right before blobs start to disappear from the P2P
+                    // network.
+                    let reduced_blob_availability_window = blob_availability_window.saturating_sub(TEthSpec::slots_per_epoch() * spec.seconds_per_slot * BLOB_AVAILABILITY_REDUCTION_EPOCHS)
+
+                    if now > genesis_time + reduced_blob_availability_window {
+                        return Err(
+                                "Syncing from genesis is insecure and incompatible with data availability checks. \
+                                You should instead perform a checkpoint sync from a trusted node using the --checkpoint-sync-url option. \
+                                For a list of public endpoints, see:\nhttps://eth-clients.github.io/checkpoint-sync-endpoints/"
+                                    .to_string(),
+                            );
+                    }
+                }
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }

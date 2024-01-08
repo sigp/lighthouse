@@ -488,6 +488,8 @@ pub fn get_config<E: EthSpec>(
         None
     };
 
+    client_config.allow_insecure_genesis_sync = cli_args.is_present("allow-insecure-genesis-sync");
+
     client_config.genesis = if eth2_network_config.genesis_state_is_known() {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
         if let (Some(initial_state_path), Some(initial_block_path)) = (
@@ -518,15 +520,8 @@ pub fn get_config<E: EthSpec>(
                 .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
 
             ClientGenesis::CheckpointSyncUrl { url }
-        } else if cli_args.is_present("allow-insecure-genesis-sync") {
-            ClientGenesis::GenesisState
         } else {
-            return Err(
-                    "Syncing from genesis is not secure post-Capella! \
-                    You should instead perform a checkpoint sync from a trusted node using the --checkpoint-sync-url option. \
-                    For a list of public endpoints, see:\nhttps://eth-clients.github.io/checkpoint-sync-endpoints/"
-                        .to_string(),
-                );
+            ClientGenesis::GenesisState
         }
     } else {
         if cli_args.is_present("checkpoint-state") || cli_args.is_present("checkpoint-sync-url") {
