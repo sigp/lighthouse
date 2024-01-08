@@ -4021,6 +4021,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
+        builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<BeaconBlockResponseWrapper<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
@@ -4049,6 +4050,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             randao_reveal,
             validator_graffiti,
             verification,
+            builder_boost_factor,
             block_production_version,
         )
         .await
@@ -4652,6 +4654,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
+        builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<BeaconBlockResponseWrapper<T::EthSpec>, BlockProductionError> {
         // Part 1/3 (blocking)
@@ -4668,6 +4671,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         produce_at_slot,
                         randao_reveal,
                         validator_graffiti,
+                        builder_boost_factor,
                         block_production_version,
                     )
                 },
@@ -4757,6 +4761,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn produce_partial_beacon_block(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
@@ -4764,6 +4769,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
+        builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<PartialBeaconBlock<T::EthSpec>, BlockProductionError> {
         let eth1_chain = self
@@ -4825,6 +4831,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     parent_root,
                     proposer_index,
                     builder_params,
+                    builder_boost_factor,
                     block_production_version,
                 )?;
                 Some(prepare_payload_handle)

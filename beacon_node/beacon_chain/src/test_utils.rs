@@ -464,14 +464,13 @@ where
     }
 
     pub fn mock_execution_layer(self) -> Self {
-        self.mock_execution_layer_with_config(None)
+        self.mock_execution_layer_with_config()
     }
 
-    pub fn mock_execution_layer_with_config(mut self, builder_threshold: Option<u128>) -> Self {
+    pub fn mock_execution_layer_with_config(mut self) -> Self {
         let mock = mock_execution_layer_from_parts::<E>(
             self.spec.as_ref().expect("cannot build without spec"),
             self.runtime.task_executor.clone(),
-            builder_threshold,
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
@@ -574,7 +573,6 @@ where
 pub fn mock_execution_layer_from_parts<T: EthSpec>(
     spec: &ChainSpec,
     task_executor: TaskExecutor,
-    builder_threshold: Option<u128>,
 ) -> MockExecutionLayer<T> {
     let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
@@ -593,7 +591,6 @@ pub fn mock_execution_layer_from_parts<T: EthSpec>(
         DEFAULT_TERMINAL_BLOCK,
         shanghai_time,
         cancun_time,
-        builder_threshold,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec.clone(),
         Some(kzg),
@@ -860,6 +857,7 @@ where
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await
@@ -921,6 +919,7 @@ where
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await

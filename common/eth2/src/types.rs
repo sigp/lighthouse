@@ -729,6 +729,7 @@ pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
     pub graffiti: Option<Graffiti>,
     pub skip_randao_verification: SkipRandaoVerification,
+    pub builder_boost_factor: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
