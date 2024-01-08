@@ -316,7 +316,7 @@ mod tests {
         ));
 
         // Request limits
-        let limit = protocol_id.rpc_request_limits();
+        let limit = protocol_id.rpc_request_limits(&fork_context.spec);
         let mut max = encode_len(limit.max + 1);
         let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
             protocol_id.clone(),
