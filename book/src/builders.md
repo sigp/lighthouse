@@ -176,31 +176,6 @@ By default, Lighthouse is strict with these conditions, but we encourage users t
 - `--builder-fallback-disable-checks` - This flag disables all checks related to chain health. This means the builder
   API will always be used for payload construction, regardless of recent chain conditions.
 
-## Builder Profit Threshold
-
-If you are generally uneasy with the risks associated with outsourced payload production (liveness/censorship) but would
-consider using it for the chance of out-sized rewards, this flag may be useful:
-
-`--builder-profit-threshold <WEI_VALUE>`
-
-The number provided indicates the minimum reward that an external payload must provide the proposer for it to be considered
-for inclusion in a proposal. For example, if you'd only like to use an external payload for a reward of >= 0.25 ETH, you
-would provide your beacon node with `--builder-profit-threshold 250000000000000000`. If it's your turn to propose and the
-most valuable payload offered by builders is only 0.1 ETH, the local execution engine's payload will be used.
-
-Since the [Capella](https://ethereum.org/en/history/#capella) upgrade, a comparison of the external payload and local payload will be made according to the [engine_getPayloadV2](https://github.com/ethereum/execution-apis/blob/main/src/engine/shanghai.md#engine_getpayloadv2) API. The logic is as follows:
-
-```
-if local payload value >= builder payload value:
-   use local payload
-else if builder payload value >= builder_profit_threshold or builder_profit_threshold == 0:
-   use builder payload
-else:
-   use local payload
-```
-
-If you would like to always use the builder payload, you can add the flag `--always-prefer-builder-payload` to the beacon node.
-
 ## Checking your builder config
 
 You can check that your builder is configured correctly by looking for these log messages.
