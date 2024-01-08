@@ -93,7 +93,6 @@ fn staking_flag() {
 }
 
 #[test]
-#[should_panic]
 fn allow_insecure_genesis_sync() {
     CommandLineTest::new()
         .run_with_zero_port()
