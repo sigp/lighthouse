@@ -363,18 +363,12 @@ impl ProtocolId {
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
             ),
-            Protocol::BlocksByRoot => RpcLimits::new(
-                spec.min_blocks_by_root_request,
-                spec.max_blocks_by_root_request,
-            ),
+            Protocol::BlocksByRoot => RpcLimits::new(0, spec.max_blocks_by_root_request),
             Protocol::BlobsByRange => RpcLimits::new(
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
-            Protocol::BlobsByRoot => RpcLimits::new(
-                spec.min_blobs_by_root_request,
-                spec.max_blobs_by_root_request,
-            ),
+            Protocol::BlobsByRoot => RpcLimits::new(0, spec.max_blobs_by_root_request),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),

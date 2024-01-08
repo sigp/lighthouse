@@ -203,11 +203,8 @@ pub struct ChainSpec {
      *
      * When adding fields here, make sure any values are derived again during `apply_to_chain_spec`.
      */
-    pub min_blocks_by_root_request: usize,
     pub max_blocks_by_root_request: usize,
-    pub min_blocks_by_root_request_deneb: usize,
     pub max_blocks_by_root_request_deneb: usize,
-    pub min_blobs_by_root_request: usize,
     pub max_blobs_by_root_request: usize,
 
     /*
@@ -509,15 +506,6 @@ impl ChainSpec {
         Duration::from_secs(self.resp_timeout)
     }
 
-    pub fn min_blocks_by_root_request(&self, fork_name: ForkName) -> usize {
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                self.min_blocks_by_root_request
-            }
-            ForkName::Deneb => self.min_blocks_by_root_request_deneb,
-        }
-    }
-
     pub fn max_blocks_by_root_request(&self, fork_name: ForkName) -> usize {
         match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
@@ -726,11 +714,8 @@ impl ChainSpec {
             /*
              * Derived Deneb Specific
              */
-            min_blocks_by_root_request: default_min_blocks_by_root_request(),
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
-            min_blocks_by_root_request_deneb: default_min_blocks_by_root_request_deneb(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
-            min_blobs_by_root_request: default_min_blobs_by_root_request(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
 
             /*
@@ -990,11 +975,8 @@ impl ChainSpec {
             /*
              * Derived Deneb Specific
              */
-            min_blocks_by_root_request: default_min_blocks_by_root_request(),
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
-            min_blocks_by_root_request_deneb: default_min_blocks_by_root_request_deneb(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
-            min_blobs_by_root_request: default_min_blobs_by_root_request(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
 
             /*
@@ -1286,13 +1268,6 @@ const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
     500
 }
 
-fn min_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
-    let max_request_blocks = max_request_blocks as usize;
-    RuntimeVariableList::<Hash256>::from_vec(Vec::<Hash256>::new(), max_request_blocks)
-        .as_ssz_bytes()
-        .len()
-}
-
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
     RuntimeVariableList::<Hash256>::from_vec(
@@ -1301,13 +1276,6 @@ fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     )
     .as_ssz_bytes()
     .len()
-}
-
-fn min_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
-    let max_request_blob_sidecars = max_request_blob_sidecars as usize;
-    RuntimeVariableList::<Hash256>::from_vec(Vec::<Hash256>::new(), max_request_blob_sidecars)
-        .as_ssz_bytes()
-        .len()
 }
 
 fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
@@ -1320,24 +1288,12 @@ fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     .len()
 }
 
-fn default_min_blocks_by_root_request() -> usize {
-    min_blocks_by_root_request_common(default_max_request_blocks())
-}
-
 fn default_max_blocks_by_root_request() -> usize {
     max_blocks_by_root_request_common(default_max_request_blocks())
 }
 
-fn default_min_blocks_by_root_request_deneb() -> usize {
-    min_blocks_by_root_request_common(default_max_request_blocks_deneb())
-}
-
 fn default_max_blocks_by_root_request_deneb() -> usize {
     max_blocks_by_root_request_common(default_max_request_blocks_deneb())
-}
-
-fn default_min_blobs_by_root_request() -> usize {
-    min_blobs_by_root_request_common(default_max_request_blob_sidecars())
 }
 
 fn default_max_blobs_by_root_request() -> usize {
@@ -1585,15 +1541,10 @@ impl Config {
             blob_sidecar_subnet_count,
 
             // We need to re-derive any values that might have changed in the config.
-            min_blocks_by_root_request: min_blocks_by_root_request_common(max_request_blocks),
             max_blocks_by_root_request: max_blocks_by_root_request_common(max_request_blocks),
-            min_blocks_by_root_request_deneb: min_blocks_by_root_request_common(
-                max_request_blocks_deneb,
-            ),
             max_blocks_by_root_request_deneb: max_blocks_by_root_request_common(
                 max_request_blocks_deneb,
             ),
-            min_blobs_by_root_request: min_blobs_by_root_request_common(max_request_blob_sidecars),
             max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
 
             ..chain_spec.clone()
