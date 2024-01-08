@@ -101,6 +101,10 @@ from this list:
 - `none`: Disable all broadcasting. This option only has an effect when provided alone, otherwise
    it is ignored. Not recommended except for expert tweakers.
 
+Broadcasting attestation, blocks and sync committee messages may result in excessive warning logs in the beacon node 
+due to duplicate gossip messages. In this case, it may be desirable to disable warning logs for duplicates using the 
+beacon node `--disable-duplicate-warn-logs` flag.
+
 The default is `--broadcast subscriptions`. To also broadcast blocks for example, use
 `--broadcast subscriptions,blocks`.
 

@@ -18,6 +18,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
+use types::non_zero_usize::new_non_zero_usize;
 use types::{
     Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
     ProgressiveBalancesMode,
@@ -578,102 +579,6 @@ fn builder_fallback_flags() {
         None,
         |config| {
             assert_eq!(config.chain.builder_fallback_disable_checks, true);
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("builder-profit-threshold"),
-        Some("1000000000000000000000000"),
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .builder_profit_threshold,
-                1000000000000000000000000
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .builder_profit_threshold,
-                0
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("always-prefer-builder-payload"),
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .always_prefer_builder_payload,
-                true
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .always_prefer_builder_payload,
-                false
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("ignore-builder-override-suggestion-threshold"),
-        Some("53.4"),
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .ignore_builder_override_suggestion_threshold,
-                53.4f32
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .ignore_builder_override_suggestion_threshold,
-                10.0f32
-            );
         },
     );
 }
@@ -1769,14 +1674,19 @@ fn block_cache_size_flag() {
     CommandLineTest::new()
         .flag("block-cache-size", Some("4"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.block_cache_size, 4_usize));
+        .with_config(|config| assert_eq!(config.store.block_cache_size, new_non_zero_usize(4)));
 }
 #[test]
 fn historic_state_cache_size_flag() {
     CommandLineTest::new()
         .flag("historic-state-cache-size", Some("4"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.historic_state_cache_size, 4_usize));
+        .with_config(|config| {
+            assert_eq!(
+                config.store.historic_state_cache_size,
+                new_non_zero_usize(4)
+            )
+        });
 }
 #[test]
 fn historic_state_cache_size_default() {
@@ -2001,7 +1911,10 @@ fn slasher_attestation_cache_size_flag() {
                 .slasher
                 .as_ref()
                 .expect("Unable to parse Slasher config");
-            assert_eq!(slasher_config.attestation_root_cache_size, 10000);
+            assert_eq!(
+                slasher_config.attestation_root_cache_size,
+                new_non_zero_usize(10000)
+            );
         });
 }
 #[test]
@@ -2556,5 +2469,24 @@ fn genesis_state_url_value() {
                 Some("http://genesis.com")
             );
             assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
+        });
+}
+
+#[test]
+fn disable_duplicate_warn_logs_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.disable_duplicate_warn_logs, false);
+        });
+}
+
+#[test]
+fn disable_duplicate_warn_logs() {
+    CommandLineTest::new()
+        .flag("disable-duplicate-warn-logs", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.disable_duplicate_warn_logs, true);
         });
 }

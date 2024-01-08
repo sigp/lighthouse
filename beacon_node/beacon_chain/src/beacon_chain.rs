@@ -406,7 +406,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of blob sidecars seen over the gossip network.
-    pub(crate) observed_blob_sidecars: RwLock<ObservedBlobSidecars<T::EthSpec>>,
+    pub observed_blob_sidecars: RwLock<ObservedBlobSidecars<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
     pub(crate) observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
     /// Maintains a record of which validators we've seen proposer slashings for.
@@ -501,14 +501,14 @@ impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
         })
     }
 
-    pub fn execution_payload_value(&self) -> Option<Uint256> {
+    pub fn execution_payload_value(&self) -> Uint256 {
         match self {
             BeaconBlockResponseWrapper::Full(resp) => resp.execution_payload_value,
             BeaconBlockResponseWrapper::Blinded(resp) => resp.execution_payload_value,
         }
     }
 
-    pub fn consensus_block_value(&self) -> Option<u64> {
+    pub fn consensus_block_value(&self) -> u64 {
         match self {
             BeaconBlockResponseWrapper::Full(resp) => resp.consensus_block_value,
             BeaconBlockResponseWrapper::Blinded(resp) => resp.consensus_block_value,
@@ -529,9 +529,9 @@ pub struct BeaconBlockResponse<T: EthSpec, Payload: AbstractExecPayload<T>> {
     /// The Blobs / Proofs associated with the new block
     pub blob_items: Option<(KzgProofs<T>, BlobsList<T>)>,
     /// The execution layer reward for the block
-    pub execution_payload_value: Option<Uint256>,
+    pub execution_payload_value: Uint256,
     /// The consensus layer reward to the proposer
-    pub consensus_block_value: Option<u64>,
+    pub consensus_block_value: u64,
 }
 
 impl FinalizationAndCanonicity {
@@ -3621,9 +3621,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Allow the validator monitor to learn about a new valid state.
-        self.validator_monitor
-            .write()
-            .process_valid_state(current_slot.epoch(T::EthSpec::slots_per_epoch()), state);
+        self.validator_monitor.write().process_valid_state(
+            current_slot.epoch(T::EthSpec::slots_per_epoch()),
+            state,
+            &self.spec,
+        );
 
         let validator_monitor = self.validator_monitor.read();
 
@@ -4019,6 +4021,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
+        builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<BeaconBlockResponseWrapper<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
@@ -4047,6 +4050,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             randao_reveal,
             validator_graffiti,
             verification,
+            builder_boost_factor,
             block_production_version,
         )
         .await
@@ -4650,6 +4654,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
+        builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<BeaconBlockResponseWrapper<T::EthSpec>, BlockProductionError> {
         // Part 1/3 (blocking)
@@ -4666,6 +4671,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         produce_at_slot,
                         randao_reveal,
                         validator_graffiti,
+                        builder_boost_factor,
                         block_production_version,
                     )
                 },
@@ -4755,6 +4761,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn produce_partial_beacon_block(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
@@ -4762,6 +4769,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
+        builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<PartialBeaconBlock<T::EthSpec>, BlockProductionError> {
         let eth1_chain = self
@@ -4823,6 +4831,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     parent_root,
                     proposer_index,
                     builder_params,
+                    builder_boost_factor,
                     block_production_version,
                 )?;
                 Some(prepare_payload_handle)
@@ -5165,8 +5174,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                             bls_to_execution_changes: bls_to_execution_changes.into(),
-                            blob_kzg_commitments: kzg_commitments
-                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                            blob_kzg_commitments: kzg_commitments.ok_or(
+                                BlockProductionError::MissingKzgCommitment(
+                                    "Kzg commitments missing from block contents".to_string(),
+                                ),
+                            )?,
                         },
                     }),
                     maybe_blobs_and_proofs,
@@ -5281,8 +5293,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block,
             state,
             blob_items,
-            execution_payload_value: Some(execution_payload_value),
-            consensus_block_value: Some(consensus_block_value),
+            execution_payload_value,
+            consensus_block_value,
         })
     }
 
@@ -5558,6 +5570,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
                         payload_attributes: payload_attributes.into(),
                     },
+                    metadata: Default::default(),
                     version: Some(self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot)),
                 }));
             }

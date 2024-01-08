@@ -309,6 +309,21 @@ pub fn get_config<E: EthSpec>(
                 clap_utils::parse_optional(cli_args, "builder-user-agent")?;
         }
 
+        if cli_args.is_present("builder-profit-threshold") {
+            warn!(
+                log,
+                "Ignoring --builder-profit-threshold";
+                "info" => "this flag is deprecated and will be removed"
+            );
+        }
+        if cli_args.is_present("always-prefer-builder-payload") {
+            warn!(
+                log,
+                "Ignoring --always-prefer-builder-payload";
+                "info" => "this flag is deprecated and will be removed"
+            );
+        }
+
         // Set config values from parse values.
         el_config.secret_files = vec![secret_file.clone()];
         el_config.execution_endpoints = vec![execution_endpoint.clone()];
@@ -317,12 +332,6 @@ pub fn get_config<E: EthSpec>(
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
         el_config.default_datadir = client_config.data_dir().clone();
-        el_config.builder_profit_threshold =
-            clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
-        el_config.always_prefer_builder_payload =
-            cli_args.is_present("always-prefer-builder-payload");
-        el_config.ignore_builder_override_suggestion_threshold =
-            clap_utils::parse_required(cli_args, "ignore-builder-override-suggestion-threshold")?;
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
@@ -1395,6 +1404,9 @@ pub fn set_network_config(
             Some(config_str.parse()?)
         }
     };
+
+    config.disable_duplicate_warn_logs = cli_args.is_present("disable-duplicate-warn-logs");
+
     Ok(())
 }
 

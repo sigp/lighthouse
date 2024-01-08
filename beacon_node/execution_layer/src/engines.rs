@@ -8,17 +8,19 @@ use crate::HttpJsonRpc;
 use lru::LruCache;
 use slog::{debug, error, info, warn, Logger};
 use std::future::Future;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::{watch, Mutex, RwLock};
 use tokio_stream::wrappers::WatchStream;
+use types::non_zero_usize::new_non_zero_usize;
 use types::ExecutionBlockHash;
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
 /// Since the size of each value is small (~800 bytes) a large number is used for safety.
-const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
+const PAYLOAD_ID_LRU_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(512);
 const CACHED_ENGINE_CAPABILITIES_AGE_LIMIT: Duration = Duration::from_secs(900); // 15 minutes
 
 /// Stores the remembered state of a engine.

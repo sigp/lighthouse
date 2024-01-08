@@ -1,7 +1,6 @@
 use crate::{
     test_utils::{
-        MockServer, DEFAULT_BUILDER_THRESHOLD_WEI, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK,
-        DEFAULT_TERMINAL_DIFFICULTY,
+        MockServer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY,
     },
     Config, *,
 };
@@ -30,7 +29,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_BLOCK,
             None,
             None,
-            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
             None,
@@ -43,7 +41,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         terminal_block: u64,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
-        builder_threshold: Option<u128>,
         jwt_key: Option<JwtKey>,
         spec: ChainSpec,
         kzg: Option<Kzg>,
@@ -72,7 +69,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             execution_endpoints: vec![url],
             secret_files: vec![path],
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
-            builder_profit_threshold: builder_threshold.unwrap_or(DEFAULT_BUILDER_THRESHOLD_WEI),
             ..Default::default()
         };
         let el =
@@ -143,6 +139,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 builder_params,
                 ForkName::Merge,
                 &self.spec,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await
@@ -182,6 +179,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 builder_params,
                 ForkName::Merge,
                 &self.spec,
+                None,
                 BlockProductionVersion::BlindedV2,
             )
             .await

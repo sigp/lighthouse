@@ -9,8 +9,7 @@ USAGE:
     lighthouse beacon_node [FLAGS] [OPTIONS]
 
 FLAGS:
-        --always-prefer-builder-payload        If set, the beacon node always uses the payload from the builder instead
-                                               of the local payload.
+        --always-prefer-builder-payload        This flag is deprecated and has no effect.
         --always-prepare-payload               Send payload attributes with every fork choice update. This is intended
                                                for use by block builders, relays and developers. You should set a fee
                                                recipient on this BN and also consider adjusting the --prepare-payload-
@@ -29,6 +28,11 @@ FLAGS:
         --disable-deposit-contract-sync        Explictly disables syncing of deposit logs from the execution node. This
                                                overrides any previous option that depends on it. Useful if you intend to
                                                run a non-validating beacon node.
+        --disable-duplicate-warn-logs          Disable warning logs for duplicate gossip messages. The WARN level log is
+                                               useful for detecting a duplicate validator key running elsewhere.
+                                               However, this may result in excessive warning logs if the validator is
+                                               broadcasting messages to multiple beacon nodes via the validator client
+                                               --broadcast flag. In this case, disabling these warn logs may be useful.
     -x, --disable-enr-auto-update              Discovery automatically updates the nodes local ENR with an external IP
                                                address and port as seen by other peers on the network. This disables
                                                this feature, fixing the ENR's IP/PORT to those specified on boot.
@@ -170,12 +174,8 @@ OPTIONS:
             `SLOTS_PER_EPOCH`, it will NOT query any connected builders, and will use the local execution engine for
             payload construction. [default: 8]
         --builder-profit-threshold <WEI_VALUE>
-            The minimum reward in wei provided to the proposer by a block builder for an external payload to be
-            considered for inclusion in a proposal. If this threshold is not met, the local EE's payload will be used.
-            This is currently *NOT* in comparison to the value of the local EE's payload. It simply checks whether the
-            total proposer reward from an external payload is equal to or greater than this value. In the future, a
-            comparison to a local payload is likely to be added. Example: Use 250000000000000000 to set the threshold to
-            0.25 ETH. [default: 0]
+            This flag is deprecated and has no effect.
+
         --builder-user-agent <STRING>
             The HTTP user agent to send alongside requests to the builder URL. The default is Lighthouse's version
             string.
@@ -308,14 +308,6 @@ OPTIONS:
         --http-tls-key <http-tls-key>
             The path of the private key to be used when serving the HTTP API server over TLS. Must not be password-
             protected.
-        --ignore-builder-override-suggestion-threshold <PERCENTAGE>
-            When the EE advises Lighthouse to ignore the builder payload, this flag specifies a percentage threshold for
-            the difference between the reward from the builder payload and the local EE's payload. This threshold must
-            be met for Lighthouse to consider ignoring the EE's suggestion. If the reward from the builder's payload
-            doesn't exceed the local payload by at least this percentage, the local payload will be used. The conditions
-            under which the EE may make this suggestion depend on the EE's implementation, with the primary intent being
-            to safeguard against potential censorship attacks from builders. Setting this flag to 0 will cause
-            Lighthouse to always ignore the EE's suggestion. Default: 10.0 (equivalent to 10%). [default: 10.0]
         --invalid-gossip-verified-blocks-path <PATH>
             If a block succeeds gossip validation whilst failing full validation, store the block SSZ as a file at this
             path. This feature is only recommended for developers. This directory is not pruned, users should be careful
