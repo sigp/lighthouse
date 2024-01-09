@@ -290,7 +290,8 @@ where
                             return Err(
                                     "Syncing from genesis is insecure and incompatible with data availability checks. \
                                     You should instead perform a checkpoint sync from a trusted node using the --checkpoint-sync-url option. \
-                                    For a list of public endpoints, see:\nhttps://eth-clients.github.io/checkpoint-sync-endpoints/"
+                                    For a list of public endpoints, see: https://eth-clients.github.io/checkpoint-sync-endpoints/ \
+                                    Alternatively, use --allow-insecure-genesis-sync if the risks are understood."
                                         .to_string(),
                                 );
                         }
