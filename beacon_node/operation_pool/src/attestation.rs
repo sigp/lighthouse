@@ -11,11 +11,14 @@ use types::{
     Attestation, BeaconState, BitList, ChainSpec, EthSpec,
 };
 
+pub const PROPOSER_REWARD_DENOMINATOR: u64 =
+    (WEIGHT_DENOMINATOR - PROPOSER_WEIGHT) * WEIGHT_DENOMINATOR / PROPOSER_WEIGHT;
+
 #[derive(Debug, Clone)]
 pub struct AttMaxCover<'a, T: EthSpec> {
     /// Underlying attestation.
     pub att: AttestationRef<'a, T>,
-    /// Mapping of validator indices and their rewards.
+    /// Mapping of validator indices and their reward *numerators*.
     pub fresh_validators_rewards: HashMap<u64, u64>,
 }
 
@@ -85,11 +88,6 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         let base_reward_per_increment =
             altair::BaseRewardPerIncrement::new(total_active_balance, spec).ok()?;
 
-        let proposer_reward_denominator = WEIGHT_DENOMINATOR
-            .checked_sub(PROPOSER_WEIGHT)?
-            .checked_mul(WEIGHT_DENOMINATOR)?
-            .checked_div(PROPOSER_WEIGHT)?;
-
         let fresh_validators_rewards = att
             .indexed
             .attesting_indices
@@ -114,10 +112,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
                     }
                 }
 
-                let proposer_reward =
-                    proposer_reward_numerator.checked_div(proposer_reward_denominator)?;
-
-                Some((index, proposer_reward)).filter(|_| proposer_reward != 0)
+                Some((index, proposer_reward_numerator)).filter(|_| proposer_reward_numerator != 0)
             })
             .collect();
 
@@ -167,7 +162,7 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
     }
 
     fn score(&self) -> usize {
-        self.fresh_validators_rewards.values().sum::<u64>() as usize
+        (self.fresh_validators_rewards.values().sum::<u64>() / PROPOSER_REWARD_DENOMINATOR) as usize
     }
 }
 
