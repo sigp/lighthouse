@@ -7,7 +7,7 @@ use state_processing::common::{
 use std::collections::HashMap;
 use types::{
     beacon_state::BeaconStateBase,
-    consts::altair::{PARTICIPATION_FLAG_WEIGHTS, WEIGHT_DENOMINATOR},
+    consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
     Attestation, BeaconState, BitList, ChainSpec, EthSpec,
 };
 
@@ -85,6 +85,11 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         let base_reward_per_increment =
             altair::BaseRewardPerIncrement::new(total_active_balance, spec).ok()?;
 
+        let proposer_reward_denominator = WEIGHT_DENOMINATOR
+            .checked_sub(PROPOSER_WEIGHT)?
+            .checked_mul(WEIGHT_DENOMINATOR)?
+            .checked_div(PROPOSER_WEIGHT)?;
+
         let fresh_validators_rewards = att
             .indexed
             .attesting_indices
@@ -109,8 +114,8 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
                     }
                 }
 
-                let proposer_reward = proposer_reward_numerator
-                    .checked_div(WEIGHT_DENOMINATOR.checked_mul(spec.proposer_reward_quotient)?)?;
+                let proposer_reward =
+                    proposer_reward_numerator.checked_div(proposer_reward_denominator)?;
 
                 Some((index, proposer_reward)).filter(|_| proposer_reward != 0)
             })
