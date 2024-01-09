@@ -40,6 +40,7 @@ mod observed_attesters;
 mod observed_blob_sidecars;
 pub mod observed_block_producers;
 pub mod observed_operations;
+mod observed_slashable;
 pub mod otb_verification_service;
 mod persisted_beacon_chain;
 mod persisted_fork_choice;

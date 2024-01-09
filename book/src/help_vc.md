@@ -56,6 +56,10 @@ FLAGS:
             machine. Note that logs can often contain sensitive information about your validator and so this flag should
             be used with caution. For Windows users, the log file permissions will be inherited from the parent folder.
         --metrics                                Enable the Prometheus metrics HTTP server. Disabled by default.
+        --produce-block-v3
+            Enable block production via the block v3 endpoint for this validator client. This should only be enabled
+            when paired with a beacon node that has this endpoint implemented. This flag will be enabled by default in
+            future.
         --unencrypted-http-transport
             This is a safety flag to ensure that the user is aware that the http transport is unencrypted and using a
             custom HTTP address is unsafe.

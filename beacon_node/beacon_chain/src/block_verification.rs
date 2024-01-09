@@ -946,6 +946,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             return Err(BlockError::ProposalSignatureInvalid);
         }
 
+        chain
+            .observed_slashable
+            .write()
+            .observe_slashable(block.slot(), block.message().proposer_index(), block_root)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         // Now the signature is valid, store the proposal so we don't accept another from this
         // validator and slot.
         //
@@ -1241,6 +1246,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
+        chain
+            .observed_slashable
+            .write()
+            .observe_slashable(block.slot(), block.message().proposer_index(), block_root)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+
         chain
             .observed_block_producers
             .write()
@@ -2066,7 +2077,7 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
 /// Verify that `header` was signed with a valid signature from its proposer.
 ///
 /// Return `Ok(())` if the signature is valid, and an `Err` otherwise.
-fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
+pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     chain: &BeaconChain<T>,
     header: &SignedBeaconBlockHeader,
 ) -> Result<(), Err> {

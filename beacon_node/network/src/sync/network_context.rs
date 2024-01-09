@@ -475,9 +475,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
         let request_id = RequestId::Sync(sync_id);
 
-        if let Some(block_root) = blob_request.blob_ids.first().map(|id| id.block_root) {
+        if let Some(block_root) = blob_request
+            .blob_ids
+            .as_slice()
+            .first()
+            .map(|id| id.block_root)
+        {
             let indices = blob_request
                 .blob_ids
+                .as_slice()
                 .iter()
                 .map(|id| id.index)
                 .collect::<Vec<_>>();

@@ -41,9 +41,7 @@ use std::{
 };
 use types::ForkName;
 use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
-    consts::deneb::{BLOB_COLUMN_SUBNET_COUNT, BLOB_SIDECAR_SUBNET_COUNT},
-    EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
@@ -227,8 +225,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
             let max_topics = ctx.chain_spec.attestation_subnet_count as usize
                 + SYNC_COMMITTEE_SUBNET_COUNT as usize
-                + BLOB_SIDECAR_SUBNET_COUNT as usize
-                + BLOB_COLUMN_SUBNET_COUNT as usize
+                + ctx.chain_spec.blob_sidecar_subnet_count as usize
+                + ctx.chain_spec.blob_column_sidecar_subnet_count as usize
                 + BASE_CORE_TOPICS.len()
                 + ALTAIR_CORE_TOPICS.len()
                 + CAPELLA_CORE_TOPICS.len()
@@ -241,8 +239,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     possible_fork_digests,
                     ctx.chain_spec.attestation_subnet_count,
                     SYNC_COMMITTEE_SUBNET_COUNT,
-                    BLOB_SIDECAR_SUBNET_COUNT,
-                    BLOB_COLUMN_SUBNET_COUNT,
+                    ctx.chain_spec.blob_sidecar_subnet_count,
+                    ctx.chain_spec.blob_column_sidecar_subnet_count,
                 ),
                 // during a fork we subscribe to both the old and new topics
                 max_subscribed_topics: max_topics * 4,
@@ -642,7 +640,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
 
         // Subscribe to core topics for the new fork
-        for kind in fork_core_topics::<TSpec>(&new_fork) {
+        for kind in fork_core_topics::<TSpec>(&new_fork, &self.fork_context.spec) {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }

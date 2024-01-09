@@ -4,6 +4,7 @@ use int_to_bytes::int_to_bytes4;
 use serde::Deserialize;
 use serde::{Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
+use ssz::Encode;
 use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
@@ -177,21 +178,40 @@ pub struct ChainSpec {
      */
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
-    pub attestation_propagation_slot_range: u64,
-    pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
-    pub attestation_subnet_count: u64,
-    pub subnets_per_node: u8,
-    pub epochs_per_subnet_subscription: u64,
     pub gossip_max_size: u64,
+    pub max_request_blocks: u64,
+    pub epochs_per_subnet_subscription: u64,
     pub min_epochs_for_block_requests: u64,
     pub max_chunk_size: u64,
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
+    pub attestation_propagation_slot_range: u64,
+    pub maximum_gossip_clock_disparity_millis: u64,
     pub message_domain_invalid_snappy: [u8; 4],
     pub message_domain_valid_snappy: [u8; 4],
+    pub subnets_per_node: u8,
+    pub attestation_subnet_count: u64,
     pub attestation_subnet_extra_bits: u8,
     pub attestation_subnet_prefix_bits: u8,
+
+    /*
+     * Networking Deneb
+     */
+    pub max_request_blocks_deneb: u64,
+    pub max_request_blob_sidecars: u64,
+    pub min_epochs_for_blob_sidecars_requests: u64,
+    pub blob_sidecar_subnet_count: u64,
+    pub blob_column_sidecar_subnet_count: u64,
+
+    /*
+     * Networking Derived
+     *
+     * When adding fields here, make sure any values are derived again during `apply_to_chain_spec`.
+     */
+    pub max_blocks_by_root_request: usize,
+    pub max_blocks_by_root_request_deneb: usize,
+    pub max_blobs_by_root_request: usize,
 
     /*
      * Application params
@@ -492,6 +512,25 @@ impl ChainSpec {
         Duration::from_secs(self.resp_timeout)
     }
 
+    pub fn max_blocks_by_root_request(&self, fork_name: ForkName) -> usize {
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                self.max_blocks_by_root_request
+            }
+            ForkName::Deneb => self.max_blocks_by_root_request_deneb,
+        }
+    }
+
+    pub fn max_request_blocks(&self, fork_name: ForkName) -> usize {
+        let max_request_blocks = match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                self.max_request_blocks
+            }
+            ForkName::Deneb => self.max_request_blocks_deneb,
+        };
+        max_request_blocks as usize
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
@@ -658,12 +697,12 @@ impl ChainSpec {
              */
             boot_nodes: vec![],
             network_id: 1, // mainnet network id
-            attestation_propagation_slot_range: 32,
+            attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 2,
-            maximum_gossip_clock_disparity_millis: 500,
+            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            epochs_per_subnet_subscription: 256,
+            epochs_per_subnet_subscription: default_epochs_per_subnet_subscription(),
             gossip_max_size: default_gossip_max_size(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
             max_chunk_size: default_max_chunk_size(),
@@ -673,6 +712,24 @@ impl ChainSpec {
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
             attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            max_request_blocks: default_max_request_blocks(),
+
+            /*
+             * Networking Deneb Specific
+             */
+            max_request_blocks_deneb: default_max_request_blocks_deneb(),
+            max_request_blob_sidecars: default_max_request_blob_sidecars(),
+            min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
+            blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
+            blob_column_sidecar_subnet_count: default_blob_column_sidecar_subnet_count(),
+
+            /*
+             * Derived Deneb Specific
+             */
+            max_blocks_by_root_request: default_max_blocks_by_root_request(),
+            max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
+            max_blobs_by_root_request: default_max_blobs_by_root_request(),
+
             /*
              * Application specific
              */
@@ -905,12 +962,12 @@ impl ChainSpec {
              */
             boot_nodes: vec![],
             network_id: 100, // Gnosis Chain network id
-            attestation_propagation_slot_range: 32,
+            attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
-            maximum_gossip_clock_disparity_millis: 500,
+            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            epochs_per_subnet_subscription: 256,
+            epochs_per_subnet_subscription: default_epochs_per_subnet_subscription(),
             gossip_max_size: default_gossip_max_size(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
             max_chunk_size: default_max_chunk_size(),
@@ -920,6 +977,23 @@ impl ChainSpec {
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
             attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            max_request_blocks: default_max_request_blocks(),
+
+            /*
+             * Networking Deneb Specific
+             */
+            max_request_blocks_deneb: default_max_request_blocks_deneb(),
+            max_request_blob_sidecars: default_max_request_blob_sidecars(),
+            min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
+            blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
+            blob_column_sidecar_subnet_count: default_blob_column_sidecar_subnet_count(),
+
+            /*
+             * Derived Deneb Specific
+             */
+            max_blocks_by_root_request: default_max_blocks_by_root_request(),
+            max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
+            max_blobs_by_root_request: default_max_blobs_by_root_request(),
 
             /*
              * Application specific
@@ -1045,6 +1119,12 @@ pub struct Config {
     #[serde(default = "default_gossip_max_size")]
     #[serde(with = "serde_utils::quoted_u64")]
     gossip_max_size: u64,
+    #[serde(default = "default_max_request_blocks")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_blocks: u64,
+    #[serde(default = "default_epochs_per_subnet_subscription")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    epochs_per_subnet_subscription: u64,
     #[serde(default = "default_min_epochs_for_block_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_block_requests: u64,
@@ -1057,6 +1137,12 @@ pub struct Config {
     #[serde(default = "default_resp_timeout")]
     #[serde(with = "serde_utils::quoted_u64")]
     resp_timeout: u64,
+    #[serde(default = "default_attestation_propagation_slot_range")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    attestation_propagation_slot_range: u64,
+    #[serde(default = "default_maximum_gossip_clock_disparity_millis")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    maximum_gossip_clock_disparity_millis: u64,
     #[serde(default = "default_message_domain_invalid_snappy")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     message_domain_invalid_snappy: [u8; 4],
@@ -1069,6 +1155,21 @@ pub struct Config {
     #[serde(default = "default_attestation_subnet_prefix_bits")]
     #[serde(with = "serde_utils::quoted_u8")]
     attestation_subnet_prefix_bits: u8,
+    #[serde(default = "default_max_request_blocks_deneb")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_blocks_deneb: u64,
+    #[serde(default = "default_max_request_blob_sidecars")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_blob_sidecars: u64,
+    #[serde(default = "default_min_epochs_for_blob_sidecars_requests")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_epochs_for_blob_sidecars_requests: u64,
+    #[serde(default = "default_blob_sidecar_subnet_count")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    blob_sidecar_subnet_count: u64,
+    #[serde(default = "default_blob_column_sidecar_subnet_count")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    blob_column_sidecar_subnet_count: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1152,6 +1253,74 @@ const fn default_attestation_subnet_extra_bits() -> u8 {
 
 const fn default_attestation_subnet_prefix_bits() -> u8 {
     6
+}
+
+const fn default_max_request_blocks() -> u64 {
+    1024
+}
+
+const fn default_max_request_blocks_deneb() -> u64 {
+    128
+}
+
+const fn default_max_request_blob_sidecars() -> u64 {
+    768
+}
+
+const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
+    4096
+}
+
+const fn default_blob_sidecar_subnet_count() -> u64 {
+    6
+}
+
+const fn default_blob_column_sidecar_subnet_count() -> u64 {
+    32
+}
+
+const fn default_epochs_per_subnet_subscription() -> u64 {
+    256
+}
+
+const fn default_attestation_propagation_slot_range() -> u64 {
+    32
+}
+
+const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
+    500
+}
+
+fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
+    let max_request_blocks = max_request_blocks as usize;
+    RuntimeVariableList::<Hash256>::from_vec(
+        vec![Hash256::zero(); max_request_blocks],
+        max_request_blocks,
+    )
+    .as_ssz_bytes()
+    .len()
+}
+
+fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
+    let max_request_blob_sidecars = max_request_blob_sidecars as usize;
+    RuntimeVariableList::<Hash256>::from_vec(
+        vec![Hash256::zero(); max_request_blob_sidecars],
+        max_request_blob_sidecars,
+    )
+    .as_ssz_bytes()
+    .len()
+}
+
+fn default_max_blocks_by_root_request() -> usize {
+    max_blocks_by_root_request_common(default_max_request_blocks())
+}
+
+fn default_max_blocks_by_root_request_deneb() -> usize {
+    max_blocks_by_root_request_common(default_max_request_blocks_deneb())
+}
+
+fn default_max_blobs_by_root_request() -> usize {
+    max_blobs_by_root_request_common(default_max_request_blob_sidecars())
 }
 
 impl Default for Config {
@@ -1256,14 +1425,23 @@ impl Config {
             deposit_contract_address: spec.deposit_contract_address,
 
             gossip_max_size: spec.gossip_max_size,
+            max_request_blocks: spec.max_request_blocks,
+            epochs_per_subnet_subscription: spec.epochs_per_subnet_subscription,
             min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
             max_chunk_size: spec.max_chunk_size,
             ttfb_timeout: spec.ttfb_timeout,
             resp_timeout: spec.resp_timeout,
+            attestation_propagation_slot_range: spec.attestation_propagation_slot_range,
+            maximum_gossip_clock_disparity_millis: spec.maximum_gossip_clock_disparity_millis,
             message_domain_invalid_snappy: spec.message_domain_invalid_snappy,
             message_domain_valid_snappy: spec.message_domain_valid_snappy,
             attestation_subnet_extra_bits: spec.attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits: spec.attestation_subnet_prefix_bits,
+            max_request_blocks_deneb: spec.max_request_blocks_deneb,
+            max_request_blob_sidecars: spec.max_request_blob_sidecars,
+            min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
+            blob_sidecar_subnet_count: spec.blob_sidecar_subnet_count,
+            blob_column_sidecar_subnet_count: spec.blob_column_sidecar_subnet_count,
         }
     }
 
@@ -1320,6 +1498,15 @@ impl Config {
             message_domain_valid_snappy,
             attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits,
+            max_request_blocks,
+            epochs_per_subnet_subscription,
+            attestation_propagation_slot_range,
+            maximum_gossip_clock_disparity_millis,
+            max_request_blocks_deneb,
+            max_request_blob_sidecars,
+            min_epochs_for_blob_sidecars_requests,
+            blob_sidecar_subnet_count,
+            blob_column_sidecar_subnet_count,
         } = self;
 
         if preset_base != T::spec_name().to_string().as_str() {
@@ -1369,6 +1556,23 @@ impl Config {
             message_domain_valid_snappy,
             attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits,
+            max_request_blocks,
+            epochs_per_subnet_subscription,
+            attestation_propagation_slot_range,
+            maximum_gossip_clock_disparity_millis,
+            max_request_blocks_deneb,
+            max_request_blob_sidecars,
+            min_epochs_for_blob_sidecars_requests,
+            blob_sidecar_subnet_count,
+            blob_column_sidecar_subnet_count,
+
+            // We need to re-derive any values that might have changed in the config.
+            max_blocks_by_root_request: max_blocks_by_root_request_common(max_request_blocks),
+            max_blocks_by_root_request_deneb: max_blocks_by_root_request_common(
+                max_request_blocks_deneb,
+            ),
+            max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
+
             ..chain_spec.clone()
         })
     }

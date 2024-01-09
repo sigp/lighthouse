@@ -1,11 +1,12 @@
 //! Identifies each blob column subnet by an integer identifier.
-use crate::consts::deneb::BLOB_COLUMN_SUBNET_COUNT;
 use crate::{ChainSpec, EthSpec};
 use ethereum_types::U256;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
+
+const BLOB_COLUMN_SUBNET_COUNT: u64 = 64;
 
 lazy_static! {
     static ref BLOB_COLUMN_SUBNET_ID_TO_STRING: Vec<String> = {
