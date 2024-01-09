@@ -4,8 +4,10 @@ use crate::{BlobSidecarList, EthSpec, Hash256, SignedBeaconBlockHeader, Slot};
 use derivative::Derivative;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -44,12 +46,14 @@ pub struct BlobColumnSidecar<T: EthSpec> {
 impl<T: EthSpec> BlobColumnSidecar<T> {
     pub fn random_from_blob_sidecars(
         blob_sidecars: &BlobSidecarList<T>,
-    ) -> Result<Vec<BlobColumnSidecar<T>>, String> {
+    ) -> Result<Vec<BlobColumnSidecar<T>>, BlobColumnSidecarError> {
         if blob_sidecars.is_empty() {
             return Ok(vec![]);
         }
 
-        let first_blob_sidecar = blob_sidecars.first().ok_or("should exist")?;
+        let first_blob_sidecar = blob_sidecars
+            .first()
+            .ok_or(BlobColumnSidecarError::MissingBlobSidecars)?;
         let slot = first_blob_sidecar.slot();
 
         // Proof for kzg commitments in `BeaconBlockBody`
@@ -63,13 +67,15 @@ impl<T: EthSpec> BlobColumnSidecar<T> {
         > = first_blob_sidecar
             .kzg_commitment_inclusion_proof
             .get(body_proof_start..)
-            .ok_or("kzg_commitment_inclusion_proof index out of bounds")?
+            .ok_or(BlobColumnSidecarError::KzgCommitmentInclusionProofOutOfBounds)?
             .to_vec()
             .into();
 
         let mut rng = StdRng::seed_from_u64(slot.as_u64());
         let num_of_blobs = blob_sidecars.len();
-        let bytes_per_column = T::bytes_per_extended_blob() * num_of_blobs / T::blob_column_count();
+        let bytes_per_column = T::bytes_per_extended_blob()
+            .safe_div(T::blob_column_count())?
+            .safe_mul(num_of_blobs)?;
 
         (0..T::blob_column_count())
             .map(|col_index| {
@@ -78,17 +84,17 @@ impl<T: EthSpec> BlobColumnSidecar<T> {
                 // Prefix with column index
                 let prefix = index.to_le_bytes();
                 data.get_mut(..prefix.len())
-                    .ok_or("blob column index out of bounds")?
+                    .ok_or(BlobColumnSidecarError::BlobColumnIndexOutOfBounds)?
                     .copy_from_slice(&prefix);
                 // Fill the rest of the array with random values
                 rng.fill(
                     data.get_mut(prefix.len()..)
-                        .ok_or("blob column index out of bounds")?,
+                        .ok_or(BlobColumnSidecarError::BlobColumnIndexOutOfBounds)?,
                 );
 
                 Ok(BlobColumnSidecar {
                     index,
-                    data: VariableList::new(data).map_err(|e| format!("{e:?}"))?,
+                    data: VariableList::new(data)?,
                     signed_block_header: first_blob_sidecar.signed_block_header.clone(),
                     kzg_commitments: blob_sidecars
                         .iter()
@@ -107,6 +113,27 @@ impl<T: EthSpec> BlobColumnSidecar<T> {
 
     pub fn block_root(&self) -> Hash256 {
         self.signed_block_header.message.tree_hash_root()
+    }
+}
+
+#[derive(Debug)]
+pub enum BlobColumnSidecarError {
+    ArithError(ArithError),
+    MissingBlobSidecars,
+    KzgCommitmentInclusionProofOutOfBounds,
+    BlobColumnIndexOutOfBounds,
+    SszError(SszError),
+}
+
+impl From<ArithError> for BlobColumnSidecarError {
+    fn from(e: ArithError) -> Self {
+        Self::ArithError(e)
+    }
+}
+
+impl From<SszError> for BlobColumnSidecarError {
+    fn from(e: SszError) -> Self {
+        Self::SszError(e)
     }
 }
 

@@ -92,7 +92,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                     let col_sidecars = BlobColumnSidecar::random_from_blob_sidecars(&blob_sidecars)
                         .map_err(|e| {
                             BlockError::BeaconChainError(
-                                BeaconChainError::UnableToBuildBlobColumnSidecar(e),
+                                BeaconChainError::UnableToBuildBlobColumnSidecar(format!("{e:?}")),
                             )
                         })?;
                     for (col_index, col_sidecar) in col_sidecars.into_iter().enumerate() {
