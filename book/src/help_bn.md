@@ -9,6 +9,10 @@ USAGE:
     lighthouse beacon_node [FLAGS] [OPTIONS]
 
 FLAGS:
+        --allow-insecure-genesis-sync          Enable syncing from genesis, which is generally insecure and incompatible
+                                               with data availability checks. Checkpoint syncing is the preferred method
+                                               for syncing a node. Only use this flag when testing. DO NOT use on
+                                               mainnet!
         --always-prefer-builder-payload        This flag is deprecated and has no effect.
         --always-prepare-payload               Send payload attributes with every fork choice update. This is intended
                                                for use by block builders, relays and developers. You should set a fee

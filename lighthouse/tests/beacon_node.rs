@@ -93,6 +93,22 @@ fn staking_flag() {
 }
 
 #[test]
+fn allow_insecure_genesis_sync() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, false);
+        });
+
+    CommandLineTest::new()
+        .flag("allow-insecure-genesis-sync", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, true);
+        });
+}
+
+#[test]
 fn wss_checkpoint_flag() {
     let state = Some(Checkpoint {
         epoch: Epoch::new(1010),
