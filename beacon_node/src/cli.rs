@@ -1131,32 +1131,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("builder-profit-threshold")
                 .long("builder-profit-threshold")
                 .value_name("WEI_VALUE")
-                .help("The minimum reward in wei provided to the proposer by a block builder for \
-                    an external payload to be considered for inclusion in a proposal. If this \
-                    threshold is not met, the local EE's payload will be used. This is currently \
-                    *NOT* in comparison to the value of the local EE's payload. It simply checks \
-                    whether the total proposer reward from an external payload is equal to or \
-                    greater than this value. In the future, a comparison to a local payload is \
-                    likely to be added. Example: Use 250000000000000000 to set the threshold to \
-                     0.25 ETH.")
-                .default_value("0")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("ignore-builder-override-suggestion-threshold")
-                .long("ignore-builder-override-suggestion-threshold")
-                .value_name("PERCENTAGE")
-                .help("When the EE advises Lighthouse to ignore the builder payload, this flag \
-                    specifies a percentage threshold for the difference between the reward from \
-                    the builder payload and the local EE's payload. This threshold must be met \
-                    for Lighthouse to consider ignoring the EE's suggestion. If the reward from \
-                    the builder's payload doesn't exceed the local payload by at least this \
-                    percentage, the local payload will be used. The conditions under which the \
-                    EE may make this suggestion depend on the EE's implementation, with the \
-                    primary intent being to safeguard against potential censorship attacks \
-                    from builders. Setting this flag to 0 will cause Lighthouse to always \
-                    ignore the EE's suggestion. Default: 10.0 (equivalent to 10%).")
-                .default_value("10.0")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
         )
         .arg(
@@ -1208,12 +1183,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("always-prefer-builder-payload")
             .long("always-prefer-builder-payload")
-            .help("If set, the beacon node always uses the payload from the builder instead of the local payload.")
-            // The builder profit threshold flag is used to provide preference
-            // to local payloads, therefore it fundamentally conflicts with
-            // always using the builder.
-            .conflicts_with("builder-profit-threshold")
-            .conflicts_with("ignore-builder-override-suggestion-threshold")
+            .help("This flag is deprecated and has no effect.")
         )
         .arg(
             Arg::with_name("invalid-gossip-verified-blocks-path")

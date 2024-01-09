@@ -32,6 +32,7 @@ pub use libp2p::{
 use lru::LruCache;
 use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
+use std::num::NonZeroUsize;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -46,6 +47,7 @@ use types::{EnrForkId, EthSpec};
 
 mod subnet_predicate;
 pub use subnet_predicate::subnet_predicate;
+use types::non_zero_usize::new_non_zero_usize;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
@@ -67,6 +69,8 @@ const MAX_SUBNETS_IN_QUERY: usize = 3;
 pub const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 /// The threshold for updating `min_ttl` on a connected peer.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
+/// The capacity of the Discovery ENR cache.
+const ENR_CACHE_CAPACITY: NonZeroUsize = new_non_zero_usize(50);
 
 /// A query has completed. This result contains a mapping of discovered peer IDs to the `min_ttl`
 /// of the peer if it is specified.
@@ -310,7 +314,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         };
 
         Ok(Self {
-            cached_enrs: LruCache::new(50),
+            cached_enrs: LruCache::new(ENR_CACHE_CAPACITY),
             network_globals,
             find_peer_active: false,
             queued_queries: VecDeque::with_capacity(10),

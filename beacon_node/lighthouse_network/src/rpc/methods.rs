@@ -5,35 +5,21 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{
-    typenum::{U1024, U128, U256, U768},
-    VariableList,
-};
+use ssz_types::{typenum::U256, VariableList};
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
-use types::consts::deneb::MAX_BLOBS_PER_BLOCK;
 use types::{
-    blob_sidecar::BlobSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap, SignedBeaconBlock,
-    Slot,
+    blob_sidecar::BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    RuntimeVariableList, SignedBeaconBlock, Slot,
 };
-
-/// Maximum number of blocks in a single request.
-pub type MaxRequestBlocks = U1024;
-pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
 pub const MAX_ERROR_LEN: u64 = 256;
-
-pub type MaxRequestBlocksDeneb = U128;
-pub const MAX_REQUEST_BLOCKS_DENEB: u64 = 128;
-
-pub type MaxRequestBlobSidecars = U768;
-pub const MAX_REQUEST_BLOB_SIDECARS: u64 = MAX_REQUEST_BLOCKS_DENEB * MAX_BLOBS_PER_BLOCK;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
@@ -344,22 +330,23 @@ impl OldBlocksByRangeRequest {
 }
 
 /// Request a number of beacon block bodies from a peer.
-#[superstruct(
-    variants(V1, V2),
-    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
-)]
+#[superstruct(variants(V1, V2), variant_attributes(derive(Clone, Debug, PartialEq)))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
-    pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
+    pub block_roots: RuntimeVariableList<Hash256>,
 }
 
 impl BlocksByRootRequest {
-    pub fn new(block_roots: VariableList<Hash256, MaxRequestBlocks>) -> Self {
+    pub fn new(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
+        let block_roots =
+            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
         Self::V2(BlocksByRootRequestV2 { block_roots })
     }
 
-    pub fn new_v1(block_roots: VariableList<Hash256, MaxRequestBlocks>) -> Self {
+    pub fn new_v1(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
+        let block_roots =
+            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
         Self::V1(BlocksByRootRequestV1 { block_roots })
     }
 }
@@ -368,7 +355,15 @@ impl BlocksByRootRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlobsByRootRequest {
     /// The list of beacon block roots being requested.
-    pub blob_ids: VariableList<BlobIdentifier, MaxRequestBlobSidecars>,
+    pub blob_ids: RuntimeVariableList<BlobIdentifier>,
+}
+
+impl BlobsByRootRequest {
+    pub fn new(blob_ids: Vec<BlobIdentifier>, spec: &ChainSpec) -> Self {
+        let blob_ids =
+            RuntimeVariableList::from_vec(blob_ids, spec.max_request_blob_sidecars as usize);
+        Self { blob_ids }
+    }
 }
 
 /* RPC Handling and Grouping */

@@ -17,11 +17,11 @@ use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 mod availability_view;
@@ -32,15 +32,17 @@ mod processing_cache;
 mod state_lru_cache;
 
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
+use types::non_zero_usize::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents` which can store up to
 /// `MAX_BLOBS_PER_BLOCK = 6` blobs each. A `BlobSidecar` is 0.131256 MB. So
 /// the maximum size of a `PendingComponents` is ~ 0.787536 MB. Setting this
 /// to 1024 means the maximum size of the cache is ~ 0.8 GB. But the cache
 /// will target a size of less than 75% of capacity.
-pub const OVERFLOW_LRU_CAPACITY: usize = 1024;
+pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(1024);
 /// Until tree-states is implemented, we can't store very many states in memory :(
-pub const STATE_LRU_CAPACITY: usize = 2;
+pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(2);
+pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
 /// This includes a cache for any blocks or blobs that have been received over gossip or RPC
 /// and are awaiting more components before they can be imported. Additionally the
@@ -421,7 +423,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 .map(|current_epoch| {
                     std::cmp::max(
                         fork_epoch,
-                        current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+                        current_epoch
+                            .saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
                     )
                 })
         })
@@ -514,7 +517,8 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 let cutoff_epoch = std::cmp::max(
                     finalized_epoch + 1,
                     std::cmp::max(
-                        current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+                        current_epoch
+                            .saturating_sub(chain.spec.min_epochs_for_blob_sidecars_requests),
                         deneb_fork_epoch,
                     ),
                 );

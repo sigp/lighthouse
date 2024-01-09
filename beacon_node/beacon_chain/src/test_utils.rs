@@ -464,14 +464,13 @@ where
     }
 
     pub fn mock_execution_layer(self) -> Self {
-        self.mock_execution_layer_with_config(None)
+        self.mock_execution_layer_with_config()
     }
 
-    pub fn mock_execution_layer_with_config(mut self, builder_threshold: Option<u128>) -> Self {
+    pub fn mock_execution_layer_with_config(mut self) -> Self {
         let mock = mock_execution_layer_from_parts::<E>(
             self.spec.as_ref().expect("cannot build without spec"),
             self.runtime.task_executor.clone(),
-            builder_threshold,
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
@@ -574,7 +573,6 @@ where
 pub fn mock_execution_layer_from_parts<T: EthSpec>(
     spec: &ChainSpec,
     task_executor: TaskExecutor,
-    builder_threshold: Option<u128>,
 ) -> MockExecutionLayer<T> {
     let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
@@ -593,7 +591,6 @@ pub fn mock_execution_layer_from_parts<T: EthSpec>(
         DEFAULT_TERMINAL_BLOCK,
         shanghai_time,
         cancun_time,
-        builder_threshold,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec.clone(),
         Some(kzg),
@@ -860,6 +857,7 @@ where
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await
@@ -921,6 +919,7 @@ where
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await
@@ -1746,6 +1745,32 @@ where
         let (mut block, _) = block.deconstruct();
 
         block_modifier(&mut block);
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+        let signed_block = block.sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &state.fork(),
+            state.genesis_validators_root(),
+            &self.spec,
+        );
+        ((signed_block, blobs), state)
+    }
+
+    pub async fn make_blob_with_modifier(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+        blob_modifier: impl FnOnce(&mut BlobsList<E>),
+    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        let ((block, mut blobs), state) = self.make_block_return_pre_state(state, slot).await;
+
+        let (block, _) = block.deconstruct();
+
+        blob_modifier(&mut blobs.as_mut().unwrap().1);
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 

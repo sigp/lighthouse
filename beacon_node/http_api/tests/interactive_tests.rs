@@ -4,6 +4,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
     ChainConfig,
 };
+use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use http_api::test_utils::InteractiveTester;
@@ -20,8 +21,6 @@ use types::{
     Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, MainnetEthSpec,
     MinimalEthSpec, ProposerPreparationData, Slot,
 };
-
-use eth2::types::ForkVersionedBeaconBlockType::{Blinded, Full};
 
 type E = MainnetEthSpec;
 
@@ -113,8 +112,8 @@ async fn state_by_root_pruned_from_fork_choice() {
             .unwrap()
             .unwrap();
 
-        assert!(response.finalized.unwrap());
-        assert!(!response.execution_optimistic.unwrap());
+        assert!(response.metadata.finalized.unwrap());
+        assert!(!response.metadata.execution_optimistic.unwrap());
 
         let mut state = response.data;
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
@@ -619,15 +618,17 @@ pub async fn proposer_boost_re_org_test(
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_c)
         .into();
-    let unsigned_block_type = tester
+    let (unsigned_block_type, _) = tester
         .client
-        .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None)
+        .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None, None)
         .await
         .unwrap();
 
-    let (unsigned_block_c, block_c_blobs) = match unsigned_block_type {
-        Full(unsigned_block_contents_c) => unsigned_block_contents_c.data.deconstruct(),
-        Blinded(_) => {
+    let (unsigned_block_c, block_c_blobs) = match unsigned_block_type.data {
+        ProduceBlockV3Response::Full(unsigned_block_contents_c) => {
+            unsigned_block_contents_c.deconstruct()
+        }
+        ProduceBlockV3Response::Blinded(_) => {
             panic!("Should not be a blinded block");
         }
     };
