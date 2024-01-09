@@ -110,9 +110,7 @@ env_logger = "0.9"
 error-chain = "0.12"
 ethereum-types = "0.14"
 ethereum_hashing = "1.0.0-beta.2"
-# ethereum_serde_utils = "0.5"
-# FIXME(sproul): restore crates.io version
-ethereum_serde_utils = { git = "https://github.com/sigp/ethereum_serde_utils", branch = "decimal-u256" }
+ethereum_serde_utils = "0.5"
 ethereum_ssz = "0.5"
 ethereum_ssz_derive = "0.5"
 ethers-core = "1"
