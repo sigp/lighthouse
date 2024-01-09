@@ -1554,9 +1554,10 @@ pub struct ProduceBlockV3Metadata {
     )]
     pub consensus_version: ForkName,
     pub execution_payload_blinded: bool,
+    #[serde(with = "serde_utils::u256_dec")]
     pub execution_payload_value: Uint256,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub consensus_block_value: u64,
+    #[serde(with = "serde_utils::u256_dec")]
+    pub consensus_block_value: Uint256,
 }
 
 impl<T: EthSpec> FullBlockContents<T> {
@@ -1707,7 +1708,7 @@ impl TryFrom<&HeaderMap> for ProduceBlockV3Metadata {
             })?;
         let consensus_block_value =
             parse_required_header(headers, CONSENSUS_BLOCK_VALUE_HEADER, |s| {
-                s.parse::<u64>()
+                s.parse::<Uint256>()
                     .map_err(|e| format!("invalid {CONSENSUS_BLOCK_VALUE_HEADER}: {e:?}"))
             })?;
 
