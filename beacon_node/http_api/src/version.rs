@@ -93,7 +93,7 @@ pub fn add_execution_payload_value_header<T: Reply>(
 /// Add the `Eth-Consensus-Block-Value` header to a response.
 pub fn add_consensus_block_value_header<T: Reply>(
     reply: T,
-    consensus_payload_value: u64,
+    consensus_payload_value: Uint256,
 ) -> Response {
     reply::with_header(
         reply,

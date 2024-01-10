@@ -956,6 +956,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("180")
         )
         .arg(
+            Arg::with_name("allow-insecure-genesis-sync")
+                .long("allow-insecure-genesis-sync")
+                .help("Enable syncing from genesis, which is generally insecure and incompatible with data availability checks. \
+                    Checkpoint syncing is the preferred method for syncing a node. \
+                    Only use this flag when testing. DO NOT use on mainnet!")
+                .conflicts_with("checkpoint-sync-url")
+                .conflicts_with("checkpoint-state")
+                .takes_value(false)
+        )
+        .arg(
             Arg::with_name("reconstruct-historic-states")
                 .long("reconstruct-historic-states")
                 .help("After a checkpoint sync, reconstruct historic states in the database. This requires syncing all the way back to genesis.")

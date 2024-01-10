@@ -511,11 +511,15 @@ impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
         }
     }
 
-    pub fn consensus_block_value(&self) -> u64 {
+    pub fn consensus_block_value_gwei(&self) -> u64 {
         match self {
             BeaconBlockResponseWrapper::Full(resp) => resp.consensus_block_value,
             BeaconBlockResponseWrapper::Blinded(resp) => resp.consensus_block_value,
         }
+    }
+
+    pub fn consensus_block_value_wei(&self) -> Uint256 {
+        Uint256::from(self.consensus_block_value_gwei()) * 1_000_000_000
     }
 
     pub fn is_blinded(&self) -> bool {

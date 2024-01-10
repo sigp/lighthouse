@@ -58,7 +58,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti.map(Into::into),
+            query.graffiti,
             randao_verification,
             query.builder_boost_factor,
             BlockProductionVersion::V3,
@@ -80,7 +80,7 @@ pub fn build_response_v3<T: BeaconChainTypes>(
         .fork_name(&chain.spec)
         .map_err(inconsistent_fork_rejection)?;
     let execution_payload_value = block_response.execution_payload_value();
-    let consensus_block_value = block_response.consensus_block_value();
+    let consensus_block_value = block_response.consensus_block_value_wei();
     let execution_payload_blinded = block_response.is_blinded();
 
     let metadata = ProduceBlockV3Metadata {
