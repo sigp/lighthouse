@@ -145,7 +145,7 @@ impl fmt::Display for BlockId {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StateId {
     Head,
     Genesis,

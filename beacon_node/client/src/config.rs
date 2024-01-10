@@ -3,6 +3,7 @@ use beacon_chain::TrustedSetup;
 use beacon_processor::BeaconProcessorConfig;
 use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
+use eth2::types::StateId;
 use network::NetworkConfig;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,7 @@ pub enum ClientGenesis {
     },
     CheckpointSyncUrl {
         url: SensitiveUrl,
+        remote_state: Option<StateId>,
     },
 }
 

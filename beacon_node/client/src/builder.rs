@@ -321,7 +321,7 @@ where
                     .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
                     .map(|v| (v, None))?
             }
-            ClientGenesis::CheckpointSyncUrl { url } => {
+            ClientGenesis::CheckpointSyncUrl { url, remote_state } => {
                 info!(
                     context.log(),
                     "Starting checkpoint sync";
@@ -386,23 +386,38 @@ where
                     None
                 };
 
-                debug!(
-                    context.log(),
-                    "Downloading finalized state";
-                );
+                let remote_state_id = if let Some(id) = remote_state {
+                    id
+                } else {
+                    // TODO: Check finalized state inside DA boundary
+                    StateId::Finalized
+                };
+
+                let state_string = match remote_state_id {
+                    StateId::Head | StateId::Finalized | StateId::Justified => {
+                        format!("{} state", remote_state_id)
+                    }
+                    StateId::Slot(slot) => format!("state at slot {}", slot),
+                    StateId::Root(root) => format!("state with root {:?}", root),
+                    StateId::Genesis => {
+                        return Err("Cannot checkpoint sync to genesis state".to_string())
+                    }
+                };
+                debug!(context.log(), "Downloading {}", state_string);
+
                 let state = remote
-                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Finalized, &spec)
+                    .get_debug_beacon_states_ssz::<TEthSpec>(remote_state_id, &spec)
                     .await
                     .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
                     .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
 
-                debug!(context.log(), "Downloaded finalized state"; "slot" => ?state.slot());
+                debug!(context.log(), "Downloaded {}", state_string; "slot" => ?state.slot());
 
-                let finalized_block_slot = state.latest_block_header().slot;
+                let state_block_slot = state.latest_block_header().slot;
 
-                debug!(context.log(), "Downloading finalized block"; "block_slot" => ?finalized_block_slot);
+                debug!(context.log(), "Downloading corresponding block"; "block_slot" => ?state_block_slot);
                 let block = remote
-                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(finalized_block_slot), &spec)
+                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(state_block_slot), &spec)
                     .await
                     .map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
@@ -410,11 +425,11 @@ where
                             node for the correct network",
                             e
                         ),
-                        e => format!("Error fetching finalized block from remote: {:?}", e),
+                        e => format!("Error fetching corresponding block from remote: {:?}", e),
                     })?
-                    .ok_or("Finalized block missing from remote, it returned 404")?;
+                    .ok_or("Corresponding block missing from remote, it returned 404")?;
 
-                debug!(context.log(), "Downloaded finalized block");
+                debug!(context.log(), "Downloaded corresponding block");
 
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
