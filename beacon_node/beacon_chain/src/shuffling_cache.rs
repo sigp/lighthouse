@@ -1,16 +1,14 @@
+use crate::{metrics, BeaconChainError};
+use itertools::Itertools;
+use oneshot_broadcast::{oneshot, Receiver, Sender};
+use promise_cache::{PromiseCache, Protect};
+use slog::{debug, Logger};
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use itertools::Itertools;
-use slog::{debug, Logger};
-
-use oneshot_broadcast::{oneshot, Receiver, Sender};
 use types::{
     beacon_state::CommitteeCache, AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256,
     RelativeEpoch,
 };
-
-use crate::{metrics, BeaconChainError};
 
 /// The size of the cache that stores committee caches for quicker verification.
 ///
@@ -28,210 +26,22 @@ pub const DEFAULT_CACHE_SIZE: usize = 16;
 /// always be inserted during block import. Unstable networks with a high degree of forking might
 /// see some attestations dropped due to this concurrency limit, however I propose that this is
 /// better than low-resource nodes going OOM.
-const MAX_CONCURRENT_PROMISES: usize = 2;
+pub const DEFAULT_MAX_CONCURRENT_PROMISES: usize = 2;
 
-#[derive(Clone)]
-pub enum CacheItem {
-    /// A committee.
-    Committee(Arc<CommitteeCache>),
-    /// A promise for a future committee.
-    Promise(Receiver<Arc<CommitteeCache>>),
-}
+impl Protect<AttestationShufflingId> for BlockShufflingIds {
+    type SortKey = Epoch;
 
-impl CacheItem {
-    pub fn is_promise(&self) -> bool {
-        matches!(self, CacheItem::Promise(_))
+    fn sort_key(&self, k: &AttestationShufflingId) -> Epoch {
+        k.shuffling_epoch
     }
 
-    pub fn wait(self) -> Result<Arc<CommitteeCache>, BeaconChainError> {
-        match self {
-            CacheItem::Committee(cache) => Ok(cache),
-            CacheItem::Promise(receiver) => receiver
-                .recv()
-                .map_err(BeaconChainError::CommitteePromiseFailed),
-        }
+    fn protect_from_eviction(&self, shuffling_id: &AttestationShufflingId) -> bool {
+        Some(shuffling_id) != self.id_for_epoch(shuffling_id.shuffling_epoch).as_ref()
     }
 }
 
-/// Provides a cache for `CommitteeCache`.
-///
-/// It has been named `ShufflingCache` because `CommitteeCacheCache` is a bit weird and looks like
-/// a find/replace error.
-pub struct ShufflingCache {
-    cache: HashMap<AttestationShufflingId, CacheItem>,
-    cache_size: usize,
-    head_shuffling_ids: BlockShufflingIds,
-    logger: Logger,
-}
-
-impl ShufflingCache {
-    pub fn new(cache_size: usize, head_shuffling_ids: BlockShufflingIds, logger: Logger) -> Self {
-        Self {
-            cache: HashMap::new(),
-            cache_size,
-            head_shuffling_ids,
-            logger,
-        }
-    }
-
-    pub fn get(&mut self, key: &AttestationShufflingId) -> Option<CacheItem> {
-        match self.cache.get(key) {
-            // The cache contained the committee cache, return it.
-            item @ Some(CacheItem::Committee(_)) => {
-                metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
-                item.cloned()
-            }
-            // The cache contains a promise for the committee cache. Check to see if the promise has
-            // already been resolved, without waiting for it.
-            item @ Some(CacheItem::Promise(receiver)) => match receiver.try_recv() {
-                // The promise has already been resolved. Replace the entry in the cache with a
-                // `Committee` entry and then return the committee.
-                Ok(Some(committee)) => {
-                    metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_HITS);
-                    metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
-                    let ready = CacheItem::Committee(committee);
-                    self.insert_cache_item(key.clone(), ready.clone());
-                    Some(ready)
-                }
-                // The promise has not yet been resolved. Return the promise so the caller can await
-                // it.
-                Ok(None) => {
-                    metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_HITS);
-                    metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
-                    item.cloned()
-                }
-                // The sender has been dropped without sending a committee. There was most likely an
-                // error computing the committee cache. Drop the key from the cache and return
-                // `None` so the caller can recompute the committee.
-                //
-                // It's worth noting that this is the only place where we removed unresolved
-                // promises from the cache. This means unresolved promises will only be removed if
-                // we try to access them again. This is OK, since the promises don't consume much
-                // memory. We expect that *all* promises should be resolved, unless there is a
-                // programming or database error.
-                Err(oneshot_broadcast::Error::SenderDropped) => {
-                    metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_FAILS);
-                    metrics::inc_counter(&metrics::SHUFFLING_CACHE_MISSES);
-                    self.cache.remove(key);
-                    None
-                }
-            },
-            // The cache does not have this committee and it's not already promised to be computed.
-            None => {
-                metrics::inc_counter(&metrics::SHUFFLING_CACHE_MISSES);
-                None
-            }
-        }
-    }
-
-    pub fn contains(&self, key: &AttestationShufflingId) -> bool {
-        self.cache.contains_key(key)
-    }
-
-    pub fn insert_committee_cache<C: ToArcCommitteeCache>(
-        &mut self,
-        key: AttestationShufflingId,
-        committee_cache: &C,
-    ) {
-        if self
-            .cache
-            .get(&key)
-            // Replace the committee if it's not present or if it's a promise. A bird in the hand is
-            // worth two in the promise-bush!
-            .map_or(true, CacheItem::is_promise)
-        {
-            self.insert_cache_item(
-                key,
-                CacheItem::Committee(committee_cache.to_arc_committee_cache()),
-            );
-        }
-    }
-
-    /// Prunes the cache first before inserting a new cache item.
-    fn insert_cache_item(&mut self, key: AttestationShufflingId, cache_item: CacheItem) {
-        self.prune_cache();
-        self.cache.insert(key, cache_item);
-    }
-
-    /// Prunes the `cache` to keep the size below the `cache_size` limit, based on the following
-    /// preferences:
-    /// - Entries from more recent epochs are preferred over older ones.
-    /// - Entries with shuffling ids matching the head's previous, current, and future epochs must
-    ///   not be pruned.
-    fn prune_cache(&mut self) {
-        let target_cache_size = self.cache_size.saturating_sub(1);
-        if let Some(prune_count) = self.cache.len().checked_sub(target_cache_size) {
-            let shuffling_ids_to_prune = self
-                .cache
-                .keys()
-                .sorted_by_key(|key| key.shuffling_epoch)
-                .filter(|shuffling_id| {
-                    Some(shuffling_id)
-                        != self
-                            .head_shuffling_ids
-                            .id_for_epoch(shuffling_id.shuffling_epoch)
-                            .as_ref()
-                            .as_ref()
-                })
-                .take(prune_count)
-                .cloned()
-                .collect::<Vec<_>>();
-
-            for shuffling_id in shuffling_ids_to_prune.iter() {
-                debug!(
-                    self.logger,
-                    "Removing old shuffling from cache";
-                    "shuffling_epoch" => shuffling_id.shuffling_epoch,
-                    "shuffling_decision_block" => ?shuffling_id.shuffling_decision_block
-                );
-                self.cache.remove(shuffling_id);
-            }
-        }
-    }
-
-    pub fn create_promise(
-        &mut self,
-        key: AttestationShufflingId,
-    ) -> Result<Sender<Arc<CommitteeCache>>, BeaconChainError> {
-        let num_active_promises = self
-            .cache
-            .iter()
-            .filter(|(_, item)| item.is_promise())
-            .count();
-        if num_active_promises >= MAX_CONCURRENT_PROMISES {
-            return Err(BeaconChainError::MaxCommitteePromises(num_active_promises));
-        }
-
-        let (sender, receiver) = oneshot();
-        self.insert_cache_item(key, CacheItem::Promise(receiver));
-        Ok(sender)
-    }
-
-    /// Inform the cache that the shuffling decision roots for the head has changed.
-    ///
-    /// The shufflings for the head's previous, current, and future epochs will never be ejected from
-    /// the cache during `Self::insert_cache_item`.
-    pub fn update_head_shuffling_ids(&mut self, head_shuffling_ids: BlockShufflingIds) {
-        self.head_shuffling_ids = head_shuffling_ids;
-    }
-}
-
-/// A helper trait to allow lazy-cloning of the committee cache when inserting into the cache.
-pub trait ToArcCommitteeCache {
-    fn to_arc_committee_cache(&self) -> Arc<CommitteeCache>;
-}
-
-impl ToArcCommitteeCache for CommitteeCache {
-    fn to_arc_committee_cache(&self) -> Arc<CommitteeCache> {
-        Arc::new(self.clone())
-    }
-}
-
-impl ToArcCommitteeCache for Arc<CommitteeCache> {
-    fn to_arc_committee_cache(&self) -> Arc<CommitteeCache> {
-        self.clone()
-    }
-}
+/// FIXME(sproul): restore logger?
+pub type ShufflingCache = PromiseCache<AttestationShufflingId, CommitteeCache, BlockShufflingIds>;
 
 /// Contains the shuffling IDs for a beacon block.
 #[derive(Clone)]
@@ -316,7 +126,11 @@ mod test {
             block_root: Hash256::from_low_u64_le(0),
         };
         let logger = null_logger().unwrap();
-        ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids, logger)
+        ShufflingCache::new(
+            TEST_CACHE_SIZE,
+            head_shuffling_ids,
+            DEFAULT_MAX_CONCURRENT_PROMISES,
+        )
     }
 
     /// Returns two different committee caches for testing.

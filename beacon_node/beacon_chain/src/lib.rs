@@ -27,6 +27,7 @@ pub mod fork_choice_signal;
 pub mod fork_revert;
 mod head_tracker;
 pub mod historical_blocks;
+mod http_state_cache;
 pub mod kzg_utils;
 pub mod light_client_finality_update_verification;
 pub mod light_client_optimistic_update_verification;

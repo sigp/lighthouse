@@ -1,8 +1,31 @@
 use derivative::Derivative;
+use itertools::Itertools;
 use oneshot_broadcast::{oneshot, Receiver, Sender};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
+
+pub struct PromiseCache<K, V, P>
+where
+    K: Hash + Eq + Clone,
+    P: Protect<K>,
+{
+    cache: HashMap<K, CacheItem<V>>,
+    capacity: usize,
+    protector: P,
+    max_concurrent_promises: usize,
+}
+
+/// A value implementing `Protect` is capable of preventing keys of type `K` from being evicted.
+///
+/// It also dictates an ordering on key-value pairs which is used to prioritise evictions.
+pub trait Protect<K> {
+    type SortKey: Ord;
+
+    fn protect_from_eviction(&self, k: &K) -> bool;
+
+    fn sort_key(&self, k: &K) -> Self::SortKey;
+}
 
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
@@ -17,6 +40,10 @@ pub enum PromiseCacheError {
     MaxConcurrentPromises(usize),
 }
 
+pub trait ToArc<T> {
+    fn to_arc(&self) -> Arc<T>;
+}
+
 impl<T> CacheItem<T> {
     pub fn is_promise(&self) -> bool {
         matches!(self, CacheItem::Promise(_))
@@ -28,10 +55,6 @@ impl<T> CacheItem<T> {
             CacheItem::Promise(receiver) => receiver.recv().map_err(PromiseCacheError::Failed),
         }
     }
-}
-
-pub trait ToArc<T> {
-    fn to_arc(&self) -> Arc<T>;
 }
 
 impl<T> ToArc<T> for Arc<T> {
@@ -49,23 +72,16 @@ where
     }
 }
 
-pub struct PromiseCache<K, V>
+impl<K, V, P> PromiseCache<K, V, P>
 where
     K: Hash + Eq + Clone,
+    P: Protect<K>,
 {
-    cache: HashMap<K, CacheItem<V>>,
-    capacity: usize,
-    max_concurrent_promises: usize,
-}
-
-impl<K, V> PromiseCache<K, V>
-where
-    K: Hash + Eq + Clone,
-{
-    pub fn new(capacity: usize, max_concurrent_promises: usize) -> Self {
+    pub fn new(capacity: usize, protector: P, max_concurrent_promises: usize) -> Self {
         Self {
             cache: HashMap::new(),
             capacity,
+            protector,
             max_concurrent_promises,
         }
     }
@@ -144,10 +160,11 @@ where
     fn prune_cache(&mut self) {
         let target_cache_size = self.capacity.saturating_sub(1);
         if let Some(prune_count) = self.cache.len().checked_sub(target_cache_size) {
-            // FIXME(sproul): implement type-specific pruning
             let keys_to_prune = self
                 .cache
                 .keys()
+                .filter(|k| !self.protector.protect_from_eviction(*k))
+                .sorted_by_key(|k| self.protector.sort_key(k))
                 .take(prune_count)
                 .cloned()
                 .collect::<Vec<_>>();
@@ -156,5 +173,9 @@ where
                 self.cache.remove(key);
             }
         }
+    }
+
+    pub fn update_protector(&mut self, protector: P) {
+        self.protector = protector;
     }
 }

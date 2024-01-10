@@ -6030,6 +6030,7 @@ name = "promise_cache"
 version = "0.1.0"
 dependencies = [
  "derivative",
+ "itertools",
  "oneshot_broadcast",
 ]
 
