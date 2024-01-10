@@ -2,7 +2,6 @@ use super::methods::*;
 use crate::rpc::{
     codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec},
     methods::{MaxErrorLen, ResponseTermination, MAX_ERROR_LEN},
-    MaxRequestBlocks, MAX_REQUEST_BLOCKS,
 };
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
@@ -22,7 +21,7 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
+    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, MainnetEthSpec, Signature,
     SignedBeaconBlock,
 };
 
@@ -83,18 +82,12 @@ lazy_static! {
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_capella_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
 
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
-        VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
-    .as_ssz_bytes()
-    .len();
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize =
-        VariableList::<Hash256, MaxRequestBlocks>::from(vec![
-            Hash256::zero();
-            MAX_REQUEST_BLOCKS
-                as usize
-        ])
-    .as_ssz_bytes()
-    .len();
+    pub static ref SIGNED_BEACON_BLOCK_DENEB_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_deneb_size() // adding max size of execution payload (~16gb)
+    + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
+    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
+    + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
+
     pub static ref ERROR_TYPE_MIN: usize =
         VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
     .as_ssz_bytes()
@@ -121,6 +114,7 @@ pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize 
         ForkName::Altair | ForkName::Base => max_chunk_size / 10,
         ForkName::Merge => max_chunk_size,
         ForkName::Capella => max_chunk_size,
+        ForkName::Deneb => max_chunk_size,
     }
 }
 
@@ -145,6 +139,10 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
             *SIGNED_BEACON_BLOCK_CAPELLA_MAX, // Capella block is larger than base, altair and merge blocks
         ),
+        ForkName::Deneb => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
+            *SIGNED_BEACON_BLOCK_DENEB_MAX, // EIP 4844 block is larger than all prior fork blocks
+        ),
     }
 }
 
@@ -162,6 +160,12 @@ pub enum Protocol {
     /// The `BlocksByRoot` protocol name.
     #[strum(serialize = "beacon_blocks_by_root")]
     BlocksByRoot,
+    /// The `BlobsByRange` protocol name.
+    #[strum(serialize = "blob_sidecars_by_range")]
+    BlobsByRange,
+    /// The `BlobsByRoot` protocol name.
+    #[strum(serialize = "blob_sidecars_by_root")]
+    BlobsByRoot,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -170,6 +174,22 @@ pub enum Protocol {
     /// The `LightClientBootstrap` protocol name.
     #[strum(serialize = "light_client_bootstrap")]
     LightClientBootstrap,
+}
+
+impl Protocol {
+    pub(crate) fn terminator(self) -> Option<ResponseTermination> {
+        match self {
+            Protocol::Status => None,
+            Protocol::Goodbye => None,
+            Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
+            Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
+            Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
+            Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
+            Protocol::Ping => None,
+            Protocol::MetaData => None,
+            Protocol::LightClientBootstrap => None,
+        }
+    }
 }
 
 /// RPC Encondings supported.
@@ -187,6 +207,8 @@ pub enum SupportedProtocol {
     BlocksByRangeV2,
     BlocksByRootV1,
     BlocksByRootV2,
+    BlobsByRangeV1,
+    BlobsByRootV1,
     PingV1,
     MetaDataV1,
     MetaDataV2,
@@ -202,6 +224,8 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRangeV2 => "2",
             SupportedProtocol::BlocksByRootV1 => "1",
             SupportedProtocol::BlocksByRootV2 => "2",
+            SupportedProtocol::BlobsByRangeV1 => "1",
+            SupportedProtocol::BlobsByRootV1 => "1",
             SupportedProtocol::PingV1 => "1",
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
@@ -217,6 +241,8 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRangeV2 => Protocol::BlocksByRange,
             SupportedProtocol::BlocksByRootV1 => Protocol::BlocksByRoot,
             SupportedProtocol::BlocksByRootV2 => Protocol::BlocksByRoot,
+            SupportedProtocol::BlobsByRangeV1 => Protocol::BlobsByRange,
+            SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
             SupportedProtocol::PingV1 => Protocol::Ping,
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
@@ -224,8 +250,8 @@ impl SupportedProtocol {
         }
     }
 
-    fn currently_supported() -> Vec<ProtocolId> {
-        vec![
+    fn currently_supported(fork_context: &ForkContext) -> Vec<ProtocolId> {
+        let mut supported = vec![
             ProtocolId::new(Self::StatusV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::GoodbyeV1, Encoding::SSZSnappy),
             // V2 variants have higher preference then V1
@@ -236,7 +262,14 @@ impl SupportedProtocol {
             ProtocolId::new(Self::PingV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::MetaDataV2, Encoding::SSZSnappy),
             ProtocolId::new(Self::MetaDataV1, Encoding::SSZSnappy),
-        ]
+        ];
+        if fork_context.fork_exists(ForkName::Deneb) {
+            supported.extend_from_slice(&[
+                ProtocolId::new(SupportedProtocol::BlobsByRootV1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
+            ]);
+        }
+        supported
     }
 }
 
@@ -264,7 +297,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 
     /// The list of supported RPC protocols for Lighthouse.
     fn protocol_info(&self) -> Self::InfoIter {
-        let mut supported_protocols = SupportedProtocol::currently_supported();
+        let mut supported_protocols = SupportedProtocol::currently_supported(&self.fork_context);
         if self.enable_light_client_server {
             supported_protocols.push(ProtocolId::new(
                 SupportedProtocol::LightClientBootstrapV1,
@@ -315,7 +348,7 @@ impl AsRef<str> for ProtocolId {
 
 impl ProtocolId {
     /// Returns min and max size for messages of given protocol id requests.
-    pub fn rpc_request_limits(&self) -> RpcLimits {
+    pub fn rpc_request_limits(&self, spec: &ChainSpec) -> RpcLimits {
         match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -330,9 +363,12 @@ impl ProtocolId {
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
             ),
-            Protocol::BlocksByRoot => {
-                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
-            }
+            Protocol::BlocksByRoot => RpcLimits::new(0, spec.max_blocks_by_root_request),
+            Protocol::BlobsByRange => RpcLimits::new(
+                <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
+                <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::BlobsByRoot => RpcLimits::new(0, spec.max_blobs_by_root_request),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -355,6 +391,8 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
+            Protocol::BlobsByRange => rpc_blob_limits::<T>(),
+            Protocol::BlobsByRoot => rpc_blob_limits::<T>(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -376,6 +414,8 @@ impl ProtocolId {
         match self.versioned_protocol {
             SupportedProtocol::BlocksByRangeV2
             | SupportedProtocol::BlocksByRootV2
+            | SupportedProtocol::BlobsByRangeV1
+            | SupportedProtocol::BlobsByRootV1
             | SupportedProtocol::LightClientBootstrapV1 => true,
             SupportedProtocol::StatusV1
             | SupportedProtocol::BlocksByRootV1
@@ -405,6 +445,13 @@ impl ProtocolId {
             protocol_id,
         }
     }
+}
+
+pub fn rpc_blob_limits<T: EthSpec>() -> RpcLimits {
+    RpcLimits::new(
+        BlobSidecar::<T>::empty().as_ssz_bytes().len(),
+        BlobSidecar::<T>::max_size(),
+    )
 }
 
 /* Inbound upgrade */
@@ -478,6 +525,8 @@ pub enum InboundRequest<TSpec: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
+    BlobsByRange(BlobsByRangeRequest),
+    BlobsByRoot(BlobsByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
     MetaData(MetadataRequest<TSpec>),
@@ -494,6 +543,8 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Goodbye(_) => 0,
             InboundRequest::BlocksByRange(req) => *req.count(),
             InboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
+            InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<TSpec>(),
+            InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
@@ -513,6 +564,8 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
                 BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,
                 BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
             },
+            InboundRequest::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
+            InboundRequest::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
             InboundRequest::Ping(_) => SupportedProtocol::PingV1,
             InboundRequest::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
@@ -530,6 +583,8 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             // variants that have `multiple_responses()` can have values.
             InboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             InboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            InboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
+            InboundRequest::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             InboundRequest::Status(_) => unreachable!(),
             InboundRequest::Goodbye(_) => unreachable!(),
             InboundRequest::Ping(_) => unreachable!(),
@@ -636,6 +691,8 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             InboundRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            InboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
+            InboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {

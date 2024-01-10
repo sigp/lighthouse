@@ -1,0 +1,13 @@
+queue_rules:
+  - name: default
+    batch_size: 8
+    batch_max_wait_time: 60 s
+    checks_timeout: 10800 s
+    merge_method: squash
+    queue_conditions:
+      - "#approved-reviews-by >= 1"
+      - "check-success=license/cla"
+      - "check-success=target-branch-check"
+    merge_conditions:
+      - "check-success=test-suite-success"
+      - "check-success=local-testnet-success"

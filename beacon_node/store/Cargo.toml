@@ -19,7 +19,6 @@ types = { workspace = true }
 state_processing = { workspace = true }
 slog = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 lazy_static = { workspace = true }
 lighthouse_metrics = { workspace = true }
 lru = { workspace = true }

@@ -21,7 +21,6 @@ slog-scope = "4.3.0"
 slog-stdlog = "4.0.0"
 hex = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 eth2_network_config = { workspace = true }

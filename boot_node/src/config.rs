@@ -1,13 +1,12 @@
 use beacon_node::{get_data_dir, set_network_config};
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
-use lighthouse_network::discovery::create_enr_builder_from_config;
-use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
+use lighthouse_network::discv5::{self, enr::CombinedKey, Enr};
 use lighthouse_network::{
     discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};
 use std::time::Duration;
@@ -20,7 +19,7 @@ pub struct BootNodeConfig<T: EthSpec> {
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
     pub local_key: CombinedKey,
-    pub discv5_config: Discv5Config,
+    pub discv5_config: discv5::Config,
     phantom: PhantomData<T>,
 }
 
@@ -60,19 +59,25 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         // Set the Enr Discovery ports to the listening ports if not present.
         if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
-            network_config.enr_udp4_port = Some(
-                network_config
-                    .enr_udp4_port
-                    .unwrap_or(listening_addr_v4.disc_port),
-            )
+            if network_config.enr_udp4_port.is_none() {
+                network_config.enr_udp4_port =
+                    Some(network_config.enr_udp4_port.unwrap_or(
+                        listening_addr_v4.disc_port.try_into().map_err(|_| {
+                            "boot node enr-udp-port not set and listening port is zero"
+                        })?,
+                    ))
+            }
         };
 
         if let Some(listening_addr_v6) = network_config.listen_addrs().v6() {
-            network_config.enr_udp6_port = Some(
-                network_config
-                    .enr_udp6_port
-                    .unwrap_or(listening_addr_v6.disc_port),
-            )
+            if network_config.enr_udp6_port.is_none() {
+                network_config.enr_udp6_port =
+                    Some(network_config.enr_udp6_port.unwrap_or(
+                        listening_addr_v6.disc_port.try_into().map_err(|_| {
+                            "boot node enr-udp-port not set and listening port is zero"
+                        })?,
+                    ))
+            }
         };
 
         // By default this is enabled. If it is not set, revert to false.
@@ -124,8 +129,25 @@ impl<T: EthSpec> BootNodeConfig<T> {
             // Build the local ENR
 
             let mut local_enr = {
-                let enable_tcp = false;
-                let mut builder = create_enr_builder_from_config(&network_config, enable_tcp);
+                let (maybe_ipv4_address, maybe_ipv6_address) = network_config.enr_address;
+                let mut builder = discv5::Enr::builder();
+
+                if let Some(ip) = maybe_ipv4_address {
+                    builder.ip4(ip);
+                }
+
+                if let Some(ip) = maybe_ipv6_address {
+                    builder.ip6(ip);
+                }
+
+                if let Some(udp4_port) = network_config.enr_udp4_port {
+                    builder.udp4(udp4_port.get());
+                }
+
+                if let Some(udp6_port) = network_config.enr_udp6_port {
+                    builder.udp6(udp6_port.get());
+                }
+
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {
                     builder.add_value("eth2", &enr_fork_bytes);
@@ -151,7 +173,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
 /// The set of configuration parameters that can safely be (de)serialized.
 ///
-/// Its fields are a subset of the fields of `BootNodeConfig`, some of them are copied from `Discv5Config`.
+/// Its fields are a subset of the fields of `BootNodeConfig`, some of them are copied from `discv5::Config`.
 #[derive(Serialize, Deserialize)]
 pub struct BootNodeConfigSerialization {
     pub ipv4_listen_socket: Option<SocketAddrV4>,

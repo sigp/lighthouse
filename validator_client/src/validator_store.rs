@@ -20,11 +20,11 @@ use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData, VoluntaryExit,
+    Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, Keypair, PublicKeyBytes,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
+    Slot, SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
 };
 use validator_dir::ValidatorDir;
 
@@ -97,6 +97,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     fee_recipient_process: Option<Address>,
     gas_limit: Option<u64>,
     builder_proposals: bool,
+    produce_block_v3: bool,
     task_executor: TaskExecutor,
     _phantom: PhantomData<E>,
 }
@@ -128,6 +129,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             fee_recipient_process: config.fee_recipient,
             gas_limit: config.gas_limit,
             builder_proposals: config.builder_proposals,
+            produce_block_v3: config.produce_block_v3,
             task_executor,
             _phantom: PhantomData,
         }
@@ -336,6 +338,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.spec.fork_at_epoch(epoch)
     }
 
+    pub fn produce_block_v3(&self) -> bool {
+        self.produce_block_v3
+    }
+
     /// Returns a `SigningMethod` for `validator_pubkey` *only if* that validator is considered safe
     /// by doppelganger protection.
     fn doppelganger_checked_signing_method(
@@ -369,11 +375,35 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     fn signing_context(&self, domain: Domain, signing_epoch: Epoch) -> SigningContext {
-        SigningContext {
-            domain,
-            epoch: signing_epoch,
-            fork: self.fork(signing_epoch),
-            genesis_validators_root: self.genesis_validators_root,
+        if domain == Domain::VoluntaryExit {
+            match self.spec.fork_name_at_epoch(signing_epoch) {
+                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                    SigningContext {
+                        domain,
+                        epoch: signing_epoch,
+                        fork: self.fork(signing_epoch),
+                        genesis_validators_root: self.genesis_validators_root,
+                    }
+                }
+                // EIP-7044
+                ForkName::Deneb => SigningContext {
+                    domain,
+                    epoch: signing_epoch,
+                    fork: Fork {
+                        previous_version: self.spec.capella_fork_version,
+                        current_version: self.spec.capella_fork_version,
+                        epoch: signing_epoch,
+                    },
+                    genesis_validators_root: self.genesis_validators_root,
+                },
+            }
+        } else {
+            SigningContext {
+                domain,
+                epoch: signing_epoch,
+                fork: self.fork(signing_epoch),
+                genesis_validators_root: self.genesis_validators_root,
+            }
         }
     }
 

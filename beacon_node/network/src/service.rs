@@ -215,18 +215,21 @@ pub struct NetworkService<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
-    #[allow(clippy::type_complexity)]
-    pub async fn start(
+    async fn build(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
-        gossipsub_registry: Option<&'_ mut Registry>,
+        libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
-    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
+    ) -> error::Result<(
+        NetworkService<T>,
+        Arc<NetworkGlobals<T::EthSpec>>,
+        NetworkSenders<T::EthSpec>,
+    )> {
         let network_log = executor.log().clone();
         // build the channels for external comms
-        let (network_senders, network_recievers) = NetworkSenders::new();
+        let (network_senders, network_receivers) = NetworkSenders::new();
 
         #[cfg(feature = "disable-backfill")]
         warn!(
@@ -282,7 +285,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             enr_fork_id,
             fork_context: fork_context.clone(),
             chain_spec: &beacon_chain.spec,
-            gossipsub_registry,
+            libp2p_registry,
         };
 
         // launch libp2p service
@@ -341,7 +344,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let NetworkReceivers {
             network_recv,
             validator_subscription_recv,
-        } = network_recievers;
+        } = network_receivers;
 
         // create the network service and spawn the task
         let network_log = network_log.new(o!("service" => "network"));
@@ -368,6 +371,28 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             log: network_log,
             enable_light_client_server: config.enable_light_client_server,
         };
+
+        Ok((network_service, network_globals, network_senders))
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub async fn start(
+        beacon_chain: Arc<BeaconChain<T>>,
+        config: &NetworkConfig,
+        executor: task_executor::TaskExecutor,
+        libp2p_registry: Option<&'_ mut Registry>,
+        beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
+    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
+        let (network_service, network_globals, network_senders) = Self::build(
+            beacon_chain,
+            config,
+            executor.clone(),
+            libp2p_registry,
+            beacon_processor_send,
+            beacon_processor_reprocess_tx,
+        )
+        .await?;
 
         network_service.spawn_service(executor);
 
@@ -472,7 +497,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         }
                     }
                 }
-                metrics::update_bandwidth_metrics(self.libp2p.bandwidth.clone());
             }
         };
         executor.spawn(service_fut, "network");
@@ -516,10 +540,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     response,
                 });
             }
-            NetworkEvent::RPCFailed { id, peer_id } => {
+            NetworkEvent::RPCFailed { id, peer_id, error } => {
                 self.send_to_router(RouterMessage::RPCFailed {
                     peer_id,
                     request_id: id,
+                    error,
                 });
             }
             NetworkEvent::StatusPeer(peer_id) => {
@@ -609,7 +634,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 id,
                 reason,
             } => {
-                self.libp2p.send_error_reponse(peer_id, id, error, reason);
+                self.libp2p.send_error_response(peer_id, id, error, reason);
             }
             NetworkMessage::UPnPMappingEstablished { mappings } => {
                 self.upnp_mappings = mappings;
@@ -691,7 +716,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                for topic_kind in core_topics_to_subscribe(self.fork_context.current_fork()) {
+                for topic_kind in core_topics_to_subscribe::<T::EthSpec>(
+                    self.fork_context.current_fork(),
+                    &self.fork_context.spec,
+                ) {
                     for fork_digest in self.required_gossip_fork_digests() {
                         let topic = GossipTopic::new(
                             topic_kind.clone(),
@@ -882,9 +910,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     fn update_next_fork(&mut self) {
         let new_enr_fork_id = self.beacon_chain.enr_fork_id();
+        let new_fork_digest = new_enr_fork_id.fork_digest;
 
         let fork_context = &self.fork_context;
-        if let Some(new_fork_name) = fork_context.from_context_bytes(new_enr_fork_id.fork_digest) {
+        if let Some(new_fork_name) = fork_context.from_context_bytes(new_fork_digest) {
             info!(
                 self.log,
                 "Transitioned to new fork";
@@ -907,13 +936,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 Box::pin(next_fork_subscriptions_delay(&self.beacon_chain).into());
             self.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
             info!(self.log, "Network will unsubscribe from old fork gossip topics in a few epochs"; "remaining_epochs" => UNSUBSCRIBE_DELAY_EPOCHS);
+
+            // Remove topic weight from old fork topics to prevent peers that left on the mesh on
+            // old topics from being penalized for not sending us messages.
+            self.libp2p.remove_topic_weight_except(new_fork_digest);
         } else {
             crit!(self.log, "Unknown new enr fork id"; "new_fork_id" => ?new_enr_fork_id);
         }
     }
 
     fn subscribed_core_topics(&self) -> bool {
-        let core_topics = core_topics_to_subscribe(self.fork_context.current_fork());
+        let core_topics = core_topics_to_subscribe::<T::EthSpec>(
+            self.fork_context.current_fork(),
+            &self.fork_context.spec,
+        );
         let core_topics: HashSet<&GossipKind> = HashSet::from_iter(&core_topics);
         let subscriptions = self.network_globals.gossipsub_subscriptions.read();
         let subscribed_topics: HashSet<&GossipKind> =

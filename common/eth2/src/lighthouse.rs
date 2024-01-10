@@ -20,7 +20,7 @@ use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
-use store::{AnchorInfo, Split, StoreConfig};
+use store::{AnchorInfo, BlobInfo, Split, StoreConfig};
 
 pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
@@ -243,6 +243,8 @@ pub struct ProcessHealth {
     pub pid_mem_resident_set_size: u64,
     /// The total virtual memory used by this pid.
     pub pid_mem_virtual_memory_size: u64,
+    /// The total shared memory used by this pid.
+    pub pid_mem_shared_memory_size: u64,
     /// Number of cpu seconds consumed by this pid.
     pub pid_process_seconds_total: u64,
 }
@@ -277,6 +279,7 @@ impl ProcessHealth {
             pid_num_threads: stat.num_threads,
             pid_mem_resident_set_size: process_mem.rss(),
             pid_mem_virtual_memory_size: process_mem.vms(),
+            pid_mem_shared_memory_size: process_mem.shared(),
             pid_process_seconds_total: process_times.busy().as_secs()
                 + process_times.children_system().as_secs()
                 + process_times.children_system().as_secs(),
@@ -364,6 +367,7 @@ pub struct DatabaseInfo {
     pub config: StoreConfig,
     pub split: Split,
     pub anchor: Option<AnchorInfo>,
+    pub blob_info: BlobInfo,
 }
 
 impl BeaconNodeHttpClient {

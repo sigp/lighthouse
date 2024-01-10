@@ -1,10 +1,10 @@
 use crate::{DBColumn, Error, StoreItem};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::{Checkpoint, Hash256, Slot};
 
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(17);
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(18);
 
 // All the keys that get stored under the `BeaconMeta` column.
 //
@@ -15,6 +15,7 @@ pub const SPLIT_KEY: Hash256 = Hash256::repeat_byte(2);
 pub const PRUNING_CHECKPOINT_KEY: Hash256 = Hash256::repeat_byte(3);
 pub const COMPACTION_TIMESTAMP_KEY: Hash256 = Hash256::repeat_byte(4);
 pub const ANCHOR_INFO_KEY: Hash256 = Hash256::repeat_byte(5);
+pub const BLOB_INFO_KEY: Hash256 = Hash256::repeat_byte(6);
 
 /// State upper limit value used to indicate that a node is not storing historic states.
 pub const STATE_UPPER_LIMIT_NO_RETAIN: Slot = Slot::new(u64::MAX);
@@ -110,6 +111,35 @@ impl AnchorInfo {
 }
 
 impl StoreItem for AnchorInfo {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconMeta
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+/// Database parameters relevant to blob sync.
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
+pub struct BlobInfo {
+    /// The slot after which blobs are or *will be* available (>=).
+    ///
+    /// If this slot is in the future, then it is the first slot of the Deneb fork, from which blobs
+    /// will be available.
+    ///
+    /// If the `oldest_blob_slot` is `None` then this means that the Deneb fork epoch is not yet
+    /// known.
+    pub oldest_blob_slot: Option<Slot>,
+    /// A separate blobs database is in use (deprecated, always `true`).
+    pub blobs_db: bool,
+}
+
+impl StoreItem for BlobInfo {
     fn db_column() -> DBColumn {
         DBColumn::BeaconMeta
     }

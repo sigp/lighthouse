@@ -5,7 +5,7 @@ mod votes;
 
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
 use crate::{InvalidationOperation, JustifiedBalances};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use types::{
     AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,

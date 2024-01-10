@@ -49,8 +49,6 @@ exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_data
 
 sleep 20
 
-echo "Starting local beacon nodes"
-
 exit_if_fails ../local_testnet/beacon_node.sh -d debug $HOME/.lighthouse/local-testnet/node_1 8000 7000 9000 http://localhost:4000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> /dev/null &
 exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 8100 7100 9100 http://localhost:4100 $HOME/.lighthouse/local-testnet/geth_datadir2/geth/jwtsecret &> /dev/null &
 exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_3 8200 7200 9200 http://localhost:4200 $HOME/.lighthouse/local-testnet/geth_datadir3/geth/jwtsecret &> /dev/null &

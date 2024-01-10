@@ -984,6 +984,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
 
+        self.observed_blob_sidecars.write().prune(
+            new_view
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()),
+        );
+
+        self.observed_slashable.write().prune(
+            new_view
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()),
+        );
+
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .map(|mut snapshot_cache| {
@@ -1050,6 +1064,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_view.finalized_checkpoint,
             self.head_tracker.clone(),
         )?;
+
+        // Prune blobs in the background.
+        if let Some(data_availability_boundary) = self.data_availability_boundary() {
+            self.store_migrator
+                .process_prune_blobs(data_availability_boundary);
+        }
 
         // Take a write-lock on the canonical head and signal for it to prune.
         self.canonical_head.fork_choice_write_lock().prune()?;

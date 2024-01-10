@@ -28,10 +28,11 @@ lcli \
 	--altair-fork-epoch $ALTAIR_FORK_EPOCH \
 	--bellatrix-fork-epoch $BELLATRIX_FORK_EPOCH \
 	--capella-fork-epoch $CAPELLA_FORK_EPOCH \
+	--deneb-fork-epoch $DENEB_FORK_EPOCH \
 	--ttd $TTD \
 	--eth1-block-hash $ETH1_BLOCK_HASH \
 	--eth1-id $CHAIN_ID \
-	--eth1-follow-distance 1 \
+	--eth1-follow-distance 128 \
 	--seconds-per-slot $SECONDS_PER_SLOT \
 	--seconds-per-eth1-block $SECONDS_PER_ETH1_BLOCK \
 	--proposer-score-boost "$PROPOSER_SCORE_BOOST" \
