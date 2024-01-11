@@ -939,10 +939,10 @@ where
             fork_choice_signal_rx,
             event_handler: self.event_handler,
             head_tracker,
-            // FIXME(sproul): make configurable
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,
+                log.clone(),
             )),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
@@ -951,6 +951,7 @@ where
             parallel_state_cache: Arc::new(RwLock::new(PromiseCache::new(
                 parallel_state_cache_size,
                 Default::default(),
+                log.clone(),
             ))),
             validator_pubkey_cache,
             attester_cache: <_>::default(),

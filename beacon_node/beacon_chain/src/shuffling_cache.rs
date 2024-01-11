@@ -38,9 +38,17 @@ impl Protect<AttestationShufflingId> for BlockShufflingIds {
     fn protect_from_eviction(&self, shuffling_id: &AttestationShufflingId) -> bool {
         Some(shuffling_id) != self.id_for_epoch(shuffling_id.shuffling_epoch).as_ref()
     }
+
+    fn notify_eviction(&self, shuffling_id: &AttestationShufflingId, logger: &Logger) {
+        debug!(
+            logger,
+            "Removing old shuffling from cache";
+            "shuffling_epoch" => shuffling_id.shuffling_epoch,
+            "shuffling_decision_block" => ?shuffling_id.shuffling_decision_block
+        );
+    }
 }
 
-/// FIXME(sproul): restore logger?
 pub type ShufflingCache = PromiseCache<AttestationShufflingId, CommitteeCache, BlockShufflingIds>;
 
 /// Contains the shuffling IDs for a beacon block.

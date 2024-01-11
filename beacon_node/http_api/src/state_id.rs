@@ -1,7 +1,7 @@
 use crate::ExecutionOptimistic;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::StateId as CoreStateId;
-use slog::{info, warn};
+use slog::{debug, info, warn};
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -199,7 +199,7 @@ impl StateId {
             drop(opt_state_cache.take());
             match cache_item.wait() {
                 Ok(state) => {
-                    info!(
+                    debug!(
                         chain.logger(),
                         "HTTP state cache hit";
                         "state_root" => ?state_root,
@@ -220,7 +220,7 @@ impl StateId {
         }
 
         // Re-lock only in case of failed promise.
-        warn!(
+        debug!(
             chain.logger(),
            "HTTP state cache miss";
             "state_root" => ?state_root

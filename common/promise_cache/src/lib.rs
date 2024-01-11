@@ -1,6 +1,7 @@
 use derivative::Derivative;
 use itertools::Itertools;
 use oneshot_broadcast::{oneshot, Receiver, Sender};
+use slog::Logger;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -14,17 +15,20 @@ where
     capacity: usize,
     protector: P,
     max_concurrent_promises: usize,
+    logger: Logger,
 }
 
 /// A value implementing `Protect` is capable of preventing keys of type `K` from being evicted.
 ///
-/// It also dictates an ordering on key-value pairs which is used to prioritise evictions.
+/// It also dictates an ordering on keys which is used to prioritise evictions.
 pub trait Protect<K> {
     type SortKey: Ord;
 
+    fn sort_key(&self, k: &K) -> Self::SortKey;
+
     fn protect_from_eviction(&self, k: &K) -> bool;
 
-    fn sort_key(&self, k: &K) -> Self::SortKey;
+    fn notify_eviction(&self, _k: &K, _log: &Logger) {}
 }
 
 #[derive(Derivative)]
@@ -77,7 +81,7 @@ where
     K: Hash + Eq + Clone,
     P: Protect<K>,
 {
-    pub fn new(capacity: usize, protector: P) -> Self {
+    pub fn new(capacity: usize, protector: P, logger: Logger) -> Self {
         // Making the concurrent promises directly configurable is considered overkill for now,
         // so we just derive a vaguely sensible value from the cache size.
         let max_concurrent_promises = std::cmp::max(2, capacity / 8);
@@ -86,6 +90,7 @@ where
             capacity,
             protector,
             max_concurrent_promises,
+            logger,
         }
     }
 
@@ -173,6 +178,7 @@ where
                 .collect::<Vec<_>>();
 
             for key in &keys_to_prune {
+                self.protector.notify_eviction(key, &self.logger);
                 self.cache.remove(key);
             }
         }

@@ -6032,6 +6032,7 @@ dependencies = [
  "derivative",
  "itertools",
  "oneshot_broadcast",
+ "slog",
 ]
 
 [[package]]
