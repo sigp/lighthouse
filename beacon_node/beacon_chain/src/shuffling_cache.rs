@@ -1,4 +1,3 @@
-use crate::metrics;
 use itertools::Itertools;
 use oneshot_broadcast::{oneshot, Receiver, Sender};
 use promise_cache::{PromiseCache, Protect};
