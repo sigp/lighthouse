@@ -1,5 +1,5 @@
 use super::single_block_lookup::{LookupRequestError, LookupVerifyError, SingleBlockLookup};
-use super::{DownloadedBlock, PeerShouldHave};
+use super::{DownloadedBlock, PeerId};
 use crate::sync::block_lookups::common::Parent;
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::{manager::SLOT_IMPORT_TOLERANCE, network_context::SyncNetworkContext};
@@ -8,7 +8,6 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::{ChildComponents, DataAvailabilityChecker};
 use beacon_chain::BeaconChainTypes;
 use itertools::Itertools;
-use lighthouse_network::PeerId;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use store::Hash256;
@@ -41,7 +40,6 @@ pub enum ParentVerifyError {
     ExtraBlobsReturned,
     InvalidIndex(u64),
     PreviousFailure { parent_root: Hash256 },
-    BenignFailure,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -61,7 +59,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     pub fn new(
         block_root: Hash256,
         parent_root: Hash256,
-        peer_id: PeerShouldHave,
+        peer_id: PeerId,
         da_checker: Arc<DataAvailabilityChecker<T>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Self {
@@ -126,14 +124,14 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .update_requested_parent_block(next_parent)
     }
 
-    pub fn block_processing_peer(&self) -> Result<PeerShouldHave, ()> {
+    pub fn block_processing_peer(&self) -> Result<PeerId, ()> {
         self.current_parent_request
             .block_request_state
             .state
             .processing_peer()
     }
 
-    pub fn blob_processing_peer(&self) -> Result<PeerShouldHave, ()> {
+    pub fn blob_processing_peer(&self) -> Result<PeerId, ()> {
         self.current_parent_request
             .blob_request_state
             .state
@@ -211,12 +209,12 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         Ok(root_and_verified)
     }
 
-    pub fn add_peer(&mut self, peer: PeerShouldHave) {
+    pub fn add_peer(&mut self, peer: PeerId) {
         self.current_parent_request.add_peer(peer)
     }
 
     /// Adds a list of peers to the parent request.
-    pub fn add_peers(&mut self, peers: &[PeerShouldHave]) {
+    pub fn add_peers(&mut self, peers: &[PeerId]) {
         self.current_parent_request.add_peers(peers)
     }
 
@@ -248,7 +246,6 @@ impl From<LookupVerifyError> for ParentVerifyError {
             E::ExtraBlobsReturned => ParentVerifyError::ExtraBlobsReturned,
             E::InvalidIndex(index) => ParentVerifyError::InvalidIndex(index),
             E::NotEnoughBlobsReturned => ParentVerifyError::NotEnoughBlobsReturned,
-            E::BenignFailure => ParentVerifyError::BenignFailure,
         }
     }
 }

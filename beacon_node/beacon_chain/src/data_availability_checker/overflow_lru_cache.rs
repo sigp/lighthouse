@@ -42,6 +42,7 @@ use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
+use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256};
@@ -125,7 +126,10 @@ impl<T: EthSpec> PendingComponents<T> {
                 for maybe_blob in self.verified_blobs.iter() {
                     if maybe_blob.is_some() {
                         return maybe_blob.as_ref().map(|kzg_verified_blob| {
-                            kzg_verified_blob.as_blob().slot.epoch(T::slots_per_epoch())
+                            kzg_verified_blob
+                                .as_blob()
+                                .slot()
+                                .epoch(T::slots_per_epoch())
                         });
                     }
                 }
@@ -285,7 +289,7 @@ struct Critical<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> Critical<T> {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(capacity: NonZeroUsize) -> Self {
         Self {
             in_memory: LruCache::new(capacity),
             store_keys: HashSet::new(),
@@ -326,7 +330,7 @@ impl<T: BeaconChainTypes> Critical<T> {
         pending_components: PendingComponents<T::EthSpec>,
         overflow_store: &OverflowStore<T>,
     ) -> Result<(), AvailabilityCheckError> {
-        if self.in_memory.len() == self.in_memory.cap() {
+        if self.in_memory.len() == self.in_memory.cap().get() {
             // cache will overflow, must write lru entry to disk
             if let Some((lru_key, lru_value)) = self.in_memory.pop_lru() {
                 overflow_store.persist_pending_components(lru_key, lru_value)?;
@@ -374,12 +378,12 @@ pub struct OverflowLRUCache<T: BeaconChainTypes> {
     /// Mutex to guard maintenance methods which move data between disk and memory
     maintenance_lock: Mutex<()>,
     /// The capacity of the LRU cache
-    capacity: usize,
+    capacity: NonZeroUsize,
 }
 
 impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     pub fn new(
-        capacity: usize,
+        capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
@@ -411,22 +415,14 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         }
     }
 
-    pub fn put_kzg_verified_blobs(
+    pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
         block_root: Hash256,
-        kzg_verified_blobs: Vec<KzgVerifiedBlob<T::EthSpec>>,
+        kzg_verified_blobs: I,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut fixed_blobs = FixedVector::default();
 
-        // Initial check to ensure all provided blobs have a consistent block root.
         for blob in kzg_verified_blobs {
-            let blob_block_root = blob.block_root();
-            if blob_block_root != block_root {
-                return Err(AvailabilityCheckError::InconsistentBlobBlockRoots {
-                    block_root,
-                    blob_block_root,
-                });
-            }
             if let Some(blob_opt) = fixed_blobs.get_mut(blob.blob_index() as usize) {
                 *blob_opt = Some(blob);
             }
@@ -519,7 +515,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     /// maintain the cache
     pub fn do_maintenance(&self, cutoff_epoch: Epoch) -> Result<(), AvailabilityCheckError> {
         // ensure memory usage is below threshold
-        let threshold = self.capacity * 3 / 4;
+        let threshold = self.capacity.get() * 3 / 4;
         self.maintain_threshold(threshold, cutoff_epoch)?;
         // clean up any keys on the disk that shouldn't be there
         self.prune_disk(cutoff_epoch)?;
@@ -547,9 +543,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 .peek_lru()
                 .map(|(key, value)| (*key, value.clone()));
 
-            let (lru_root, lru_pending_components) = match lru_entry {
-                Some((r, p)) => (r, p),
-                None => break,
+            let Some((lru_root, lru_pending_components)) = lru_entry else {
+                break;
             };
 
             if lru_pending_components
@@ -605,9 +600,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let delete_if_outdated = |cache: &OverflowLRUCache<T>,
                                   block_data: Option<BlockData>|
          -> Result<(), AvailabilityCheckError> {
-            let block_data = match block_data {
-                Some(block_data) => block_data,
-                None => return Ok(()),
+            let Some(block_data) = block_data else {
+                return Ok(());
             };
             let not_in_store_keys = !cache.critical.read().store_keys.contains(&block_data.root);
             if not_in_store_keys {
@@ -653,7 +647,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                         OverflowKey::Blob(_, _) => {
                             KzgVerifiedBlob::<T::EthSpec>::from_ssz_bytes(value_bytes.as_slice())?
                                 .as_blob()
-                                .slot
+                                .slot()
                                 .epoch(T::EthSpec::slots_per_epoch())
                         }
                     };
@@ -745,9 +739,7 @@ impl ssz::Decode for OverflowKey {
 mod test {
     use super::*;
     use crate::{
-        blob_verification::{
-            validate_blob_sidecar_for_gossip, verify_kzg_for_blob, GossipVerifiedBlob,
-        },
+        blob_verification::GossipVerifiedBlob,
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         data_availability_checker::STATE_LRU_CAPACITY,
@@ -762,6 +754,7 @@ mod test {
     use std::ops::AddAssign;
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
     use tempfile::{tempdir, TempDir};
+    use types::non_zero_usize::new_non_zero_usize;
     use types::{ChainSpec, ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
@@ -773,12 +766,13 @@ mod test {
     ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
+        let blobs_path = db_path.path().join("blobs_db");
         let config = StoreConfig::default();
 
         HotColdDB::open(
             &hot_path,
             &cold_path,
-            None,
+            &blobs_path,
             |_, _, _| Ok(()),
             config,
             spec,
@@ -927,12 +921,13 @@ mod test {
         }
         info!(log, "done printing kzg commitments");
 
-        let gossip_verified_blobs = if let Some(blobs) = maybe_blobs {
-            Vec::from(blobs)
+        let gossip_verified_blobs = if let Some((kzg_proofs, blobs)) = maybe_blobs {
+            let sidecars = BlobSidecar::build_sidecars(blobs, &block, kzg_proofs).unwrap();
+            Vec::from(sidecars)
                 .into_iter()
-                .map(|signed_blob| {
-                    let subnet = signed_blob.message.index;
-                    validate_blob_sidecar_for_gossip(signed_blob, subnet, &harness.chain)
+                .map(|sidecar| {
+                    let subnet = sidecar.index;
+                    GossipVerifiedBlob::new(sidecar, subnet, &harness.chain)
                         .expect("should validate blob")
                 })
                 .collect()
@@ -970,6 +965,7 @@ mod test {
     ) -> (
         BeaconChainHarness<DiskHarnessType<E>>,
         Arc<OverflowLRUCache<T>>,
+        TempDir,
     )
     where
         E: EthSpec,
@@ -980,11 +976,12 @@ mod test {
         let harness = get_deneb_chain(log.clone(), &chain_db_path).await;
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
+        let capacity_non_zero = new_non_zero_usize(capacity);
         let cache = Arc::new(
-            OverflowLRUCache::<T>::new(capacity, test_store, spec.clone())
+            OverflowLRUCache::<T>::new(capacity_non_zero, test_store, spec.clone())
                 .expect("should create cache"),
         );
-        (harness, cache)
+        (harness, cache, chain_db_path)
     }
 
     #[tokio::test]
@@ -992,7 +989,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = 4;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let (pending_block, blobs) = availability_pending_block(&harness).await;
         let root = pending_block.import_data.block_root;
@@ -1036,17 +1033,9 @@ mod test {
             );
         }
 
-        let kzg = harness
-            .chain
-            .kzg
-            .as_ref()
-            .cloned()
-            .expect("kzg should exist");
         let mut kzg_verified_blobs = Vec::new();
         for (blob_index, gossip_blob) in blobs.into_iter().enumerate() {
-            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
-                .expect("kzg should verify");
-            kzg_verified_blobs.push(kzg_verified_blob);
+            kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
                 .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
@@ -1072,9 +1061,7 @@ mod test {
         let root = pending_block.import_data.block_root;
         let mut kzg_verified_blobs = vec![];
         for gossip_blob in blobs {
-            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
-                .expect("kzg should verify");
-            kzg_verified_blobs.push(kzg_verified_blob);
+            kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
                 .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
@@ -1104,7 +1091,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = 4;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let mut pending_blocks = VecDeque::new();
         let mut pending_blobs = VecDeque::new();
@@ -1198,20 +1185,11 @@ mod test {
         assert!(cache.critical.read().store_keys.contains(&roots[0]));
         assert!(cache.critical.read().store_keys.contains(&roots[1]));
 
-        let kzg = harness
-            .chain
-            .kzg
-            .as_ref()
-            .cloned()
-            .expect("kzg should exist");
-
         let blobs_0 = pending_blobs.pop_front().expect("should have blobs");
         let expected_blobs = blobs_0.len();
         let mut kzg_verified_blobs = vec![];
         for (blob_index, gossip_blob) in blobs_0.into_iter().enumerate() {
-            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
-                .expect("kzg should verify");
-            kzg_verified_blobs.push(kzg_verified_blob);
+            kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
                 .put_kzg_verified_blobs(roots[0], kzg_verified_blobs.clone())
                 .expect("should put blob");
@@ -1255,7 +1233,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = E::slots_per_epoch() as usize;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let n_epochs = 4;
         let mut pending_blocks = VecDeque::new();
@@ -1278,13 +1256,6 @@ mod test {
             pending_blobs.push_back(blobs);
         }
 
-        let kzg = harness
-            .chain
-            .kzg
-            .as_ref()
-            .cloned()
-            .expect("kzg should exist");
-
         for _ in 0..(n_epochs * capacity) {
             let pending_block = pending_blocks.pop_front().expect("should have block");
             let mut pending_block_blobs = pending_blobs.pop_front().expect("should have blobs");
@@ -1295,9 +1266,7 @@ mod test {
                 let one_blob = pending_block_blobs
                     .pop()
                     .expect("should have at least one blob");
-                let kzg_verified_blob = verify_kzg_for_blob(one_blob.to_blob(), kzg.as_ref())
-                    .expect("kzg should verify");
-                let kzg_verified_blobs = vec![kzg_verified_blob];
+                let kzg_verified_blobs = vec![one_blob.into_inner()];
                 // generate random boolean
                 let block_first = (rand::random::<usize>() % 2) == 0;
                 if block_first {
@@ -1395,7 +1364,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = E::slots_per_epoch() as usize;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let n_epochs = 4;
         let mut pending_blocks = VecDeque::new();
@@ -1418,13 +1387,6 @@ mod test {
             pending_blobs.push_back(blobs);
         }
 
-        let kzg = harness
-            .chain
-            .kzg
-            .as_ref()
-            .cloned()
-            .expect("kzg should exist");
-
         let mut remaining_blobs = HashMap::new();
         for _ in 0..(n_epochs * capacity) {
             let pending_block = pending_blocks.pop_front().expect("should have block");
@@ -1436,9 +1398,7 @@ mod test {
                 let one_blob = pending_block_blobs
                     .pop()
                     .expect("should have at least one blob");
-                let kzg_verified_blob = verify_kzg_for_blob(one_blob.to_blob(), kzg.as_ref())
-                    .expect("kzg should verify");
-                let kzg_verified_blobs = vec![kzg_verified_blob];
+                let kzg_verified_blobs = vec![one_blob.into_inner()];
                 // generate random boolean
                 let block_first = (rand::random::<usize>() % 2) == 0;
                 if block_first {
@@ -1520,7 +1480,7 @@ mod test {
 
         // create a new cache with the same store
         let recovered_cache = OverflowLRUCache::<T>::new(
-            capacity,
+            new_non_zero_usize(capacity),
             harness.chain.store.clone(),
             harness.chain.spec.clone(),
         )
@@ -1551,9 +1511,7 @@ mod test {
             let additional_blobs = blobs.len();
             let mut kzg_verified_blobs = vec![];
             for (i, gossip_blob) in blobs.into_iter().enumerate() {
-                let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
-                    .expect("kzg should verify");
-                kzg_verified_blobs.push(kzg_verified_blob);
+                kzg_verified_blobs.push(gossip_blob.into_inner());
                 let availability = recovered_cache
                     .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                     .expect("should put blob");
@@ -1573,7 +1531,7 @@ mod test {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
         let capacity = STATE_LRU_CAPACITY * 2;
-        let (harness, cache) = setup_harness_and_cache::<E, T>(capacity).await;
+        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
         let mut pending_blocks = VecDeque::new();
         let mut states = Vec::new();

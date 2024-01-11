@@ -1489,7 +1489,7 @@ mod tests {
         assert!(the_best.is_some());
         // Consistency check
         let best_peers = pdb.best_peers_by_status(PeerInfo::is_connected);
-        assert_eq!(the_best.unwrap(), best_peers.get(0).unwrap().0);
+        assert_eq!(the_best.unwrap(), best_peers.first().unwrap().0);
     }
 
     #[test]

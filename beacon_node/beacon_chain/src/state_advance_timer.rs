@@ -125,14 +125,11 @@ async fn state_advance_timer<T: BeaconChainTypes>(
     let slot_duration = slot_clock.slot_duration();
 
     loop {
-        let duration_to_next_slot = match beacon_chain.slot_clock.duration_to_next_slot() {
-            Some(duration) => duration,
-            None => {
-                error!(log, "Failed to read slot clock");
-                // If we can't read the slot clock, just wait another slot.
-                sleep(slot_duration).await;
-                continue;
-            }
+        let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot() else {
+            error!(log, "Failed to read slot clock");
+            // If we can't read the slot clock, just wait another slot.
+            sleep(slot_duration).await;
+            continue;
         };
 
         // Run the state advance 3/4 of the way through the slot (9s on mainnet).
@@ -242,14 +239,18 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
                 // Prepare proposers so that the node can send payload attributes in the case where
                 // it decides to abandon a proposer boost re-org.
-                if let Err(e) = beacon_chain.prepare_beacon_proposer(current_slot).await {
-                    warn!(
-                        log,
-                        "Unable to prepare proposer with lookahead";
-                        "error" => ?e,
-                        "slot" => next_slot,
-                    );
-                }
+                beacon_chain
+                    .prepare_beacon_proposer(current_slot)
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!(
+                            log,
+                            "Unable to prepare proposer with lookahead";
+                            "error" => ?e,
+                            "slot" => next_slot,
+                        );
+                        None
+                    });
 
                 // Use a blocking task to avoid blocking the core executor whilst waiting for locks
                 // in `ForkChoiceSignalTx`.

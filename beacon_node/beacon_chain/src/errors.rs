@@ -55,7 +55,7 @@ pub enum BeaconChainError {
     SlotClockDidNotStart,
     NoStateForSlot(Slot),
     BeaconStateError(BeaconStateError),
-    HeadCacheError(EpochCacheError),
+    EpochCacheError(EpochCacheError),
     DBInconsistent(String),
     DBError(store::Error),
     ForkChoiceError(ForkChoiceError),
@@ -218,6 +218,8 @@ pub enum BeaconChainError {
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
     UnableToPublish,
     AvailabilityCheckError(AvailabilityCheckError),
+    LightClientError(LightClientError),
+    UnsupportedFork,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -245,6 +247,7 @@ easy_from_to!(StateAdvanceError, BeaconChainError);
 easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
+easy_from_to!(EpochCacheError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {

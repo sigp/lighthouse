@@ -31,6 +31,9 @@ CROSS_PROFILE ?= release
 # List of features to use when running EF tests.
 EF_TEST_FEATURES ?=
 
+# List of features to use when running CI tests.
+TEST_FEATURES ?=
+
 # Cargo profile for regular builds.
 PROFILE ?= release
 
@@ -106,22 +109,26 @@ build-release-tarballs:
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
-	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
+	cargo test --workspace --release --features "$(TEST_FEATURES)" \
+ 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors, using nextest.
 nextest-release:
-	cargo nextest run --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
+	cargo nextest run --workspace --release --features "$(TEST_FEATURES)" \
+		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
-	cargo test --workspace --exclude ef_tests --exclude beacon_chain --exclude network
+	cargo test --workspace --features "$(TEST_FEATURES)" \
+		--exclude ef_tests --exclude beacon_chain --exclude network
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors, using nextest.
 nextest-debug:
-	cargo nextest run --workspace --exclude ef_tests --exclude beacon_chain --exclude network
+	cargo nextest run --workspace --features "$(TEST_FEATURES)" \
+		--exclude ef_tests --exclude beacon_chain --exclude network
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -129,7 +136,7 @@ cargo-fmt:
 
 # Typechecks benchmark code
 check-benches:
-	cargo check --workspace --benches
+	cargo check --workspace --benches --features "$(TEST_FEATURES)"
 
 # Runs only the ef-test vectors.
 run-ef-tests:
@@ -151,14 +158,14 @@ nextest-run-ef-tests:
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo nextest run --release --features fork_from_env,slasher/lmdb -p beacon_chain
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
 
 test-op-pool-%:
 	env FORK_NAME=$* cargo nextest run --release \
-		--features 'beacon_chain/fork_from_env'\
+		--features "beacon_chain/fork_from_env,$(TEST_FEATURES)"\
 		-p operation_pool
 
 # Run the tests in the `network` crate for all known forks.
@@ -166,14 +173,14 @@ test-network: $(patsubst %,test-network-%,$(FORKS))
 
 test-network-%:
 	env FORK_NAME=$* cargo nextest run --release \
-		--features 'fork_from_env' \
+		--features "fork_from_env,$(TEST_FEATURES)" \
 		-p network
-		
+
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
-	cargo nextest run --release -p slasher --features lmdb
-	cargo nextest run --release -p slasher --no-default-features --features mdbx
-	cargo nextest run --release -p slasher --features lmdb,mdbx # both backends enabled
+	cargo nextest run --release -p slasher --features "lmdb,$(TEST_FEATURES)"
+	cargo nextest run --release -p slasher --no-default-features --features "mdbx,$(TEST_FEATURES)"
+	cargo nextest run --release -p slasher --features "lmdb,mdbx,$(TEST_FEATURES)" # both backends enabled
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
@@ -193,21 +200,34 @@ test-exec-engine:
 # test vectors.
 test: test-release
 
+# Updates the CLI help text pages in the Lighthouse book, building with Docker.
+cli:
+	docker run --rm --user=root \
+	-v ${PWD}:/home/runner/actions-runner/lighthouse sigmaprime/github-runner \
+	bash -c 'cd lighthouse && make && ./scripts/cli.sh'
+
+# Updates the CLI help text pages in the Lighthouse book, building using local
+# `cargo`.
+cli-local:
+	make && ./scripts/cli.sh
+
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	cargo clippy --workspace --tests $(EXTRA_CLIPPY_OPTS) -- \
+	cargo clippy --workspace --tests $(EXTRA_CLIPPY_OPTS) --features "$(TEST_FEATURES)" -- \
 		-D clippy::fn_to_numeric_cast_any \
+		-D clippy::manual_let_else \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push \
 		-A clippy::question-mark \
-		-A clippy::uninlined-format-args
+		-A clippy::uninlined-format-args \
+		-A clippy::enum_variant_names
 
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
@@ -230,8 +250,8 @@ make-ef-tests:
 
 # Verifies that crates compile with fuzzing features enabled
 arbitrary-fuzz:
-	cargo check -p state_processing --features arbitrary-fuzz
-	cargo check -p slashing_protection --features arbitrary-fuzz
+	cargo check -p state_processing --features arbitrary-fuzz,$(TEST_FEATURES)
+	cargo check -p slashing_protection --features arbitrary-fuzz,$(TEST_FEATURES)
 
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit: install-audit audit-CI
@@ -248,7 +268,7 @@ vendor:
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:
-	cargo +$(PINNED_NIGHTLY) udeps --tests --all-targets --release
+	cargo +$(PINNED_NIGHTLY) udeps --tests --all-targets --release --features "$(TEST_FEATURES)"
 
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:

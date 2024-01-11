@@ -2,6 +2,7 @@ use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
+use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
@@ -34,6 +35,7 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
 use types::{
@@ -43,6 +45,11 @@ use types::{
 
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
+
+/// Reduces the blob availability period by some epochs. Helps prevent the user
+/// from starting a genesis sync so near to the blob pruning window that blobs
+/// have been pruned before they can manage to sync the chain.
+const BLOB_AVAILABILITY_REDUCTION_EPOCHS: u64 = 2;
 
 /// Builds a `Client` instance.
 ///
@@ -68,7 +75,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth1_service: Option<Eth1Service>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     network_senders: Option<NetworkSenders<T::EthSpec>>,
-    gossipsub_registry: Option<Registry>,
+    libp2p_registry: Option<Registry>,
     db_path: Option<PathBuf>,
     freezer_db_path: Option<PathBuf>,
     http_api_config: http_api::Config,
@@ -102,7 +109,7 @@ where
             eth1_service: None,
             network_globals: None,
             network_senders: None,
-            gossipsub_registry: None,
+            libp2p_registry: None,
             db_path: None,
             freezer_db_path: None,
             http_api_config: <_>::default(),
@@ -191,15 +198,7 @@ where
             .graffiti(graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
-            .monitor_validators(
-                config.validator_monitor_auto,
-                config.validator_monitor_pubkeys.clone(),
-                config.validator_monitor_individual_tracking_threshold,
-                runtime_context
-                    .service_context("val_mon".to_string())
-                    .log()
-                    .clone(),
-            );
+            .validator_monitor_config(config.validator_monitor.clone());
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
@@ -258,6 +257,45 @@ where
                 );
 
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
+
+                // If the user has not explicitly allowed genesis sync, prevent
+                // them from trying to sync from genesis if we're outside of the
+                // blob P2P availability window.
+                //
+                // It doesn't make sense to try and sync the chain if we can't
+                // verify blob availability by downloading blobs from the P2P
+                // network. The user should do a checkpoint sync instead.
+                if !config.allow_insecure_genesis_sync {
+                    if let Some(deneb_fork_epoch) = spec.deneb_fork_epoch {
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map_err(|e| format!("Unable to read system time: {e:}"))?
+                            .as_secs();
+                        let genesis_time = genesis_state.genesis_time();
+                        let deneb_time =
+                            genesis_time + (deneb_fork_epoch.as_u64() * spec.seconds_per_slot);
+
+                        // Shrink the blob availability window so users don't start
+                        // a sync right before blobs start to disappear from the P2P
+                        // network.
+                        let reduced_p2p_availability_epochs = spec
+                            .min_epochs_for_blob_sidecars_requests
+                            .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
+                        let blob_availability_window = reduced_p2p_availability_epochs
+                            * TEthSpec::slots_per_epoch()
+                            * spec.seconds_per_slot;
+
+                        if now > deneb_time + blob_availability_window {
+                            return Err(
+                                    "Syncing from genesis is insecure and incompatible with data availability checks. \
+                                    You should instead perform a checkpoint sync from a trusted node using the --checkpoint-sync-url option. \
+                                    For a list of public endpoints, see: https://eth-clients.github.io/checkpoint-sync-endpoints/ \
+                                    Alternatively, use --allow-insecure-genesis-sync if the risks are understood."
+                                        .to_string(),
+                                );
+                        }
+                    }
+                }
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
@@ -539,7 +577,7 @@ where
             .ok_or("network requires beacon_processor_channels")?;
 
         // If gossipsub metrics are required we build a registry to record them
-        let mut gossipsub_registry = if config.metrics_enabled {
+        let mut libp2p_registry = if config.metrics_enabled {
             Some(Registry::default())
         } else {
             None
@@ -549,9 +587,7 @@ where
             beacon_chain,
             config,
             context.executor,
-            gossipsub_registry
-                .as_mut()
-                .map(|registry| registry.sub_registry_with_prefix("gossipsub")),
+            libp2p_registry.as_mut(),
             beacon_processor_channels.beacon_processor_tx.clone(),
             beacon_processor_channels.work_reprocessing_tx.clone(),
         )
@@ -560,7 +596,7 @@ where
 
         self.network_globals = Some(network_globals);
         self.network_senders = Some(network_senders);
-        self.gossipsub_registry = gossipsub_registry;
+        self.libp2p_registry = libp2p_registry;
 
         Ok(self)
     }
@@ -726,7 +762,7 @@ where
                 chain: self.beacon_chain.clone(),
                 db_path: self.db_path.clone(),
                 freezer_db_path: self.freezer_db_path.clone(),
-                gossipsub_registry: self.gossipsub_registry.take().map(std::sync::Mutex::new),
+                gossipsub_registry: self.libp2p_registry.take().map(std::sync::Mutex::new),
                 log: log.clone(),
             });
 
@@ -849,6 +885,10 @@ where
                 runtime_context.executor.clone(),
                 beacon_chain.clone(),
             );
+            start_attestation_simulator_service(
+                beacon_chain.task_executor.clone(),
+                beacon_chain.clone(),
+            );
         }
 
         Ok(Client {
@@ -909,7 +949,7 @@ where
         mut self,
         hot_path: &Path,
         cold_path: &Path,
-        blobs_path: Option<PathBuf>,
+        blobs_path: &Path,
         config: StoreConfig,
         log: Logger,
     ) -> Result<Self, String> {

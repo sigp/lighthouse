@@ -2,7 +2,6 @@ use super::methods::*;
 use crate::rpc::{
     codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec},
     methods::{MaxErrorLen, ResponseTermination, MAX_ERROR_LEN},
-    MaxRequestBlocks, MAX_REQUEST_BLOCKS,
 };
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
@@ -22,7 +21,7 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BlobSidecar, EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
+    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, MainnetEthSpec, Signature,
     SignedBeaconBlock,
 };
 
@@ -88,32 +87,6 @@ lazy_static! {
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
-
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
-        VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
-    .as_ssz_bytes()
-    .len();
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize =
-        VariableList::<Hash256, MaxRequestBlocks>::from(vec![
-            Hash256::zero();
-            MAX_REQUEST_BLOCKS
-                as usize
-        ])
-    .as_ssz_bytes()
-    .len();
-
-    pub static ref BLOBS_BY_ROOT_REQUEST_MIN: usize =
-        VariableList::<Hash256, MaxRequestBlobSidecars>::from(Vec::<Hash256>::new())
-    .as_ssz_bytes()
-    .len();
-    pub static ref BLOBS_BY_ROOT_REQUEST_MAX: usize =
-        VariableList::<Hash256, MaxRequestBlobSidecars>::from(vec![
-            Hash256::zero();
-            MAX_REQUEST_BLOB_SIDECARS
-                as usize
-        ])
-    .as_ssz_bytes()
-    .len();
 
     pub static ref ERROR_TYPE_MIN: usize =
         VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
@@ -375,7 +348,7 @@ impl AsRef<str> for ProtocolId {
 
 impl ProtocolId {
     /// Returns min and max size for messages of given protocol id requests.
-    pub fn rpc_request_limits(&self) -> RpcLimits {
+    pub fn rpc_request_limits(&self, spec: &ChainSpec) -> RpcLimits {
         match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -390,16 +363,12 @@ impl ProtocolId {
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
             ),
-            Protocol::BlocksByRoot => {
-                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
-            }
+            Protocol::BlocksByRoot => RpcLimits::new(0, spec.max_blocks_by_root_request),
             Protocol::BlobsByRange => RpcLimits::new(
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
-            Protocol::BlobsByRoot => {
-                RpcLimits::new(*BLOBS_BY_ROOT_REQUEST_MIN, *BLOBS_BY_ROOT_REQUEST_MAX)
-            }
+            Protocol::BlobsByRoot => RpcLimits::new(0, spec.max_blobs_by_root_request),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),

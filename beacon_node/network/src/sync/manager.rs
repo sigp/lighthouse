@@ -34,7 +34,7 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
-use super::block_lookups::{BlockLookups, PeerShouldHave};
+use super::block_lookups::BlockLookups;
 use super::network_context::{BlockOrBlob, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
@@ -43,6 +43,7 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::common::{Current, Parent};
 use crate::sync::block_lookups::{BlobRequestState, BlockRequestState};
+use crate::sync::network_context::BlocksAndBlobsByRangeRequest;
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -51,7 +52,6 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
 use futures::StreamExt;
-use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
@@ -137,13 +137,6 @@ pub enum SyncMessage<T: EthSpec> {
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
-
-    /// A peer has sent a blob that references a block that is unknown or a peer has sent a block for
-    /// which we haven't received blobs.
-    ///
-    /// We will either attempt to find the block matching the unknown hash immediately or queue a lookup,
-    /// which will then trigger the request when we receive `MissingGossipBlockComponentsDelayed`.
-    MissingGossipBlockComponents(Vec<PeerId>, Hash256),
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -236,7 +229,7 @@ pub fn spawn<T: BeaconChainTypes>(
     log: slog::Logger,
 ) {
     assert!(
-        MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
+        beacon_chain.spec.max_request_blocks >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
 
@@ -636,9 +629,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
-                let blob_slot = blob.slot;
-                let block_root = blob.block_root;
-                let parent_root = blob.block_parent_root;
+                let blob_slot = blob.slot();
+                let block_root = blob.block_root();
+                let parent_root = blob.block_parent_root();
                 let blob_index = blob.index;
                 if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
                     warn!(self.log, "Peer sent blob with invalid index"; "index" => blob_index, "peer_id" => %peer_id);
@@ -657,31 +650,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
                 // If we are not synced, ignore this block.
                 if self.synced_and_connected(&peer_id) {
-                    self.block_lookups.search_block(
-                        block_hash,
-                        &[PeerShouldHave::BlockAndBlobs(peer_id)],
-                        &mut self.network,
-                    );
-                }
-            }
-            SyncMessage::MissingGossipBlockComponents(peer_id, block_root) => {
-                let peers_guard = self.network_globals().peers.read();
-                let connected_peers = peer_id
-                    .into_iter()
-                    .filter_map(|peer_id| {
-                        if peers_guard.is_connected(&peer_id) {
-                            Some(PeerShouldHave::Neither(peer_id))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                drop(peers_guard);
-
-                // If we are not synced, ignore this block.
-                if self.synced() && !connected_peers.is_empty() {
                     self.block_lookups
-                        .search_block(block_root, &connected_peers, &mut self.network)
+                        .search_block(block_hash, &[peer_id], &mut self.network);
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
@@ -765,7 +735,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.block_lookups.search_child_block(
                 block_root,
                 child_components,
-                &[PeerShouldHave::Neither(peer_id)],
+                &[peer_id],
                 &mut self.network,
             );
         }
@@ -1031,11 +1001,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 Err(e) => {
+                    // Re-insert the request so we can retry
+                    let new_req = BlocksAndBlobsByRangeRequest {
+                        chain_id,
+                        batch_id: resp.batch_id,
+                        block_blob_info: <_>::default(),
+                    };
+                    self.network
+                        .insert_range_blocks_and_blobs_request(id, new_req);
                     // inform range that the request needs to be treated as failed
                     // With time we will want to downgrade this log
                     warn!(
-                    self.log, "Blocks and blobs request for range received invalid data";
-                    "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e
+                        self.log,
+                        "Blocks and blobs request for range received invalid data";
+                        "peer_id" => %peer_id,
+                        "batch_id" => resp.batch_id,
+                        "error" => e.clone()
                     );
                     let id = RequestId::RangeBlockAndBlobs { id };
                     self.network.report_peer(
@@ -1043,7 +1024,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         PeerAction::MidToleranceError,
                         "block_blob_faulty_batch",
                     );
-                    self.inject_error(peer_id, id, RPCError::InvalidData(e.into()))
+                    self.inject_error(peer_id, id, RPCError::InvalidData(e))
                 }
             }
         }
@@ -1087,11 +1068,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 Err(e) => {
+                    // Re-insert the request so we can retry
+                    self.network.insert_backfill_blocks_and_blobs_requests(
+                        id,
+                        resp.batch_id,
+                        <_>::default(),
+                    );
+
                     // inform backfill that the request needs to be treated as failed
                     // With time we will want to downgrade this log
                     warn!(
                         self.log, "Blocks and blobs request for backfill received invalid data";
-                        "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e
+                        "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e.clone()
                     );
                     let id = RequestId::BackFillBlockAndBlobs { id };
                     self.network.report_peer(
@@ -1099,7 +1087,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         PeerAction::MidToleranceError,
                         "block_blob_faulty_backfill_batch",
                     );
-                    self.inject_error(peer_id, id, RPCError::InvalidData(e.into()))
+                    self.inject_error(peer_id, id, RPCError::InvalidData(e))
                 }
             }
         }

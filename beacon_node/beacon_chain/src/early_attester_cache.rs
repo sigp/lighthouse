@@ -99,9 +99,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         spec: &ChainSpec,
     ) -> Result<Option<Attestation<E>>, Error> {
         let lock = self.item.read();
-        let item = if let Some(item) = lock.as_ref() {
-            item
-        } else {
+        let Some(item) = lock.as_ref() else {
             return Ok(None);
         };
 

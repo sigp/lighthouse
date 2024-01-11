@@ -89,7 +89,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .disk_store(
                 &db_path,
                 &freezer_db_path,
-                blobs_db_path,
+                &blobs_db_path,
                 store_config,
                 log.clone(),
             )?;

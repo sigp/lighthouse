@@ -8,7 +8,7 @@ use derivative::Derivative;
 use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::sync::Arc;
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
+use types::blob_sidecar::{BlobIdentifier, BlobSidecarError, FixedBlobSidecarList};
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
@@ -37,6 +37,20 @@ pub struct RpcBlock<E: EthSpec> {
 impl<E: EthSpec> RpcBlock<E> {
     pub fn block_root(&self) -> Hash256 {
         self.block_root
+    }
+
+    pub fn as_block(&self) -> &SignedBeaconBlock<E> {
+        match &self.block {
+            RpcBlockInner::Block(block) => block,
+            RpcBlockInner::BlockAndBlobs(block, _) => block,
+        }
+    }
+
+    pub fn blobs(&self) -> Option<&BlobSidecarList<E>> {
+        match &self.block {
+            RpcBlockInner::Block(_) => None,
+            RpcBlockInner::BlockAndBlobs(_, blobs) => Some(blobs),
+        }
     }
 }
 
@@ -84,13 +98,6 @@ impl<E: EthSpec> RpcBlock<E> {
                 return Err(AvailabilityCheckError::MissingBlobs);
             }
             for (blob, &block_commitment) in blobs.iter().zip(block_commitments.iter()) {
-                let blob_block_root = blob.block_root;
-                if blob_block_root != block_root {
-                    return Err(AvailabilityCheckError::InconsistentBlobBlockRoots {
-                        block_root,
-                        blob_block_root,
-                    });
-                }
                 let blob_commitment = blob.kzg_commitment;
                 if blob_commitment != block_commitment {
                     return Err(AvailabilityCheckError::KzgCommitmentMismatch {
@@ -295,6 +302,7 @@ pub type GossipVerifiedBlockContents<T> =
 pub enum BlockContentsError<T: EthSpec> {
     BlockError(BlockError<T>),
     BlobError(GossipBlobError<T>),
+    SidecarError(BlobSidecarError),
 }
 
 impl<T: EthSpec> From<BlockError<T>> for BlockContentsError<T> {
@@ -317,6 +325,9 @@ impl<T: EthSpec> std::fmt::Display for BlockContentsError<T> {
             }
             BlockContentsError::BlobError(err) => {
                 write!(f, "BlobError({})", err)
+            }
+            BlockContentsError::SidecarError(err) => {
+                write!(f, "SidecarError({:?})", err)
             }
         }
     }

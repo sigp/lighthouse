@@ -672,10 +672,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Regardless of where we got the state from, attempt to build all the
             // caches except the tree hash cache.
-            new_snapshot
-                .beacon_state
-                .build_all_caches(&self.spec)
-                .map_err(Error::HeadCacheError)?;
+            new_snapshot.beacon_state.build_all_caches(&self.spec)?;
 
             let new_cached_head = CachedHead {
                 snapshot: Arc::new(new_snapshot),
@@ -946,6 +943,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         self.observed_blob_sidecars.write().prune(
+            new_view
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()),
+        );
+
+        self.observed_slashable.write().prune(
             new_view
                 .finalized_checkpoint
                 .epoch

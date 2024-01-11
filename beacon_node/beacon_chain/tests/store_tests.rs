@@ -7,13 +7,12 @@ use beacon_chain::test_utils::{
     mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
     BlockStrategy, DiskHarnessType,
 };
-use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::{
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
-use eth2_network_config::get_trusted_setup;
+use eth2_network_config::TRUSTED_SETUP_BYTES;
 use kzg::TrustedSetup;
 use lazy_static::lazy_static;
 use logging::test_logger;
@@ -27,10 +26,11 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
 use store::hdiff::HierarchyConfig;
+use store::metadata::STATE_UPPER_LIMIT_NO_RETAIN;
 use store::{
     config::StoreConfigError,
     iter::{BlockRootsIterator, StateRootsIterator},
-    Error as StoreError, HotColdDB, LevelDB, StoreConfig,
+    BlobInfo, Error as StoreError, HotColdDB, LevelDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
 use types::test_utils::{SeedableRng, XorShiftRng};
@@ -74,12 +74,13 @@ fn try_get_store_with_spec_and_config(
 ) -> Result<Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>, StoreError> {
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
+    let blobs_path = db_path.path().join("blobs_db");
     let log = test_logger();
 
     HotColdDB::open(
         &hot_path,
         &cold_path,
-        None,
+        &blobs_path,
         |_, _, _| Ok(()),
         config,
         spec,
@@ -2173,13 +2174,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
-    let trusted_setup: TrustedSetup =
-        serde_json::from_reader(get_trusted_setup::<<E as EthSpec>::Kzg>())
-            .map_err(|e| println!("Unable to read trusted setup file: {}", e))
-            .unwrap();
+    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+        .map_err(|e| println!("Unable to read trusted setup file: {}", e))
+        .unwrap();
 
     let mock =
-        mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone(), None);
+        mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
 
     // Initialise a new beacon chain from the finalized checkpoint.
     // The slot clock must be set to a time ahead of the checkpoint state.
@@ -2189,6 +2189,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         Duration::from_secs(seconds_per_slot),
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
+
     let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec)
         .store(store.clone())
         .custom_spec(test_spec::<E>())
@@ -2207,7 +2208,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             1,
         )))
         .execution_layer(Some(mock.el))
-        .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
         .trusted_setup(trusted_setup)
         .build()
         .expect("should build");
@@ -2296,10 +2296,10 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         if let MaybeAvailableBlock::Available(block) = harness
             .chain
             .data_availability_checker
-            .check_rpc_block_availability(
+            .verify_kzg_for_rpc_block(
                 RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs)).unwrap(),
             )
-            .expect("should check availability")
+            .expect("should verify kzg")
         {
             available_blocks.push(block);
         }
@@ -2843,10 +2843,8 @@ async fn schema_downgrade_to_min_version() {
         // Can't downgrade beyond V18 once Deneb is reached, for simplicity don't test that
         // at all if Deneb is enabled.
         SchemaVersion(18)
-    } else if harness.spec.capella_fork_epoch.is_some() {
-        SchemaVersion(14)
     } else {
-        SchemaVersion(11)
+        SchemaVersion(16)
     };
 
     // Save the slot clock so that the new harness doesn't revert in time.
@@ -3156,6 +3154,40 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
     check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
 }
 
+/// Check that a database with `blobs_db=false` can be upgraded to `blobs_db=true` before Deneb.
+#[tokio::test]
+async fn change_to_separate_blobs_db_before_deneb() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+
+    // Only run this test on forks prior to Deneb. If the blobs database already has blobs, we can't
+    // move it.
+    if store.get_chain_spec().deneb_fork_epoch.is_some() {
+        return;
+    }
+
+    let init_blob_info = store.get_blob_info();
+    assert!(
+        init_blob_info.blobs_db,
+        "separate blobs DB should be the default"
+    );
+
+    // Change to `blobs_db=false` to emulate legacy Deneb DB.
+    let legacy_blob_info = BlobInfo {
+        blobs_db: false,
+        ..init_blob_info
+    };
+    store
+        .compare_and_set_blob_info_with_write(init_blob_info.clone(), legacy_blob_info.clone())
+        .unwrap();
+    assert_eq!(store.get_blob_info(), legacy_blob_info);
+
+    // Re-open the DB and check that `blobs_db` gets changed back to true.
+    drop(store);
+    let store = get_store(&db_path);
+    assert_eq!(store.get_blob_info(), init_blob_info);
+}
+
 /// Check that there are blob sidecars (or not) at every slot in the range.
 fn check_blob_existence(
     harness: &TestHarness,
@@ -3181,6 +3213,77 @@ fn check_blob_existence(
     if should_exist {
         assert_ne!(blobs_seen, 0, "expected non-zero number of blobs");
     }
+}
+
+#[tokio::test]
+async fn prune_historic_states() {
+    let num_blocks_produced = E::slots_per_epoch() * 5;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let genesis_state_root = harness.chain.genesis_state_root;
+    let genesis_state = harness
+        .chain
+        .get_state(&genesis_state_root, None)
+        .unwrap()
+        .unwrap();
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Check historical state is present.
+    let state_roots_iter = harness
+        .chain
+        .forwards_iter_state_roots(Slot::new(0))
+        .unwrap();
+    for (state_root, slot) in state_roots_iter
+        .take(E::slots_per_epoch() as usize)
+        .map(Result::unwrap)
+    {
+        assert!(store.get_state(&state_root, Some(slot)).unwrap().is_some());
+    }
+
+    store
+        .prune_historic_states(genesis_state_root, &genesis_state)
+        .unwrap();
+
+    // Check that anchor info is updated.
+    let anchor_info = store.get_anchor_info().unwrap();
+    assert_eq!(anchor_info.state_lower_limit, 0);
+    assert_eq!(anchor_info.state_upper_limit, STATE_UPPER_LIMIT_NO_RETAIN);
+
+    // Historical states should be pruned.
+    let state_roots_iter = harness
+        .chain
+        .forwards_iter_state_roots(Slot::new(1))
+        .unwrap();
+    for (state_root, slot) in state_roots_iter
+        .take(E::slots_per_epoch() as usize)
+        .map(Result::unwrap)
+    {
+        assert!(store.get_state(&state_root, Some(slot)).unwrap().is_none());
+    }
+
+    // Ensure that genesis state is still accessible
+    let genesis_state_root = harness.chain.genesis_state_root;
+    assert!(store
+        .get_state(&genesis_state_root, Some(Slot::new(0)))
+        .unwrap()
+        .is_some());
+
+    // Run for another two epochs.
+    let additional_blocks_produced = 2 * E::slots_per_epoch();
+    harness
+        .extend_slots(additional_blocks_produced as usize)
+        .await;
+
+    check_finalization(&harness, num_blocks_produced + additional_blocks_produced);
+    check_split_slot(&harness, store);
 }
 
 /// Checks that two chains are the same, for the purpose of these tests.

@@ -1,4 +1,5 @@
 pub mod attestation_rewards;
+pub mod attestation_simulator;
 pub mod attestation_verification;
 mod attester_cache;
 pub mod beacon_block_reward;
@@ -39,6 +40,7 @@ mod observed_attesters;
 mod observed_blob_sidecars;
 pub mod observed_block_producers;
 pub mod observed_operations;
+mod observed_slashable;
 pub mod otb_verification_service;
 mod parallel_state_cache;
 mod persisted_beacon_chain;
@@ -55,10 +57,10 @@ mod timeout_rw_lock;
 pub mod validator_monitor;
 
 pub use self::beacon_chain::{
-    AttestationProcessingOutcome, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes,
-    BeaconStore, ChainSegmentResult, ForkChoiceError, OverrideForkchoiceUpdate,
-    ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
-    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    AttestationProcessingOutcome, AvailabilityProcessingStatus, BeaconBlockResponse,
+    BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
+    ForkChoiceError, OverrideForkchoiceUpdate, ProduceBlockVerification, StateSkipConfig,
+    WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;

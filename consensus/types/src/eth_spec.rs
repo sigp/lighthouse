@@ -1,12 +1,12 @@
 use crate::*;
 
-use kzg::{BlobTrait, KzgPreset, MainnetKzgPreset, MinimalKzgPreset};
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::{
     bit::B0, UInt, Unsigned, U0, U1024, U1048576, U1073741824, U1099511627776, U128, U131072, U16,
     U16777216, U2, U2048, U256, U32, U4, U4096, U512, U6, U625, U64, U65536, U8, U8192,
 };
+use ssz_types::typenum::{U17, U9};
 use std::fmt::{self, Debug};
 use std::str::FromStr;
 
@@ -52,8 +52,6 @@ impl fmt::Display for EthSpecId {
 pub trait EthSpec:
     'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq + for<'a> arbitrary::Arbitrary<'a>
 {
-    type Kzg: KzgPreset;
-
     /*
      * Constants
      */
@@ -112,6 +110,7 @@ pub trait EthSpec:
     type MaxBlobCommitmentsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type KzgCommitmentInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -270,13 +269,13 @@ pub trait EthSpec:
         Self::FieldElementsPerBlob::to_usize()
     }
 
-    fn blob_from_bytes(bytes: &[u8]) -> Result<<Self::Kzg as KzgPreset>::Blob, kzg::Error> {
-        <Self::Kzg as KzgPreset>::Blob::from_bytes(bytes)
-    }
-
     /// Returns the `BYTES_PER_BLOB` constant for this specification.
     fn bytes_per_blob() -> usize {
         Self::BytesPerBlob::to_usize()
+    }
+    /// Returns the `KZG_COMMITMENT_INCLUSION_PROOF_DEPTH` preset for this specification.
+    fn kzg_proof_inclusion_proof_depth() -> usize {
+        Self::KzgCommitmentInclusionProofDepth::to_usize()
     }
 }
 
@@ -293,8 +292,6 @@ macro_rules! params_from_eth_spec {
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
-    type Kzg = MainnetKzgPreset;
-
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;
@@ -324,6 +321,7 @@ impl EthSpec for MainnetEthSpec {
     type BytesPerFieldElement = U32;
     type FieldElementsPerBlob = U4096;
     type BytesPerBlob = U131072;
+    type KzgCommitmentInclusionProofDepth = U17;
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -344,8 +342,6 @@ impl EthSpec for MainnetEthSpec {
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
-    type Kzg = MinimalKzgPreset;
-
     type SlotsPerEpoch = U8;
     type EpochsPerEth1VotingPeriod = U4;
     type SlotsPerHistoricalRoot = U64;
@@ -356,9 +352,10 @@ impl EthSpec for MinimalEthSpec {
     type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
     type SlotsPerEth1VotingPeriod = U32; // 4 epochs * 8 slots per epoch
     type MaxWithdrawalsPerPayload = U4;
-    type FieldElementsPerBlob = U4;
-    type BytesPerBlob = U128;
+    type FieldElementsPerBlob = U4096;
+    type BytesPerBlob = U131072;
     type MaxBlobCommitmentsPerBlock = U16;
+    type KzgCommitmentInclusionProofDepth = U9;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -398,8 +395,6 @@ impl EthSpec for MinimalEthSpec {
 pub struct GnosisEthSpec;
 
 impl EthSpec for GnosisEthSpec {
-    type Kzg = MainnetKzgPreset;
-
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;
@@ -434,6 +429,7 @@ impl EthSpec for GnosisEthSpec {
     type FieldElementsPerBlob = U4096;
     type BytesPerFieldElement = U32;
     type BytesPerBlob = U131072;
+    type KzgCommitmentInclusionProofDepth = U17;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

@@ -121,13 +121,6 @@ pub fn get_config<E: EthSpec>(
             client_config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
-        if cli_args.is_present("http-disable-legacy-spec") {
-            warn!(
-                log,
-                "The flag --http-disable-legacy-spec is deprecated and will be removed"
-            );
-        }
-
         if let Some(fork_name) = clap_utils::parse_optional(cli_args, "http-spec-fork")? {
             client_config.http_api.spec_fork_name = Some(fork_name);
         }
@@ -159,6 +152,9 @@ pub fn get_config<E: EthSpec>(
 
         client_config.http_api.duplicate_block_status_code =
             parse_required(cli_args, "http-duplicate-block-status")?;
+
+        client_config.http_api.enable_light_client_server =
+            cli_args.is_present("light-client-server");
     }
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
@@ -241,25 +237,6 @@ pub fn get_config<E: EthSpec>(
         client_config.sync_eth1_chain = true;
     }
 
-    // Defines the URL to reach the eth1 node.
-    if let Some(endpoint) = cli_args.value_of("eth1-endpoint") {
-        warn!(
-            log,
-            "The --eth1-endpoint flag is deprecated";
-            "msg" => "please use --eth1-endpoints instead"
-        );
-        client_config.sync_eth1_chain = true;
-
-        let endpoint = SensitiveUrl::parse(endpoint)
-            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?;
-        client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
-    } else if let Some(endpoint) = cli_args.value_of("eth1-endpoints") {
-        client_config.sync_eth1_chain = true;
-        let endpoint = SensitiveUrl::parse(endpoint)
-            .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
-        client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
-    }
-
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
         client_config.eth1.blocks_per_log_query = val
             .parse()
@@ -274,20 +251,6 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_optional(cli_args, "eth1-cache-follow-distance")?
     {
         client_config.eth1.cache_follow_distance = Some(follow_distance);
-    }
-
-    if cli_args.is_present("merge") {
-        if cli_args.is_present("execution-endpoint") {
-            warn!(
-                log,
-                "The --merge flag is deprecated";
-                "info" => "the --execution-endpoint flag automatically enables this feature"
-            )
-        } else {
-            return Err("The --merge flag is deprecated. \
-                Supply a value to --execution-endpoint instead."
-                .into());
-        }
     }
 
     if let Some(endpoints) = cli_args.value_of("execution-endpoint") {
@@ -329,7 +292,7 @@ pub fn get_config<E: EthSpec>(
                 .write_all(jwt_secret_key.as_bytes())
                 .map_err(|e| {
                     format!(
-                        "Error occured while writing to jwt_secret_key file: {:?}",
+                        "Error occurred while writing to jwt_secret_key file: {:?}",
                         e
                     )
                 })?;
@@ -347,6 +310,21 @@ pub fn get_config<E: EthSpec>(
                 clap_utils::parse_optional(cli_args, "builder-user-agent")?;
         }
 
+        if cli_args.is_present("builder-profit-threshold") {
+            warn!(
+                log,
+                "Ignoring --builder-profit-threshold";
+                "info" => "this flag is deprecated and will be removed"
+            );
+        }
+        if cli_args.is_present("always-prefer-builder-payload") {
+            warn!(
+                log,
+                "Ignoring --always-prefer-builder-payload";
+                "info" => "this flag is deprecated and will be removed"
+            );
+        }
+
         // Set config values from parse values.
         el_config.secret_files = vec![secret_file.clone()];
         el_config.execution_endpoints = vec![execution_endpoint.clone()];
@@ -355,26 +333,10 @@ pub fn get_config<E: EthSpec>(
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
         el_config.default_datadir = client_config.data_dir().clone();
-        el_config.builder_profit_threshold =
-            clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
-        el_config.always_prefer_builder_payload =
-            cli_args.is_present("always-prefer-builder-payload");
-        el_config.ignore_builder_override_suggestion_threshold =
-            clap_utils::parse_required(cli_args, "ignore-builder-override-suggestion-threshold")?;
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
 
-        // If `--execution-endpoint` is provided, we should ignore any `--eth1-endpoints` values and
-        // use `--execution-endpoint` instead. Also, log a deprecation warning.
-        if cli_args.is_present("eth1-endpoints") || cli_args.is_present("eth1-endpoint") {
-            warn!(
-                log,
-                "Ignoring --eth1-endpoints flag";
-                "info" => "the value for --execution-endpoint will be used instead. \
-                    --eth1-endpoints has been deprecated for post-merge configurations"
-            );
-        }
         client_config.eth1.endpoint = Eth1Endpoint::Auth {
             endpoint: execution_endpoint,
             jwt_path: secret_file,
@@ -390,10 +352,12 @@ pub fn get_config<E: EthSpec>(
     client_config.trusted_setup = context
         .eth2_network_config
         .as_ref()
-        .and_then(|config| config.kzg_trusted_setup.clone());
+        .and_then(|config| config.kzg_trusted_setup.as_ref())
+        .map(|trusted_setup_bytes| serde_json::from_slice(trusted_setup_bytes))
+        .transpose()
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
 
     // Override default trusted setup file if required
-    // TODO: consider removing this when we get closer to launch
     if let Some(trusted_setup_file_path) = cli_args.value_of("trusted-setup-file-override") {
         let file = std::fs::File::open(trusted_setup_file_path)
             .map_err(|e| format!("Failed to open trusted setup file: {}", e))?;
@@ -579,6 +543,8 @@ pub fn get_config<E: EthSpec>(
         None
     };
 
+    client_config.allow_insecure_genesis_sync = cli_args.is_present("allow-insecure-genesis-sync");
+
     client_config.genesis = if eth2_network_config.genesis_state_is_known() {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
         if let (Some(initial_state_path), Some(initial_block_path)) = (
@@ -763,7 +729,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.is_present("validator-monitor-auto") {
-        client_config.validator_monitor_auto = true;
+        client_config.validator_monitor.auto_register = true;
     }
 
     if let Some(pubkeys) = cli_args.value_of("validator-monitor-pubkeys") {
@@ -773,7 +739,8 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Invalid --validator-monitor-pubkeys value: {:?}", e))?;
         client_config
-            .validator_monitor_pubkeys
+            .validator_monitor
+            .validators
             .extend_from_slice(&pubkeys);
     }
 
@@ -791,14 +758,17 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Invalid --validator-monitor-file contents: {:?}", e))?;
         client_config
-            .validator_monitor_pubkeys
+            .validator_monitor
+            .validators
             .extend_from_slice(&pubkeys);
     }
 
     if let Some(count) =
         clap_utils::parse_optional(cli_args, "validator-monitor-individual-tracking-threshold")?
     {
-        client_config.validator_monitor_individual_tracking_threshold = count;
+        client_config
+            .validator_monitor
+            .individual_tracking_threshold = count;
     }
 
     if cli_args.is_present("disable-lock-timeouts") {
@@ -856,22 +826,6 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
     }
 
-    if !clap_utils::parse_required::<bool>(cli_args, "count-unrealized")? {
-        warn!(
-            log,
-            "The flag --count-unrealized is deprecated and will be removed";
-            "info" => "any use of the flag will have no effect"
-        );
-    }
-
-    if clap_utils::parse_required::<bool>(cli_args, "count-unrealized-full")? {
-        warn!(
-            log,
-            "The flag --count-unrealized-full is deprecated and will be removed";
-            "info" => "setting it to `true` has no effect"
-        );
-    }
-
     client_config.chain.always_reset_payload_statuses =
         cli_args.is_present("reset-payload-statuses");
 
@@ -894,7 +848,7 @@ pub fn get_config<E: EthSpec>(
     // Graphical user interface config.
     if cli_args.is_present("gui") {
         client_config.http_api.enabled = true;
-        client_config.validator_monitor_auto = true;
+        client_config.validator_monitor.auto_register = true;
     }
 
     // Optimistic finalized sync.
@@ -1498,6 +1452,9 @@ pub fn set_network_config(
             Some(config_str.parse()?)
         }
     };
+
+    config.disable_duplicate_warn_logs = cli_args.is_present("disable-duplicate-warn-logs");
+
     Ok(())
 }
 

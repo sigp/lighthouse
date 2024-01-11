@@ -16,10 +16,4 @@ serde = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 hex = { workspace = true }
 ethereum_hashing = { workspace = true }
-c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", rev = "f5f6f863d475847876a2bd5ee252058d37c3a15d" , features = ["mainnet-spec", "serde"]}
-c_kzg_min = { package = "c-kzg", git = "https://github.com/ethereum//c-kzg-4844", rev = "f5f6f863d475847876a2bd5ee252058d37c3a15d", features = ["minimal-spec", "serde"], optional = true }
-
-[features]
-# TODO(deneb): enabled by default for convenience, would need more cfg magic to disable
-default = ["c_kzg_min"]
-minimal-spec = ["c_kzg_min"]
+c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", rev = "748283cced543c486145d5f3f38684becdfe3e1b"}

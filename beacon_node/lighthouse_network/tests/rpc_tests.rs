@@ -715,7 +715,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
 }
 
 // Tests a streamed, chunked BlocksByRoot RPC Message
-// The size of the reponse is a full `BeaconBlock`
+// The size of the response is a full `BeaconBlock`
 // which is greater than the Snappy frame size. Hence, this test
 // serves to test the snappy framing format as well.
 #[test]
@@ -743,15 +743,17 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
         .await;
 
         // BlocksByRoot Request
-        let rpc_request =
-            Request::BlocksByRoot(BlocksByRootRequest::new(VariableList::from(vec![
+        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest::new(
+            vec![
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
-            ])));
+            ],
+            &spec,
+        ));
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
@@ -876,8 +878,8 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
         .await;
 
         // BlocksByRoot Request
-        let rpc_request =
-            Request::BlocksByRoot(BlocksByRootRequest::new(VariableList::from(vec![
+        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest::new(
+            vec![
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
@@ -888,7 +890,9 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
-            ])));
+            ],
+            &spec,
+        ));
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));

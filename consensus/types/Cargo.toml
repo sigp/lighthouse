@@ -70,3 +70,4 @@ sqlite = []
 # The `arbitrary-fuzz` feature is a no-op provided for backwards compatibility.
 # For simplicity `Arbitrary` is now derived regardless of the feature's presence.
 arbitrary-fuzz = []
+portable = ["bls/supranational-portable"]
