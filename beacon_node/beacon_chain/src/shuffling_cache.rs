@@ -110,6 +110,7 @@ mod test {
     use super::*;
     use crate::test_utils::EphemeralHarnessType;
     use promise_cache::{CacheItem, PromiseCacheError};
+    use std::sync::Arc;
     use task_executor::test_utils::null_logger;
     use types::*;
 

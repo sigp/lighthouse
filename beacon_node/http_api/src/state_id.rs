@@ -4,7 +4,6 @@ use eth2::types::StateId as CoreStateId;
 use slog::{debug, warn};
 use std::fmt;
 use std::str::FromStr;
-use std::sync::Arc;
 use types::{BeaconState, Checkpoint, EthSpec, Fork, Hash256, Slot};
 
 /// Wraps `eth2::types::StateId` and provides common state-access functionality. E.g., reading
@@ -244,8 +243,10 @@ impl StateId {
                 })
             })?;
 
-        // Fulfil promise.
-        sender.send(Arc::new(state.clone()));
+        // Fulfil promise (and re-lock again).
+        let mut state_cache = chain.parallel_state_cache.write();
+        state_cache.resolve_promise(sender, state_root, &state);
+        drop(state_cache);
 
         Ok((state, execution_optimistic, finalized))
     }

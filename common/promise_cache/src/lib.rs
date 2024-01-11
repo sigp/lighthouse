@@ -156,6 +156,21 @@ where
         }
     }
 
+    /// Take care of resolving a promise by ensuring the value is made available:
+    ///
+    /// 1. To all waiting thread that are holding a `Receiver`.
+    /// 2. In the cache itself for future callers.
+    pub fn resolve_promise<C: ToArc<V>>(&mut self, sender: Sender<Arc<V>>, key: K, value: &C) {
+        // Use the sender to notify all actively waiting receivers.
+        let arc_value = value.to_arc();
+        sender.send(arc_value.clone());
+
+        // Re-insert the value into the cache. The promise may have been evicted in the meantime,
+        // but we probably want to keep this value (which resolved recently) over other older cache
+        // entries.
+        self.insert_value(key, &arc_value);
+    }
+
     /// Prunes the cache first before inserting a new item.
     fn insert_cache_item(&mut self, key: K, cache_item: CacheItem<V>) {
         self.prune_cache();

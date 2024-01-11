@@ -1,7 +1,7 @@
 use promise_cache::{PromiseCache, Protect};
 use types::{BeaconState, Hash256};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct ParallelStateProtector;
 
 impl Protect<Hash256> for ParallelStateProtector {
