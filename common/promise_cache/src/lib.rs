@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct PromiseCache<K, V, P>
 where
     K: Hash + Eq + Clone,
@@ -36,6 +37,15 @@ pub trait Protect<K> {
 pub enum CacheItem<T> {
     Complete(Arc<T>),
     Promise(Receiver<Arc<T>>),
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for CacheItem<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            CacheItem::Complete(value) => value.fmt(f),
+            CacheItem::Promise(_) => "Promise(..)".fmt(f),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -186,5 +196,17 @@ where
 
     pub fn update_protector(&mut self, protector: P) {
         self.protector = protector;
+    }
+
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cache.is_empty()
+    }
+
+    pub fn max_concurrent_promises(&self) -> usize {
+        self.max_concurrent_promises
     }
 }

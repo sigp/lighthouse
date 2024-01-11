@@ -1,4 +1,4 @@
-use crate::{metrics, BeaconChainError};
+use crate::metrics;
 use itertools::Itertools;
 use oneshot_broadcast::{oneshot, Receiver, Sender};
 use promise_cache::{PromiseCache, Protect};
@@ -15,18 +15,18 @@ use types::{
 /// Each entry should be `8 + 800,000 = 800,008` bytes in size with 100k validators. (8-byte hash +
 /// 100k indices). Therefore, this cache should be approx `16 * 800,008 = 12.8 MB`. (Note: this
 /// ignores a few extra bytes in the caches that should be insignificant compared to the indices).
-pub const DEFAULT_CACHE_SIZE: usize = 16;
-
-/// The maximum number of concurrent committee cache "promises" that can be issued. In effect, this
-/// limits the number of concurrent states that can be loaded into memory for the committee cache.
-/// This prevents excessive memory usage at the cost of rejecting some attestations.
+///
+/// The cache size also determines the maximum number of concurrent committee cache "promises" that
+/// can be issued. In effect, this limits the number of concurrent states that can be loaded into
+/// memory for the committee cache. This prevents excessive memory usage at the cost of rejecting
+/// some attestations.
 ///
 /// We set this value to 2 since states can be quite large and have a significant impact on memory
 /// usage. A healthy network cannot have more than a few committee caches and those caches should
 /// always be inserted during block import. Unstable networks with a high degree of forking might
 /// see some attestations dropped due to this concurrency limit, however I propose that this is
 /// better than low-resource nodes going OOM.
-pub const DEFAULT_MAX_CONCURRENT_PROMISES: usize = 2;
+pub const DEFAULT_CACHE_SIZE: usize = 16;
 
 impl Protect<AttestationShufflingId> for BlockShufflingIds {
     type SortKey = Epoch;
@@ -36,7 +36,7 @@ impl Protect<AttestationShufflingId> for BlockShufflingIds {
     }
 
     fn protect_from_eviction(&self, shuffling_id: &AttestationShufflingId) -> bool {
-        Some(shuffling_id) != self.id_for_epoch(shuffling_id.shuffling_epoch).as_ref()
+        Some(shuffling_id) == self.id_for_epoch(shuffling_id.shuffling_epoch).as_ref()
     }
 
     fn notify_eviction(&self, shuffling_id: &AttestationShufflingId, logger: &Logger) {
@@ -52,7 +52,7 @@ impl Protect<AttestationShufflingId> for BlockShufflingIds {
 pub type ShufflingCache = PromiseCache<AttestationShufflingId, CommitteeCache, BlockShufflingIds>;
 
 /// Contains the shuffling IDs for a beacon block.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct BlockShufflingIds {
     pub current: AttestationShufflingId,
     pub next: AttestationShufflingId,
@@ -112,12 +112,11 @@ impl BlockShufflingIds {
 #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
+    use super::*;
+    use crate::test_utils::EphemeralHarnessType;
+    use promise_cache::{CacheItem, PromiseCacheError};
     use task_executor::test_utils::null_logger;
     use types::*;
-
-    use crate::test_utils::EphemeralHarnessType;
-
-    use super::*;
 
     type E = MinimalEthSpec;
     type TestBeaconChainType = EphemeralHarnessType<E>;
@@ -134,11 +133,7 @@ mod test {
             block_root: Hash256::from_low_u64_le(0),
         };
         let logger = null_logger().unwrap();
-        ShufflingCache::new(
-            TEST_CACHE_SIZE,
-            head_shuffling_ids,
-            DEFAULT_MAX_CONCURRENT_PROMISES,
-        )
+        ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids, logger)
     }
 
     /// Returns two different committee caches for testing.
@@ -194,10 +189,10 @@ mod test {
         // Ensure the promise has been resolved.
         let item = cache.get(&id_a).unwrap();
         assert!(
-            matches!(item, CacheItem::Committee(committee) if committee == committee_a),
+            matches!(item, CacheItem::Complete(committee) if committee == committee_a),
             "the promise should be resolved"
         );
-        assert_eq!(cache.cache.len(), 1, "the cache should have one entry");
+        assert_eq!(cache.len(), 1, "the cache should have one entry");
     }
 
     #[test]
@@ -221,7 +216,7 @@ mod test {
 
         // Ensure the key now indicates an empty slot.
         assert!(cache.get(&id_a).is_none(), "the slot should be empty");
-        assert!(cache.cache.is_empty(), "the cache should be empty");
+        assert!(cache.is_empty(), "the cache should be empty");
     }
 
     #[test]
@@ -255,7 +250,7 @@ mod test {
         // Ensure promise A has been resolved.
         let item = cache.get(&id_a).unwrap();
         assert!(
-            matches!(item, CacheItem::Committee(committee) if committee == committee_a),
+            matches!(item, CacheItem::Complete(committee) if committee == committee_a),
             "promise A should be resolved"
         );
 
@@ -264,41 +259,40 @@ mod test {
         // Ensure promise B has been resolved.
         let item = cache.get(&id_b).unwrap();
         assert!(
-            matches!(item, CacheItem::Committee(committee) if committee == committee_b),
+            matches!(item, CacheItem::Complete(committee) if committee == committee_b),
             "promise B should be resolved"
         );
 
         // Check both entries again.
         assert!(
-            matches!(cache.get(&id_a).unwrap(), CacheItem::Committee(committee) if committee == committee_a),
+            matches!(cache.get(&id_a).unwrap(), CacheItem::Complete(committee) if committee == committee_a),
             "promise A should remain resolved"
         );
         assert!(
-            matches!(cache.get(&id_b).unwrap(), CacheItem::Committee(committee) if committee == committee_b),
+            matches!(cache.get(&id_b).unwrap(), CacheItem::Complete(committee) if committee == committee_b),
             "promise B should remain resolved"
         );
-        assert_eq!(cache.cache.len(), 2, "the cache should have two entries");
+        assert_eq!(cache.len(), 2, "the cache should have two entries");
     }
 
     #[test]
     fn too_many_promises() {
         let mut cache = new_shuffling_cache();
 
-        for i in 0..MAX_CONCURRENT_PROMISES {
+        for i in 0..cache.max_concurrent_promises() {
             cache.create_promise(shuffling_id(i as u64)).unwrap();
         }
 
         // Ensure that the next promise returns an error. It is important for the application to
         // dump his ass when he can't keep his promises, you're a queen and you deserve better.
         assert!(matches!(
-            cache.create_promise(shuffling_id(MAX_CONCURRENT_PROMISES as u64)),
-            Err(BeaconChainError::MaxCommitteePromises(
-                MAX_CONCURRENT_PROMISES
-            ))
+            cache.create_promise(shuffling_id(cache.max_concurrent_promises() as u64)),
+            Err(PromiseCacheError::MaxConcurrentPromises(n))
+                if n == cache.max_concurrent_promises()
         ));
         assert_eq!(
-            cache.cache.len(),
-            MAX_CONCURRENT_PROMISES,
+            cache.len(),
+            cache.max_concurrent_promises(),
             "the cache should have two entries"
         );
     }
@@ -308,9 +302,9 @@ mod test {
         let mut cache = new_shuffling_cache();
         let id_a = shuffling_id(1);
         let committee_cache_a = Arc::new(CommitteeCache::default());
-        cache.insert_committee_cache(id_a.clone(), &committee_cache_a);
+        cache.insert_value(id_a.clone(), &committee_cache_a);
         assert!(
-            matches!(cache.get(&id_a).unwrap(), CacheItem::Committee(committee_cache) if committee_cache == committee_cache_a),
+            matches!(cache.get(&id_a).unwrap(), CacheItem::Complete(committee_cache) if committee_cache == committee_cache_a),
             "should insert committee cache"
         );
     }
@@ -323,7 +317,7 @@ mod test {
             .collect::<Vec<_>>();
 
         for (shuffling_id, committee_cache) in shuffling_id_and_committee_caches.iter() {
-            cache.insert_committee_cache(shuffling_id.clone(), committee_cache);
+            cache.insert_value(shuffling_id.clone(), committee_cache);
         }
 
         for i in 1..(TEST_CACHE_SIZE + 1) {
@@ -337,11 +331,7 @@ mod test {
             !cache.contains(&shuffling_id_and_committee_caches.get(0).unwrap().0),
             "should not contain oldest epoch shuffling id"
         );
-        assert_eq!(
-            cache.cache.len(),
-            cache.cache_size,
-            "should limit cache size"
-        );
+        assert_eq!(cache.len(), TEST_CACHE_SIZE, "should limit cache size");
     }
 
     #[test]
@@ -356,7 +346,7 @@ mod test {
                 shuffling_epoch: (current_epoch + 1).into(),
                 shuffling_decision_block: Hash256::from_low_u64_be(current_epoch + i as u64),
             };
-            cache.insert_committee_cache(shuffling_id, &committee_cache);
+            cache.insert_value(shuffling_id, &committee_cache);
         }
 
         // Now, update the head shuffling ids
@@ -366,12 +356,12 @@ mod test {
             previous: Some(shuffling_id(current_epoch - 1)),
             block_root: Hash256::from_low_u64_le(42),
         };
-        cache.update_head_shuffling_ids(head_shuffling_ids.clone());
+        cache.update_protector(head_shuffling_ids.clone());
 
         // Insert head state shuffling ids. Should not be overridden by other shuffling ids.
-        cache.insert_committee_cache(head_shuffling_ids.current.clone(), &committee_cache);
-        cache.insert_committee_cache(head_shuffling_ids.next.clone(), &committee_cache);
-        cache.insert_committee_cache(
+        cache.insert_value(head_shuffling_ids.current.clone(), &committee_cache);
+        cache.insert_value(head_shuffling_ids.next.clone(), &committee_cache);
+        cache.insert_value(
             head_shuffling_ids.previous.clone().unwrap(),
             &committee_cache,
         );
@@ -382,7 +372,7 @@ mod test {
                 shuffling_epoch: Epoch::from(i),
                 shuffling_decision_block: Hash256::from_low_u64_be(i as u64),
             };
-            cache.insert_committee_cache(shuffling_id, &committee_cache);
+            cache.insert_value(shuffling_id, &committee_cache);
         }
 
         assert!(
@@ -397,10 +387,6 @@ mod test {
             cache.contains(&head_shuffling_ids.previous.unwrap()),
             "should retain head shuffling id for previous epoch."
         );
-        assert_eq!(
-            cache.cache.len(),
-            cache.cache_size,
-            "should limit cache size"
-        );
+        assert_eq!(cache.len(), TEST_CACHE_SIZE, "should limit cache size");
     }
 }
