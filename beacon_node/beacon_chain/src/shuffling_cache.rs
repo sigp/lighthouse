@@ -1,9 +1,5 @@
-use itertools::Itertools;
-use oneshot_broadcast::{oneshot, Receiver, Sender};
 use promise_cache::{PromiseCache, Protect};
 use slog::{debug, Logger};
-use std::collections::HashMap;
-use std::sync::Arc;
 use types::{
     beacon_state::CommitteeCache, AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256,
     RelativeEpoch,

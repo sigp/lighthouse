@@ -1,5 +1,5 @@
 use promise_cache::{PromiseCache, Protect};
-use types::{BeaconState, EthSpec, Hash256};
+use types::{BeaconState, Hash256};
 
 #[derive(Default)]
 pub struct ParallelStateProtector;

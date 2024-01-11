@@ -569,7 +569,6 @@ dependencies = [
  "lru",
  "maplit",
  "merkle_proof",
- "oneshot_broadcast",
  "operation_pool",
  "parking_lot 0.12.1",
  "promise_cache",
