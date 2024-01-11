@@ -5,7 +5,6 @@ use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
-use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
@@ -91,7 +90,7 @@ pub struct Config {
 
     /// Discv5 configuration parameters.
     #[serde(skip)]
-    pub discv5_config: Discv5Config,
+    pub discv5_config: discv5::Config,
 
     /// List of nodes to initially connect to.
     pub boot_nodes_enr: Vec<Enr>,
@@ -158,6 +157,10 @@ pub struct Config {
 
     /// Configuration for the inbound rate limiter (requests received by this node).
     pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
+
+    /// Whether to disable logging duplicate gossip messages as WARN. If set to true, duplicate  
+    /// errors will be logged at DEBUG level.
+    pub disable_duplicate_warn_logs: bool,
 }
 
 impl Config {
@@ -320,7 +323,7 @@ impl Default for Config {
             discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
 
         // discv5 configuration
-        let discv5_config = Discv5ConfigBuilder::new(discv5_listen_config)
+        let discv5_config = discv5::ConfigBuilder::new(discv5_listen_config)
             .enable_packet_filter()
             .session_cache_capacity(5000)
             .request_timeout(Duration::from_secs(1))
@@ -375,6 +378,7 @@ impl Default for Config {
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
+            disable_duplicate_warn_logs: false,
         }
     }
 }

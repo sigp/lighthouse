@@ -951,6 +951,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
 
+        self.observed_slashable.write().prune(
+            new_view
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()),
+        );
+
         self.attester_cache
             .prune_below(new_view.finalized_checkpoint.epoch);
 

@@ -813,6 +813,7 @@ where
             validator_monitor.process_valid_state(
                 slot.epoch(TEthSpec::slots_per_epoch()),
                 &head_snapshot.beacon_state,
+                &self.spec,
             );
         }
 
@@ -905,6 +906,7 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             observed_blob_sidecars: <_>::default(),
+            observed_slashable: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),

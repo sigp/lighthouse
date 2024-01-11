@@ -42,8 +42,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::BlobSidecarList;
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
-use types::EthSpec;
 use types::*;
 use zstd::{Decoder, Encoder};
 
@@ -103,7 +101,7 @@ struct BlockCache<E: EthSpec> {
 }
 
 impl<E: EthSpec> BlockCache<E> {
-    pub fn new(size: usize) -> Self {
+    pub fn new(size: NonZeroUsize) -> Self {
         Self {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
@@ -199,14 +197,10 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
 
         let hierarchy = config.hierarchy_config.to_moduli()?;
 
-        let block_cache_size =
-            NonZeroUsize::new(config.block_cache_size).ok_or(Error::ZeroCacheSize)?;
-        let state_cache_size =
-            NonZeroUsize::new(config.state_cache_size).ok_or(Error::ZeroCacheSize)?;
-        let historic_state_cache_size =
-            NonZeroUsize::new(config.historic_state_cache_size).ok_or(Error::ZeroCacheSize)?;
-        let diff_buffer_cache_size =
-            NonZeroUsize::new(config.diff_buffer_cache_size).ok_or(Error::ZeroCacheSize)?;
+        let block_cache_size = config.block_cache_size;
+        let state_cache_size = config.state_cache_size;
+        let historic_state_cache_size = config.historic_state_cache_size;
+        let diff_buffer_cache_size = config.diff_buffer_cache_size;
 
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
@@ -215,11 +209,11 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             cold_db: MemoryStore::open(),
             blobs_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
-            block_cache: Mutex::new(BlockCache::new(block_cache_size.get())),
+            block_cache: Mutex::new(BlockCache::new(block_cache_size)),
             state_cache: Mutex::new(StateCache::new(state_cache_size)),
             immutable_validators: Arc::new(RwLock::new(Default::default())),
-            historic_state_cache: Mutex::new(LruCache::new(historic_state_cache_size.get())),
-            diff_buffer_cache: Mutex::new(LruCache::new(diff_buffer_cache_size.get())),
+            historic_state_cache: Mutex::new(LruCache::new(historic_state_cache_size)),
+            diff_buffer_cache: Mutex::new(LruCache::new(diff_buffer_cache_size)),
             config,
             hierarchy,
             spec,
@@ -249,14 +243,10 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
 
         let hierarchy = config.hierarchy_config.to_moduli()?;
 
-        let block_cache_size =
-            NonZeroUsize::new(config.block_cache_size).ok_or(Error::ZeroCacheSize)?;
-        let state_cache_size =
-            NonZeroUsize::new(config.state_cache_size).ok_or(Error::ZeroCacheSize)?;
-        let historic_state_cache_size =
-            NonZeroUsize::new(config.historic_state_cache_size).ok_or(Error::ZeroCacheSize)?;
-        let diff_buffer_cache_size =
-            NonZeroUsize::new(config.diff_buffer_cache_size).ok_or(Error::ZeroCacheSize)?;
+        let block_cache_size = config.block_cache_size;
+        let state_cache_size = config.state_cache_size;
+        let historic_state_cache_size = config.historic_state_cache_size;
+        let diff_buffer_cache_size = config.diff_buffer_cache_size;
 
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
@@ -265,11 +255,11 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             cold_db: LevelDB::open(cold_path)?,
             blobs_db: LevelDB::open(blobs_db_path)?,
             hot_db: LevelDB::open(hot_path)?,
-            block_cache: Mutex::new(BlockCache::new(block_cache_size.get())),
+            block_cache: Mutex::new(BlockCache::new(block_cache_size)),
             state_cache: Mutex::new(StateCache::new(state_cache_size)),
             immutable_validators: Arc::new(RwLock::new(Default::default())),
-            historic_state_cache: Mutex::new(LruCache::new(historic_state_cache_size.get())),
-            diff_buffer_cache: Mutex::new(LruCache::new(diff_buffer_cache_size.get())),
+            historic_state_cache: Mutex::new(LruCache::new(historic_state_cache_size)),
+            diff_buffer_cache: Mutex::new(LruCache::new(diff_buffer_cache_size)),
             config,
             hierarchy,
             spec,
@@ -2554,7 +2544,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
         let min_data_availability_boundary = std::cmp::max(
             deneb_fork_epoch,
-            min_current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+            min_current_epoch.saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
         );
 
         self.try_prune_blobs(force, min_data_availability_boundary)

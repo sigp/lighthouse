@@ -1,8 +1,10 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
-use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
+use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
+use beacon_chain::{metrics, StateSkipConfig, WhenSlotSkipped};
 use lazy_static::lazy_static;
 use std::sync::Arc;
 use tree_hash::TreeHash;
@@ -13,6 +15,91 @@ pub const VALIDATOR_COUNT: usize = 16;
 lazy_static! {
     /// A cached set of keys.
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
+}
+
+/// This test builds a chain that is testing the performance of the unaggregated attestations
+/// produced by the attestation simulator service.
+#[tokio::test]
+async fn produces_attestations_from_attestation_simulator_service() {
+    // Produce 2 epochs, or 64 blocks
+    let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 2;
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let chain = &harness.chain;
+
+    // Test all valid committee indices and their rewards for all slots in the chain
+    // using validator monitor
+    for slot in 0..=num_blocks_produced {
+        // We do not produce at slot=0, and there's no committe cache available anyway
+        if slot > 0 && slot <= num_blocks_produced {
+            harness.advance_slot();
+
+            harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+        }
+        // Set the state to the current slot
+        let slot = Slot::from(slot);
+        let mut state = chain
+            .state_at_slot(slot, StateSkipConfig::WithStateRoots)
+            .expect("should get state");
+
+        // Prebuild the committee cache for the current epoch
+        state
+            .build_committee_cache(RelativeEpoch::Current, &harness.chain.spec)
+            .unwrap();
+
+        // Produce an unaggragetated attestation
+        produce_unaggregated_attestation(chain.clone(), chain.slot().unwrap());
+
+        // Verify that the ua is stored in validator monitor
+        let validator_monitor = chain.validator_monitor.read();
+        validator_monitor
+            .get_unaggregated_attestation(slot)
+            .expect("should get unaggregated attestation");
+    }
+
+    // Compare the prometheus metrics that evaluates the performance of the unaggregated attestations
+    let hit_prometheus_metrics = vec![
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL,
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT_TOTAL,
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT_TOTAL,
+    ];
+    let miss_prometheus_metrics = vec![
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL,
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS_TOTAL,
+        metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL,
+    ];
+
+    // Expected metrics count should only apply to hit metrics as miss metrics are never set, nor can be found
+    // when gathering prometheus metrics. If they are found, which should not, it will diff from 0 and fail the test
+    let expected_miss_metrics_count = 0;
+    let expected_hit_metrics_count =
+        num_blocks_produced - UNAGGREGATED_ATTESTATION_LAG_SLOTS as u64;
+    lighthouse_metrics::gather().iter().for_each(|mf| {
+        if hit_prometheus_metrics.contains(&mf.get_name()) {
+            assert_eq!(
+                mf.get_metric()[0].get_counter().get_value() as u64,
+                expected_hit_metrics_count
+            );
+        }
+        if miss_prometheus_metrics.contains(&mf.get_name()) {
+            assert_eq!(
+                mf.get_metric()[0].get_counter().get_value() as u64,
+                expected_miss_metrics_count
+            );
+        }
+    });
 }
 
 /// This test builds a chain that is just long enough to finalize an epoch then it produces an

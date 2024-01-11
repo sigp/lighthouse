@@ -112,12 +112,15 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
         let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
+        Self::from_ssz_bytes_for_fork(bytes, fork_at_slot)
+    }
 
-        Ok(map_fork_name!(
-            fork_at_slot,
-            Self,
-            <_>::from_ssz_bytes(bytes)?
-        ))
+    /// Custom SSZ decoder that takes a `ForkName` as context.
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        Ok(map_fork_name!(fork_name, Self, <_>::from_ssz_bytes(bytes)?))
     }
 
     /// Try decoding each beacon block variant in sequence.

@@ -2,7 +2,7 @@
 
 # IMPORTANT
 # This script should NOT be run directly.
-# Run `make cli` from the root of the repository instead.
+# Run `make cli` or `make cli-local` from the root of the repository instead.
 
 set -e
 
@@ -90,7 +90,7 @@ rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md help_vm_create
 
 # only exit at the very end
 if [[ $changes == true ]]; then
-    echo "Exiting with error to indicate changes occurred..."
+    echo "Exiting with error to indicate changes occurred. To fix, run `make cli-local` or `make cli` and commit the changes."
     exit 1
 else
     echo "CLI help texts are up to date."

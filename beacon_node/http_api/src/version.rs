@@ -1,11 +1,15 @@
-use crate::api_types::fork_versioned_response::ExecutionOptimisticFinalizedForkVersionedResponse;
 use crate::api_types::EndpointVersion;
 use eth2::{
     CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
     EXECUTION_PAYLOAD_VALUE_HEADER,
 };
 use serde::Serialize;
-use types::{ForkName, ForkVersionedResponse, InconsistentFork, Uint256};
+use types::{
+    fork_versioned_response::{
+        ExecutionOptimisticFinalizedForkVersionedResponse, ExecutionOptimisticFinalizedMetadata,
+    },
+    ForkName, ForkVersionedResponse, InconsistentFork, Uint256,
+};
 use warp::reply::{self, Reply, Response};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
@@ -26,6 +30,7 @@ pub fn fork_versioned_response<T: Serialize>(
     };
     Ok(ForkVersionedResponse {
         version: fork_name,
+        metadata: Default::default(),
         data,
     })
 }
@@ -46,8 +51,10 @@ pub fn execution_optimistic_finalized_fork_versioned_response<T: Serialize>(
     };
     Ok(ExecutionOptimisticFinalizedForkVersionedResponse {
         version: fork_name,
-        execution_optimistic: Some(execution_optimistic),
-        finalized: Some(finalized),
+        metadata: ExecutionOptimisticFinalizedMetadata {
+            execution_optimistic: Some(execution_optimistic),
+            finalized: Some(finalized),
+        },
         data,
     })
 }
@@ -73,12 +80,12 @@ pub fn add_execution_payload_blinded_header<T: Reply>(
 /// Add the `Eth-Execution-Payload-Value` header to a response.
 pub fn add_execution_payload_value_header<T: Reply>(
     reply: T,
-    execution_payload_value: Option<Uint256>,
+    execution_payload_value: Uint256,
 ) -> Response {
     reply::with_header(
         reply,
         EXECUTION_PAYLOAD_VALUE_HEADER,
-        execution_payload_value.unwrap_or_default().to_string(),
+        execution_payload_value.to_string(),
     )
     .into_response()
 }
@@ -86,12 +93,12 @@ pub fn add_execution_payload_value_header<T: Reply>(
 /// Add the `Eth-Consensus-Block-Value` header to a response.
 pub fn add_consensus_block_value_header<T: Reply>(
     reply: T,
-    consensus_payload_value: Option<u64>,
+    consensus_payload_value: Uint256,
 ) -> Response {
     reply::with_header(
         reply,
         CONSENSUS_BLOCK_VALUE_HEADER,
-        consensus_payload_value.unwrap_or_default().to_string(),
+        consensus_payload_value.to_string(),
     )
     .into_response()
 }

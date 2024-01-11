@@ -101,6 +101,8 @@ pub mod sqlite;
 
 pub mod blob_sidecar;
 pub mod light_client_header;
+pub mod non_zero_usize;
+pub mod runtime_var_list;
 
 use ethereum_types::{H160, H256};
 
@@ -170,6 +172,7 @@ pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset
 pub use crate::proposer_preparation_data::ProposerPreparationData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
+pub use crate::runtime_var_list::RuntimeVariableList;
 pub use crate::selection_proof::SelectionProof;
 pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
@@ -217,7 +220,7 @@ pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
     Signature, SignatureBytes,
 };
-pub use kzg::{KzgCommitment, KzgProof};
+pub use kzg::{KzgCommitment, KzgProof, VERSIONED_HASH_VERSION_KZG};
 pub use milhouse::{self, Vector as FixedVector};
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, VariableList};
 pub use superstruct::superstruct;

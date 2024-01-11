@@ -155,13 +155,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Checks if a block from this proposer is already known.
         let block_equivocates = || {
-            match self
-                .chain
-                .observed_block_producers
-                .read()
-                .proposer_has_been_observed(block.message(), block.canonical_root())
-            {
-                Ok(seen_status) => seen_status.is_slashable(),
+            match self.chain.observed_slashable.read().is_slashable(
+                block.slot(),
+                block.message().proposer_index(),
+                block.canonical_root(),
+            ) {
+                Ok(is_slashable) => is_slashable,
                 //Both of these blocks will be rejected, so reject them now rather
                 // than re-queuing them.
                 Err(ObserveError::FinalizedBlock { .. })
