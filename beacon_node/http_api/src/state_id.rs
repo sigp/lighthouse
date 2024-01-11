@@ -1,7 +1,7 @@
 use crate::ExecutionOptimistic;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::StateId as CoreStateId;
-use slog::{debug, info, warn};
+use slog::{debug, warn};
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
