@@ -189,7 +189,7 @@ impl StateId {
             _ => (self.root(chain)?, None),
         };
 
-        let mut opt_state_cache = Some(chain.http_state_cache.write());
+        let mut opt_state_cache = Some(chain.parallel_state_cache.write());
 
         // Try the cache.
         if let Some(cache_item) = opt_state_cache
@@ -225,7 +225,7 @@ impl StateId {
            "HTTP state cache miss";
             "state_root" => ?state_root
         );
-        let mut state_cache = opt_state_cache.unwrap_or_else(|| chain.http_state_cache.write());
+        let mut state_cache = opt_state_cache.unwrap_or_else(|| chain.parallel_state_cache.write());
 
         let sender = state_cache.create_promise(state_root).map_err(|e| {
             warp_utils::reject::custom_server_error(format!("too many concurrent requests: {e:?}"))

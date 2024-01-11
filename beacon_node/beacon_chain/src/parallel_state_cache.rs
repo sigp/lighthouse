@@ -2,9 +2,9 @@ use promise_cache::{PromiseCache, Protect};
 use types::{BeaconState, EthSpec, Hash256};
 
 #[derive(Default)]
-pub struct HttpProtector;
+pub struct ParallelStateProtector;
 
-impl Protect<Hash256> for HttpProtector {
+impl Protect<Hash256> for ParallelStateProtector {
     type SortKey = Hash256;
 
     /// We don't care too much about preventing evictions of particular states here. All the states
@@ -19,4 +19,4 @@ impl Protect<Hash256> for HttpProtector {
     }
 }
 
-pub type HttpStateCache<E> = PromiseCache<Hash256, BeaconState<E>, HttpProtector>;
+pub type ParallelStateCache<E> = PromiseCache<Hash256, BeaconState<E>, ParallelStateProtector>;

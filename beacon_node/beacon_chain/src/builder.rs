@@ -866,6 +866,7 @@ where
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
+        let parallel_state_cache_size = self.chain_config.parallel_state_cache_size;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -942,14 +943,15 @@ where
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,
-                2,
             )),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
-            // FIXME(sproul): make configurable
-            http_state_cache: Arc::new(RwLock::new(PromiseCache::new(3, Default::default(), 8))),
+            parallel_state_cache: Arc::new(RwLock::new(PromiseCache::new(
+                parallel_state_cache_size,
+                Default::default(),
+            ))),
             validator_pubkey_cache,
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),

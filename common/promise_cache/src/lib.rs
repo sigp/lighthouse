@@ -77,7 +77,10 @@ where
     K: Hash + Eq + Clone,
     P: Protect<K>,
 {
-    pub fn new(capacity: usize, protector: P, max_concurrent_promises: usize) -> Self {
+    pub fn new(capacity: usize, protector: P) -> Self {
+        // Making the concurrent promises directly configurable is considered overkill for now,
+        // so we just derive a vaguely sensible value from the cache size.
+        let max_concurrent_promises = std::cmp::max(2, capacity / 8);
         Self {
             cache: HashMap::new(),
             capacity,
