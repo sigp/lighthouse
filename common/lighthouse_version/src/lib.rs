@@ -17,8 +17,8 @@ pub const VERSION: &str = git_version!(
         // NOTE: using --match instead of --exclude for compatibility with old Git
         "--match=thiswillnevermatchlol"
     ],
-    prefix = "Lighthouse/v4.5.444-exp-",
-    fallback = "Lighthouse/v4.5.444-exp"
+    prefix = "Lighthouse/v4.6.111-exp-",
+    fallback = "Lighthouse/v4.6.111-exp"
 );
 
 /// Returns `VERSION`, but with platform information appended to the end.
