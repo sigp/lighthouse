@@ -821,6 +821,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("0")
         )
+        .arg(
+            Arg::with_name("parallel-state-cache-size")
+                .long("parallel-state-cache-size")
+                .value_name("N")
+                .help("Set the size of the cache used to de-duplicate requests for the same \
+                       state. This cache is additional to other state caches within Lighthouse \
+                       and should be kept small unless a large number of parallel requests for \
+                       different states are anticipated.")
+                .takes_value(true)
+                .default_value("2")
+        )
 
         /*
          * Misc.

@@ -408,7 +408,7 @@ fn advance_head<T: BeaconChainTypes>(
             .shuffling_cache
             .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::AttestationCacheLockTimeout)?
-            .insert_committee_cache(shuffling_id.clone(), committee_cache);
+            .insert_value(shuffling_id.clone(), committee_cache);
 
         debug!(
             log,

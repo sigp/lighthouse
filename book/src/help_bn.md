@@ -117,6 +117,8 @@ FLAGS:
                                                --eth1` pre-merge
         --subscribe-all-subnets                Subscribe to all subnets regardless of validator count. This will also
                                                advertise the beacon node as being long-lived subscribed to all subnets.
+        --unsafe-and-dangerous-mode            Don't use this flag unless you know what you're doing. Go back and
+                                               download a stable Lighthouse release
         --validator-monitor-auto               Enables the automatic detection and monitoring of validators connected to
                                                the HTTP API and using the subnet subscription endpoint. This generally
                                                has the effect of providing additional logging and metrics for locally
@@ -195,6 +197,9 @@ OPTIONS:
         --checkpoint-sync-url-timeout <SECONDS>
             Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint. [default: 180]
 
+        --compression-level <LEVEL>
+            Compression level (-99 to 22) for zstd compression applied to states on disk [default: 1]. You may change
+            the compression level freely without re-syncing.
     -d, --datadir <DIR>
             Used to specify a custom root data directory for lighthouse keys and databases. Defaults to
             $HOME/.lighthouse/{network} where network is the value of the `network` flag Note: Users should specify
@@ -202,6 +207,9 @@ OPTIONS:
         --debug-level <LEVEL>
             Specifies the verbosity level used when emitting logs to the terminal. [default: info]  [possible values:
             info, debug, trace, warn, error, crit]
+        --diff-buffer-cache-size <SIZE>
+            The maximum number of diff buffers to hold in memory. This cache is used when fetching historic states
+            [default: 16]
         --discovery-port <PORT>
             The UDP port that discovery will listen on. Defaults to `port`
 
@@ -238,6 +246,10 @@ OPTIONS:
         --epochs-per-migration <N>
             The number of epochs to wait between running the migration of data from the hot DB to the cold DB. Less
             frequent runs can be useful for minimizing disk writes [default: 1]
+        --epochs-per-state-diff <EPOCHS>
+            Number of epochs between state diffs stored in the database. Lower values result in more writes and more
+            data stored, while higher values result in more block replaying and longer load times in case of cache miss.
+            [default: 16]
         --eth1-blocks-per-log-query <BLOCKS>
             Specifies the number of blocks that a deposit log query should span. This will reduce the size of responses
             from the Eth1 endpoint. [default: 1000]
@@ -280,6 +292,13 @@ OPTIONS:
         --graffiti <GRAFFITI>
             Specify your custom graffiti to be included in blocks. Defaults to the current version and commit, truncated
             to fit in 32 bytes. 
+        --hierarchy-exponents <EXPONENTS>
+            Specifies the frequency for storing full state snapshots and hierarchical diffs in the freezer DB. Accepts a
+            comma-separated list of ascending exponents. Each exponent defines an interval for storing diffs to the
+            layer above. The last exponent defines the interval for full snapshots. For example, a config of '4,8,12'
+            would store a full snapshot every 4096 (2^12) slots, first-level diffs every 256 (2^8) slots, and second-
+            level diffs every 16 (2^4) slots. Cannot be changed after initialization. [default:
+            5,9,11,13,16,18,21]
         --historic-state-cache-size <SIZE>
             Specifies how many states from the freezer database should cache in memory [default: 1]
 
@@ -376,6 +395,10 @@ OPTIONS:
         --network-dir <DIR>
             Data directory for network keys. Defaults to network/ inside the beacon node dir.
 
+        --parallel-state-cache-size <N>
+            Set the size of the cache used to de-duplicate requests for the same state. This cache is additional to
+            other state caches within Lighthouse and should be kept small unless a large number of parallel requests for
+            different states are anticipated. [default: 2]
         --port <PORT>
             The TCP/UDP ports to listen on. There are two UDP ports. The discovery UDP port will be set to this value
             and the Quic UDP port will be set to this value + 1. The discovery port can be modified by the --discovery-
@@ -462,6 +485,9 @@ OPTIONS:
         --slots-per-restore-point <SLOT_COUNT>
             Specifies how often a freezer DB restore point should be stored. Cannot be changed after initialization.
             [default: 8192 (mainnet) or 64 (minimal)]
+        --state-cache-size <SIZE>
+            Specifies how many states the database should cache in memory [default: 128]
+
         --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
             Emergency fallback fee recipient for use in case the validator client does not have one configured. You
             should set this flag on the validator client instead of (or in addition to) setting it here.

@@ -391,6 +391,11 @@ pub fn get_config<E: EthSpec>(
     if let Some(state_cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
         client_config.store.state_cache_size = state_cache_size;
     }
+    if let Some(parallel_state_cache_size) =
+        clap_utils::parse_optional(cli_args, "parallel-state-cache-size")?
+    {
+        client_config.chain.parallel_state_cache_size = parallel_state_cache_size;
+    }
     if let Some(diff_buffer_cache_size) =
         clap_utils::parse_optional(cli_args, "diff-buffer-cache-size")?
     {
