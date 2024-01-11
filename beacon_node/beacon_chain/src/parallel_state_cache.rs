@@ -5,11 +5,11 @@ use types::{BeaconState, Hash256};
 pub struct ParallelStateProtector;
 
 impl Protect<Hash256> for ParallelStateProtector {
-    type SortKey = Hash256;
+    type SortKey = usize;
 
-    /// Evict in arbitrary (hash) order.
-    fn sort_key(&self, k: &Hash256) -> Self::SortKey {
-        *k
+    /// Evict in arbitrary (hashmap) order by using the same key for every value.
+    fn sort_key(&self, _: &Hash256) -> Self::SortKey {
+        0
     }
 
     /// We don't care too much about preventing evictions of particular states here. All the states
