@@ -196,9 +196,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         for &validator_index in &validators {
-            let validator = participation_cache
-                .get_validator(validator_index)
-                .map_err(|_| BeaconChainError::AttestationRewardsError)?;
+            // Return 0s for unknown/inactive validator indices. This is a bit different from stable
+            // where we error for unknown pubkeys.
+            let Ok(validator) = participation_cache.get_validator(validator_index) else {
+                debug!(
+                    self.log,
+                    "No rewards for inactive/unknown validator";
+                    "index" => validator_index,
+                    "epoch" => previous_epoch
+                );
+                total_rewards.push(TotalAttestationRewards {
+                    validator_index: validator_index as u64,
+                    head: 0,
+                    target: 0,
+                    source: 0,
+                    inclusion_delay: None,
+                    inactivity: 0,
+                });
+                continue;
+            };
             let eligible = validator.is_eligible;
             let mut head_reward = 0i64;
             let mut target_reward = 0i64;
