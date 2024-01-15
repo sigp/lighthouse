@@ -10,10 +10,9 @@ mod sync_committee_rewards;
 use crate::{
     ok_or_error,
     types::{
-        BeaconState, ChainSpec, DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock,
-        GenericResponse, ValidatorId,
+        DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock, GenericResponse, ValidatorId,
     },
-    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot, StateId, StatusCode,
+    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot, StatusCode,
 };
 use proto_array::core::ProtoArray;
 use reqwest::IntoUrl;
@@ -514,28 +513,6 @@ impl BeaconNodeHttpClient {
             .push("deposit_cache");
 
         self.get(path).await
-    }
-
-    /// `GET lighthouse/beacon/states/{state_id}/ssz`
-    pub async fn get_lighthouse_beacon_states_ssz<E: EthSpec>(
-        &self,
-        state_id: &StateId,
-        spec: &ChainSpec,
-    ) -> Result<Option<BeaconState<E>>, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("beacon")
-            .push("states")
-            .push(&state_id.to_string())
-            .push("ssz");
-
-        self.get_bytes_opt(path)
-            .await?
-            .map(|bytes| BeaconState::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
-            .transpose()
     }
 
     /// `GET lighthouse/staking`
