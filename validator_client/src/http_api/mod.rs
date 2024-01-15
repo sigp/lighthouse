@@ -697,6 +697,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             "no validator for {:?}",
                             validator_pubkey
                         ))),
+                        // If all specified parameters match their existing settings, then this
+                        // change is a no-op.
                         (Some(is_enabled), Some(initialized_validator))
                             if equal_or_none(Some(is_enabled), body.enabled)
                                 && equal_or_none(
@@ -711,6 +713,16 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     initialized_validator.get_graffiti(),
                                     maybe_graffiti,
                                 ) =>
+                        {
+                            Ok(())
+                        }
+                        // Disabling an already disabled validator *with no other changes* is a
+                        // no-op.
+                        (Some(false), None)
+                            if body.enabled.map_or(true, |enabled| !enabled)
+                                && body.gas_limit.is_none()
+                                && body.builder_proposals.is_none()
+                                && maybe_graffiti.is_none() =>
                         {
                             Ok(())
                         }
