@@ -3,7 +3,7 @@ use crate::peer_manager::PeerManager;
 use crate::rpc::{ReqId, RPC};
 use crate::types::SnappyTransform;
 
-use libp2p::gossipsub;
+use crate::gossipsub;
 use libp2p::identify;
 use libp2p::swarm::NetworkBehaviour;
 use types::EthSpec;

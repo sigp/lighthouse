@@ -42,14 +42,23 @@ superstruct = { workspace = true }
 prometheus-client = "0.22.0"
 unused_port = { workspace = true }
 delay_map = { workspace = true }
-void = "1"
-libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p/", rev = "b96b90894faab0a1eed78e1c82c6452138a3538a" }
-
-[dependencies.libp2p]
-git = "https://github.com/sigp/rust-libp2p/"
-rev = "b96b90894faab0a1eed78e1c82c6452138a3538a"
-default-features = false
-features = ["identify", "yamux", "noise", "gossipsub", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic"]
+tracing = { workspace = true }
+byteorder = { workspace = true }
+bytes = { workspace = true }
+either = { workspace = true }
+futures-ticker = { workspace = true }
+futures-timer = { workspace = true }
+getrandom = { workspace = true }
+hex_fmt = { workspace = true }
+instant = { workspace = true }
+quick-protobuf = { workspace = true }
+quick-protobuf-codec = { workspace = true }
+void = { workspace = true }
+async-channel = { workspace = true }
+asynchronous-codec = { workspace = true }
+base64 = { workspace = true }
+libp2p-mplex = { workspace = true }
+libp2p = {workspace = true }
 
 [dev-dependencies]
 slog-term = { workspace = true }
@@ -58,6 +67,8 @@ tempfile = { workspace = true }
 exit-future = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
+async-std = { version = "1.6.3", features = ["unstable"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
 libp2p-websocket = []

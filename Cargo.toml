@@ -106,6 +106,7 @@ delay_map = "0.3"
 derivative = "2"
 dirs = "3"
 discv5 = { git="https://github.com/sigp/discv5", rev="dbb4a718cd32eaed8127c3c8241bfd0fde9eb908", features = ["libp2p"] }
+either = "1.9"
 env_logger = "0.9"
 error-chain = "0.12"
 ethereum-types = "0.14"
@@ -160,6 +161,7 @@ tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.6", features = ["codec", "compat", "time"] }
+tracing = "0.1.40"
 tree_hash = "0.5"
 tree_hash_derive = "0.5"
 url = "2"
@@ -168,6 +170,19 @@ uuid = { version = "0.8", features = ["serde", "v4"] }
 warp = { git = "https://github.com/seanmonstar/warp.git", default-features = false, features = ["tls"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 zip = "0.6"
+futures-ticker = "0.0.3"
+futures-timer = "3.0.2"
+getrandom = "0.2.11"
+hex_fmt = "0.3.0"
+instant = "0.1.12"
+quick-protobuf = "0.8"
+void = "1.0.2"
+async-channel = "1.9.0"
+asynchronous-codec = "0.7.0"
+base64 = "0.21.5"
+quick-protobuf-codec = { git = "https://github.com/sigp/rust-libp2p/", rev = "b96b90894faab0a1eed78e1c82c6452138a3538a" }
+libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p/", rev = "b96b90894faab0a1eed78e1c82c6452138a3538a" }
+libp2p = { git = "https://github.com/sigp/rust-libp2p/", rev = "b96b90894faab0a1eed78e1c82c6452138a3538a",  default-features = false, features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic"] }
 
 # Local crates.
 account_utils = { path = "common/account_utils" }
