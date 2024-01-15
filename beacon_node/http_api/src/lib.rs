@@ -45,6 +45,7 @@ use eth2::types::{
     PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId, ValidatorStatus,
     ValidatorsRequestBody,
 };
+use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
@@ -86,10 +87,12 @@ use types::{
 };
 use validator::pubkey_to_validator_index;
 use version::{
-    add_consensus_version_header, execution_optimistic_finalized_fork_versioned_response,
-    inconsistent_fork_rejection, unsupported_version_rejection, V1, V2, V3,
+    add_consensus_version_header, add_ssz_content_type_header,
+    execution_optimistic_finalized_fork_versioned_response, inconsistent_fork_rejection,
+    unsupported_version_rejection, V1, V2, V3,
 };
 use warp::http::StatusCode;
+use warp::hyper::Body;
 use warp::sse::Event;
 use warp::Reply;
 use warp::{http::Response, Filter};
@@ -1567,8 +1570,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .header("Content-Type", "application/octet-stream")
                             .body(block.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1659,8 +1662,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .header("Content-Type", "application/octet-stream")
                             .body(block.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1710,8 +1713,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .header("Content-Type", "application/octet-stream")
                             .body(blob_sidecar_list_filtered.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -2239,8 +2242,8 @@ pub fn serve<T: BeaconChainTypes>(
                         .map(|snapshot| {
                             Response::builder()
                                 .status(200)
-                                .header("Content-Type", "application/octet-stream")
                                 .body(snapshot.as_ssz_bytes().into())
+                                .map(|res: Response<Body>| add_ssz_content_type_header(res))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
                                         "failed to create response: {}",
@@ -2251,8 +2254,8 @@ pub fn serve<T: BeaconChainTypes>(
                         .unwrap_or_else(|| {
                             Response::builder()
                                 .status(503)
-                                .header("Content-Type", "application/octet-stream")
                                 .body(Vec::new().into())
+                                .map(|res: Response<Body>| add_ssz_content_type_header(res))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
                                         "failed to create response: {}",
@@ -2323,8 +2326,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .header("Content-Type", "application/octet-stream")
                             .body(withdrawals.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -2389,8 +2392,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .header("Content-Type", "application/octet-stream")
                             .body(bootstrap.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -2437,8 +2440,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .header("Content-Type", "application/octet-stream")
                             .body(update.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -2485,8 +2488,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .header("Content-Type", "application/octet-stream")
                             .body(update.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -2687,8 +2690,8 @@ pub fn serve<T: BeaconChainTypes>(
                             .map_err(inconsistent_fork_rejection)?;
                         Response::builder()
                             .status(200)
-                            .header("Content-Type", "application/octet-stream")
                             .body(state.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map(|resp: warp::reply::Response| {
                                 add_consensus_version_header(resp, fork_name)
                             })
@@ -4615,7 +4618,7 @@ pub fn serve<T: BeaconChainTypes>(
         .boxed()
         .uor(
             warp::post().and(
-                warp::header::exact("Content-Type", "application/octet-stream")
+                warp::header::exact(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER)
                     // Routes which expect `application/octet-stream` go within this `and`.
                     .and(
                         post_beacon_blocks_ssz
