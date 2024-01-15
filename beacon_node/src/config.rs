@@ -404,6 +404,9 @@ pub fn get_config<E: EthSpec>(
     if let Some(compression_level) = clap_utils::parse_optional(cli_args, "compression-level")? {
         client_config.store.compression_level = compression_level;
     }
+    if let Some(linear_blocks) = clap_utils::parse_optional(cli_args, "db-linear-blocks")? {
+        client_config.store.linear_blocks = linear_blocks;
+    }
 
     if let Some(historic_state_cache_size) = cli_args.value_of("historic-state-cache-size") {
         client_config.store.historic_state_cache_size = historic_state_cache_size

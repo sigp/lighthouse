@@ -15,6 +15,7 @@ use crate::{
     beacon_chain::{BeaconChainTypes, BEACON_CHAIN_DB_KEY},
     persisted_beacon_chain::PersistedBeaconChain,
 };
+use beacon_state_container::{get_full_state, StorageContainer};
 use slog::{debug, info, Logger};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,6 +28,8 @@ use store::{
     DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem,
 };
 use types::{BeaconState, Hash256, Slot};
+
+mod beacon_state_container;
 
 /// Chunk size for freezer block roots in the old database schema.
 const OLD_SCHEMA_CHUNK_SIZE: u64 = 128;
@@ -55,15 +58,9 @@ fn get_state_by_replay<T: BeaconChainTypes>(
     } = get_summary_v1::<T>(db, state_root)?;
 
     // Load full state from the epoch boundary.
-    let epoch_boundary_state_bytes = db
-        .hot_db
-        .get_bytes(
-            DBColumn::BeaconState.into(),
-            epoch_boundary_state_root.as_bytes(),
-        )?
-        .ok_or(HotColdDBError::MissingEpochBoundaryState(state_root))?;
     let epoch_boundary_state =
-        BeaconState::from_ssz_bytes(&epoch_boundary_state_bytes, db.get_chain_spec())?;
+        get_full_state(&db.hot_db, &epoch_boundary_state_root, db.get_chain_spec())?
+            .ok_or(Error::MissingState(epoch_boundary_state_root))?;
 
     // Replay blocks to reach the target state.
     let blocks = db.load_blocks_to_replay(epoch_boundary_state.slot(), slot, latest_block_root)?;
@@ -250,6 +247,7 @@ fn rewrite_hot_states<T: BeaconChainTypes>(
     log: &Logger,
 ) -> Result<(), Error> {
     // Rewrite the split state and delete everything else from the `BeaconState` column.
+    info!(log, "Rewriting recent states");
     let split = db.get_split_info();
     let mut split_state_found = false;
 
@@ -257,7 +255,8 @@ fn rewrite_hot_states<T: BeaconChainTypes>(
         let (state_root, state_bytes) = res?;
 
         if state_root == split.state_root {
-            let state = BeaconState::from_ssz_bytes(&state_bytes, db.get_chain_spec())?;
+            let container = StorageContainer::from_ssz_bytes(&state_bytes, db.get_chain_spec())?;
+            let state = container.try_into()?;
             db.store_hot_state(&state_root, &state, hot_db_ops)?;
             split_state_found = true;
         } else {
@@ -410,6 +409,8 @@ pub fn upgrade_to_v24<T: BeaconChainTypes>(
         );
     };
     let hot_db_ops = upgrade_hot_database::<T>(&db, &log)?;
+
+    info!(log, "Finished rewriting hot DB");
 
     db.store_schema_version_atomically(SchemaVersion(24), hot_db_ops)
 }

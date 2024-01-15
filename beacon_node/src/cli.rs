@@ -637,6 +637,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how many states from the freezer database should cache in memory [default: 1]")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("db-linear-blocks")
+                .long("db-linear-blocks")
+                .value_name("BOOL")
+                .help("Customise storage of finalized blocks. Legacy databases must set this value \
+                       to `false`, while new databases should set it to `true`.")
+                .takes_value(true)
+        )
         /*
          * Execution Layer Integration
          */
