@@ -1,9 +1,13 @@
 //! This module exposes a superset of the `types` crate. It adds additional types that are only
 //! required for the HTTP API.
 
-use crate::Error as ServerError;
+use crate::{
+    Error as ServerError, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
+    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
+};
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
 use mediatype::{names, MediaType, MediaTypeList};
+use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz::{Decode, DecodeError};
@@ -278,17 +282,18 @@ pub struct FinalityCheckpointsData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(try_from = "&str")]
+#[serde(into = "String")]
+#[serde(try_from = "std::borrow::Cow<str>")]
 pub enum ValidatorId {
     PublicKey(PublicKeyBytes),
     Index(u64),
 }
 
-impl TryFrom<&str> for ValidatorId {
+impl TryFrom<std::borrow::Cow<'_, str>> for ValidatorId {
     type Error = String;
 
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        Self::from_str(s)
+    fn try_from(s: std::borrow::Cow<str>) -> Result<Self, Self::Error> {
+        Self::from_str(&s)
     }
 }
 
@@ -314,6 +319,12 @@ impl fmt::Display for ValidatorId {
             ValidatorId::PublicKey(pubkey) => write!(f, "{:?}", pubkey),
             ValidatorId::Index(index) => write!(f, "{}", index),
         }
+    }
+}
+
+impl From<ValidatorId> for String {
+    fn from(id: ValidatorId) -> String {
+        id.to_string()
     }
 }
 
@@ -492,6 +503,15 @@ pub struct ValidatorsQuery {
     pub status: Option<Vec<ValidatorStatus>>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ValidatorsRequestBody {
+    #[serde(default)]
+    pub ids: Option<Vec<ValidatorId>>,
+    #[serde(default)]
+    pub statuses: Option<Vec<ValidatorStatus>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommitteeData {
     #[serde(with = "serde_utils::quoted_u64")]
@@ -656,6 +676,12 @@ pub struct ValidatorBalancesQuery {
     pub id: Option<Vec<ValidatorId>>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ValidatorBalancesRequestBody {
+    pub ids: Vec<ValidatorId>,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlobIndicesQuery {
@@ -703,6 +729,7 @@ pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
     pub graffiti: Option<Graffiti>,
     pub skip_randao_verification: SkipRandaoVerification,
+    pub builder_boost_factor: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -1408,11 +1435,6 @@ pub mod serde_status_code {
     }
 }
 
-pub enum ForkVersionedBeaconBlockType<T: EthSpec> {
-    Full(ForkVersionedResponse<FullBlockContents<T>>),
-    Blinded(ForkVersionedResponse<BlindedBeaconBlock<T>>),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1499,6 +1521,9 @@ pub enum ProduceBlockV3Response<E: EthSpec> {
     Blinded(BlindedBeaconBlock<E>),
 }
 
+pub type JsonProduceBlockV3Response<E> =
+    ForkVersionedResponse<ProduceBlockV3Response<E>, ProduceBlockV3Metadata>;
+
 /// A wrapper over a [`BeaconBlock`] or a [`BlockContents`].
 #[derive(Debug, Encode, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -1512,6 +1537,28 @@ pub enum FullBlockContents<T: EthSpec> {
 }
 
 pub type BlockContentsTuple<T> = (BeaconBlock<T>, Option<(KzgProofs<T>, BlobsList<T>)>);
+
+// This value should never be used
+fn dummy_consensus_version() -> ForkName {
+    ForkName::Base
+}
+
+/// Metadata about a `ProduceBlockV3Response` which is returned in the body & headers.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProduceBlockV3Metadata {
+    // The consensus version is serialized & deserialized by `ForkVersionedResponse`.
+    #[serde(
+        skip_serializing,
+        skip_deserializing,
+        default = "dummy_consensus_version"
+    )]
+    pub consensus_version: ForkName,
+    pub execution_payload_blinded: bool,
+    #[serde(with = "serde_utils::u256_dec")]
+    pub execution_payload_value: Uint256,
+    #[serde(with = "serde_utils::u256_dec")]
+    pub consensus_block_value: Uint256,
+}
 
 impl<T: EthSpec> FullBlockContents<T> {
     pub fn new(block: BeaconBlock<T>, blob_data: Option<(KzgProofs<T>, BlobsList<T>)>) -> Self {
@@ -1534,13 +1581,19 @@ impl<T: EthSpec> FullBlockContents<T> {
                 len: bytes.len(),
                 expected: slot_len,
             })?;
-
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
         let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
+        Self::from_ssz_bytes_for_fork(bytes, fork_at_slot)
+    }
 
-        match fork_at_slot {
+    /// SSZ decode with fork variant passed in explicitly.
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                BeaconBlock::from_ssz_bytes(bytes, spec)
+                BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
                     .map(|block| FullBlockContents::Block(block))
             }
             ForkName::Deneb => {
@@ -1551,8 +1604,9 @@ impl<T: EthSpec> FullBlockContents<T> {
                 builder.register_type::<BlobsList<T>>()?;
 
                 let mut decoder = builder.build()?;
-                let block =
-                    decoder.decode_next_with(|bytes| BeaconBlock::from_ssz_bytes(bytes, spec))?;
+                let block = decoder.decode_next_with(|bytes| {
+                    BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+                })?;
                 let kzg_proofs = decoder.decode_next()?;
                 let blobs = decoder.decode_next()?;
 
@@ -1620,6 +1674,52 @@ impl<T: EthSpec> Into<BeaconBlock<T>> for FullBlockContents<T> {
 }
 
 pub type SignedBlockContentsTuple<T> = (SignedBeaconBlock<T>, Option<(KzgProofs<T>, BlobsList<T>)>);
+
+fn parse_required_header<T>(
+    headers: &HeaderMap,
+    header_name: &str,
+    parse: impl FnOnce(&str) -> Result<T, String>,
+) -> Result<T, String> {
+    let str_value = headers
+        .get(header_name)
+        .ok_or_else(|| format!("missing required header {header_name}"))?
+        .to_str()
+        .map_err(|e| format!("invalid value in {header_name}: {e}"))?;
+    parse(str_value)
+}
+
+impl TryFrom<&HeaderMap> for ProduceBlockV3Metadata {
+    type Error = String;
+
+    fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
+        let consensus_version = parse_required_header(headers, CONSENSUS_VERSION_HEADER, |s| {
+            s.parse::<ForkName>()
+                .map_err(|e| format!("invalid {CONSENSUS_VERSION_HEADER}: {e:?}"))
+        })?;
+        let execution_payload_blinded =
+            parse_required_header(headers, EXECUTION_PAYLOAD_BLINDED_HEADER, |s| {
+                s.parse::<bool>()
+                    .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_BLINDED_HEADER}: {e:?}"))
+            })?;
+        let execution_payload_value =
+            parse_required_header(headers, EXECUTION_PAYLOAD_VALUE_HEADER, |s| {
+                s.parse::<Uint256>()
+                    .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_VALUE_HEADER}: {e:?}"))
+            })?;
+        let consensus_block_value =
+            parse_required_header(headers, CONSENSUS_BLOCK_VALUE_HEADER, |s| {
+                s.parse::<Uint256>()
+                    .map_err(|e| format!("invalid {CONSENSUS_BLOCK_VALUE_HEADER}: {e:?}"))
+            })?;
+
+        Ok(ProduceBlockV3Metadata {
+            consensus_version,
+            execution_payload_blinded,
+            execution_payload_value,
+            consensus_block_value,
+        })
+    }
+}
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBlockContents`].
 #[derive(Clone, Debug, Encode, Serialize, Deserialize)]
@@ -1878,4 +1978,21 @@ pub struct BlobsBundle<E: EthSpec> {
     pub proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn validator_id_serde() {
+        let id_str = "\"1\"";
+        let x: ValidatorId = serde_json::from_str(id_str).unwrap();
+        assert_eq!(x, ValidatorId::Index(1));
+        assert_eq!(serde_json::to_string(&x).unwrap(), id_str);
+
+        let pubkey_str = "\"0xb824b5ede33a7b05a378a84b183b4bc7e7db894ce48b659f150c97d359edca2f503081d6678d1200f582ec7cafa9caf2\"";
+        let y: ValidatorId = serde_json::from_str(pubkey_str).unwrap();
+        assert_eq!(serde_json::to_string(&y).unwrap(), pubkey_str);
+    }
 }
