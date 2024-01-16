@@ -22,11 +22,3 @@ pub mod altair {
 pub mod merge {
     pub const INTERVALS_PER_SLOT: u64 = 3;
 }
-pub mod deneb {
-    use crate::Epoch;
-
-    pub const VERSIONED_HASH_VERSION_KZG: u8 = 1;
-    pub const BLOB_SIDECAR_SUBNET_COUNT: u64 = 6;
-    pub const MAX_BLOBS_PER_BLOCK: u64 = BLOB_SIDECAR_SUBNET_COUNT;
-    pub const MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS: Epoch = Epoch::new(4096);
-}

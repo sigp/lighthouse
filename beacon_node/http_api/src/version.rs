@@ -1,7 +1,7 @@
 use crate::api_types::EndpointVersion;
 use eth2::{
-    CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
-    EXECUTION_PAYLOAD_VALUE_HEADER,
+    CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
+    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, SSZ_CONTENT_TYPE_HEADER,
 };
 use serde::Serialize;
 use types::{
@@ -59,6 +59,11 @@ pub fn execution_optimistic_finalized_fork_versioned_response<T: Serialize>(
     })
 }
 
+/// Add the 'Content-Type application/octet-stream` header to a response.
+pub fn add_ssz_content_type_header<T: Reply>(reply: T) -> Response {
+    reply::with_header(reply, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER).into_response()
+}
+
 /// Add the `Eth-Consensus-Version` header to a response.
 pub fn add_consensus_version_header<T: Reply>(reply: T, fork_name: ForkName) -> Response {
     reply::with_header(reply, CONSENSUS_VERSION_HEADER, fork_name.to_string()).into_response()
@@ -93,7 +98,7 @@ pub fn add_execution_payload_value_header<T: Reply>(
 /// Add the `Eth-Consensus-Block-Value` header to a response.
 pub fn add_consensus_block_value_header<T: Reply>(
     reply: T,
-    consensus_payload_value: u64,
+    consensus_payload_value: Uint256,
 ) -> Response {
     reply::with_header(
         reply,

@@ -3,10 +3,10 @@
 //! Only `BlobSidecar`s that have completed proposer signature verification can be added
 //! to this cache to reduce DoS risks.
 
-use crate::observed_block_producers::{ProposalKey, SeenBlock};
+use crate::observed_block_producers::ProposalKey;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use types::{BlobSidecar, EthSpec, Hash256, Slot};
+use types::{BlobSidecar, EthSpec, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -30,7 +30,7 @@ pub enum Error {
 pub struct ObservedBlobSidecars<T: EthSpec> {
     finalized_slot: Slot,
     /// Stores all received blob indices for a given `(ValidatorIndex, Slot)` tuple.
-    items: HashMap<ProposalKey, (HashSet<u64>, HashSet<Hash256>)>,
+    items: HashMap<ProposalKey, HashSet<u64>>,
     _phantom: PhantomData<T>,
 }
 
@@ -51,23 +51,16 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
     ///
     /// The supplied `blob_sidecar` **MUST** have completed proposer signature verification.
     pub fn observe_sidecar(&mut self, blob_sidecar: &BlobSidecar<T>) -> Result<bool, Error> {
-        let block_root = blob_sidecar.block_root();
         self.sanitize_blob_sidecar(blob_sidecar)?;
 
-        let (blob_indices, block_roots) = self
+        let blob_indices = self
             .items
             .entry(ProposalKey {
                 slot: blob_sidecar.slot(),
                 proposer: blob_sidecar.block_proposer_index(),
             })
-            .or_insert_with(|| {
-                (
-                    HashSet::with_capacity(T::max_blobs_per_block()),
-                    HashSet::new(),
-                )
-            });
+            .or_insert_with(|| HashSet::with_capacity(T::max_blobs_per_block()));
         let did_not_exist = blob_indices.insert(blob_sidecar.index);
-        block_roots.insert(block_root);
 
         Ok(!did_not_exist)
     }
@@ -81,42 +74,10 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
                 slot: blob_sidecar.slot(),
                 proposer: blob_sidecar.block_proposer_index(),
             })
-            .map_or(false, |(blob_indices, _block_roots)| {
+            .map_or(false, |blob_indices| {
                 blob_indices.contains(&blob_sidecar.index)
             });
         Ok(is_known)
-    }
-
-    /// Returns `Ok(true)` if the `block_root` has been observed in a blob sidecar message before, `Ok(false)` if not.
-    /// Does not update the cache, so calling this function multiple times will continue to return
-    /// `Ok(false)`, until `Self::observe_proposer` is called.
-    ///
-    /// ## Errors
-    ///
-    /// - `key.proposer_index` is greater than `VALIDATOR_REGISTRY_LIMIT`.
-    /// - `key.slot` is equal to or less than the latest pruned `finalized_slot`.
-    pub fn proposer_has_been_observed(
-        &self,
-        slot: Slot,
-        proposer: u64,
-        block_root: Hash256,
-    ) -> Result<SeenBlock, Error> {
-        let key = ProposalKey { slot, proposer };
-        if let Some((_, block_roots)) = self.items.get(&key) {
-            let block_already_known = block_roots.contains(&block_root);
-            let no_prev_known_blocks =
-                block_roots.difference(&HashSet::from([block_root])).count() == 0;
-
-            if !no_prev_known_blocks {
-                Ok(SeenBlock::Slashable)
-            } else if block_already_known {
-                Ok(SeenBlock::Duplicate)
-            } else {
-                Ok(SeenBlock::UniqueNonSlashable)
-            }
-        } else {
-            Ok(SeenBlock::UniqueNonSlashable)
-        }
     }
 
     fn sanitize_blob_sidecar(&self, blob_sidecar: &BlobSidecar<T>) -> Result<(), Error> {
@@ -148,6 +109,7 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bls::Hash256;
     use std::sync::Arc;
     use types::{BlobSidecar, MainnetEthSpec};
 
@@ -189,7 +151,7 @@ mod tests {
             "only one (validator_index, slot) tuple should be present"
         );
 
-        let (cached_blob_indices, cached_block_roots) = cache
+        let cached_blob_indices = cache
             .items
             .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
             .expect("slot zero should be present");
@@ -197,11 +159,6 @@ mod tests {
             cached_blob_indices.len(),
             1,
             "only one proposer should be present"
-        );
-        assert_eq!(
-            cached_block_roots.len(),
-            1,
-            "only one block root should be present"
         );
 
         /*
@@ -212,7 +169,7 @@ mod tests {
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        let (cached_blob_indices, cached_block_roots) = cache
+        let cached_blob_indices = cache
             .items
             .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
             .expect("slot zero should be present");
@@ -220,11 +177,6 @@ mod tests {
             cached_blob_indices.len(),
             1,
             "only one proposer should be present"
-        );
-        assert_eq!(
-            cached_block_roots.len(),
-            1,
-            "only one block root should be present"
         );
 
         /*
@@ -274,7 +226,7 @@ mod tests {
         );
 
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        let (cached_blob_indices, cached_block_roots) = cache
+        let cached_blob_indices = cache
             .items
             .get(&ProposalKey::new(proposer_index_b, Slot::new(three_epochs)))
             .expect("the three epochs slot should be present");
@@ -282,11 +234,6 @@ mod tests {
             cached_blob_indices.len(),
             1,
             "only one proposer should be present"
-        );
-        assert_eq!(
-            cached_block_roots.len(),
-            1,
-            "only one block root should be present"
         );
 
         /*
@@ -303,7 +250,7 @@ mod tests {
         );
 
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        let (cached_blob_indices, cached_block_roots) = cache
+        let cached_blob_indices = cache
             .items
             .get(&ProposalKey::new(proposer_index_b, Slot::new(three_epochs)))
             .expect("the three epochs slot should be present");
@@ -311,11 +258,6 @@ mod tests {
             cached_blob_indices.len(),
             1,
             "only one proposer should be present"
-        );
-        assert_eq!(
-            cached_block_roots.len(),
-            1,
-            "only one block root should be present"
         );
     }
 
@@ -353,7 +295,7 @@ mod tests {
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        let (cached_blob_indices, cached_block_roots) = cache
+        let cached_blob_indices = cache
             .items
             .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
             .expect("slot zero should be present");
@@ -361,11 +303,6 @@ mod tests {
             cached_blob_indices.len(),
             1,
             "only one proposer should be present"
-        );
-        assert_eq!(
-            cached_block_roots.len(),
-            1,
-            "only one block root should be present"
         );
 
         // Slot 1, proposer 0
@@ -396,7 +333,7 @@ mod tests {
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 2, "two slots should be present");
-        let (cached_blob_indices, cached_block_roots) = cache
+        let cached_blob_indices = cache
             .items
             .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
             .expect("slot zero should be present");
@@ -405,12 +342,7 @@ mod tests {
             1,
             "only one proposer should be present in slot 0"
         );
-        assert_eq!(
-            cached_block_roots.len(),
-            1,
-            "only one block root should be present in slot 0"
-        );
-        let (cached_blob_indices, cached_block_roots) = cache
+        let cached_blob_indices = cache
             .items
             .get(&ProposalKey::new(proposer_index_b, Slot::new(1)))
             .expect("slot zero should be present");
@@ -418,11 +350,6 @@ mod tests {
             cached_blob_indices.len(),
             1,
             "only one proposer should be present in slot 1"
-        );
-        assert_eq!(
-            cached_block_roots.len(),
-            1,
-            "only one block root should be present in slot 1"
         );
 
         // Slot 0, index 1
@@ -451,7 +378,7 @@ mod tests {
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 2, "two slots should be present");
-        let (cached_blob_indices, cached_block_roots) = cache
+        let cached_blob_indices = cache
             .items
             .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
             .expect("slot zero should be present");
@@ -459,13 +386,6 @@ mod tests {
             cached_blob_indices.len(),
             2,
             "two blob indices should be present in slot 0"
-        );
-        // Changing the blob index doesn't change the block root, so only one unique signed
-        // header should be in the cache.
-        assert_eq!(
-            cached_block_roots.len(),
-            1,
-            "one block root should be present in slot 0"
         );
 
         // Create a sidecar sharing slot and proposer but with a different block root.
@@ -488,7 +408,7 @@ mod tests {
             Ok(true),
             "indicates sidecar proposer was observed"
         );
-        let (cached_blob_indices, cached_block_roots) = cache
+        let cached_blob_indices = cache
             .items
             .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
             .expect("slot zero should be present");
@@ -496,11 +416,6 @@ mod tests {
             cached_blob_indices.len(),
             2,
             "two blob indices should be present in slot 0"
-        );
-        assert_eq!(
-            cached_block_roots.len(),
-            2,
-            "two block root should be present in slot 0"
         );
 
         // Try adding an out of bounds index
