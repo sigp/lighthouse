@@ -8,14 +8,12 @@ mod standard_block_rewards;
 mod sync_committee_rewards;
 
 use crate::{
-    ok_or_error,
     types::{
         DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock, GenericResponse, ValidatorId,
     },
-    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot, StatusCode,
+    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot,
 };
 use proto_array::core::ProtoArray;
-use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
@@ -370,27 +368,6 @@ pub struct DatabaseInfo {
 }
 
 impl BeaconNodeHttpClient {
-    /// Perform a HTTP GET request, returning `None` on a 404 error.
-    async fn get_bytes_opt<U: IntoUrl>(&self, url: U) -> Result<Option<Vec<u8>>, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::from)?;
-        match ok_or_error(response).await {
-            Ok(resp) => Ok(Some(
-                resp.bytes()
-                    .await
-                    .map_err(Error::from)?
-                    .into_iter()
-                    .collect::<Vec<_>>(),
-            )),
-            Err(err) => {
-                if err.status() == Some(StatusCode::NOT_FOUND) {
-                    Ok(None)
-                } else {
-                    Err(err)
-                }
-            }
-        }
-    }
-
     /// `GET lighthouse/health`
     pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
         let mut path = self.server.full.clone();
