@@ -389,7 +389,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     ) -> (mpsc::Sender<Notification>, thread::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel();
         let thread = thread::spawn(move || {
-            while let Ok(notif) = rx.recv() {
+            if let Ok(notif) = rx.recv() {
                 let mut reconstruction_notif = None;
                 let mut finalization_notif = None;
                 let mut prune_blobs_notif = None;
@@ -430,6 +430,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     }
                 }
             }
+            println!("test thread shutting down");
         });
         (tx, thread)
     }
@@ -652,6 +653,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         // Update the head tracker before the database, so that we maintain the invariant
         // that a block present in the head tracker is present in the database.
         // See https://github.com/sigp/lighthouse/issues/1557
+        hiatus::enable();
+        println!("waiting to prune (step 2)");
+        let s2 = hiatus::step(2);
         let mut head_tracker_lock = head_tracker.0.write();
 
         // Check that all the heads to be deleted are still present. The absence of any
@@ -704,6 +708,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         store.do_atomically_with_block_and_blobs_cache(batch)?;
         debug!(log, "Database pruning complete");
+        drop(s2);
 
         Ok(PruningOutcome::Successful {
             old_finalized_checkpoint,

@@ -1128,6 +1128,11 @@ lazy_static! {
         // Create a custom bucket list for greater granularity in block delay
         Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
     );
+
+    pub static ref PRUNING_NUM_FORGOTTEN_BLOCKS: Result<IntCounter> = try_create_int_counter(
+        "beacon_chain_pruning_num_forgotten_blocks",
+        "Count of blocks submitted for processing"
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,

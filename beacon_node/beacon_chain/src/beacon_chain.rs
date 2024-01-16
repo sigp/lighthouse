@@ -447,7 +447,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// HTTP server is enabled.
     pub event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     /// Used to track the heads of the beacon chain.
-    pub(crate) head_tracker: Arc<HeadTracker>,
+    pub head_tracker: Arc<HeadTracker>,
     /// A cache dedicated to block processing.
     pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
@@ -6597,7 +6597,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
     fn drop(&mut self) {
         let drop = || -> Result<(), Error> {
-            self.persist_head_and_fork_choice()?;
+            let mut batch = vec![];
+
+            println!("waiting to drop (step 1)");
+            let s1 = hiatus::step(1);
+            batch.push(self.persist_head_in_batch());
+            drop(s1);
+
+            batch.push(self.persist_fork_choice_in_batch());
+
+            println!("waiting to drop (step 3)");
+            let s3 = hiatus::step(3);
+            self.store.hot_db.do_atomically(batch)?;
+            drop(s3);
+
             self.persist_op_pool()?;
             self.persist_data_availability_checker()?;
             self.persist_eth1_cache()

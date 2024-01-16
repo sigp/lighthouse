@@ -376,6 +376,70 @@ async fn full_participation_no_skips() {
 }
 
 #[tokio::test]
+async fn bug_repro() {
+    use beacon_chain::head_tracker::HeadTracker;
+    use beacon_chain::test_utils::PersistedBeaconChain;
+    use beacon_chain::test_utils::BEACON_CHAIN_DB_KEY;
+
+    let num_blocks_produced = E::slots_per_epoch() * 4;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    hiatus::enable();
+
+    let genesis_state = harness.get_current_state();
+    let (fork_block, _) = harness.make_block(genesis_state, Slot::new(1)).await;
+    let block_root = fork_block.0.canonical_root();
+
+    harness
+        .extend_chain(
+            2 as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness
+        .process_block(Slot::new(1), block_root, fork_block)
+        .await
+        .unwrap();
+
+    harness.advance_slot();
+    harness.advance_slot();
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    drop(harness);
+
+    while std::sync::Arc::strong_count(&store) != 1 {
+        println!("waiting for store to be released");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    drop(store);
+
+    let store = get_store(&db_path);
+
+    // Not in store.
+    assert_eq!(store.get_blinded_block(&block_root).unwrap(), None);
+
+    let pbc = store
+        .get_item::<PersistedBeaconChain>(&BEACON_CHAIN_DB_KEY)
+        .unwrap()
+        .unwrap();
+    let head_tracker = HeadTracker::from_ssz_container(&pbc.ssz_head_tracker).unwrap();
+    // IS in the head tracker.
+    assert!(head_tracker.0.read().contains_key(&block_root));
+}
+
+#[tokio::test]
 async fn randomised_skips() {
     let num_slots = E::slots_per_epoch() * 5;
     let mut num_blocks_produced = 0;

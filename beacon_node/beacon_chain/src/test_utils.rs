@@ -514,9 +514,7 @@ where
             .custom_spec(spec)
             .store(self.store.expect("cannot build without store"))
             .store_migrator_config(
-                MigratorConfig::default()
-                    .blocking()
-                    .epochs_per_migration(chain_config.epochs_per_migration),
+                MigratorConfig::default().epochs_per_migration(chain_config.epochs_per_migration),
             )
             .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
