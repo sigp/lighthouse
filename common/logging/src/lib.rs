@@ -7,15 +7,21 @@ use lighthouse_metrics::{
 use slog::Logger;
 use slog_term::Decorator;
 use std::io::{Result, Write};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use tracing_appender::non_blocking::NonBlocking;
+use tracing_logging_layer::LoggingLayer;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
 pub mod async_record;
 mod sse_logging_components;
+mod tracing_logging_layer;
 mod tracing_metrics_layer;
 
 pub use sse_logging_components::SSELoggingComponents;
+pub use tracing_logging_layer::cleanup_logging_task;
 pub use tracing_metrics_layer::MetricsLayer;
 
 /// The minimum interval between log messages indicating that a queue is full.
@@ -214,6 +220,48 @@ impl TimeLatch {
         }
 
         is_elapsed
+    }
+}
+
+pub fn create_tracing_layer(base_tracing_log_path: PathBuf, turn_on_terminal_logs: bool) {
+    let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
+        .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
+    {
+        Ok(filter) => filter,
+        Err(e) => {
+            eprintln!("Failed to initialize dependency logging {e}");
+            return;
+        }
+    };
+
+    let libp2p_writer =
+        tracing_appender::rolling::daily(base_tracing_log_path.clone(), "libp2p.log");
+    let discv5_writer =
+        tracing_appender::rolling::daily(base_tracing_log_path.clone(), "discv5.log");
+
+    let (libp2p_non_blocking_writer, libp2p_guard) = NonBlocking::new(libp2p_writer);
+    let (discv5_non_blocking_writer, discv5_guard) = NonBlocking::new(discv5_writer);
+
+    let custom_layer = LoggingLayer {
+        libp2p_non_blocking_writer,
+        libp2p_guard,
+        discv5_non_blocking_writer,
+        discv5_guard,
+    };
+
+    if let Err(e) = tracing_subscriber::fmt()
+        .with_env_filter(filter_layer)
+        .with_writer(move || {
+            tracing_subscriber::fmt::writer::OptionalWriter::<std::io::Stdout>::from(
+                turn_on_terminal_logs.then(std::io::stdout),
+            )
+        })
+        .finish()
+        .with(MetricsLayer)
+        .with(custom_layer)
+        .try_init()
+    {
+        eprintln!("Failed to initialize dependency logging {e}");
     }
 }
 
