@@ -1226,9 +1226,13 @@ pub async fn blinded_equivocation_gossip() {
     );
 }
 
-/// This test checks that a block that is valid from both a gossip and consensus perspective but that equivocates **late** is rejected when using `broadcast_validation=consensus_and_equivocation`.
+/// This test checks that a block that is valid from both a gossip and
+/// consensus perspective but that equivocates **late** is rejected when using
+/// `broadcast_validation=consensus_and_equivocation`.
 ///
-/// This test is unique in that we can't actually test the HTTP API directly, but instead have to hook into the `publish_blocks` code manually. This is in order to handle the late equivocation case.
+/// This test is unique in that we can't actually test the HTTP API directly,
+/// but instead have to hook into the `publish_blocks` code manually. This is
+/// in order to handle the late equivocation case.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn blinded_equivocation_consensus_late_equivocation() {
     /* this test targets gossip-level validation */

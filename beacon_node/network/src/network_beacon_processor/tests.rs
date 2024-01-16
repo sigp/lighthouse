@@ -18,7 +18,7 @@ use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::rpc::SubstreamId;
 use lighthouse_network::{
-    discv5::enr::{CombinedKey, EnrBuilder},
+    discv5::enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
     Client, MessageId, NetworkGlobals, PeerId, Response,
@@ -203,7 +203,7 @@ impl TestRig {
             syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
         });
         let enr_key = CombinedKey::generate_secp256k1();
-        let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
+        let enr = enr::Enr::builder().build(&enr_key).unwrap();
         let network_globals = Arc::new(NetworkGlobals::new(enr, meta_data, vec![], false, &log));
 
         let executor = harness.runtime.task_executor.clone();

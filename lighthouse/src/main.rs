@@ -14,6 +14,7 @@ use slog::{crit, info};
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -362,6 +363,34 @@ fn main() {
             );
             exit(1)
         }
+    }
+
+    // read the `RUST_LOG` statement
+    let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
+        .or_else(|_| tracing_subscriber::EnvFilter::try_new("debug"))
+    {
+        Ok(filter) => filter,
+        Err(e) => {
+            eprintln!("Failed to initialize dependency logging {e}");
+            exit(1)
+        }
+    };
+
+    let turn_on_terminal_logs = matches.is_present("env_log");
+
+    if let Err(e) = tracing_subscriber::fmt()
+        .with_env_filter(filter_layer)
+        .with_writer(move || {
+            tracing_subscriber::fmt::writer::OptionalWriter::<std::io::Stdout>::from(
+                turn_on_terminal_logs.then(std::io::stdout),
+            )
+        })
+        .finish()
+        .with(logging::MetricsLayer)
+        .try_init()
+    {
+        eprintln!("Failed to initialize dependency logging {e}");
+        exit(1)
     }
 
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {

@@ -420,7 +420,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     if chain
         .observed_blob_sidecars
         .read()
-        .is_known(&blob_sidecar)
+        .proposer_is_known(&blob_sidecar)
         .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
     {
         return Err(GossipBlobError::RepeatBlob {
@@ -598,6 +598,16 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             local: proposer_index,
         });
     }
+
+    chain
+        .observed_slashable
+        .write()
+        .observe_slashable(
+            blob_sidecar.slot(),
+            blob_sidecar.block_proposer_index(),
+            block_root,
+        )
+        .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?;
 
     // Now the signature is valid, store the proposal so we don't accept another blob sidecar
     // with the same `BlobIdentifier`.

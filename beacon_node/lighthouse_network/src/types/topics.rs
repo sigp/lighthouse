@@ -1,8 +1,7 @@
 use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
-use types::consts::deneb::BLOB_SIDECAR_SUBNET_COUNT;
-use types::{EthSpec, ForkName, SubnetId, SyncSubnetId};
+use types::{ChainSpec, EthSpec, ForkName, SubnetId, SyncSubnetId};
 
 use crate::Subnet;
 
@@ -44,7 +43,7 @@ pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
 pub const DENEB_CORE_TOPICS: [GossipKind; 0] = [];
 
 /// Returns the core topics associated with each fork that are new to the previous fork
-pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName) -> Vec<GossipKind> {
+pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> Vec<GossipKind> {
     match fork_name {
         ForkName::Base => BASE_CORE_TOPICS.to_vec(),
         ForkName::Altair => ALTAIR_CORE_TOPICS.to_vec(),
@@ -53,7 +52,7 @@ pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName) -> Vec<GossipKind> {
         ForkName::Deneb => {
             // All of deneb blob topics are core topics
             let mut deneb_blob_topics = Vec::new();
-            for i in 0..BLOB_SIDECAR_SUBNET_COUNT {
+            for i in 0..spec.blob_sidecar_subnet_count {
                 deneb_blob_topics.push(GossipKind::BlobSidecar(i));
             }
             let mut deneb_topics = DENEB_CORE_TOPICS.to_vec();
@@ -65,10 +64,13 @@ pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName) -> Vec<GossipKind> {
 
 /// Returns all the topics that we need to subscribe to for a given fork
 /// including topics from older forks and new topics for the current fork.
-pub fn core_topics_to_subscribe<T: EthSpec>(mut current_fork: ForkName) -> Vec<GossipKind> {
-    let mut topics = fork_core_topics::<T>(&current_fork);
+pub fn core_topics_to_subscribe<T: EthSpec>(
+    mut current_fork: ForkName,
+    spec: &ChainSpec,
+) -> Vec<GossipKind> {
+    let mut topics = fork_core_topics::<T>(&current_fork, spec);
     while let Some(previous_fork) = current_fork.previous_fork() {
-        let previous_fork_topics = fork_core_topics::<T>(&previous_fork);
+        let previous_fork_topics = fork_core_topics::<T>(&previous_fork, spec);
         topics.extend(previous_fork_topics);
         current_fork = previous_fork;
     }
@@ -435,14 +437,18 @@ mod tests {
     #[test]
     fn test_core_topics_to_subscribe() {
         type E = MainnetEthSpec;
+        let spec = E::default_spec();
         let mut all_topics = Vec::new();
-        let mut deneb_core_topics = fork_core_topics::<E>(&ForkName::Deneb);
+        let mut deneb_core_topics = fork_core_topics::<E>(&ForkName::Deneb, &spec);
         all_topics.append(&mut deneb_core_topics);
         all_topics.extend(CAPELLA_CORE_TOPICS);
         all_topics.extend(ALTAIR_CORE_TOPICS);
         all_topics.extend(BASE_CORE_TOPICS);
 
         let latest_fork = *ForkName::list_all().last().unwrap();
-        assert_eq!(core_topics_to_subscribe::<E>(latest_fork), all_topics);
+        assert_eq!(
+            core_topics_to_subscribe::<E>(latest_fork, &spec),
+            all_topics
+        );
     }
 }
