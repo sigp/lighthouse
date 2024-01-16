@@ -158,7 +158,7 @@ pub struct Config {
     /// Configuration for the inbound rate limiter (requests received by this node).
     pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
 
-    /// Whether to disable logging duplicate gossip messages as WARN. If set to true, duplicate  
+    /// Whether to disable logging duplicate gossip messages as WARN. If set to true, duplicate
     /// errors will be logged at DEBUG level.
     pub disable_duplicate_warn_logs: bool,
 }
