@@ -17,7 +17,8 @@ pub use config::{get_config, get_data_dir, get_slots_per_restore_point, set_netw
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use slasher::{DatabaseBackendOverride, Slasher};
-use slog::{info, warn};
+use slog::{crit, info, warn};
+use std::backtrace::Backtrace;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use types::EthSpec;
@@ -66,6 +67,20 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let freezer_db_path = client_config.create_freezer_db_path()?;
         let blobs_db_path = client_config.create_blobs_db_path()?;
         let executor = context.executor.clone();
+
+        // Log panics properly.
+        {
+            let log = log.clone();
+            std::panic::set_hook(Box::new(move |info| {
+                crit!(
+                    log,
+                    "Task panic. This is a bug!";
+                    "location" => info.location().map(ToString::to_string),
+                    "message" => info.payload().downcast_ref::<String>(),
+                    "backtrace" => %Backtrace::capture(),
+                );
+            }));
+        }
 
         if let Some(legacy_dir) = client_config.get_existing_legacy_data_dir() {
             warn!(

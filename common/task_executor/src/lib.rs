@@ -3,7 +3,7 @@ pub mod test_utils;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
-use slog::{crit, debug, o, trace};
+use slog::{debug, o, trace};
 use std::sync::Weak;
 use tokio::runtime::{Handle, Runtime};
 
@@ -138,23 +138,11 @@ impl TaskExecutor {
         name: &'static str,
     ) {
         let mut shutdown_sender = self.shutdown_sender();
-        let log = self.log.clone();
-
         if let Some(handle) = self.handle() {
             handle.spawn(async move {
                 let timer = metrics::start_timer_vec(&metrics::TASKS_HISTOGRAM, &[name]);
                 if let Err(join_error) = task_handle.await {
-                    if let Ok(panic) = join_error.try_into_panic() {
-                        let message = panic.downcast_ref::<&str>().unwrap_or(&"<none>");
-
-                        crit!(
-                            log,
-                            "Task panic. This is a bug!";
-                            "task_name" => name,
-                            "message" => message,
-                            "advice" => "Please check above for a backtrace and notify \
-                                         the developers"
-                        );
+                    if let Ok(_panic) = join_error.try_into_panic() {
                         let _ = shutdown_sender
                             .try_send(ShutdownReason::Failure("Panic (fatal error)"));
                     }
