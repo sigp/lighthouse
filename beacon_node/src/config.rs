@@ -973,13 +973,13 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc_port)
-                .unwrap_or(port);
+                .unwrap_or(tcp_port);
 
             let quic_port = use_zero_ports
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic_port)
-                .unwrap_or(port + 1);
+                .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
             ListenAddress::V6(lighthouse_network::ListenAddr {
                 addr: ipv6,
@@ -1002,14 +1002,14 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_disc_port)
-                .unwrap_or(port);
+                .unwrap_or(tcp_port);
             // use zero ports if required. If not, use the specific quic port. If none given, use
             // the tcp port + 1.
             let quic_port = use_zero_ports
                 .then(unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
-                .unwrap_or(port + 1);
+                .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
             ListenAddress::V4(lighthouse_network::ListenAddr {
                 addr: ipv4,
@@ -1032,7 +1032,11 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
-                .unwrap_or(port + 1);
+                .unwrap_or(if ipv4_tcp_port == 0 {
+                    0
+                } else {
+                    ipv4_tcp_port + 1
+                });
 
             // Defaults to 9090 when required
             let ipv6_tcp_port = use_zero_ports
@@ -1048,7 +1052,11 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic6_port)
-                .unwrap_or(ipv6_tcp_port + 1);
+                .unwrap_or(if ipv6_tcp_port == 0 {
+                    0
+                } else {
+                    ipv6_tcp_port + 1
+                });
 
             ListenAddress::DualStack(
                 lighthouse_network::ListenAddr {
