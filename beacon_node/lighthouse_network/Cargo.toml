@@ -46,19 +46,26 @@ tracing = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
 either = { workspace = true }
-futures-ticker = { workspace = true }
-futures-timer = { workspace = true }
-getrandom = { workspace = true }
-hex_fmt = { workspace = true }
-instant = { workspace = true }
-quick-protobuf = { workspace = true }
-quick-protobuf-codec = { workspace = true }
-void = { workspace = true }
-async-channel = { workspace = true }
-asynchronous-codec = { workspace = true }
-base64 = { workspace = true }
-libp2p-mplex = { workspace = true }
-libp2p = {workspace = true }
+
+# Local dependencies
+futures-ticker = "0.0.3"
+futures-timer = "3.0.2"
+getrandom = "0.2.11"
+hex_fmt = "0.3.0"
+instant = "0.1.12"
+quick-protobuf = "0.8"
+void = "1.0.2"
+async-channel = "1.9.0"
+asynchronous-codec = "0.7.0"
+base64 = "0.21.5"
+quick-protobuf-codec = { git = "https://github.com/sigp/rust-libp2p/", rev = "7c094d2ff6e177a7b2a46a0b87e9b6915c999d20" }
+libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p/", rev = "7c094d2ff6e177a7b2a46a0b87e9b6915c999d20" }
+
+[dependencies.libp2p]
+git = "https://github.com/sigp/rust-libp2p/"
+rev = "7c094d2ff6e177a7b2a46a0b87e9b6915c999d20"
+default-features = false
+features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic"]
 
 [dev-dependencies]
 slog-term = { workspace = true }
