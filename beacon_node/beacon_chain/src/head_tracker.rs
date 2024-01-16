@@ -1,4 +1,4 @@
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockReadGuard};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use types::{Hash256, Slot};
@@ -14,7 +14,11 @@ pub enum Error {
 /// In order for this struct to be effective, every single block that is imported must be
 /// registered here.
 #[derive(Default, Debug)]
-pub struct HeadTracker(pub RwLock<HashMap<Hash256, Slot>>);
+pub struct HeadTracker {
+    pub data: RwLock<HashMap<Hash256, Slot>>,
+}
+
+pub type HeadTrackerReader<'a> = RwLockReadGuard<'a, HashMap<Hash256, Slot>>;
 
 impl HeadTracker {
     /// Register a block with `Self`, so it may or may not be included in a `Self::heads` call.
@@ -23,19 +27,19 @@ impl HeadTracker {
     /// imported. It cannot detect an error if this is not the case, it is the responsibility of
     /// the upstream user.
     pub fn register_block(&self, block_root: Hash256, parent_root: Hash256, slot: Slot) {
-        let mut map = self.0.write();
+        let mut map = self.data.write();
         map.remove(&parent_root);
         map.insert(block_root, slot);
     }
 
     /// Returns true iff `block_root` is a recognized head.
     pub fn contains_head(&self, block_root: Hash256) -> bool {
-        self.0.read().contains_key(&block_root)
+        self.data.read().contains_key(&block_root)
     }
 
     /// Returns the list of heads in the chain.
     pub fn heads(&self) -> Vec<(Hash256, Slot)> {
-        self.0
+        self.data
             .read()
             .iter()
             .map(|(root, slot)| (*root, *slot))
@@ -44,8 +48,13 @@ impl HeadTracker {
 
     /// Returns a `SszHeadTracker`, which contains all necessary information to restore the state
     /// of `Self` at some later point.
+    ///
+    /// Should ONLY be used for tests, due to the potential for database races.
+    ///
+    /// See <https://github.com/sigp/lighthouse/issues/4773>
+    #[cfg(test)]
     pub fn to_ssz_container(&self) -> SszHeadTracker {
-        SszHeadTracker::from_map(&self.0.read())
+        SszHeadTracker::from_map(&self.data.read())
     }
 
     /// Creates a new `Self` from the given `SszHeadTracker`, restoring `Self` to the same state of
@@ -67,14 +76,16 @@ impl HeadTracker {
                 .map(|(root, slot)| (*root, *slot))
                 .collect::<HashMap<_, _>>();
 
-            Ok(Self(RwLock::new(map)))
+            Ok(Self {
+                data: RwLock::new(map),
+            })
         }
     }
 }
 
 impl PartialEq<HeadTracker> for HeadTracker {
     fn eq(&self, other: &HeadTracker) -> bool {
-        *self.0.read() == *other.0.read()
+        *self.data.read() == *other.data.read()
     }
 }
 
@@ -155,7 +166,10 @@ mod test {
     fn empty_round_trip() {
         let non_empty = HeadTracker::default();
         for i in 0..16 {
-            non_empty.0.write().insert(Hash256::random(), Slot::new(i));
+            non_empty
+                .data
+                .write()
+                .insert(Hash256::random(), Slot::new(i));
         }
         let bytes = non_empty.to_ssz_container().as_ssz_bytes();
 
@@ -172,7 +186,10 @@ mod test {
     fn non_empty_round_trip() {
         let non_empty = HeadTracker::default();
         for i in 0..16 {
-            non_empty.0.write().insert(Hash256::random(), Slot::new(i));
+            non_empty
+                .data
+                .write()
+                .insert(Hash256::random(), Slot::new(i));
         }
         let bytes = non_empty.to_ssz_container().as_ssz_bytes();
 

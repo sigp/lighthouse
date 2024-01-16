@@ -653,10 +653,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         // Update the head tracker before the database, so that we maintain the invariant
         // that a block present in the head tracker is present in the database.
         // See https://github.com/sigp/lighthouse/issues/1557
-        hiatus::enable();
         println!("waiting to prune (step 2)");
         let s2 = hiatus::step(2);
-        let mut head_tracker_lock = head_tracker.0.write();
+        let mut head_tracker_lock = head_tracker.data.write();
 
         // Check that all the heads to be deleted are still present. The absence of any
         // head indicates a race, that will likely resolve itself, so we defer pruning until

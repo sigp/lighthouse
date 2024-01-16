@@ -386,7 +386,7 @@ async fn bug_repro() {
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
-    hiatus::enable();
+    // hiatus::enable();
 
     let genesis_state = harness.get_current_state();
     let (fork_block, _) = harness.make_block(genesis_state, Slot::new(1)).await;
@@ -435,8 +435,8 @@ async fn bug_repro() {
         .unwrap()
         .unwrap();
     let head_tracker = HeadTracker::from_ssz_container(&pbc.ssz_head_tracker).unwrap();
-    // IS in the head tracker.
-    assert!(head_tracker.0.read().contains_key(&block_root));
+    // IS NOT in the head tracker.
+    assert!(!head_tracker.data.read().contains_key(&block_root));
 }
 
 #[tokio::test]

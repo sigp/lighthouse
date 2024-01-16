@@ -30,7 +30,7 @@ use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
-use crate::head_tracker::HeadTracker;
+use crate::head_tracker::{HeadTracker, HeadTrackerReader, SszHeadTracker};
 use crate::historical_blocks::HistoricalBlockError;
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
@@ -610,12 +610,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut batch = vec![];
 
         let _head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
-        batch.push(self.persist_head_in_batch());
+        let head_tracker = self.head_tracker.data.read();
+        batch.push(self.persist_head_in_batch(&head_tracker));
 
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
         batch.push(self.persist_fork_choice_in_batch());
 
         self.store.hot_db.do_atomically(batch)?;
+        drop(head_tracker);
 
         Ok(())
     }
@@ -623,25 +625,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return a `PersistedBeaconChain` without reference to a `BeaconChain`.
     pub fn make_persisted_head(
         genesis_block_root: Hash256,
-        head_tracker: &HeadTracker,
+        head_tracker_reader: &HeadTrackerReader,
     ) -> PersistedBeaconChain {
         PersistedBeaconChain {
             _canonical_head_block_root: DUMMY_CANONICAL_HEAD_BLOCK_ROOT,
             genesis_block_root,
-            ssz_head_tracker: head_tracker.to_ssz_container(),
+            ssz_head_tracker: SszHeadTracker::from_map(&head_tracker_reader),
         }
     }
 
     /// Return a database operation for writing the beacon chain head to disk.
-    pub fn persist_head_in_batch(&self) -> KeyValueStoreOp {
-        Self::persist_head_in_batch_standalone(self.genesis_block_root, &self.head_tracker)
+    pub fn persist_head_in_batch(
+        &self,
+        head_tracker_reader: &HeadTrackerReader,
+    ) -> KeyValueStoreOp {
+        Self::persist_head_in_batch_standalone(self.genesis_block_root, head_tracker_reader)
     }
 
     pub fn persist_head_in_batch_standalone(
         genesis_block_root: Hash256,
-        head_tracker: &HeadTracker,
+        head_tracker_reader: &HeadTrackerReader,
     ) -> KeyValueStoreOp {
-        Self::make_persisted_head(genesis_block_root, head_tracker)
+        Self::make_persisted_head(genesis_block_root, head_tracker_reader)
             .as_kv_store_op(BEACON_CHAIN_DB_KEY)
     }
 
@@ -1341,6 +1346,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.head_tracker.heads()
     }
 
+    /// Only used in tests.
     pub fn knows_head(&self, block_hash: &SignedBeaconBlockHash) -> bool {
         self.head_tracker.contains_head((*block_hash).into())
     }
@@ -6597,20 +6603,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
     fn drop(&mut self) {
         let drop = || -> Result<(), Error> {
-            let mut batch = vec![];
-
-            println!("waiting to drop (step 1)");
-            let s1 = hiatus::step(1);
-            batch.push(self.persist_head_in_batch());
-            drop(s1);
-
-            batch.push(self.persist_fork_choice_in_batch());
-
-            println!("waiting to drop (step 3)");
-            let s3 = hiatus::step(3);
-            self.store.hot_db.do_atomically(batch)?;
-            drop(s3);
-
+            self.persist_head_and_fork_choice()?;
             self.persist_op_pool()?;
             self.persist_data_availability_checker()?;
             self.persist_eth1_cache()
