@@ -553,34 +553,30 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // Try the proposer nodes last, since it's likely that they don't have a
         // great view of attestations on the network.
         let unsigned_block = proposer_fallback
-            .request_proposers_last(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async move {
-                    let _get_timer = metrics::start_timer_vec(
-                        &metrics::BLOCK_SERVICE_TIMES,
-                        &[metrics::BEACON_BLOCK_HTTP_GET],
-                    );
-                    let block_response = Self::get_validator_block_v3(
-                        beacon_node,
-                        slot,
-                        randao_reveal_ref,
-                        graffiti,
-                        proposer_index,
-                        builder_boost_factor,
-                        log,
-                    )
-                    .await
-                    .map_err(|e| {
-                        BlockError::Recoverable(format!(
-                            "Error from beacon node when producing block: {:?}",
-                            e
-                        ))
-                    });
+            .request_proposers_last(|beacon_node| async move {
+                let _get_timer = metrics::start_timer_vec(
+                    &metrics::BLOCK_SERVICE_TIMES,
+                    &[metrics::BEACON_BLOCK_HTTP_GET],
+                );
+                let block_response = Self::get_validator_block_v3(
+                    &beacon_node,
+                    slot,
+                    randao_reveal_ref,
+                    graffiti,
+                    proposer_index,
+                    builder_boost_factor,
+                    log,
+                )
+                .await
+                .map_err(|e| {
+                    BlockError::Recoverable(format!(
+                        "Error from beacon node when producing block: {:?}",
+                        e
+                    ))
+                });
 
-                    Ok::<_, BlockError>(block_response)
-                },
-            )
+                Ok::<_, BlockError>(block_response)
+            })
             .await??;
 
         self_ref
@@ -660,21 +656,17 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // Try the proposer nodes last, since it's likely that they don't have a
         // great view of attestations on the network.
         let unsigned_block = proposer_fallback
-            .request_proposers_last(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                move |beacon_node| {
-                    Self::get_validator_block(
-                        beacon_node,
-                        slot,
-                        randao_reveal_ref,
-                        graffiti,
-                        proposer_index,
-                        builder_proposal,
-                        log,
-                    )
-                },
-            )
+            .request_proposers_last(move |beacon_node| {
+                Self::get_validator_block(
+                    beacon_node,
+                    slot,
+                    randao_reveal_ref,
+                    graffiti,
+                    proposer_index,
+                    builder_proposal,
+                    log,
+                )
+            })
             .await?;
 
         self_ref
