@@ -21,6 +21,7 @@ mod tracing_logging_layer;
 mod tracing_metrics_layer;
 
 pub use sse_logging_components::SSELoggingComponents;
+pub use tracing_logging_layer::cleanup_logging_task;
 pub use tracing_metrics_layer::MetricsLayer;
 
 /// The minimum interval between log messages indicating that a queue is full.
@@ -224,7 +225,7 @@ impl TimeLatch {
 
 pub fn create_tracing_layer(base_tracing_log_path: PathBuf, turn_on_terminal_logs: bool) {
     let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
-        .or_else(|_| tracing_subscriber::EnvFilter::try_new("debug"))
+        .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
     {
         Ok(filter) => filter,
         Err(e) => {
