@@ -1487,7 +1487,7 @@ mod tests {
         .expect("should convert into signed block contents");
 
         let decoded: PublishBlockRequest<E> =
-            PublishBlockRequest::from_ssz_bytes(&block.as_ssz_bytes(), &spec)
+            PublishBlockRequest::from_ssz_bytes(&block.as_ssz_bytes(), ForkName::Capella)
                 .expect("should decode Block");
         assert!(matches!(decoded, PublishBlockRequest::Block(_)));
     }
@@ -1505,9 +1505,11 @@ mod tests {
         let kzg_proofs = KzgProofs::<E>::from(vec![KzgProof::empty()]);
         let signed_block_contents = PublishBlockRequest::new(block, Some((kzg_proofs, blobs)));
 
-        let decoded: PublishBlockRequest<E> =
-            PublishBlockRequest::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
-                .expect("should decode BlockAndBlobSidecars");
+        let decoded: PublishBlockRequest<E> = PublishBlockRequest::from_ssz_bytes(
+            &signed_block_contents.as_ssz_bytes(),
+            ForkName::Deneb,
+        )
+        .expect("should decode BlockAndBlobSidecars");
         assert!(matches!(decoded, PublishBlockRequest::BlockContents(_)));
     }
 }
@@ -1746,22 +1748,11 @@ impl<T: EthSpec> PublishBlockRequest<T> {
         }
     }
 
-    /// SSZ decode with fork variant determined by slot.
-    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
-        let slot_len = <Slot as Decode>::ssz_fixed_len();
-        let slot_bytes = bytes
-            .get(0..slot_len)
-            .ok_or(DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: slot_len,
-            })?;
-
-        let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
-
-        match fork_at_slot {
+    /// SSZ decode with fork variant determined by `fork_name`.
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                SignedBeaconBlock::from_ssz_bytes(bytes, spec)
+                SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
                     .map(|block| PublishBlockRequest::Block(block))
             }
             ForkName::Deneb => {
@@ -1771,8 +1762,9 @@ impl<T: EthSpec> PublishBlockRequest<T> {
                 builder.register_type::<BlobsList<T>>()?;
 
                 let mut decoder = builder.build()?;
-                let block = decoder
-                    .decode_next_with(|bytes| SignedBeaconBlock::from_ssz_bytes(bytes, spec))?;
+                let block = decoder.decode_next_with(|bytes| {
+                    SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+                })?;
                 let kzg_proofs = decoder.decode_next()?;
                 let blobs = decoder.decode_next()?;
                 Ok(PublishBlockRequest::new(block, Some((kzg_proofs, blobs))))
