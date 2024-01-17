@@ -702,4 +702,35 @@ mod tests {
     async fn sepolia_merge_types() {
         test_merge_types("sepolia", 4252).await
     }
+
+    async fn test_lighthouse_slashing_protection(slashing_protection_enabled: bool, port: u16) {
+        // Run these tests on mainnet.
+        let network = "mainnet";
+
+        let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
+        let spec = &network_config.chain_spec::<E>().unwrap();
+        let merge_fork_slot = spec
+            .bellatrix_fork_epoch
+            .unwrap()
+            .start_slot(E::slots_per_epoch());
+
+        TestingRig::new(network, spec.clone(), listen_port)
+            .await
+            .assert_signatures_match("beacon_block_merge", |pubkey, validator_store| async move {
+                let mut merge_block = BeaconBlockMerge::empty(spec);
+                merge_block.slot = merge_fork_slot;
+                validator_store
+                    .sign_block(pubkey, BeaconBlock::Merge(merge_block), merge_fork_slot)
+                    .await
+                    .unwrap()
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn slashing_protection_disabled_everywhere() {
+        test_lighthouse_slashing_protection(false,
+    }
+
+
 }
