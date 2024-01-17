@@ -866,10 +866,11 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blocks");
 
-        self.post_generic_with_ssz_body(
+        self.post_generic_with_consensus_version_and_ssz_body(
             path,
             block_contents.as_ssz_bytes(),
             Some(self.timeouts.proposal),
+            block_contents.signed_block().fork_name_unchecked(),
         )
         .await?;
 
@@ -910,8 +911,13 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blinded_blocks");
 
-        self.post_generic_with_ssz_body(path, block.as_ssz_bytes(), Some(self.timeouts.proposal))
-            .await?;
+        self.post_generic_with_consensus_version_and_ssz_body(
+            path,
+            block.as_ssz_bytes(),
+            Some(self.timeouts.proposal),
+            block.fork_name_unchecked(),
+        )
+        .await?;
 
         Ok(())
     }
