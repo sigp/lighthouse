@@ -1355,16 +1355,27 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let post_beacon_blocks_v2_ssz = eth_v2
+        .boxed()
         .and(warp::path("beacon"))
+        .boxed()
         .and(warp::path("blocks"))
+        .boxed()
         .and(warp::query::<api_types::BroadcastValidationQuery>())
+        .boxed()
         .and(warp::path::end())
+        .boxed()
         .and(warp::body::bytes())
+        .boxed()
         .and(consensus_version_header_filter)
+        .boxed()
         .and(task_spawner_filter.clone())
+        .boxed()
         .and(chain_filter.clone())
+        .boxed()
         .and(network_tx_filter.clone())
+        .boxed()
         .and(log_filter.clone())
+        .boxed()
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
