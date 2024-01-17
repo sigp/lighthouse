@@ -20,7 +20,7 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
-use fork_choice::{ForkChoice, ResetPayloadStatuses};
+use fork_choice::{AnchorState, ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::{Kzg, TrustedSetup};
 use operation_pool::{OperationPool, PersistedOperationPool};
@@ -412,6 +412,7 @@ where
             genesis.beacon_block_root,
             &genesis.beacon_block,
             &genesis.beacon_state,
+            AnchorState::Finalized,
             current_slot,
             &self.spec,
         )
@@ -428,6 +429,7 @@ where
         mut weak_subj_state: BeaconState<TEthSpec>,
         weak_subj_block: SignedBeaconBlock<TEthSpec>,
         genesis_state: BeaconState<TEthSpec>,
+        anchor_state: AnchorState,
     ) -> Result<Self, String> {
         let store = self
             .store
@@ -552,6 +554,7 @@ where
             snapshot.beacon_block_root,
             &snapshot.beacon_block,
             &snapshot.beacon_state,
+            anchor_state,
             Some(weak_subj_slot),
             &self.spec,
         )

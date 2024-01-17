@@ -47,8 +47,8 @@ use crate::{
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
 use fork_choice::{
-    ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock,
-    ResetPayloadStatuses,
+    AnchorState, ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters,
+    ProtoBlock, ResetPayloadStatuses,
 };
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -109,6 +109,8 @@ pub struct CachedHead<E: EthSpec> {
     justified_hash: Option<ExecutionBlockHash>,
     /// The `execution_payload.block_hash` of the finalized block. Set to `None` before Bellatrix.
     finalized_hash: Option<ExecutionBlockHash>,
+    /// The state of the finalized checkpoint
+    anchor_state: AnchorState,
 }
 
 impl<E: EthSpec> CachedHead<E> {
@@ -226,6 +228,11 @@ impl<E: EthSpec> CachedHead<E> {
             finalized_hash: self.finalized_hash,
         }
     }
+
+    /// Returns the anchor state
+    pub fn anchor_state(&self) -> AnchorState {
+        self.anchor_state
+    }
 }
 
 /// Represents the "canonical head" of the beacon chain.
@@ -266,6 +273,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             head_hash: forkchoice_update_params.head_hash,
             justified_hash: forkchoice_update_params.justified_hash,
             finalized_hash: forkchoice_update_params.finalized_hash,
+            anchor_state: fork_choice_view.anchor_state,
         };
 
         Self {
@@ -318,6 +326,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             head_hash: forkchoice_update_params.head_hash,
             justified_hash: forkchoice_update_params.justified_hash,
             finalized_hash: forkchoice_update_params.finalized_hash,
+            anchor_state: fork_choice_view.anchor_state,
         };
 
         *fork_choice_write_lock = fork_choice;
@@ -576,6 +585,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             head_block_root: old_cached_head.head_block_root(),
             justified_checkpoint: old_cached_head.justified_checkpoint(),
             finalized_checkpoint: old_cached_head.finalized_checkpoint(),
+            anchor_state: old_cached_head.anchor_state(),
         };
 
         let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
@@ -702,6 +712,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head_hash: new_forkchoice_update_parameters.head_hash,
                 justified_hash: new_forkchoice_update_parameters.justified_hash,
                 finalized_hash: new_forkchoice_update_parameters.finalized_hash,
+                anchor_state: new_view.anchor_state,
             };
 
             let new_head = {
@@ -729,6 +740,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head_hash: new_forkchoice_update_parameters.head_hash,
                 justified_hash: new_forkchoice_update_parameters.justified_hash,
                 finalized_hash: new_forkchoice_update_parameters.finalized_hash,
+                anchor_state: new_view.anchor_state, // TODO: check this
             };
 
             let mut cached_head_write_lock = self.canonical_head.cached_head_write_lock();

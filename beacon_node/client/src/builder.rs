@@ -13,7 +13,8 @@ use beacon_chain::{
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
-    BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
+    AnchorState, BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig,
+    ServerSentEventHandler,
 };
 use beacon_processor::BeaconProcessorConfig;
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
@@ -311,14 +312,21 @@ where
                     );
                 }
 
-                let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
-                    .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
+                let anchor_beacon_state =
+                    BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
+                        .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 builder
-                    .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
+                    // FIXME: determine how to fix this.. CLI flag?
+                    .weak_subjectivity_state(
+                        anchor_beacon_state,
+                        anchor_block,
+                        genesis_state,
+                        AnchorState::Finalized,
+                    )
                     .map(|v| (v, None))?
             }
             ClientGenesis::CheckpointSyncUrl { url, remote_state } => {
@@ -431,6 +439,34 @@ where
 
                 debug!(context.log(), "Downloaded corresponding block");
 
+                let anchor_state = if matches!(remote_state_id, StateId::Finalized) {
+                    AnchorState::Finalized
+                } else {
+                    debug!(context.log(), "Downloading finalized block header");
+                    let finalized_header = remote
+                        .get_beacon_headers_block_id(BlockId::Finalized)
+                        .await
+                        .map_err(|e| match e {
+                            ApiError::InvalidSsz(e) => format!(
+                                "Unable to parse SSZ: {:?}. Ensure the checkpoint-sync-url refers to a \
+                                node for the correct network",
+                                e
+                            ),
+                            e => format!("Error fetching finalized block header from remote: {:?}", e),
+                        })?
+                        .ok_or("Finalized block header missing from remote, it returned 404")?
+                        .data
+                        .header
+                        .message;
+                    debug!(context.log(), "Downloaded finalized block header"; "anchor_slot" => block.slot(), "finalized_slot" => finalized_header.slot);
+                    if finalized_header.slot < state.slot() {
+                        debug!(context.log(), "Checkpoint state is newer than remote finalized checkpoint! Treating as non-revertible!");
+                        AnchorState::NonRevertible
+                    } else {
+                        AnchorState::Finalized
+                    }
+                };
+
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 info!(
@@ -466,7 +502,7 @@ where
                     });
 
                 builder
-                    .weak_subjectivity_state(state, block, genesis_state)
+                    .weak_subjectivity_state(state, block, genesis_state, anchor_state)
                     .map(|v| (v, service))?
             }
             ClientGenesis::DepositContract => {

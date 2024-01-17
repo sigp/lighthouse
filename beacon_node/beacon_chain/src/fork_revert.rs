@@ -1,5 +1,5 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
-use fork_choice::{ForkChoice, PayloadVerificationStatus};
+use fork_choice::{AnchorState, ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
@@ -157,6 +157,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         finalized_block_root,
         &finalized_snapshot.beacon_block,
         &finalized_snapshot.beacon_state,
+        AnchorState::Finalized, // FIXME: this needs to be understood
         current_slot,
         spec,
     )
