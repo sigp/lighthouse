@@ -4657,6 +4657,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .uor(post_beacon_blinded_blocks_ssz)
                             .uor(post_beacon_blinded_blocks_v2_ssz),
                     )
+                    .boxed()
                     .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
                     .uor(post_beacon_blocks_v2)
