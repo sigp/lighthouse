@@ -18,6 +18,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
+use types::non_zero_usize::new_non_zero_usize;
 use types::{
     Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
     ProgressiveBalancesMode,
@@ -88,6 +89,22 @@ fn staking_flag() {
                 config.eth1.endpoint.get_endpoint().to_string(),
                 DEFAULT_ETH1_ENDPOINT
             );
+        });
+}
+
+#[test]
+fn allow_insecure_genesis_sync() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, false);
+        });
+
+    CommandLineTest::new()
+        .flag("allow-insecure-genesis-sync", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, true);
         });
 }
 
@@ -580,102 +597,6 @@ fn builder_fallback_flags() {
             assert_eq!(config.chain.builder_fallback_disable_checks, true);
         },
     );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("builder-profit-threshold"),
-        Some("1000000000000000000000000"),
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .builder_profit_threshold,
-                1000000000000000000000000
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .builder_profit_threshold,
-                0
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("always-prefer-builder-payload"),
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .always_prefer_builder_payload,
-                true
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .always_prefer_builder_payload,
-                false
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("ignore-builder-override-suggestion-threshold"),
-        Some("53.4"),
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .ignore_builder_override_suggestion_threshold,
-                53.4f32
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .ignore_builder_override_suggestion_threshold,
-                10.0f32
-            );
-        },
-    );
 }
 
 #[test]
@@ -938,6 +859,23 @@ fn network_port_flag_over_ipv4() {
                     listen_addr.quic_port,
                     listen_addr.tcp_port
                 )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+        });
+
+    let port = 9000;
+    CommandLineTest::new()
+        .flag("port", Some(port.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
                 Some((port, port + 1, port))
             );
         });
@@ -956,7 +894,85 @@ fn network_port_flag_over_ipv6() {
                     listen_addr.quic_port,
                     listen_addr.tcp_port
                 )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+        });
+
+    let port = 9000;
+    CommandLineTest::new()
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
                 Some((port, port + 1, port))
+            );
+        });
+}
+#[test]
+fn network_port_flag_over_ipv4_and_ipv6() {
+    let port = 0;
+    let port6 = 0;
+    CommandLineTest::new()
+        .flag("listen-address", Some("127.0.0.1"))
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("port6", Some(port6.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port6, 0, port6))
+            );
+        });
+
+    let port = 19000;
+    let port6 = 29000;
+    CommandLineTest::new()
+        .flag("listen-address", Some("127.0.0.1"))
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("port6", Some(port6.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
+                Some((port, port + 1, port))
+            );
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
+                Some((port6, port6 + 1, port6))
             );
         });
 }
@@ -1769,14 +1785,19 @@ fn block_cache_size_flag() {
     CommandLineTest::new()
         .flag("block-cache-size", Some("4"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.block_cache_size, 4_usize));
+        .with_config(|config| assert_eq!(config.store.block_cache_size, new_non_zero_usize(4)));
 }
 #[test]
 fn historic_state_cache_size_flag() {
     CommandLineTest::new()
         .flag("historic-state-cache-size", Some("4"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.historic_state_cache_size, 4_usize));
+        .with_config(|config| {
+            assert_eq!(
+                config.store.historic_state_cache_size,
+                new_non_zero_usize(4)
+            )
+        });
 }
 #[test]
 fn historic_state_cache_size_default() {
@@ -2001,7 +2022,10 @@ fn slasher_attestation_cache_size_flag() {
                 .slasher
                 .as_ref()
                 .expect("Unable to parse Slasher config");
-            assert_eq!(slasher_config.attestation_root_cache_size, 10000);
+            assert_eq!(
+                slasher_config.attestation_root_cache_size,
+                new_non_zero_usize(10000)
+            );
         });
 }
 #[test]
@@ -2346,7 +2370,10 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
 fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enable_light_client_server, false));
+        .with_config(|config| {
+            assert_eq!(config.network.enable_light_client_server, false);
+            assert_eq!(config.http_api.enable_light_client_server, false);
+        });
 }
 
 #[test]
@@ -2354,7 +2381,20 @@ fn light_client_server_enabled() {
     CommandLineTest::new()
         .flag("light-client-server", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enable_light_client_server, true));
+        .with_config(|config| {
+            assert_eq!(config.network.enable_light_client_server, true);
+        });
+}
+
+#[test]
+fn light_client_http_server_enabled() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("light-client-server", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.http_api.enable_light_client_server, true);
+        });
 }
 
 #[test]
@@ -2427,20 +2467,20 @@ fn progressive_balances_default() {
         .with_config(|config| {
             assert_eq!(
                 config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Checked
+                ProgressiveBalancesMode::Fast
             )
         });
 }
 
 #[test]
-fn progressive_balances_fast() {
+fn progressive_balances_checked() {
     CommandLineTest::new()
-        .flag("progressive-balances", Some("fast"))
+        .flag("progressive-balances", Some("checked"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
                 config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Fast
+                ProgressiveBalancesMode::Checked
             )
         });
 }
@@ -2540,5 +2580,24 @@ fn genesis_state_url_value() {
                 Some("http://genesis.com")
             );
             assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
+        });
+}
+
+#[test]
+fn disable_duplicate_warn_logs_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.disable_duplicate_warn_logs, false);
+        });
+}
+
+#[test]
+fn disable_duplicate_warn_logs() {
+    CommandLineTest::new()
+        .flag("disable-duplicate-warn-logs", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.disable_duplicate_warn_logs, true);
         });
 }

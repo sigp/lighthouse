@@ -1,4 +1,4 @@
-use super::PeerShouldHave;
+use super::PeerId;
 use crate::sync::block_lookups::common::{Lookup, RequestState};
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
@@ -8,7 +8,7 @@ use beacon_chain::data_availability_checker::{
 };
 use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponents};
 use beacon_chain::BeaconChainTypes;
-use lighthouse_network::{PeerAction, PeerId};
+use lighthouse_network::PeerAction;
 use slog::{trace, Logger};
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -22,8 +22,8 @@ use types::EthSpec;
 #[derive(Debug, PartialEq, Eq)]
 pub enum State {
     AwaitingDownload,
-    Downloading { peer_id: PeerShouldHave },
-    Processing { peer_id: PeerShouldHave },
+    Downloading { peer_id: PeerId },
+    Processing { peer_id: PeerId },
 }
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -35,10 +35,6 @@ pub enum LookupVerifyError {
     ExtraBlobsReturned,
     NotEnoughBlobsReturned,
     InvalidIndex(u64),
-    /// We don't have enough information to know
-    /// whether the peer is at fault or simply missed
-    /// what was requested on gossip.
-    BenignFailure,
 }
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -66,7 +62,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     pub fn new(
         requested_block_root: Hash256,
         child_components: Option<ChildComponents<T::EthSpec>>,
-        peers: &[PeerShouldHave],
+        peers: &[PeerId],
         da_checker: Arc<DataAvailabilityChecker<T>>,
         id: Id,
     ) -> Self {
@@ -191,21 +187,13 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     }
 
     /// Add all given peers to both block and blob request states.
-    pub fn add_peer(&mut self, peer: PeerShouldHave) {
-        match peer {
-            PeerShouldHave::BlockAndBlobs(peer_id) => {
-                self.block_request_state.state.add_peer(&peer_id);
-                self.blob_request_state.state.add_peer(&peer_id);
-            }
-            PeerShouldHave::Neither(peer_id) => {
-                self.block_request_state.state.add_potential_peer(&peer_id);
-                self.blob_request_state.state.add_potential_peer(&peer_id);
-            }
-        }
+    pub fn add_peer(&mut self, peer_id: PeerId) {
+        self.block_request_state.state.add_peer(&peer_id);
+        self.blob_request_state.state.add_peer(&peer_id);
     }
 
     /// Add all given peers to both block and blob request states.
-    pub fn add_peers(&mut self, peers: &[PeerShouldHave]) {
+    pub fn add_peers(&mut self, peers: &[PeerId]) {
         for peer in peers {
             self.add_peer(*peer);
         }
@@ -293,38 +281,31 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         }
     }
 
-    /// Penalizes a blob peer if it should have blobs but didn't return them to us. Does not penalize
-    /// a peer who we request blobs from based on seeing a block or blobs over gossip. This may
-    /// have been a benign failure.
-    pub fn penalize_blob_peer(&mut self, penalize_always: bool, cx: &SyncNetworkContext<T>) {
+    /// Penalizes a blob peer if it should have blobs but didn't return them to us.     
+    pub fn penalize_blob_peer(&mut self, cx: &SyncNetworkContext<T>) {
         if let Ok(blob_peer) = self.blob_request_state.state.processing_peer() {
-            if penalize_always || matches!(blob_peer, PeerShouldHave::BlockAndBlobs(_)) {
-                cx.report_peer(
-                    blob_peer.to_peer_id(),
-                    PeerAction::MidToleranceError,
-                    "single_blob_failure",
-                );
-            }
-            self.blob_request_state
-                .state
-                .remove_peer_if_useless(blob_peer.as_peer_id());
+            cx.report_peer(
+                blob_peer,
+                PeerAction::MidToleranceError,
+                "single_blob_failure",
+            );
         }
     }
 
-    /// This failure occurs on download, so register a failure downloading, penalize the peer if
-    /// necessary and clear the blob cache.
+    /// This failure occurs on download, so register a failure downloading, penalize the peer
+    /// and clear the blob cache.
     pub fn handle_consistency_failure(&mut self, cx: &SyncNetworkContext<T>) {
-        self.penalize_blob_peer(false, cx);
+        self.penalize_blob_peer(cx);
         if let Some(cached_child) = self.child_components.as_mut() {
             cached_child.clear_blobs();
         }
         self.blob_request_state.state.register_failure_downloading()
     }
 
-    /// This failure occurs after processing, so register a failure processing, penalize the peer if
-    /// necessary and clear the blob cache.
+    /// This failure occurs after processing, so register a failure processing, penalize the peer
+    /// and clear the blob cache.
     pub fn handle_availability_check_failure(&mut self, cx: &SyncNetworkContext<T>) {
-        self.penalize_blob_peer(true, cx);
+        self.penalize_blob_peer(cx);
         if let Some(cached_child) = self.child_components.as_mut() {
             cached_child.clear_blobs();
         }
@@ -345,7 +326,7 @@ pub struct BlobRequestState<L: Lookup, T: EthSpec> {
 }
 
 impl<L: Lookup, E: EthSpec> BlobRequestState<L, E> {
-    pub fn new(block_root: Hash256, peer_source: &[PeerShouldHave], is_deneb: bool) -> Self {
+    pub fn new(block_root: Hash256, peer_source: &[PeerId], is_deneb: bool) -> Self {
         let default_ids = MissingBlobs::new_without_block(block_root, is_deneb);
         Self {
             requested_ids: default_ids,
@@ -364,7 +345,7 @@ pub struct BlockRequestState<L: Lookup> {
 }
 
 impl<L: Lookup> BlockRequestState<L> {
-    pub fn new(block_root: Hash256, peers: &[PeerShouldHave]) -> Self {
+    pub fn new(block_root: Hash256, peers: &[PeerId]) -> Self {
         Self {
             requested_block_root: block_root,
             state: SingleLookupRequestState::new(peers),
@@ -396,8 +377,6 @@ pub struct SingleLookupRequestState {
     pub state: State,
     /// Peers that should have this block or blob.
     pub available_peers: HashSet<PeerId>,
-    /// Peers that mar or may not have this block or blob.
-    pub potential_peers: HashSet<PeerId>,
     /// Peers from which we have requested this block.
     pub used_peers: HashSet<PeerId>,
     /// How many times have we attempted to process this block or blob.
@@ -417,24 +396,15 @@ pub struct SingleLookupRequestState {
 }
 
 impl SingleLookupRequestState {
-    pub fn new(peers: &[PeerShouldHave]) -> Self {
+    pub fn new(peers: &[PeerId]) -> Self {
         let mut available_peers = HashSet::default();
-        let mut potential_peers = HashSet::default();
-        for peer in peers {
-            match peer {
-                PeerShouldHave::BlockAndBlobs(peer_id) => {
-                    available_peers.insert(*peer_id);
-                }
-                PeerShouldHave::Neither(peer_id) => {
-                    potential_peers.insert(*peer_id);
-                }
-            }
+        for peer in peers.iter().copied() {
+            available_peers.insert(peer);
         }
 
         Self {
             state: State::AwaitingDownload,
             available_peers,
-            potential_peers,
             used_peers: HashSet::default(),
             failed_processing: 0,
             failed_downloading: 0,
@@ -462,25 +432,16 @@ impl SingleLookupRequestState {
         self.failed_processing + self.failed_downloading
     }
 
-    /// This method should be used for peers wrapped in `PeerShouldHave::BlockAndBlobs`.
+    /// This method should be used for peers wrapped in `PeerId::BlockAndBlobs`.
     pub fn add_peer(&mut self, peer_id: &PeerId) {
-        self.potential_peers.remove(peer_id);
         self.available_peers.insert(*peer_id);
-    }
-
-    /// This method should be used for peers wrapped in `PeerShouldHave::Neither`.
-    pub fn add_potential_peer(&mut self, peer_id: &PeerId) {
-        if !self.available_peers.contains(peer_id) {
-            self.potential_peers.insert(*peer_id);
-        }
     }
 
     /// If a peer disconnects, this request could be failed. If so, an error is returned
     pub fn check_peer_disconnected(&mut self, dc_peer_id: &PeerId) -> Result<(), ()> {
         self.available_peers.remove(dc_peer_id);
-        self.potential_peers.remove(dc_peer_id);
         if let State::Downloading { peer_id } = &self.state {
-            if peer_id.as_peer_id() == dc_peer_id {
+            if peer_id == dc_peer_id {
                 // Peer disconnected before providing a block
                 self.register_failure_downloading();
                 return Err(());
@@ -491,19 +452,11 @@ impl SingleLookupRequestState {
 
     /// Returns the id peer we downloaded from if we have downloaded a verified block, otherwise
     /// returns an error.
-    pub fn processing_peer(&self) -> Result<PeerShouldHave, ()> {
+    pub fn processing_peer(&self) -> Result<PeerId, ()> {
         if let State::Processing { peer_id } = &self.state {
             Ok(*peer_id)
         } else {
             Err(())
-        }
-    }
-
-    /// Remove the given peer from the set of potential peers, so long as there is at least one
-    /// other potential peer or we have any available peers.
-    pub fn remove_peer_if_useless(&mut self, peer_id: &PeerId) {
-        if !self.available_peers.is_empty() || self.potential_peers.len() > 1 {
-            self.potential_peers.remove(peer_id);
         }
     }
 }
@@ -609,7 +562,7 @@ mod tests {
 
     #[test]
     fn test_happy_path() {
-        let peer_id = PeerShouldHave::BlockAndBlobs(PeerId::random());
+        let peer_id = PeerId::random();
         let block = rand_block();
         let spec = E::default_spec();
         let slot_clock = TestingSlotClock::new(
@@ -622,7 +575,7 @@ mod tests {
             HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
                 .expect("store");
         let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec)
+            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
                 .expect("data availability checker"),
         );
         let mut sl = SingleBlockLookup::<TestLookup1, T>::new(
@@ -634,6 +587,7 @@ mod tests {
         );
         <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::build_request(
             &mut sl.block_request_state,
+            &spec,
         )
         .unwrap();
         sl.block_request_state.state.state = State::Downloading { peer_id };
@@ -649,7 +603,7 @@ mod tests {
 
     #[test]
     fn test_block_lookup_failures() {
-        let peer_id = PeerShouldHave::BlockAndBlobs(PeerId::random());
+        let peer_id = PeerId::random();
         let block = rand_block();
         let spec = E::default_spec();
         let slot_clock = TestingSlotClock::new(
@@ -663,7 +617,7 @@ mod tests {
                 .expect("store");
 
         let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec)
+            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
                 .expect("data availability checker"),
         );
 
@@ -677,6 +631,7 @@ mod tests {
         for _ in 1..TestLookup2::MAX_ATTEMPTS {
             <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
                 &mut sl.block_request_state,
+                &spec,
             )
             .unwrap();
             sl.block_request_state.state.register_failure_downloading();
@@ -685,6 +640,7 @@ mod tests {
         // Now we receive the block and send it for processing
         <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
             &mut sl.block_request_state,
+            &spec,
         )
         .unwrap();
         sl.block_request_state.state.state = State::Downloading { peer_id };
@@ -701,7 +657,8 @@ mod tests {
         sl.block_request_state.state.register_failure_processing();
         assert_eq!(
             <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
-                &mut sl.block_request_state
+                &mut sl.block_request_state,
+                &spec
             ),
             Err(LookupRequestError::TooManyAttempts {
                 cannot_process: false
