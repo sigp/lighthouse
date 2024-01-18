@@ -55,7 +55,7 @@ use warp::{
     sse::Event,
     Filter,
 };
-
+use warp::reply::Response as respuesta;
 #[derive(Debug)]
 pub enum Error {
     Warp(warp::Error),
@@ -1322,23 +1322,22 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 /// This function should *always* be used to convert rejections into responses. This prevents warp
 /// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
 
-pub async fn convert_rejection<T>(res: Result<T, warp::Rejection>) -> Response<Vec<u8>>
+pub async fn convert_rejection<T>(res: Result<T, warp::Rejection>) -> respuesta
 where
     T: Serialize + Send + 'static,
 {
     match res {
-        Ok(func_output) => {
-            let response = match serde_json::to_vec(&func_output) {
+        Ok(blockedtask) => {
+            let response = match serde_json::to_vec(&blockedtask) {
                 Ok(body) => {
-                    let mut res = Response::new(body);
-                    res.headers_mut()
-                        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-                    res
+                    let mut respuesta = respuesta::new(body);
+                    respuesta.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                    respuesta
+                    // I need to change this 
                 }
-                Err(_) => Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(vec![])
-                    .expect("can produce simple response from static values"),
+                Err(_) =>warp::reply::with_status( 
+                    warp::reply::json(&"can produce simple response from static values"), 
+                    eth2::StatusCode::INTERNAL_SERVER_ERROR, 
             };
             response
         }
@@ -1348,6 +1347,8 @@ where
             match resp {
                 Ok(reply) => {
                     let response = reply.into_response();
+
+                    // See if this part can be built with response builder from the reply of warp 
                     let (_parts, body) = response.into_parts();
                     let body_bytes = hyper::body::to_bytes(body).await.unwrap();
                     Response::builder()
@@ -1355,24 +1356,30 @@ where
                         .body(body_bytes.to_vec())
                         .expect("can't produce response from rejection")
                 }
-                Err(_) => Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(vec![])
-                    .expect("unhandled error in blocking task"),
+                Err(_) => warp::reply::with_status( 
+                    warp::reply::json(&"unhandled error in blocking task"), 
+                    eth2::StatusCode::INTERNAL_SERVER_ERROR, 
+                ) 
+                // This is infallible
+                .into_response(), 
             }
         }
-    }
+    } // The response that we were previously using whas an struct called Response that has head and body 
+    // Now we are gonna use the response from warp reply 
 }
+
 /// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
 /// JSON-encodes the return value of `func`, using the `signer` function to produce a signature of
 /// those bytes.
 pub async fn blocking_signed_json_task<S, F, T>(signer: S, func: F) -> Response<Vec<u8>>
 where
     S: Fn(&[u8]) -> String,
-    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
+    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static, // This specify the function that recieves this function as a F parameter
     T: Serialize + Send + 'static,
 {
-    let response = warp_utils::task::blocking_task(func).await;
+    // I get the response from my blocking task 
+    let response = warp_utils::task::blocking_task(func).await; // Here i do get what i want 
+
     let mut conv_res = convert_rejection(response).await;
     let body: &Vec<u8> = conv_res.body();
     let signature = signer(body);
