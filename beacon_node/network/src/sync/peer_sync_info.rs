@@ -1,9 +1,10 @@
 use super::manager::SLOT_IMPORT_TOLERANCE;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{AnchorState, BeaconChain, BeaconChainTypes};
 use lighthouse_network::{SyncInfo, SyncStatus as PeerSyncStatus};
 use std::cmp::Ordering;
 
 /// The type of peer relative to our current state.
+#[derive(Debug)]
 pub enum PeerSyncType {
     /// The peer is on our chain and is fully synced with respect to our chain.
     FullySynced,
@@ -35,22 +36,48 @@ pub fn remote_sync_type<T: BeaconChainTypes>(
 
     match remote.finalized_epoch.cmp(&local.finalized_epoch) {
         Ordering::Less => {
-            // The node has a lower finalized epoch, their chain is not useful to us. There are two
-            // cases where a node can have a lower finalized epoch:
-            //
-            // ## The node is on the same chain
-            //
-            // If a node is on the same chain but has a lower finalized epoch, their head must be
-            // lower than ours. Therefore, we have nothing to request from them.
-            //
-            // ## The node is on a fork
-            //
-            // If a node is on a fork that has a lower finalized epoch, switching to that fork would
-            // cause us to revert a finalized block. This is not permitted, therefore we have no
-            // interest in their blocks.
-            //
-            // We keep these peers to allow them to sync from us.
-            PeerSyncType::Behind
+            match chain.finalized_checkpoint_anchor_state() {
+                AnchorState::Finalized => {
+                    // Our finalized checkpoint is truly finalized
+                    //
+                    // The node has a lower finalized epoch, their chain is not useful to us. There are two
+                    // cases where a node can have a lower finalized epoch:
+                    //
+                    // ## The node is on the same chain
+                    //
+                    // If a node is on the same chain but has a lower finalized epoch, their head must be
+                    // lower than ours. Therefore, we have nothing to request from them.
+                    //
+                    // ## The node is on a fork
+                    //
+                    // If a node is on a fork that has a lower finalized epoch, switching to that fork would
+                    // cause us to revert a finalized block. This is not permitted, therefore we have no
+                    // interest in their blocks.
+                    //
+                    // We keep these peers to allow them to sync from us.
+                    PeerSyncType::Behind
+                }
+                AnchorState::NonRevertible => {
+                    // Our finalized chckpoint is newer than the actual finalized checkpoint
+                    //
+                    // We can ignore that this peer has a lower finalized checkpoint and only consider
+                    // its head block.
+                    //
+                    if remote.head_slot < near_range_start {
+                        PeerSyncType::Behind
+                    } else if remote.head_slot > near_range_end
+                        && !chain.block_is_known_to_fork_choice(&remote.head_root)
+                    {
+                        // This peer has a head ahead enough of ours and we have no knowledge of their best
+                        // block.
+                        PeerSyncType::Advanced
+                    } else {
+                        // This peer is either in the tolerance range, or ahead us with an already rejected
+                        // block.
+                        PeerSyncType::FullySynced
+                    }
+                }
+            }
         }
         Ordering::Equal => {
             // NOTE: if a peer has our same `finalized_epoch` with a different `finalized_root`

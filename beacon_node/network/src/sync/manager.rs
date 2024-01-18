@@ -423,6 +423,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // NOTE: here we are gracefully handling two race conditions: Receiving the status message
         // of a peer that is 1) disconnected 2) not in the PeerDB.
 
+        if remote_sync_info.finalized_epoch < local_sync_info.finalized_epoch
+            && matches!(
+                sync_type,
+                PeerSyncType::FullySynced | PeerSyncType::Advanced
+            )
+        {
+            debug!(
+                self.log,
+                "Peer's finalized epoch is lower than ours but it is not considered behind due to AnchorState::NonRevertible";
+                "peer_id" => %peer_id,
+                "our_finalized_epoch" => local_sync_info.finalized_epoch,
+                "their_finalized_epoch" => remote_sync_info.finalized_epoch,
+                "sync_type" => ?sync_type,
+            );
+        }
+
         let new_state = sync_type.as_sync_status(remote_sync_info);
         let rpr = new_state.as_str();
         // Drop the write lock

@@ -456,6 +456,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.canonical_head.cached_head_read_lock().snapshot.clone()
     }
 
+    /// Returns the `AnchorState` of the finalized checkpoint
+    /// TODO: determine if this puts a burdon on the fork choice lock
+    pub fn finalized_checkpoint_anchor_state(&self) -> AnchorState {
+        self.canonical_head.cached_head_read_lock().anchor_state()
+    }
+
     /// Returns the beacon block at the head of the canonical chain.
     ///
     /// See `Self::head` for more information.

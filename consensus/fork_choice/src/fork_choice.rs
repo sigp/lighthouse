@@ -283,7 +283,7 @@ fn dequeue_attestations(
 /// This enum tells us whether our anchor state is actually finalized or just non-revertible. The
 /// latter case only occurs when we weak subjectivity sync against a state which is not finalized.
 /// This could be necessary in extreme circumstances where finalization extends past the data
-/// availabilty boundary in deneb.
+/// availabilty boundary post-deneb.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AnchorState {
     /// The finalized checkpoint is truly finalized
