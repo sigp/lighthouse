@@ -466,7 +466,7 @@ fn builder_proposals_flag() {
 #[test]
 fn builder_boost_factor_flag() {
     CommandLineTest::new()
-        .flag("builder-boost_factor", Some("100"))
+        .flag("builder-boost-factor", Some("100"))
         .run()
         .with_config(|config| assert_eq!(config.builder_boost_factor, Some(100)));
 }
