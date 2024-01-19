@@ -33,6 +33,10 @@ TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551615
 CAPELLA_FORK_VERSION: 0x04017000
 CAPELLA_FORK_EPOCH: 256
 
+# Deneb
+DENEB_FORK_VERSION: 0x05017000
+DENEB_FORK_EPOCH: 29696
+
 # Time parameters
 # ---------------------------------------------------------------
 # 12 seconds
