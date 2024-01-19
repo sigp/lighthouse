@@ -635,7 +635,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         PersistedBeaconChain {
             _canonical_head_block_root: DUMMY_CANONICAL_HEAD_BLOCK_ROOT,
             genesis_block_root,
-            ssz_head_tracker: SszHeadTracker::from_map(&head_tracker_reader),
+            ssz_head_tracker: SszHeadTracker::from_map(head_tracker_reader),
         }
     }
 
