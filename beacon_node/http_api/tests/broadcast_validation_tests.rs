@@ -2,16 +2,15 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
     GossipVerifiedBlock, IntoGossipVerifiedBlockContents,
 };
+use eth2::reqwest::StatusCode;
 use eth2::types::{BroadcastValidation, PublishBlockRequest, SignedBeaconBlock};
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use std::sync::Arc;
 use tree_hash::TreeHash;
-use types::{Hash256, MainnetEthSpec, Slot};
+use types::{Epoch, EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};
 use warp::Rejection;
 use warp_utils::reject::CustomBadRequest;
-
-use eth2::reqwest::StatusCode;
 
 type E = MainnetEthSpec;
 
@@ -190,7 +189,10 @@ pub async fn gossip_full_pass_ssz() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    // Deneb epoch set ahead of block slot, to test fork-based decoding
+    let mut spec = ForkName::Capella.make_genesis_spec(MainnetEthSpec::default_spec());
+    spec.deneb_fork_epoch = Some(Epoch::new(4));
+    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();

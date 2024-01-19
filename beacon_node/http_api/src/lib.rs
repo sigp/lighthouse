@@ -45,7 +45,7 @@ use eth2::types::{
     PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId, ValidatorStatus,
     ValidatorsRequestBody,
 };
-use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
+use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
@@ -1249,6 +1249,8 @@ pub fn serve<T: BeaconChainTypes>(
     /*
      * beacon/blocks
      */
+    let consensus_version_header_filter =
+        warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER);
 
     // POST beacon/blocks
     let post_beacon_blocks = eth_v1
@@ -1286,12 +1288,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("blocks"))
         .and(warp::path::end())
         .and(warp::body::bytes())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
             move |block_bytes: Bytes,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1299,7 +1303,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
-                        &chain.spec,
+                        consensus_version,
                     )
                     .map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
@@ -1356,6 +1360,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
         .and(warp::body::bytes())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
@@ -1363,6 +1368,7 @@ pub fn serve<T: BeaconChainTypes>(
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1370,7 +1376,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
-                        &chain.spec,
+                        consensus_version,
                     )
                     .map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
