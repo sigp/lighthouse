@@ -169,7 +169,9 @@ tree_hash_derive = "0.5"
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 # TODO update to warp 0.3.6 after released.
-warp = { git = "https://github.com/seanmonstar/warp.git", default-features = false, features = ["tls"] }
+# warp = { git = "https://github.com/seanmonstar/warp.git", default-features = false, features =
+# ["tls"] }
+warp = { path = "../warp", features = ["tls"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 zip = "0.6"
 

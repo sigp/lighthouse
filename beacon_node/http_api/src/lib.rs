@@ -449,8 +449,8 @@ pub fn serve<T: BeaconChainTypes>(
     // Create a `warp` filter that rejects requests whilst the node is syncing.
     let not_while_syncing_filter =
         warp::any()
-            .and(network_globals.clone())
-            .and(chain_filter.clone())
+            .band(network_globals.clone())
+            .band(chain_filter.clone())
             .and_then(
                 move |network_globals: Arc<NetworkGlobals<T::EthSpec>>,
                       chain: Arc<BeaconChain<T>>| async move {
@@ -545,11 +545,11 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET beacon/genesis
     let get_beacon_genesis = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("genesis"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("beacon"))
+        .band(warp::path("genesis"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -568,21 +568,21 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     let beacon_states_path = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("states"))
-        .and(warp::path::param::<StateId>().or_else(|_| async {
+        .band(warp::path("beacon"))
+        .band(warp::path("states"))
+        .band(warp::path::param::<StateId>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid state ID".to_string(),
             ))
         }))
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone());
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone());
 
     // GET beacon/states/{state_id}/root
     let get_beacon_state_root = beacon_states_path
         .clone()
-        .and(warp::path("root"))
-        .and(warp::path::end())
+        .band(warp::path("root"))
+        .band(warp::path::end())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -602,8 +602,8 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/states/{state_id}/fork
     let get_beacon_state_fork = beacon_states_path
         .clone()
-        .and(warp::path("fork"))
-        .and(warp::path::end())
+        .band(warp::path("fork"))
+        .band(warp::path::end())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -623,8 +623,8 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/states/{state_id}/finality_checkpoints
     let get_beacon_state_finality_checkpoints = beacon_states_path
         .clone()
-        .and(warp::path("finality_checkpoints"))
-        .and(warp::path::end())
+        .band(warp::path("finality_checkpoints"))
+        .band(warp::path::end())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -658,9 +658,9 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/states/{state_id}/validator_balances?id
     let get_beacon_state_validator_balances = beacon_states_path
         .clone()
-        .and(warp::path("validator_balances"))
-        .and(warp::path::end())
-        .and(multi_key_query::<api_types::ValidatorBalancesQuery>())
+        .band(warp::path("validator_balances"))
+        .band(warp::path::end())
+        .band(multi_key_query::<api_types::ValidatorBalancesQuery>())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -680,9 +680,9 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/states/{state_id}/validator_balances
     let post_beacon_state_validator_balances = beacon_states_path
         .clone()
-        .and(warp::path("validator_balances"))
-        .and(warp::path::end())
-        .and(warp::body::json())
+        .band(warp::path("validator_balances"))
+        .band(warp::path::end())
+        .band(warp::body::json())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -701,9 +701,9 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/states/{state_id}/validators?id,status
     let get_beacon_state_validators = beacon_states_path
         .clone()
-        .and(warp::path("validators"))
-        .and(warp::path::end())
-        .and(multi_key_query::<api_types::ValidatorsQuery>())
+        .band(warp::path("validators"))
+        .band(warp::path::end())
+        .band(multi_key_query::<api_types::ValidatorsQuery>())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -724,9 +724,9 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/states/{state_id}/validators
     let post_beacon_state_validators = beacon_states_path
         .clone()
-        .and(warp::path("validators"))
-        .and(warp::path::end())
-        .and(warp::body::json())
+        .band(warp::path("validators"))
+        .band(warp::path::end())
+        .band(warp::body::json())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -746,13 +746,13 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/states/{state_id}/validators/{validator_id}
     let get_beacon_state_validators_id = beacon_states_path
         .clone()
-        .and(warp::path("validators"))
-        .and(warp::path::param::<ValidatorId>().or_else(|_| async {
+        .band(warp::path("validators"))
+        .band(warp::path::param::<ValidatorId>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid validator ID".to_string(),
             ))
         }))
-        .and(warp::path::end())
+        .band(warp::path::end())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -818,9 +818,9 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/states/{state_id}/committees?slot,index,epoch
     let get_beacon_state_committees = beacon_states_path
         .clone()
-        .and(warp::path("committees"))
-        .and(warp::query::<api_types::CommitteesQuery>())
-        .and(warp::path::end())
+        .band(warp::path("committees"))
+        .band(warp::query::<api_types::CommitteesQuery>())
+        .band(warp::path::end())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -1001,9 +1001,9 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/states/{state_id}/sync_committees?epoch
     let get_beacon_state_sync_committees = beacon_states_path
         .clone()
-        .and(warp::path("sync_committees"))
-        .and(warp::query::<api_types::SyncCommitteesQuery>())
-        .and(warp::path::end())
+        .band(warp::path("sync_committees"))
+        .band(warp::query::<api_types::SyncCommitteesQuery>())
+        .band(warp::path::end())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -1067,9 +1067,9 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/states/{state_id}/randao?epoch
     let get_beacon_state_randao = beacon_states_path
         .clone()
-        .and(warp::path("randao"))
-        .and(warp::query::<api_types::RandaoQuery>())
-        .and(warp::path::end())
+        .band(warp::path("randao"))
+        .band(warp::query::<api_types::RandaoQuery>())
+        .band(warp::path::end())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -1106,12 +1106,12 @@ pub fn serve<T: BeaconChainTypes>(
     // mechanism for arbitrary forwards block iteration, we only support iterating forwards along
     // the canonical chain.
     let get_beacon_headers = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("headers"))
-        .and(warp::query::<api_types::HeadersQuery>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("beacon"))
+        .band(warp::path("headers"))
+        .band(warp::query::<api_types::HeadersQuery>())
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |query: api_types::HeadersQuery,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -1202,16 +1202,16 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET beacon/headers/{block_id}
     let get_beacon_headers_block_id = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("headers"))
-        .and(warp::path::param::<BlockId>().or_else(|_| async {
+        .band(warp::path("beacon"))
+        .band(warp::path("headers"))
+        .band(warp::path::param::<BlockId>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid block ID".to_string(),
             ))
         }))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |block_id: BlockId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -1254,14 +1254,14 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST beacon/blocks
     let post_beacon_blocks = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("blocks"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("beacon"))
+        .band(warp::path("blocks"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             move |block_contents: PublishBlockRequest<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
@@ -1284,15 +1284,15 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let post_beacon_blocks_ssz = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("blocks"))
-        .and(warp::path::end())
-        .and(warp::body::bytes())
-        .and(consensus_version_header_filter)
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("beacon"))
+        .band(warp::path("blocks"))
+        .band(warp::path::end())
+        .band(warp::body::bytes())
+        .band(consensus_version_header_filter)
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             move |block_bytes: Bytes,
                   consensus_version: ForkName,
@@ -1323,15 +1323,15 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let post_beacon_blocks_v2 = eth_v2
-        .and(warp::path("beacon"))
-        .and(warp::path("blocks"))
-        .and(warp::query::<api_types::BroadcastValidationQuery>())
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("beacon"))
+        .band(warp::path("blocks"))
+        .band(warp::query::<api_types::BroadcastValidationQuery>())
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_contents: PublishBlockRequest<T::EthSpec>,
@@ -1355,27 +1355,16 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let post_beacon_blocks_v2_ssz = eth_v2
-        .boxed()
-        .and(warp::path("beacon"))
-        .boxed()
-        .and(warp::path("blocks"))
-        .boxed()
-        .and(warp::query::<api_types::BroadcastValidationQuery>())
-        .boxed()
-        .and(warp::path::end())
-        .boxed()
-        .and(warp::body::bytes())
-        .boxed()
-        .and(consensus_version_header_filter)
-        .boxed()
-        .and(task_spawner_filter.clone())
-        .boxed()
-        .and(chain_filter.clone())
-        .boxed()
-        .and(network_tx_filter.clone())
-        .boxed()
-        .and(log_filter.clone())
-        .boxed()
+        .band(warp::path("beacon"))
+        .band(warp::path("blocks"))
+        .band(warp::query::<api_types::BroadcastValidationQuery>())
+        .band(warp::path::end())
+        .band(warp::body::bytes())
+        .band(consensus_version_header_filter)
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
@@ -1412,14 +1401,14 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST beacon/blinded_blocks
     let post_beacon_blinded_blocks = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("blinded_blocks"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("beacon"))
+        .band(warp::path("blinded_blocks"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             move |block_contents: SignedBlindedBeaconBlock<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
@@ -1442,14 +1431,14 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST beacon/blocks
     let post_beacon_blinded_blocks_ssz = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("blinded_blocks"))
-        .and(warp::path::end())
-        .and(warp::body::bytes())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("beacon"))
+        .band(warp::path("blinded_blocks"))
+        .band(warp::path::end())
+        .band(warp::body::bytes())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             move |block_bytes: Bytes,
                   task_spawner: TaskSpawner<T::EthSpec>,
@@ -1477,47 +1466,80 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    #[derive(Deserialize)]
+    struct Dramastic;
+
     let post_beacon_blinded_blocks_v2 = eth_v2
-        .and(warp::path("beacon"))
-        .and(warp::path("blinded_blocks"))
-        .and(warp::query::<api_types::BroadcastValidationQuery>())
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("beacon"))
+        .band(warp::path("blinded_blocks"))
+        .band(warp::query::<api_types::BroadcastValidationQuery>())
+        .band(warp::query::<Dramastic>())
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  blinded_block: SignedBlindedBeaconBlock<T::EthSpec>,
+                  dramastic: Dramastic,
+                  blinded_block: Box<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    publish_blocks::publish_blinded_block(
-                        blinded_block,
-                        chain,
-                        &network_tx,
-                        log,
-                        validation_level.broadcast_validation,
-                        duplicate_block_status_code,
-                    )
+                async move {
+                    async move {
+                        async move {
+                            async move {
+                                async move {
+                                    async move {
+                                        async move {
+                                            async move {
+                                                async move {
+                                                    async move {
+                                                        publish_blocks::publish_blinded_block(
+                                                            *blinded_block,
+                                                            chain,
+                                                            &network_tx,
+                                                            log,
+                                                            validation_level.broadcast_validation,
+                                                            duplicate_block_status_code,
+                                                        )
+                                                        .await
+                                                        .unwrap()
+                                                    }
+                                                    .await
+                                                }
+                                                .await
+                                            }
+                                            .await
+                                        }
+                                        .await
+                                    }
+                                    .await
+                                }
+                                .await
+                            }
+                            .await
+                        }
+                        .await
+                    }
                     .await
-                })
+                }
             },
         );
 
     let post_beacon_blinded_blocks_v2_ssz = eth_v2
-        .and(warp::path("beacon"))
-        .and(warp::path("blinded_blocks"))
-        .and(warp::query::<api_types::BroadcastValidationQuery>())
-        .and(warp::path::end())
-        .and(warp::body::bytes())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("beacon"))
+        .band(warp::path("blinded_blocks"))
+        .band(warp::query::<api_types::BroadcastValidationQuery>())
+        .band(warp::path::end())
+        .band(warp::body::bytes())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
@@ -1553,24 +1575,24 @@ pub fn serve<T: BeaconChainTypes>(
     });
 
     let beacon_blocks_path_v1 = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("blocks"))
-        .and(block_id_or_err)
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone());
+        .band(warp::path("beacon"))
+        .band(warp::path("blocks"))
+        .band(block_id_or_err)
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone());
 
     let beacon_blocks_path_any = any_version
-        .and(warp::path("beacon"))
-        .and(warp::path("blocks"))
-        .and(block_id_or_err)
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone());
+        .band(warp::path("beacon"))
+        .band(warp::path("blocks"))
+        .band(block_id_or_err)
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone());
 
     // GET beacon/blocks/{block_id}
     let get_beacon_block = beacon_blocks_path_any
         .clone()
-        .and(warp::path::end())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .band(warp::path::end())
+        .band(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |endpoint_version: EndpointVersion,
              block_id: BlockId,
@@ -1612,8 +1634,8 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/blocks/{block_id}/root
     let get_beacon_block_root = beacon_blocks_path_v1
         .clone()
-        .and(warp::path("root"))
-        .and(warp::path::end())
+        .band(warp::path("root"))
+        .band(warp::path::end())
         .then(
             |block_id: BlockId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -1638,8 +1660,8 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/blocks/{block_id}/attestations
     let get_beacon_block_attestations = beacon_blocks_path_v1
         .clone()
-        .and(warp::path("attestations"))
-        .and(warp::path::end())
+        .band(warp::path("attestations"))
+        .band(warp::path::end())
         .then(
             |block_id: BlockId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -1657,13 +1679,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET beacon/blinded_blocks/{block_id}
     let get_beacon_blinded_block = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("blinded_blocks"))
-        .and(block_id_or_err)
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(warp::path::end())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .band(warp::path("beacon"))
+        .band(warp::path("blinded_blocks"))
+        .band(block_id_or_err)
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(warp::path::end())
+        .band(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |block_id: BlockId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -1710,14 +1732,14 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET beacon/blob_sidecars/{block_id}
     let get_blobs = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("blob_sidecars"))
-        .and(block_id_or_err)
-        .and(warp::query::<api_types::BlobIndicesQuery>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .band(warp::path("beacon"))
+        .band(warp::path("blob_sidecars"))
+        .band(block_id_or_err)
+        .band(warp::query::<api_types::BlobIndicesQuery>())
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |block_id: BlockId,
              indices: api_types::BlobIndicesQuery,
@@ -1752,19 +1774,19 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     let beacon_pool_path = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("pool"))
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone());
+        .band(warp::path("beacon"))
+        .band(warp::path("pool"))
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone());
 
     // POST beacon/pool/attestations
     let post_beacon_pool_attestations = beacon_pool_path
         .clone()
-        .and(warp::path("attestations"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("attestations"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -1904,9 +1926,9 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/pool/attestations?committee_index,slot
     let get_beacon_pool_attestations = beacon_pool_path
         .clone()
-        .and(warp::path("attestations"))
-        .and(warp::path::end())
-        .and(warp::query::<api_types::AttestationPoolQuery>())
+        .band(warp::path("attestations"))
+        .band(warp::path::end())
+        .band(warp::query::<api_types::AttestationPoolQuery>())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -1936,10 +1958,10 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/pool/attester_slashings
     let post_beacon_pool_attester_slashings = beacon_pool_path
         .clone()
-        .and(warp::path("attester_slashings"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(network_tx_filter.clone())
+        .band(warp::path("attester_slashings"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(network_tx_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -1980,8 +2002,8 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/pool/attester_slashings
     let get_beacon_pool_attester_slashings = beacon_pool_path
         .clone()
-        .and(warp::path("attester_slashings"))
-        .and(warp::path::end())
+        .band(warp::path("attester_slashings"))
+        .band(warp::path::end())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -1994,10 +2016,10 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/pool/proposer_slashings
     let post_beacon_pool_proposer_slashings = beacon_pool_path
         .clone()
-        .and(warp::path("proposer_slashings"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(network_tx_filter.clone())
+        .band(warp::path("proposer_slashings"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(network_tx_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -2038,8 +2060,8 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/pool/proposer_slashings
     let get_beacon_pool_proposer_slashings = beacon_pool_path
         .clone()
-        .and(warp::path("proposer_slashings"))
-        .and(warp::path::end())
+        .band(warp::path("proposer_slashings"))
+        .band(warp::path::end())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -2052,10 +2074,10 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/pool/voluntary_exits
     let post_beacon_pool_voluntary_exits = beacon_pool_path
         .clone()
-        .and(warp::path("voluntary_exits"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(network_tx_filter.clone())
+        .band(warp::path("voluntary_exits"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(network_tx_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -2094,8 +2116,8 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/pool/voluntary_exits
     let get_beacon_pool_voluntary_exits = beacon_pool_path
         .clone()
-        .and(warp::path("voluntary_exits"))
-        .and(warp::path::end())
+        .band(warp::path("voluntary_exits"))
+        .band(warp::path::end())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -2108,11 +2130,11 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/pool/sync_committees
     let post_beacon_pool_sync_committees = beacon_pool_path
         .clone()
-        .and(warp::path("sync_committees"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("sync_committees"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -2131,8 +2153,8 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/pool/bls_to_execution_changes
     let get_beacon_pool_bls_to_execution_changes = beacon_pool_path
         .clone()
-        .and(warp::path("bls_to_execution_changes"))
-        .and(warp::path::end())
+        .band(warp::path("bls_to_execution_changes"))
+        .band(warp::path::end())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -2145,11 +2167,11 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/pool/bls_to_execution_changes
     let post_beacon_pool_bls_to_execution_changes = beacon_pool_path
         .clone()
-        .and(warp::path("bls_to_execution_changes"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("bls_to_execution_changes"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -2236,12 +2258,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET beacon/deposit_snapshot
     let get_beacon_deposit_snapshot = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("deposit_snapshot"))
-        .and(warp::path::end())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
-        .and(task_spawner_filter.clone())
-        .and(eth1_service_filter.clone())
+        .band(warp::path("beacon"))
+        .band(warp::path("deposit_snapshot"))
+        .band(warp::path::end())
+        .band(warp::header::optional::<api_types::Accept>("accept"))
+        .band(task_spawner_filter.clone())
+        .band(eth1_service_filter.clone())
         .then(
             |accept_header: Option<api_types::Accept>,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -2285,17 +2307,17 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let beacon_rewards_path = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("rewards"))
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone());
+        .band(warp::path("beacon"))
+        .band(warp::path("rewards"))
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone());
 
     // GET beacon/rewards/blocks/{block_id}
     let get_beacon_rewards_blocks = beacon_rewards_path
         .clone()
-        .and(warp::path("blocks"))
-        .and(block_id_or_err)
-        .and(warp::path::end())
+        .band(warp::path("blocks"))
+        .band(block_id_or_err)
+        .band(warp::path::end())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -2315,19 +2337,19 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     let builder_states_path = eth_v1
-        .and(warp::path("builder"))
-        .and(warp::path("states"))
-        .and(chain_filter.clone());
+        .band(warp::path("builder"))
+        .band(warp::path("states"))
+        .band(chain_filter.clone());
 
     // GET builder/states/{state_id}/expected_withdrawals
     let get_expected_withdrawals = builder_states_path
         .clone()
-        .and(task_spawner_filter.clone())
-        .and(warp::path::param::<StateId>())
-        .and(warp::path("expected_withdrawals"))
-        .and(warp::query::<api_types::ExpectedWithdrawalsQuery>())
-        .and(warp::path::end())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .band(task_spawner_filter.clone())
+        .band(warp::path::param::<StateId>())
+        .band(warp::path("expected_withdrawals"))
+        .band(warp::query::<api_types::ExpectedWithdrawalsQuery>())
+        .band(warp::path::end())
+        .band(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -2369,22 +2391,22 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     let beacon_light_client_path = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("light_client"))
-        .and(chain_filter.clone());
+        .band(warp::path("beacon"))
+        .band(warp::path("light_client"))
+        .band(chain_filter.clone());
 
     // GET beacon/light_client/bootstrap/{block_root}
     let get_beacon_light_client_bootstrap = beacon_light_client_path
         .clone()
-        .and(task_spawner_filter.clone())
-        .and(warp::path("bootstrap"))
-        .and(warp::path::param::<Hash256>().or_else(|_| async {
+        .band(task_spawner_filter.clone())
+        .band(warp::path("bootstrap"))
+        .band(warp::path::param::<Hash256>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid block root value".to_string(),
             ))
         }))
-        .and(warp::path::end())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .band(warp::path::end())
+        .band(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -2432,10 +2454,10 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/light_client/optimistic_update
     let get_beacon_light_client_optimistic_update = beacon_light_client_path
         .clone()
-        .and(task_spawner_filter.clone())
-        .and(warp::path("optimistic_update"))
-        .and(warp::path::end())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .band(task_spawner_filter.clone())
+        .band(warp::path("optimistic_update"))
+        .band(warp::path::end())
+        .band(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -2480,10 +2502,10 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/light_client/finality_update
     let get_beacon_light_client_finality_update = beacon_light_client_path
         .clone()
-        .and(task_spawner_filter.clone())
-        .and(warp::path("finality_update"))
-        .and(warp::path::end())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .band(task_spawner_filter.clone())
+        .band(warp::path("finality_update"))
+        .band(warp::path::end())
+        .band(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -2530,18 +2552,18 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     let beacon_rewards_path = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("rewards"))
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone());
+        .band(warp::path("beacon"))
+        .band(warp::path("rewards"))
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone());
 
     // POST beacon/rewards/attestations/{epoch}
     let post_beacon_rewards_attestations = beacon_rewards_path
         .clone()
-        .and(warp::path("attestations"))
-        .and(warp::path::param::<Epoch>())
-        .and(warp::path::end())
-        .and(warp::body::json())
+        .band(warp::path("attestations"))
+        .band(warp::path::param::<Epoch>())
+        .band(warp::path::end())
+        .band(warp::body::json())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -2588,11 +2610,11 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/rewards/sync_committee/{block_id}
     let post_beacon_rewards_sync_committee = beacon_rewards_path
         .clone()
-        .and(warp::path("sync_committee"))
-        .and(block_id_or_err)
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(log_filter.clone())
+        .band(warp::path("sync_committee"))
+        .band(block_id_or_err)
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -2616,14 +2638,15 @@ pub fn serve<T: BeaconChainTypes>(
      * config
      */
 
-    let config_path = eth_v1.and(warp::path("config"));
+    let config_path = eth_v1.band(warp::path("config"));
 
     // GET config/fork_schedule
     let get_config_fork_schedule = config_path
-        .and(warp::path("fork_schedule"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .clone()
+        .band(warp::path("fork_schedule"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -2639,10 +2662,11 @@ pub fn serve<T: BeaconChainTypes>(
     // GET config/spec
     let spec_fork_name = ctx.config.spec_fork_name;
     let get_config_spec = config_path
-        .and(warp::path("spec"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .clone()
+        .band(warp::path("spec"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             move |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
@@ -2655,10 +2679,11 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET config/deposit_contract
     let get_config_deposit_contract = config_path
-        .and(warp::path("deposit_contract"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .clone()
+        .band(warp::path("deposit_contract"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -2678,18 +2703,18 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET debug/beacon/states/{state_id}
     let get_debug_beacon_states = any_version
-        .and(warp::path("debug"))
-        .and(warp::path("beacon"))
-        .and(warp::path("states"))
-        .and(warp::path::param::<StateId>().or_else(|_| async {
+        .band(warp::path("debug"))
+        .band(warp::path("beacon"))
+        .band(warp::path("states"))
+        .band(warp::path::param::<StateId>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid state ID".to_string(),
             ))
         }))
-        .and(warp::path::end())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path::end())
+        .band(warp::header::optional::<api_types::Accept>("accept"))
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |endpoint_version: EndpointVersion,
              state_id: StateId,
@@ -2744,12 +2769,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET debug/beacon/heads
     let get_debug_beacon_heads = any_version
-        .and(warp::path("debug"))
-        .and(warp::path("beacon"))
-        .and(warp::path("heads"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("debug"))
+        .band(warp::path("beacon"))
+        .band(warp::path("heads"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |endpoint_version: EndpointVersion,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -2784,11 +2809,11 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET debug/fork_choice
     let get_debug_fork_choice = eth_v1
-        .and(warp::path("debug"))
-        .and(warp::path("fork_choice"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("debug"))
+        .band(warp::path("fork_choice"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -2839,11 +2864,11 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/identity
     let get_node_identity = eth_v1
-        .and(warp::path("node"))
-        .and(warp::path("identity"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(network_globals.clone())
+        .band(warp::path("node"))
+        .band(warp::path("identity"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(network_globals.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
@@ -2881,9 +2906,9 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/version
     let get_node_version = eth_v1
-        .and(warp::path("node"))
-        .and(warp::path("version"))
-        .and(warp::path::end())
+        .band(warp::path("node"))
+        .band(warp::path("version"))
+        .band(warp::path::end())
         // Bypass the `task_spawner` since this method returns a static string.
         .then(|| async {
             warp::reply::json(&api_types::GenericResponse::from(api_types::VersionData {
@@ -2894,12 +2919,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/syncing
     let get_node_syncing = eth_v1
-        .and(warp::path("node"))
-        .and(warp::path("syncing"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(network_globals.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("node"))
+        .band(warp::path("syncing"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(network_globals.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>,
@@ -2945,12 +2970,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/health
     let get_node_health = eth_v1
-        .and(warp::path("node"))
-        .and(warp::path("health"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(network_globals.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("node"))
+        .band(warp::path("health"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(network_globals.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>,
@@ -2993,12 +3018,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/peers/{peer_id}
     let get_node_peers_by_id = eth_v1
-        .and(warp::path("node"))
-        .and(warp::path("peers"))
-        .and(warp::path::param::<String>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(network_globals.clone())
+        .band(warp::path("node"))
+        .band(warp::path("peers"))
+        .band(warp::path::param::<String>())
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(network_globals.clone())
         .then(
             |requested_peer_id: String,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -3049,12 +3074,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/peers
     let get_node_peers = eth_v1
-        .and(warp::path("node"))
-        .and(warp::path("peers"))
-        .and(warp::path::end())
-        .and(multi_key_query::<api_types::PeersQuery>())
-        .and(task_spawner_filter.clone())
-        .and(network_globals.clone())
+        .band(warp::path("node"))
+        .band(warp::path("peers"))
+        .band(warp::path::end())
+        .band(multi_key_query::<api_types::PeersQuery>())
+        .band(task_spawner_filter.clone())
+        .band(network_globals.clone())
         .then(
             |query_res: Result<api_types::PeersQuery, warp::Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -3115,11 +3140,11 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/peer_count
     let get_node_peer_count = eth_v1
-        .and(warp::path("node"))
-        .and(warp::path("peer_count"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(network_globals.clone())
+        .band(warp::path("node"))
+        .band(warp::path("peer_count"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(network_globals.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
@@ -3160,19 +3185,19 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/duties/proposer/{epoch}
     let get_validator_duties_proposer = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("duties"))
-        .and(warp::path("proposer"))
-        .and(warp::path::param::<Epoch>().or_else(|_| async {
+        .band(warp::path("validator"))
+        .band(warp::path("duties"))
+        .band(warp::path("proposer"))
+        .band(warp::path::param::<Epoch>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid epoch".to_string(),
             ))
         }))
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path::end())
+        .band(not_while_syncing_filter.clone())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(log_filter.clone())
         .then(
             |epoch: Epoch,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -3186,20 +3211,20 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/blocks/{slot}
     let get_validator_blocks = any_version
-        .and(warp::path("validator"))
-        .and(warp::path("blocks"))
-        .and(warp::path::param::<Slot>().or_else(|_| async {
+        .band(warp::path("validator"))
+        .band(warp::path("blocks"))
+        .band(warp::path::param::<Slot>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid slot".to_string(),
             ))
         }))
-        .and(warp::path::end())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
-        .and(not_while_syncing_filter.clone())
-        .and(warp::query::<api_types::ValidatorBlocksQuery>())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path::end())
+        .band(warp::header::optional::<api_types::Accept>("accept"))
+        .band(not_while_syncing_filter.clone())
+        .band(warp::query::<api_types::ValidatorBlocksQuery>())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(log_filter.clone())
         .then(
             |endpoint_version: EndpointVersion,
              slot: Slot,
@@ -3226,19 +3251,19 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/blinded_blocks/{slot}
     let get_validator_blinded_blocks = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("blinded_blocks"))
-        .and(warp::path::param::<Slot>().or_else(|_| async {
+        .band(warp::path("validator"))
+        .band(warp::path("blinded_blocks"))
+        .band(warp::path::param::<Slot>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid slot".to_string(),
             ))
         }))
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(warp::query::<api_types::ValidatorBlocksQuery>())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path::end())
+        .band(not_while_syncing_filter.clone())
+        .band(warp::query::<api_types::ValidatorBlocksQuery>())
+        .band(warp::header::optional::<api_types::Accept>("accept"))
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |slot: Slot,
              query: api_types::ValidatorBlocksQuery,
@@ -3254,13 +3279,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/attestation_data?slot,committee_index
     let get_validator_attestation_data = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("attestation_data"))
-        .and(warp::path::end())
-        .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
-        .and(not_while_syncing_filter.clone())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("validator"))
+        .band(warp::path("attestation_data"))
+        .band(warp::path::end())
+        .band(warp::query::<api_types::ValidatorAttestationDataQuery>())
+        .band(not_while_syncing_filter.clone())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |query: api_types::ValidatorAttestationDataQuery,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -3289,13 +3314,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/aggregate_attestation?attestation_data_root,slot
     let get_validator_aggregate_attestation = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("aggregate_attestation"))
-        .and(warp::path::end())
-        .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
-        .and(not_while_syncing_filter.clone())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("validator"))
+        .band(warp::path("aggregate_attestation"))
+        .band(warp::path::end())
+        .band(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
+        .band(not_while_syncing_filter.clone())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |query: api_types::ValidatorAggregateAttestationQuery,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -3324,19 +3349,19 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/duties/attester/{epoch}
     let post_validator_duties_attester = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("duties"))
-        .and(warp::path("attester"))
-        .and(warp::path::param::<Epoch>().or_else(|_| async {
+        .band(warp::path("validator"))
+        .band(warp::path("duties"))
+        .band(warp::path("attester"))
+        .band(warp::path::param::<Epoch>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid epoch".to_string(),
             ))
         }))
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path::end())
+        .band(not_while_syncing_filter.clone())
+        .band(warp::body::json())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |epoch: Epoch,
              indices: api_types::ValidatorIndexData,
@@ -3350,19 +3375,19 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/duties/sync/{epoch}
     let post_validator_duties_sync = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("duties"))
-        .and(warp::path("sync"))
-        .and(warp::path::param::<Epoch>().or_else(|_| async {
+        .band(warp::path("validator"))
+        .band(warp::path("duties"))
+        .band(warp::path("sync"))
+        .band(warp::path::param::<Epoch>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid epoch".to_string(),
             ))
         }))
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path::end())
+        .band(not_while_syncing_filter.clone())
+        .band(warp::body::json())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |epoch: Epoch,
              indices: api_types::ValidatorIndexData,
@@ -3376,13 +3401,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/sync_committee_contribution
     let get_validator_sync_committee_contribution = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("sync_committee_contribution"))
-        .and(warp::path::end())
-        .and(warp::query::<SyncContributionData>())
-        .and(not_while_syncing_filter.clone())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("validator"))
+        .band(warp::path("sync_committee_contribution"))
+        .band(warp::path::end())
+        .band(warp::query::<SyncContributionData>())
+        .band(not_while_syncing_filter.clone())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |sync_committee_data: SyncContributionData,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -3408,15 +3433,15 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/aggregate_and_proofs
     let post_validator_aggregate_and_proofs = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("aggregate_and_proofs"))
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(warp::body::json())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("validator"))
+        .band(warp::path("aggregate_and_proofs"))
+        .band(warp::path::end())
+        .band(not_while_syncing_filter.clone())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(warp::body::json())
+        .band(network_tx_filter.clone())
+        .band(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -3521,15 +3546,15 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let post_validator_contribution_and_proofs = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("contribution_and_proofs"))
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(warp::body::json())
-        .and(network_tx_filter)
-        .and(log_filter.clone())
+        .band(warp::path("validator"))
+        .band(warp::path("contribution_and_proofs"))
+        .band(warp::path::end())
+        .band(not_while_syncing_filter.clone())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(warp::body::json())
+        .band(network_tx_filter)
+        .band(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -3550,14 +3575,14 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/beacon_committee_subscriptions
     let post_validator_beacon_committee_subscriptions = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("beacon_committee_subscriptions"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(validator_subscription_tx_filter.clone())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("validator"))
+        .band(warp::path("beacon_committee_subscriptions"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(validator_subscription_tx_filter.clone())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(log_filter.clone())
         .then(
             |subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
@@ -3602,14 +3627,14 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/prepare_beacon_proposer
     let post_validator_prepare_beacon_proposer = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("prepare_beacon_proposer"))
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
-        .and(warp::body::json())
+        .band(warp::path("validator"))
+        .band(warp::path("prepare_beacon_proposer"))
+        .band(warp::path::end())
+        .band(not_while_syncing_filter.clone())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(log_filter.clone())
+        .band(warp::body::json())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -3654,13 +3679,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/register_validator
     let post_validator_register_validator = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("register_validator"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
-        .and(warp::body::json())
+        .band(warp::path("validator"))
+        .band(warp::path("register_validator"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(log_filter.clone())
+        .band(warp::body::json())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -3831,14 +3856,14 @@ pub fn serve<T: BeaconChainTypes>(
         );
     // POST validator/sync_committee_subscriptions
     let post_validator_sync_committee_subscriptions = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("sync_committee_subscriptions"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(validator_subscription_tx_filter)
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("validator"))
+        .band(warp::path("sync_committee_subscriptions"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(validator_subscription_tx_filter)
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(log_filter.clone())
         .then(
             |subscriptions: Vec<types::SyncCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
@@ -3876,13 +3901,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST vaidator/liveness/{epoch}
     let post_validator_liveness_epoch = eth_v1
-        .and(warp::path("validator"))
-        .and(warp::path("liveness"))
-        .and(warp::path::param::<Epoch>())
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("validator"))
+        .band(warp::path("liveness"))
+        .band(warp::path::param::<Epoch>())
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |epoch: Epoch,
              indices: Vec<u64>,
@@ -3919,11 +3944,11 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST lighthouse/liveness
     let post_lighthouse_liveness = warp::path("lighthouse")
-        .and(warp::path("liveness"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("liveness"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |request_data: api_types::LivenessRequestData,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -3965,9 +3990,9 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/health
     let get_lighthouse_health = warp::path("lighthouse")
-        .and(warp::path("health"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
+        .band(warp::path("health"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
         .then(|task_spawner: TaskSpawner<T::EthSpec>| {
             task_spawner.blocking_json_task(Priority::P0, move || {
                 eth2::lighthouse::Health::observe()
@@ -3978,14 +4003,14 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/ui/health
     let get_lighthouse_ui_health = warp::path("lighthouse")
-        .and(warp::path("ui"))
-        .and(warp::path("health"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(system_info_filter)
-        .and(app_start_filter)
-        .and(data_dir_filter)
-        .and(network_globals.clone())
+        .band(warp::path("ui"))
+        .band(warp::path("health"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(system_info_filter)
+        .band(app_start_filter)
+        .band(data_dir_filter)
+        .band(network_globals.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              sysinfo,
@@ -4006,11 +4031,11 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/ui/validator_count
     let get_lighthouse_ui_validator_count = warp::path("lighthouse")
-        .and(warp::path("ui"))
-        .and(warp::path("validator_count"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("ui"))
+        .band(warp::path("validator_count"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -4021,12 +4046,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST lighthouse/ui/validator_metrics
     let post_lighthouse_ui_validator_metrics = warp::path("lighthouse")
-        .and(warp::path("ui"))
-        .and(warp::path("validator_metrics"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("ui"))
+        .band(warp::path("validator_metrics"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |request_data: ui::ValidatorMetricsRequestData,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -4040,12 +4065,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST lighthouse/ui/validator_info
     let post_lighthouse_ui_validator_info = warp::path("lighthouse")
-        .and(warp::path("ui"))
-        .and(warp::path("validator_info"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("ui"))
+        .band(warp::path("validator_info"))
+        .band(warp::path::end())
+        .band(warp::body::json())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |request_data: ui::ValidatorInfoRequestData,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -4059,10 +4084,10 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/syncing
     let get_lighthouse_syncing = warp::path("lighthouse")
-        .and(warp::path("syncing"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(network_globals.clone())
+        .band(warp::path("syncing"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(network_globals.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
@@ -4076,9 +4101,9 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/nat
     let get_lighthouse_nat = warp::path("lighthouse")
-        .and(warp::path("nat"))
-        .and(task_spawner_filter.clone())
-        .and(warp::path::end())
+        .band(warp::path("nat"))
+        .band(task_spawner_filter.clone())
+        .band(warp::path::end())
         .then(|task_spawner: TaskSpawner<T::EthSpec>| {
             task_spawner.blocking_json_task(Priority::P1, move || {
                 Ok(api_types::GenericResponse::from(
@@ -4093,10 +4118,10 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/peers
     let get_lighthouse_peers = warp::path("lighthouse")
-        .and(warp::path("peers"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(network_globals.clone())
+        .band(warp::path("peers"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(network_globals.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
@@ -4116,11 +4141,11 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/peers/connected
     let get_lighthouse_peers_connected = warp::path("lighthouse")
-        .and(warp::path("peers"))
-        .and(warp::path("connected"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(network_globals)
+        .band(warp::path("peers"))
+        .band(warp::path("connected"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(network_globals)
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
@@ -4140,10 +4165,10 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/proto_array
     let get_lighthouse_proto_array = warp::path("lighthouse")
-        .and(warp::path("proto_array"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("proto_array"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
@@ -4162,12 +4187,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/validator_inclusion/{epoch}/{validator_id}
     let get_lighthouse_validator_inclusion_global = warp::path("lighthouse")
-        .and(warp::path("validator_inclusion"))
-        .and(warp::path::param::<Epoch>())
-        .and(warp::path::param::<ValidatorId>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("validator_inclusion"))
+        .band(warp::path::param::<Epoch>())
+        .band(warp::path::param::<ValidatorId>())
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |epoch: Epoch,
              validator_id: ValidatorId,
@@ -4182,12 +4207,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/validator_inclusion/{epoch}/global
     let get_lighthouse_validator_inclusion = warp::path("lighthouse")
-        .and(warp::path("validator_inclusion"))
-        .and(warp::path::param::<Epoch>())
-        .and(warp::path("global"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("validator_inclusion"))
+        .band(warp::path::param::<Epoch>())
+        .band(warp::path("global"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |epoch: Epoch, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -4199,11 +4224,11 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/eth1/syncing
     let get_lighthouse_eth1_syncing = warp::path("lighthouse")
-        .and(warp::path("eth1"))
-        .and(warp::path("syncing"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("eth1"))
+        .band(warp::path("syncing"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -4232,11 +4257,11 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/eth1/block_cache
     let get_lighthouse_eth1_block_cache = warp::path("lighthouse")
-        .and(warp::path("eth1"))
-        .and(warp::path("block_cache"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(eth1_service_filter.clone())
+        .band(warp::path("eth1"))
+        .band(warp::path("block_cache"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(eth1_service_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, eth1_service: eth1::Service| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -4254,11 +4279,11 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/eth1/deposit_cache
     let get_lighthouse_eth1_deposit_cache = warp::path("lighthouse")
-        .and(warp::path("eth1"))
-        .and(warp::path("deposit_cache"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(eth1_service_filter)
+        .band(warp::path("eth1"))
+        .band(warp::path("deposit_cache"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(eth1_service_filter)
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, eth1_service: eth1::Service| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -4277,13 +4302,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/beacon/states/{state_id}/ssz
     let get_lighthouse_beacon_states_ssz = warp::path("lighthouse")
-        .and(warp::path("beacon"))
-        .and(warp::path("states"))
-        .and(warp::path::param::<StateId>())
-        .and(warp::path("ssz"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("beacon"))
+        .band(warp::path("states"))
+        .band(warp::path::param::<StateId>())
+        .band(warp::path("ssz"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -4307,10 +4332,10 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/staking
     let get_lighthouse_staking = warp::path("lighthouse")
-        .and(warp::path("staking"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("staking"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -4327,14 +4352,15 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    let database_path = warp::path("lighthouse").and(warp::path("database"));
+    let database_path = warp::path("lighthouse").band(warp::path("database"));
 
     // GET lighthouse/database/info
     let get_lighthouse_database_info = database_path
-        .and(warp::path("info"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .clone()
+        .band(warp::path("info"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || database::info(chain))
@@ -4343,11 +4369,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST lighthouse/database/reconstruct
     let post_lighthouse_database_reconstruct = database_path
-        .and(warp::path("reconstruct"))
-        .and(warp::path::end())
-        .and(not_while_syncing_filter)
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .clone()
+        .band(warp::path("reconstruct"))
+        .band(warp::path::end())
+        .band(not_while_syncing_filter)
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -4359,13 +4386,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/analysis/block_rewards
     let get_lighthouse_block_rewards = warp::path("lighthouse")
-        .and(warp::path("analysis"))
-        .and(warp::path("block_rewards"))
-        .and(warp::query::<eth2::lighthouse::BlockRewardsQuery>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("analysis"))
+        .band(warp::path("block_rewards"))
+        .band(warp::query::<eth2::lighthouse::BlockRewardsQuery>())
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(log_filter.clone())
         .then(|query, task_spawner: TaskSpawner<T::EthSpec>, chain, log| {
             task_spawner.blocking_json_task(Priority::P1, move || {
                 block_rewards::get_block_rewards(query, chain, log)
@@ -4374,13 +4401,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST lighthouse/analysis/block_rewards
     let post_lighthouse_block_rewards = warp::path("lighthouse")
-        .and(warp::path("analysis"))
-        .and(warp::path("block_rewards"))
-        .and(warp::body::json())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(log_filter.clone())
+        .band(warp::path("analysis"))
+        .band(warp::path("block_rewards"))
+        .band(warp::body::json())
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
+        .band(log_filter.clone())
         .then(
             |blocks, task_spawner: TaskSpawner<T::EthSpec>, chain, log| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -4391,13 +4418,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/analysis/attestation_performance/{index}
     let get_lighthouse_attestation_performance = warp::path("lighthouse")
-        .and(warp::path("analysis"))
-        .and(warp::path("attestation_performance"))
-        .and(warp::path::param::<String>())
-        .and(warp::query::<eth2::lighthouse::AttestationPerformanceQuery>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("analysis"))
+        .band(warp::path("attestation_performance"))
+        .band(warp::path::param::<String>())
+        .band(warp::query::<eth2::lighthouse::AttestationPerformanceQuery>())
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |target, query, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -4408,12 +4435,12 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/analysis/block_packing_efficiency
     let get_lighthouse_block_packing_efficiency = warp::path("lighthouse")
-        .and(warp::path("analysis"))
-        .and(warp::path("block_packing_efficiency"))
-        .and(warp::query::<eth2::lighthouse::BlockPackingEfficiencyQuery>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("analysis"))
+        .band(warp::path("block_packing_efficiency"))
+        .band(warp::query::<eth2::lighthouse::BlockPackingEfficiencyQuery>())
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |query, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
@@ -4424,10 +4451,10 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET lighthouse/merge_readiness
     let get_lighthouse_merge_readiness = warp::path("lighthouse")
-        .and(warp::path("merge_readiness"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
+        .band(warp::path("merge_readiness"))
+        .band(warp::path::end())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P1, async move {
@@ -4442,11 +4469,11 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let get_events = eth_v1
-        .and(warp::path("events"))
-        .and(warp::path::end())
-        .and(multi_key_query::<api_types::EventQuery>())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter)
+        .band(warp::path("events"))
+        .band(warp::path::end())
+        .band(multi_key_query::<api_types::EventQuery>())
+        .band(task_spawner_filter.clone())
+        .band(chain_filter)
         .then(
             |topics_res: Result<api_types::EventQuery, warp::Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -4536,10 +4563,10 @@ pub fn serve<T: BeaconChainTypes>(
     // Subscribe to logs via Server Side Events
     // /lighthouse/logs
     let lighthouse_log_events = warp::path("lighthouse")
-        .and(warp::path("logs"))
-        .and(warp::path::end())
-        .and(task_spawner_filter)
-        .and(sse_component_filter)
+        .band(warp::path("logs"))
+        .band(warp::path::end())
+        .band(task_spawner_filter)
+        .band(sse_component_filter)
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>, sse_component: Option<SSELoggingComponents>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
@@ -4582,7 +4609,7 @@ pub fn serve<T: BeaconChainTypes>(
     // Define the ultimate set of routes that will be provided to the server.
     // Use `uor` rather than `or` in order to simplify types (see `UnifyingOrFilter`).
     let routes = warp::get()
-        .and(
+        .band(
             get_beacon_genesis
                 .uor(get_beacon_state_root)
                 .uor(get_beacon_state_fork)
@@ -4646,15 +4673,15 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_attestation_performance)
                 .uor(
                     enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_optimistic_update),
+                        .band(get_beacon_light_client_optimistic_update),
                 )
                 .uor(
                     enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_finality_update),
+                        .band(get_beacon_light_client_finality_update),
                 )
                 .uor(
                     enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_bootstrap),
+                        .band(get_beacon_light_client_bootstrap),
                 )
                 .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_lighthouse_merge_readiness)
@@ -4665,10 +4692,10 @@ pub fn serve<T: BeaconChainTypes>(
         )
         .boxed()
         .uor(
-            warp::post().and(
+            warp::post().band(
                 warp::header::exact(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER)
                     // Routes which expect `application/octet-stream` go within this `and`.
-                    .and(
+                    .band(
                         post_beacon_blocks_ssz
                             .uor(post_beacon_blocks_v2_ssz)
                             .uor(post_beacon_blinded_blocks_ssz)
@@ -4781,4 +4808,16 @@ fn publish_network_message<T: EthSpec>(
             e
         ))
     })
+}
+
+#[test]
+fn size_of_chan() {
+    assert_eq!(
+        std::mem::size_of::<SignedBlindedBeaconBlock<types::MainnetEthSpec>>(),
+        0
+    );
+    assert_eq!(
+        std::mem::size_of::<UnboundedSender<NetworkMessage<types::MainnetEthSpec>>>(),
+        0
+    );
 }
