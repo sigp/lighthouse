@@ -46,6 +46,9 @@ pub const EXECUTION_PAYLOAD_BLINDED_HEADER: &str = "Eth-Execution-Payload-Blinde
 pub const EXECUTION_PAYLOAD_VALUE_HEADER: &str = "Eth-Execution-Payload-Value";
 pub const CONSENSUS_BLOCK_VALUE_HEADER: &str = "Eth-Consensus-Block-Value";
 
+pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
+pub const SSZ_CONTENT_TYPE_HEADER: &str = "application/octet-stream";
+
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
