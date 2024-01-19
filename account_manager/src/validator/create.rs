@@ -103,13 +103,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("count")
                 .takes_value(true),
         )
-        .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
-        )
 }
 
 pub fn cli_run<T: EthSpec>(

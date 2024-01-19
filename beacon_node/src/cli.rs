@@ -724,6 +724,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("If present, the chain database will be deleted. Use with caution.")
         )
         .arg(
+            Arg::with_name("purge-db-safe")
+                .long("purge-db-safe")
+                .help("The same as --purge-db but requires manual confirmation before the database \
+                       is purged.")
+        )
+        .arg(
             Arg::with_name("compact-db")
                 .long("compact-db")
                 .help("If present, apply compaction to the database on start-up. Use with caution. \

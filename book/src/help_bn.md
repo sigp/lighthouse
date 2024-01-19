@@ -101,6 +101,8 @@ FLAGS:
                                                referenced by validator client using the --proposer-node flag. This
                                                configuration is for enabling more secure setups.
         --purge-db                             If present, the chain database will be deleted. Use with caution.
+        --purge-db-safe                        The same as --purge-db but requires manual confirmation before the
+                                               database is purged.
         --reconstruct-historic-states          After a checkpoint sync, reconstruct historic states in the database.
                                                This requires syncing all the way back to genesis.
         --reset-payload-statuses               When present, Lighthouse will forget the payload statuses of any already-
@@ -115,6 +117,7 @@ FLAGS:
                                                server on localhost:5052 and import deposit logs from the execution node.
                                                This is equivalent to `--http` on merge-ready networks, or `--http
                                                --eth1` pre-merge
+        --stdin-inputs                         If present, read all user inputs from stdin instead of tty.
         --subscribe-all-subnets                Subscribe to all subnets regardless of validator count. This will also
                                                advertise the beacon node as being long-lived subscribed to all subnets.
         --validator-monitor-auto               Enables the automatic detection and monitoring of validators connected to

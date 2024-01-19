@@ -68,13 +68,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     instead generate them from the wallet seed when required.",
                 ),
         )
-        .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
-        )
 }
 
 pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), String> {

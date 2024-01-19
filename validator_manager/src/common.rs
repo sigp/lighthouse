@@ -1,3 +1,4 @@
+pub use account_utils::STDIN_INPUTS_FLAG;
 use account_utils::{strip_off_newlines, ZeroizeString};
 use eth2::lighthouse_vc::std_types::{InterchangeJsonStr, KeystoreJsonStr};
 use eth2::{
@@ -15,7 +16,6 @@ use tree_hash::TreeHash;
 use types::*;
 
 pub const IGNORE_DUPLICATES_FLAG: &str = "ignore-duplicates";
-pub const STDIN_INPUTS_FLAG: &str = "stdin-inputs";
 pub const COUNT_FLAG: &str = "count";
 
 /// When the `ethereum/staking-deposit-cli` tool generates deposit data JSON, it adds a

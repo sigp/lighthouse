@@ -1,5 +1,6 @@
 mod metrics;
 
+use account_utils::STDIN_INPUTS_FLAG;
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
@@ -79,6 +80,14 @@ fn main() {
                  cfg!(feature = "spec-minimal"),
                  cfg!(feature = "gnosis"),
             ).as_str()
+        )
+        .arg(
+            Arg::with_name(STDIN_INPUTS_FLAG)
+                .takes_value(false)
+                .hidden(cfg!(windows))
+                .global(true)
+                .long(STDIN_INPUTS_FLAG)
+                .help("If present, read all user inputs from stdin instead of tty."),
         )
         .arg(
             Arg::with_name("env_log")

@@ -35,6 +35,8 @@ const DEFAULT_PASSWORD_LEN: usize = 48;
 
 pub const MNEMONIC_PROMPT: &str = "Enter the mnemonic phrase:";
 
+pub const STDIN_INPUTS_FLAG: &str = "stdin-inputs";
+
 /// Returns the "default" path where a wallet should store its password file.
 pub fn default_wallet_password_path<P: AsRef<Path>>(wallet_name: &str, secrets_dir: P) -> PathBuf {
     secrets_dir.as_ref().join(format!("{}.pass", wallet_name))
