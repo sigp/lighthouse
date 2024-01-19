@@ -32,6 +32,8 @@ pub const VALIDATORS_FLAG: &str = "validators";
 pub const GAS_LIMIT_FLAG: &str = "gas-limit";
 pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
 pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
+pub const BUILDER_BOOST_FACTOR_FLAG: &str = "builder-boost-factor";
+pub const PREFER_BUILDER_PROPOSALS_FLAG: &str = "prefer-builder-payload-flag";
 
 const NO_VALIDATORS_MSG: &str = "No validators present on source validator client";
 
@@ -187,6 +189,8 @@ pub struct MoveConfig {
     pub dest_vc_token_path: PathBuf,
     pub validators: Validators,
     pub builder_proposals: Option<bool>,
+    pub builder_boost_factor: Option<u64>,
+    pub prefer_builder_proposals: Option<bool>,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
     pub password_source: PasswordSource,
@@ -221,6 +225,11 @@ impl MoveConfig {
             dest_vc_token_path: clap_utils::parse_required(matches, DEST_VC_TOKEN_FLAG)?,
             validators,
             builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS_FLAG)?,
+            builder_boost_factor: clap_utils::parse_optional(matches, BUILDER_BOOST_FACTOR_FLAG)?,
+            prefer_builder_proposals: clap_utils::parse_optional(
+                matches,
+                PREFER_BUILDER_PROPOSALS_FLAG,
+            )?,
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
             password_source: PasswordSource::Interactive {
@@ -253,6 +262,8 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         fee_recipient,
         gas_limit,
         mut password_source,
+        builder_boost_factor,
+        prefer_builder_proposals,
     } = config;
 
     // Moving validators between the same VC is unlikely to be useful and probably indicates a user
@@ -488,13 +499,15 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
 
         let keystore_derivation_path = voting_keystore.0.path();
 
-        let validator_specification = ValidatorSpecification {
+        let validator_specification: ValidatorSpecification = ValidatorSpecification {
             voting_keystore,
             voting_keystore_password,
             slashing_protection: Some(InterchangeJsonStr(slashing_protection)),
             fee_recipient,
             gas_limit,
             builder_proposals,
+            builder_boost_factor,
+            prefer_builder_proposals,
             // Allow the VC to choose a default "enabled" state. Since "enabled" is not part of
             // the standard API, leaving this as `None` means we are not forced to use the
             // non-standard API.
@@ -758,6 +771,8 @@ mod test {
                 dest_vc_token_path: dest_vc_token_path.clone(),
                 validators: validators.clone(),
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Testing(self.passwords.clone()),

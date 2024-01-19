@@ -10,6 +10,8 @@ FLAGS:
         --builder-proposals
             If this flag is set, Lighthouse will query the Beacon Node for only block headers during proposals and will
             sign over headers. Useful for outsourcing execution payload construction during proposals.
+        --prefer-builder-proposals
+            If this flag is set, Lighthouse  will always prefer blocks constructed by builders, if available.
         --disable-auto-discover
             If present, do not attempt to discover new validators in the validators-dir. Validators will need to be
             manually added to the validator_definitions.yml file.
@@ -203,4 +205,10 @@ OPTIONS:
         --validators-dir <VALIDATORS_DIR>
             The directory which contains the validator keystores, deposit data for each validator along with the common
             slashing protection database and the validator_definitions.yml
+        --builder-boost-factor <INTEGER>
+            Percentage multiplier to apply to the builder's payload value when choosing between a
+            builder payload header and payload from the paired execution node. This parameter is only
+            relevant if the beacon node is connected to a builder, deems it safe to produce a builder
+            payload, and receives valid responses from both the builder endpoint _and_ the paired
+            execution node.
 ```

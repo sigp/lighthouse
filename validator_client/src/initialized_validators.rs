@@ -131,6 +131,8 @@ pub struct InitializedValidator {
     suggested_fee_recipient: Option<Address>,
     gas_limit: Option<u64>,
     builder_proposals: Option<bool>,
+    builder_boost_factor: Option<u64>,
+    prefer_builder_proposals: Option<bool>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
 }
@@ -335,6 +337,8 @@ impl InitializedValidator {
             suggested_fee_recipient: def.suggested_fee_recipient,
             gas_limit: def.gas_limit,
             builder_proposals: def.builder_proposals,
+            builder_boost_factor: def.builder_boost_factor,
+            prefer_builder_proposals: def.prefer_builder_proposals,
             index: None,
         })
     }
@@ -815,6 +819,22 @@ impl InitializedValidators {
             .and_then(|v| v.builder_proposals)
     }
 
+    /// Returns the `builder_boost_factor` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn builder_boost_factor(&self, public_key: &PublicKeyBytes) -> Option<u64> {
+        self.validators
+            .get(public_key)
+            .and_then(|v| v.builder_boost_factor)
+    }
+
+    /// Returns the `prefer_builder_proposals` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn prefer_builder_proposals(&self, public_key: &PublicKeyBytes) -> Option<bool> {
+        self.validators
+            .get(public_key)
+            .and_then(|v| v.prefer_builder_proposals)
+    }
+
     /// Returns an `Option` of a reference to an `InitializedValidator` for a given public key specified in the
     /// `ValidatorDefinitions`.
     pub fn validator(&self, public_key: &PublicKeyBytes) -> Option<&InitializedValidator> {
@@ -835,12 +855,15 @@ impl InitializedValidators {
     /// or `InitializedValidator`. The same logic applies to `builder_proposals` and `graffiti`.
     ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    #[allow(clippy::too_many_arguments)]
     pub async fn set_validator_definition_fields(
         &mut self,
         voting_public_key: &PublicKey,
         enabled: Option<bool>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        builder_boost_factor: Option<u64>,
+        prefer_builder_proposals: Option<bool>,
         graffiti: Option<GraffitiString>,
     ) -> Result<(), Error> {
         if let Some(def) = self
@@ -861,6 +884,12 @@ impl InitializedValidators {
             }
             if let Some(graffiti) = graffiti.clone() {
                 def.graffiti = Some(graffiti);
+            }
+            if let Some(builder_boost_factor) = builder_boost_factor {
+                def.builder_boost_factor = Some(builder_boost_factor);
+            }
+            if let Some(prefer_builder_proposals) = prefer_builder_proposals {
+                def.prefer_builder_proposals = Some(prefer_builder_proposals);
             }
         }
 

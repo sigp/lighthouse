@@ -98,6 +98,8 @@ pub struct ValidatorStore<T, E: EthSpec> {
     gas_limit: Option<u64>,
     builder_proposals: bool,
     produce_block_v3: bool,
+    _builder_boost_factor: Option<u64>,
+    prefer_builder_proposals: bool,
     task_executor: TaskExecutor,
     _phantom: PhantomData<E>,
 }
@@ -130,6 +132,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             gas_limit: config.gas_limit,
             builder_proposals: config.builder_proposals,
             produce_block_v3: config.produce_block_v3,
+            _builder_boost_factor: config.builder_boost_factor,
+            prefer_builder_proposals: config.prefer_builder_proposals,
             task_executor,
             _phantom: PhantomData,
         }
@@ -178,6 +182,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         suggested_fee_recipient: Option<Address>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        builder_boost_factor: Option<u64>,
+        prefer_builder_proposals: Option<bool>,
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
@@ -186,6 +192,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             suggested_fee_recipient,
             gas_limit,
             builder_proposals,
+            builder_boost_factor,
+            prefer_builder_proposals,
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
@@ -474,7 +482,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .unwrap_or(DEFAULT_GAS_LIMIT)
     }
 
-    /// Returns a `bool` for the given public key that denotes whther this validator should use the
+    /// Returns a `bool` for the given public key that denotes whether this validator should use the
     /// builder API. The priority order for fetching this value is:
     ///
     /// 1. validator_definitions.yml
@@ -485,6 +493,28 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.get_builder_proposals_defaulting(
             self.validators.read().builder_proposals(validator_pubkey),
         )
+    }
+
+    /// Returns a `u64` for the given public key that denotes the builder boost factor. The priority order for fetching this value is:
+    ///
+    /// 1. validator_definitions.yml
+    /// 2. process level flag
+    pub fn get_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64> {
+        self.validators
+            .read()
+            .builder_boost_factor(validator_pubkey)
+    }
+
+    /// Returns a `bool` for the given public key that denotes whether this validator should prefer a
+    /// builder payload. The priority order for fetching this value is:
+    ///
+    /// 1. validator_definitions.yml
+    /// 2. process level flag
+    pub fn get_prefer_builder_proposals(&self, validator_pubkey: &PublicKeyBytes) -> bool {
+        self.validators
+            .read()
+            .prefer_builder_proposals(validator_pubkey)
+            .unwrap_or(self.prefer_builder_proposals)
     }
 
     fn get_builder_proposals_defaulting(&self, builder_proposals: Option<bool>) -> bool {

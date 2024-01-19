@@ -349,4 +349,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("500")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("builder-boost-factor")
+                .long("builder-boost-factor")
+                .value_name("UINT64")
+                .help("Defines the boost factor, \
+                    a percentage multiplier to apply to the builder's payload value \
+                    when choosing between a builder payload header and payload from \
+                    the local execution node.")
+                .default_value("100")
+                .conflicts_with("prefer_builder_proposals")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("prefer-builder-proposals")
+                .long("prefer-builder-proposals")
+                .help("If this flag is set, Lighthouse will always prefer blocks \
+                    constructed by builders, if available.")
+                .takes_value(false),
+        )
 }

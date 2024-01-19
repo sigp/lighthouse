@@ -325,14 +325,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         if self.validator_store.produce_block_v3() {
             for validator_pubkey in proposers {
-                let builder_proposals = self
-                    .validator_store
-                    .get_builder_proposals(&validator_pubkey);
-                // Translate `builder_proposals` to a boost factor. Builder proposals set to `true`
-                // requires no boost factor, it just means "use a builder proposal if the BN returns
-                // one". On the contrary, `builder_proposals: false` indicates a preference for
-                // local payloads, so we set the builder boost factor to 0.
-                let builder_boost_factor = if !builder_proposals { Some(0) } else { None };
+                let builder_boost_factor = self.get_builder_boost_factor(&validator_pubkey);
                 let service = self.clone();
                 let log = log.clone();
                 self.inner.context.executor.spawn(
@@ -851,6 +844,43 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         }
 
         Ok::<_, BlockError>(unsigned_block)
+    }
+
+    /// translate `builder_proposals``, `builder_boost_factor`` and `prefer_builder_proposals`` to a
+    /// boost factor. if `builder_proposals` is set to false, set boost factor to 0 to indicate a
+    /// preference for local payloads. if builder_boost_factor is a value other than none, return
+    /// its value as the boost factor. if `prefer_builder_proposals` is true, set boost factor to
+    /// u64::MAX to indicate a preference for builder payloads. else return None to indicate no preference
+    /// between builder and local payloads
+    fn get_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64> {
+        let builder_proposals = self.validator_store.get_builder_proposals(validator_pubkey);
+
+        let builder_boost_factor = self
+            .validator_store
+            .get_builder_boost_factor(validator_pubkey);
+
+        let prefer_builder_proposals = self
+            .validator_store
+            .get_prefer_builder_proposals(validator_pubkey);
+
+        if !builder_proposals {
+            return Some(0);
+        }
+
+        if let Some(builder_boost_factor) = builder_boost_factor {
+            // if builder boost factor is set to 100 it should be treated
+            // as None to prevent unnecessary calculations that could
+            // lead to loss of information.
+            if builder_boost_factor != 100 {
+                return Some(builder_boost_factor);
+            }
+        }
+
+        if prefer_builder_proposals {
+            return Some(u64::MAX);
+        }
+
+        None
     }
 }
 
