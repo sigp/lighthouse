@@ -357,8 +357,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     a percentage multiplier to apply to the builder's payload value \
                     when choosing between a builder payload header and payload from \
                     the local execution node.")
-                .default_value("100")
-                .conflicts_with("prefer_builder_proposals")
+                .conflicts_with("prefer-builder-proposals")
                 .takes_value(true),
         )
         .arg(

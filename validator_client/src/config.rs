@@ -377,8 +377,8 @@ impl Config {
 
         config.builder_boost_factor = cli_args
             .value_of("builder-boost-factor")
-            .map(|gas_limit| {
-                gas_limit
+            .map(|builder_boost_factor| {
+                builder_boost_factor
                     .parse::<u64>()
                     .map_err(|_| "builder-boost-factor is not a valid u64.")
             })

@@ -33,7 +33,7 @@ pub const GAS_LIMIT_FLAG: &str = "gas-limit";
 pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
 pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
 pub const BUILDER_BOOST_FACTOR_FLAG: &str = "builder-boost-factor";
-pub const PREFER_BUILDER_PROPOSALS_FLAG: &str = "prefer-builder-payload-flag";
+pub const PREFER_BUILDER_PROPOSALS_FLAG: &str = "prefer-builder-proposals";
 
 const NO_VALIDATORS_MSG: &str = "No validators present on source validator client";
 
@@ -171,6 +171,30 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
+        )
+        .arg(
+            Arg::with_name(BUILDER_BOOST_FACTOR_FLAG)
+                .long(BUILDER_BOOST_FACTOR_FLAG)
+                .takes_value(true)
+                .value_name("UINT64")
+                .required(false)
+                .help(
+                    "Defines the boost factor, \
+                    a percentage multiplier to apply to the builder's payload value \
+                    when choosing between a builder payload header and payload from \
+                    the local execution node.",
+                ),
+        )
+        .arg(
+            Arg::with_name(PREFER_BUILDER_PROPOSALS_FLAG)
+                .long(PREFER_BUILDER_PROPOSALS_FLAG)
+                .help(
+                    "If this flag is set, Lighthouse will always prefer blocks \
+                    constructed by builders, if available.",
+                )
+                .required(false)
+                .possible_values(&["true", "false"])
+                .takes_value(true),
         )
 }
 

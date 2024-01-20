@@ -466,9 +466,9 @@ fn builder_proposals_flag() {
 #[test]
 fn builder_boost_factor_flag() {
     CommandLineTest::new()
-        .flag("builder-boost-factor", Some("100"))
+        .flag("builder-boost-factor", Some("150"))
         .run()
-        .with_config(|config| assert_eq!(config.builder_boost_factor, Some(100)));
+        .with_config(|config| assert_eq!(config.builder_boost_factor, Some(150)));
 }
 #[test]
 fn no_builder_boost_factor_flag() {
@@ -487,7 +487,7 @@ fn prefer_builder_proposals_flag() {
 fn no_prefer_builder_proposals_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.prefer_builder_proposals));
+        .with_config(|config| assert!(!config.prefer_builder_proposals));
 }
 #[test]
 fn no_builder_registration_timestamp_override_flag() {
