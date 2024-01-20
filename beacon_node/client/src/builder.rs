@@ -768,7 +768,7 @@ where
                 }
                 .spawn_manager(
                     beacon_processor_channels.beacon_processor_rx,
-                    beacon_processor_channels.work_reprocessing_tx,
+                    beacon_processor_channels.work_reprocessing_tx.clone(),
                     beacon_processor_channels.work_reprocessing_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
@@ -857,8 +857,13 @@ where
                     let log = broadcast_context.log().clone();
                     broadcast_context.executor.spawn(
                         async move {
-                            compute_light_client_updates(&inner_chain, light_client_server_rv, &log)
-                                .await
+                            compute_light_client_updates(
+                                &inner_chain,
+                                light_client_server_rv,
+                                beacon_processor_channels.work_reprocessing_tx,
+                                &log,
+                            )
+                            .await
                         },
                         "lcserv_broadcast",
                     );
