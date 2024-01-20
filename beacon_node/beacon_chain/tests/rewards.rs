@@ -312,11 +312,7 @@ async fn test_verify_attestation_rewards_altair() {
             harness.make_block_return_pre_state(state, slot).await;
         let beacon_block_reward = harness
             .chain
-            .compute_beacon_block_reward(
-                signed_block.message(),
-                signed_block.canonical_root(),
-                &mut state,
-            )
+            .compute_beacon_block_reward(signed_block.message(), &mut state)
             .unwrap();
 
         let total_proposer_reward = proposal_rewards_map
@@ -400,11 +396,7 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak() {
             harness.make_block_return_pre_state(state, slot).await;
         let beacon_block_reward = harness
             .chain
-            .compute_beacon_block_reward(
-                signed_block.message(),
-                signed_block.canonical_root(),
-                &mut state,
-            )
+            .compute_beacon_block_reward(signed_block.message(), &mut state)
             .unwrap();
 
         let total_proposer_reward = proposal_rewards_map
@@ -506,11 +498,7 @@ async fn test_verify_attestation_rewards_altair_inactivity_leak_justification_ep
             harness.make_block_return_pre_state(state, slot).await;
         let beacon_block_reward = harness
             .chain
-            .compute_beacon_block_reward(
-                signed_block.message(),
-                signed_block.canonical_root(),
-                &mut state,
-            )
+            .compute_beacon_block_reward(signed_block.message(), &mut state)
             .unwrap();
 
         let total_proposer_reward = proposal_rewards_map
