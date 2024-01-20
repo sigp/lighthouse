@@ -267,6 +267,18 @@ impl HierarchyModuli {
             Ok((slot / last + 1) * last)
         }
     }
+
+    /// Return `true` if the database ops for this slot should be committed immediately.
+    ///
+    /// This is the case for all diffs in the 2nd lowest layer and above, which are required by diffs
+    /// in the 1st layer.
+    pub fn should_commit_immediately(&self, slot: Slot) -> Result<bool, Error> {
+        // If there's only 1 layer of snapshots, then commit only when writing a snapshot.
+        self.moduli.get(1).map_or_else(
+            || Ok(slot == self.next_snapshot_slot(slot)?),
+            |second_layer_moduli| Ok(slot % *second_layer_moduli == 0),
+        )
+    }
 }
 
 #[cfg(test)]
