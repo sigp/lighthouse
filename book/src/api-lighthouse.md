@@ -463,20 +463,6 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/deposit_cache" -H  "accept: a
 }
 ```
 
-### `/lighthouse/beacon/states/{state_id}/ssz`
-
-Obtains a `BeaconState` in SSZ bytes. Useful for obtaining a genesis state.
-
-The `state_id` parameter is identical to that used in the [Standard Beacon Node API
-`beacon/state`
-routes](https://ethereum.github.io/beacon-APIs/#/Beacon/getStateRoot).
-
-```bash
-curl -X GET "http://localhost:5052/lighthouse/beacon/states/0/ssz" | jq
-```
-
-*Example omitted for brevity, the body simply contains SSZ bytes.*
-
 ### `/lighthouse/liveness`
 
 POST request that checks if any of the given validators have attested in the given epoch. Returns a list
