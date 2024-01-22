@@ -37,7 +37,10 @@ pub async fn construct_upnp_mappings(
     };
 
     if is_private {
-        bail!("Gateway's external address is a private address: {external_address}");
+        bail!(
+            "Gateway's external address is a private address: {}",
+            external_address
+        );
     }
 
     loop {
@@ -50,7 +53,7 @@ pub async fn construct_upnp_mappings(
                 "Lighthouse Discovery port",
             )
             .await
-            .context("Could not UPnP map port: {port} on the gateway")?;
+            .with_context(|| format!("Could not UPnP map port: {} on the gateway", port))?;
         debug!(log, "Discovery UPnP port mapped"; "port" => %port);
         sleep(Duration::from_secs(MAPPING_TIMEOUT)).await;
     }

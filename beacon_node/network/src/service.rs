@@ -229,7 +229,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             "Backfill is disabled. DO NOT RUN IN PRODUCTION"
         );
 
-        if let (true, Some(v4)) = (config.upnp_enabled, config.listen_addrs().v4()) {
+        if let (true, false, Some(v4)) = (
+            config.upnp_enabled,
+            config.disable_discovery,
+            config.listen_addrs().v4(),
+        ) {
             let nw = network_log.clone();
             let v4 = v4.clone();
             tokio::spawn(async move {

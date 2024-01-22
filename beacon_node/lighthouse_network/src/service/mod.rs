@@ -1582,7 +1582,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
-    fn parse_upnp_event(&mut self, event: libp2p::upnp::Event) {
+    fn inject_upnp_event(&mut self, event: libp2p::upnp::Event) {
         match event {
             libp2p::upnp::Event::NewExternalAddr(addr) => {
                 info!(self.log, "UPnP route established"; "addr" => %addr);
@@ -1646,7 +1646,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
                     BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
                     BehaviourEvent::Upnp(e) => {
-                        self.parse_upnp_event(e);
+                        self.inject_upnp_event(e);
                         None
                     }
                     BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),

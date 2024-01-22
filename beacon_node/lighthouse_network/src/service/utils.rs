@@ -7,7 +7,7 @@ use crate::{GossipTopic, NetworkConfig};
 use futures::future::Either;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::identity::{secp256k1, Keypair};
-use libp2p::{core, gossipsub, noise, yamux, PeerId, Transport, TransportExt};
+use libp2p::{core, gossipsub, noise, yamux, PeerId, Transport};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
 use ssz::Decode;
@@ -62,8 +62,7 @@ pub fn build_transport(
         // Enables Quic
         // The default quic configuration suits us for now.
         let quic_config = libp2p::quic::Config::new(&local_private_key);
-        let (quic, quic_bandwidth) =
-            libp2p::quic::tokio::Transport::new(quic_config).with_bandwidth_logging();
+        let quic = libp2p::quic::tokio::Transport::new(quic_config);
         let transport = tcp
             .or_transport(quic)
             .map(|either_output, _| match either_output {
