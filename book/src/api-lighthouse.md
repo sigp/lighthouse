@@ -501,7 +501,7 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
 
 ```json
 {
-  "schema_version": 16,
+  "schema_version": 18,
   "config": {
     "slots_per_restore_point": 8192,
     "slots_per_restore_point_set_explicitly": false,
@@ -509,18 +509,26 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
     "historic_state_cache_size": 1,
     "compact_on_init": false,
     "compact_on_prune": true,
-    "prune_payloads": true
+    "prune_payloads": true,
+    "prune_blobs": true,
+    "epochs_per_blob_prune": 1,
+    "blob_prune_margin_epochs": 0
   },
   "split": {
-    "slot": "5485952",
-    "state_root": "0xcfe5d41e6ab5a9dab0de00d89d97ae55ecaeed3b08e4acda836e69b2bef698b4"
+    "slot": "7454656",
+    "state_root": "0xbecfb1c8ee209854c611ebc967daa77da25b27f1a8ef51402fdbe060587d7653",
+    "block_root": "0x8730e946901b0a406313d36b3363a1b7091604e1346a3410c1a7edce93239a68"
   },
   "anchor": {
-    "anchor_slot": "5414688",
-    "oldest_block_slot": "0",
-    "oldest_block_parent": "0x0000000000000000000000000000000000000000000000000000000000000000",
-    "state_upper_limit": "5414912",
-    "state_lower_limit": "8192"
+    "anchor_slot": "7451168",
+    "oldest_block_slot": "3962593",
+    "oldest_block_parent": "0x4a39f21367b3b9cc272744d1e38817bda5daf38d190dc23dc091f09fb54acd97",
+    "state_upper_limit": "7454720",
+    "state_lower_limit": "0"
+  },
+  "blob_info": {
+    "oldest_blob_slot": "7413769",
+    "blobs_db": true
   }
 }
 ```
