@@ -194,7 +194,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
 
     if let Some(gossip_verified_blobs) = gossip_verified_blobs {
         for blob in gossip_verified_blobs {
-            if let Err(e) = chain.process_gossip_blob(blob).await {
+            if let Err(e) = Box::pin(chain.process_gossip_blob(blob)).await {
                 let msg = format!("Invalid blob: {e}");
                 return if let BroadcastValidation::Gossip = validation_level {
                     Err(warp_utils::reject::broadcast_without_import(msg))
@@ -210,14 +210,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         }
     }
 
-    match chain
-        .process_block(
-            block_root,
-            gossip_verified_block,
-            NotifyExecutionLayer::Yes,
-            publish_fn,
-        )
-        .await
+    match Box::pin(chain.process_block(
+        block_root,
+        gossip_verified_block,
+        NotifyExecutionLayer::Yes,
+        publish_fn,
+    ))
+    .await
     {
         Ok(AvailabilityProcessingStatus::Imported(root)) => {
             info!(
