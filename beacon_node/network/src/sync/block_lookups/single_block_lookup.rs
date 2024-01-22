@@ -92,6 +92,10 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.block_request_state.requested_block_root = block_root;
         self.block_request_state.state.state = State::AwaitingDownload;
         self.blob_request_state.state.state = State::AwaitingDownload;
+        self.block_request_state.state.component_downloaded = false;
+        self.blob_request_state.state.component_downloaded = false;
+        self.block_request_state.state.component_processed = false;
+        self.blob_request_state.state.component_processed = false;
         self.child_components = Some(ChildComponents::empty(block_root));
     }
 
