@@ -42,12 +42,17 @@ OPTIONS:
             A HTTP(S) address of a beacon node using the beacon-API. If this value is provided, an error will be raised
             if any validator key here is already known as a validator by that beacon node. This helps prevent the same
             validator being created twice and therefore slashable conditions.
+        --builder-boost-factor <INTEGER>
+            Percentage multiplier to apply to the builder's payload value when choosing between a
+            builder payload header and payload from the paired execution node. This parameter is only
+            relevant if the beacon node is connected to a builder, deems it safe to produce a builder
+            payload, and receives valid responses from both the builder endpoint and the paired
+            execution node.
         --builder-proposals <builder-proposals>
             When provided, all created validators will attempt to create blocks via builder rather than the local EL.
             [possible values: true, false]
         --count <VALIDATOR_COUNT>
             The number of validators to create, regardless of how many already exist
-
     -d, --datadir <DIR>
             Used to specify a custom root data directory for lighthouse keys and databases. Defaults to
             $HOME/.lighthouse/{network} where network is the value of the `network` flag Note: Users should specify
@@ -100,6 +105,10 @@ OPTIONS:
         --output-path <DIRECTORY>
             The path to a directory where the validator and (optionally) deposits files will be created. The directory
             will be created if it does not exist.
+        --prefer-builder-proposals <builder-proposals>
+            When provided, all created validators will always prefer blocks from builder rather than the local EL, regardless 
+            of the builder payload value.
+            [possible values: true, false]
         --safe-slots-to-import-optimistically <INTEGER>
             Used to coordinate manual overrides of the SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override

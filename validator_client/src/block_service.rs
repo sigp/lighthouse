@@ -848,9 +848,9 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
     /// translate `builder_proposals``, `builder_boost_factor`` and `prefer_builder_proposals`` to a
     /// boost factor. if `builder_proposals` is set to false, set boost factor to 0 to indicate a
-    /// preference for local payloads. if builder_boost_factor is a value other than none, return
-    /// its value as the boost factor. if `prefer_builder_proposals` is true, set boost factor to
-    /// u64::MAX to indicate a preference for builder payloads. else return None to indicate no preference
+    /// preference for local payloads. if `prefer_builder_proposals` is true, set boost factor to
+    /// u64::MAX to indicate a preference for builder payloads. if builder_boost_factor is a value other than none, return
+    /// its value as the boost factor. else return None to indicate no preference
     /// between builder and local payloads
     fn get_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64> {
         let builder_proposals = self.validator_store.get_builder_proposals(validator_pubkey);
@@ -867,6 +867,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             return Some(0);
         }
 
+        if prefer_builder_proposals {
+            return Some(u64::MAX);
+        }
+
         if let Some(builder_boost_factor) = builder_boost_factor {
             // if builder boost factor is set to 100 it should be treated
             // as None to prevent unnecessary calculations that could
@@ -874,10 +878,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             if builder_boost_factor != 100 {
                 return Some(builder_boost_factor);
             }
-        }
-
-        if prefer_builder_proposals {
-            return Some(u64::MAX);
         }
 
         None

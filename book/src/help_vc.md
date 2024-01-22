@@ -10,8 +10,6 @@ FLAGS:
         --builder-proposals
             If this flag is set, Lighthouse will query the Beacon Node for only block headers during proposals and will
             sign over headers. Useful for outsourcing execution payload construction during proposals.
-        --prefer-builder-proposals
-            If this flag is set, Lighthouse  will always prefer blocks constructed by builders, if available.
         --disable-auto-discover
             If present, do not attempt to discover new validators in the validators-dir. Validators will need to be
             manually added to the validator_definitions.yml file.
@@ -58,6 +56,8 @@ FLAGS:
             machine. Note that logs can often contain sensitive information about your validator and so this flag should
             be used with caution. For Windows users, the log file permissions will be inherited from the parent folder.
         --metrics                                Enable the Prometheus metrics HTTP server. Disabled by default.
+        --prefer-builder-proposals
+            If this flag is set, Lighthouse  will always prefer blocks constructed by builders, regardless of builder payload value.
         --produce-block-v3
             Enable block production via the block v3 endpoint for this validator client. This should only be enabled
             when paired with a beacon node that has this endpoint implemented. This flag will be enabled by default in
@@ -82,6 +82,12 @@ OPTIONS:
             Comma-separated list of beacon API topics to broadcast to all beacon nodes. Possible values are: none,
             attestations, blocks, subscriptions, sync-committee. Default (when flag is omitted) is to broadcast
             subscriptions only.
+        --builder-boost-factor <INTEGER>
+            Percentage multiplier to apply to the builder's payload value when choosing between a
+            builder payload header and payload from the paired execution node. This parameter is only
+            relevant if the beacon node is connected to a builder, deems it safe to produce a builder
+            payload, and receives valid responses from both the builder endpoint and the paired
+            execution node.
         --builder-registration-timestamp-override <builder-registration-timestamp-override>
             This flag takes a unix timestamp value that will be used to override the timestamp used in the builder api
             registration
@@ -205,10 +211,4 @@ OPTIONS:
         --validators-dir <VALIDATORS_DIR>
             The directory which contains the validator keystores, deposit data for each validator along with the common
             slashing protection database and the validator_definitions.yml
-        --builder-boost-factor <INTEGER>
-            Percentage multiplier to apply to the builder's payload value when choosing between a
-            builder payload header and payload from the paired execution node. This parameter is only
-            relevant if the beacon node is connected to a builder, deems it safe to produce a builder
-            payload, and receives valid responses from both the builder endpoint _and_ the paired
-            execution node.
 ```

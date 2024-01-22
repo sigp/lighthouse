@@ -375,14 +375,7 @@ impl Config {
             );
         }
 
-        config.builder_boost_factor = cli_args
-            .value_of("builder-boost-factor")
-            .map(|builder_boost_factor| {
-                builder_boost_factor
-                    .parse::<u64>()
-                    .map_err(|_| "builder-boost-factor is not a valid u64.")
-            })
-            .transpose()?;
+        config.builder_boost_factor = parse_optional(cli_args, "builder-boost-factor")?;
 
         config.enable_latency_measurement_service =
             parse_optional(cli_args, "latency-measurement-service")?.unwrap_or(true);
