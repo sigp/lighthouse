@@ -450,12 +450,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 self.validator_store
                     .sign_block(*validator_pubkey, block, slot)
                     .await
-                    .map(|b| SignedBlock::Full(PublishBlockRequest::new(b, maybe_blobs)))
+                    .map(|b| SignedBlock::Full(PublishBlockRequest::new(Arc::new(b), maybe_blobs)))
             }
             UnsignedBlock::Blinded(block) => self
                 .validator_store
                 .sign_block(*validator_pubkey, block, slot)
                 .await
+                .map(Arc::new)
                 .map(SignedBlock::Blinded),
         };
 
@@ -870,7 +871,7 @@ impl<E: EthSpec> UnsignedBlock<E> {
 
 pub enum SignedBlock<E: EthSpec> {
     Full(PublishBlockRequest<E>),
-    Blinded(SignedBlindedBeaconBlock<E>),
+    Blinded(Arc<SignedBlindedBeaconBlock<E>>),
 }
 
 impl<E: EthSpec> SignedBlock<E> {

@@ -290,7 +290,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
 /// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
 /// blocks before publishing.
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
-    blinded_block: SignedBlindedBeaconBlock<T::EthSpec>,
+    blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
@@ -318,7 +318,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
 pub async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
-    block: SignedBlindedBeaconBlock<T::EthSpec>,
+    block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
     log: Logger,
 ) -> Result<ProvenancedBlock<T, PublishBlockRequest<T::EthSpec>>, Rejection> {
     let full_payload_opt = if let Ok(payload_header) = block.message().body().execution_payload() {
@@ -379,6 +379,10 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
         None
     };
 
+    // Perf: cloning the block here to unblind it is a little sub-optimal. This is considered an
+    // acceptable tradeoff to avoid passing blocks around on the stack (unarced), which blows up
+    // the size of futures.
+    let block = (*block).clone();
     match full_payload_opt {
         // A block without a payload is pre-merge and we consider it locally
         // built.
