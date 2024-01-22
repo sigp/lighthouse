@@ -335,8 +335,9 @@ pub fn serve<E: EthSpec>(
                     .el
                     .get_payload_by_root(&root)
                     .ok_or_else(|| reject("missing payload for tx root"))?;
-                let resp = ForkVersionedResponse {
+                let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
                     version: Some(fork_name),
+                    metadata: Default::default(),
                     data: payload,
                 };
 
@@ -508,11 +509,7 @@ pub fn serve<E: EthSpec>(
                     finalized_hash: Some(finalized_execution_hash),
                 };
 
-                let (payload, _block_value, maybe_blobs_bundle): (
-                    ExecutionPayload<E>,
-                    Uint256,
-                    Option<BlobsBundle<E>>,
-                ) = builder
+                let payload_response_type = builder
                     .el
                     .get_full_payload_caching(
                         head_execution_hash,
@@ -521,38 +518,88 @@ pub fn serve<E: EthSpec>(
                         fork,
                     )
                     .await
-                    .map_err(|_| reject("couldn't get payload"))?
-                    .into();
+                    .map_err(|_| reject("couldn't get payload"))?;
 
-                let mut message = match fork {
-                    ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
-                        header: payload
-                            .as_deneb()
-                            .map_err(|_| reject("incorrect payload variant"))?
-                            .into(),
-                        blinded_blobs_bundle: maybe_blobs_bundle
-                            .map(Into::into)
-                            .unwrap_or_default(),
-                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                        pubkey: builder.builder_sk.public_key().compress(),
-                    }),
-                    ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
-                        header: payload
-                            .as_capella()
-                            .map_err(|_| reject("incorrect payload variant"))?
-                            .into(),
-                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                        pubkey: builder.builder_sk.public_key().compress(),
-                    }),
-                    ForkName::Merge => BuilderBid::Merge(BuilderBidMerge {
-                        header: payload
-                            .as_merge()
-                            .map_err(|_| reject("incorrect payload variant"))?
-                            .into(),
-                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                        pubkey: builder.builder_sk.public_key().compress(),
-                    }),
-                    ForkName::Base | ForkName::Altair => return Err(reject("invalid fork")),
+                let mut message = match payload_response_type {
+                    crate::GetPayloadResponseType::Full(payload_response) => {
+                        let (payload, _block_value, maybe_blobs_bundle): (
+                            ExecutionPayload<E>,
+                            Uint256,
+                            Option<BlobsBundle<E>>,
+                        ) = payload_response.into();
+
+                        match fork {
+                            ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
+                                header: payload
+                                    .as_deneb()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
+                                header: payload
+                                    .as_capella()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Merge => BuilderBid::Merge(BuilderBidMerge {
+                                header: payload
+                                    .as_merge()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Base | ForkName::Altair => {
+                                return Err(reject("invalid fork"))
+                            }
+                        }
+                    }
+                    crate::GetPayloadResponseType::Blinded(payload_response) => {
+                        let (payload, _block_value, maybe_blobs_bundle): (
+                            ExecutionPayload<E>,
+                            Uint256,
+                            Option<BlobsBundle<E>>,
+                        ) = payload_response.into();
+                        match fork {
+                            ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
+                                header: payload
+                                    .as_deneb()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
+                                header: payload
+                                    .as_capella()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Merge => BuilderBid::Merge(BuilderBidMerge {
+                                header: payload
+                                    .as_merge()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Base | ForkName::Altair => {
+                                return Err(reject("invalid fork"))
+                            }
+                        }
+                    }
                 };
 
                 message.set_gas_limit(cached_data.gas_limit);
@@ -570,8 +617,9 @@ pub fn serve<E: EthSpec>(
                     .spec
                     .fork_name_at_epoch(slot.epoch(E::slots_per_epoch()));
                 let signed_bid = SignedBuilderBid { message, signature };
-                let resp = ForkVersionedResponse {
+                let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
                     version: Some(fork_name),
+                    metadata: Default::default(),
                     data: signed_bid,
                 };
                 let json_bid = serde_json::to_string(&resp)

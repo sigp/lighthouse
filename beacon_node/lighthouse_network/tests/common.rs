@@ -113,7 +113,7 @@ pub async fn build_libp2p_instance(
         enr_fork_id: EnrForkId::default(),
         fork_context: Arc::new(fork_context(fork_name)),
         chain_spec: spec,
-        gossipsub_registry: None,
+        libp2p_registry: None,
     };
     Libp2pInstance(
         LibP2PService::new(executor, libp2p_context, &log)

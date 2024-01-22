@@ -5,7 +5,7 @@ use crate::config::BootNodeConfigSerialization;
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::{
-    discv5::{enr::NodeId, Discv5, Discv5Event},
+    discv5::{self, enr::NodeId, Discv5},
     EnrExt, Eth2Enr,
 };
 use slog::info;
@@ -144,17 +144,17 @@ pub async fn run<T: EthSpec>(
             }
             Some(event) = event_stream.recv() => {
                 match event {
-                    Discv5Event::Discovered(_enr) => {
+                    discv5::Event::Discovered(_enr) => {
                         // An ENR has bee obtained by the server
                         // Ignore these events here
                     }
-                    Discv5Event::EnrAdded { .. } => {}     // Ignore
-                    Discv5Event::TalkRequest(_) => {}     // Ignore
-                    Discv5Event::NodeInserted { .. } => {} // Ignore
-                    Discv5Event::SocketUpdated(socket_addr) => {
+                    discv5::Event::EnrAdded { .. } => {}     // Ignore
+                    discv5::Event::TalkRequest(_) => {}     // Ignore
+                    discv5::Event::NodeInserted { .. } => {} // Ignore
+                    discv5::Event::SocketUpdated(socket_addr) => {
                         info!(log, "Advertised socket address updated"; "socket_addr" => %socket_addr);
                     }
-                    Discv5Event::SessionEstablished{ .. } => {} // Ignore
+                    discv5::Event::SessionEstablished{ .. } => {} // Ignore
                 }
             }
         }

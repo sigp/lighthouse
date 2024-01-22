@@ -21,7 +21,7 @@ types = { workspace = true }
 eth2 = { workspace = true }
 beacon_node = { workspace = true }
 tokio = { workspace = true }
-axum = "0.6.18"
+axum = "0.7"
 hyper = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -41,8 +41,7 @@ tokio-postgres = "0.7.5"
 http_api = { workspace = true }
 beacon_chain = { workspace = true }
 network = { workspace = true }
-# TODO: update to 0.15 when released: https://github.com/testcontainers/testcontainers-rs/issues/497
-testcontainers = { git = "https://github.com/testcontainers/testcontainers-rs/", rev = "0f2c9851" }
+testcontainers = "0.15"
 unused_port = { workspace = true }
 task_executor = { workspace = true }
 logging = { workspace = true }

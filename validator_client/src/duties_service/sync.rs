@@ -607,9 +607,7 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
 
         // Add to global storage (we add regularly so the proofs can be used ASAP).
         let sync_map = duties_service.sync_duties.committees.read();
-        let committee_duties = if let Some(duties) = sync_map.get(&sync_committee_period) {
-            duties
-        } else {
+        let Some(committee_duties) = sync_map.get(&sync_committee_period) else {
             debug!(
                 log,
                 "Missing sync duties";

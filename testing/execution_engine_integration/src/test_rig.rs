@@ -4,7 +4,8 @@ use crate::execution_engine::{
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
 use execution_layer::{
-    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadStatus,
+    BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
+    PayloadStatus,
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
@@ -14,9 +15,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
+use types::payload::BlockProductionVersion;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ForkName, FullPayload, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
+    ForkName, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -322,21 +324,27 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             Some(vec![]),
             None,
         );
-        let valid_payload = self
+        let block_proposal_content_type = self
             .ee_a
             .execution_layer
-            .get_payload::<FullPayload<MainnetEthSpec>>(
+            .get_payload(
                 parent_hash,
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
                 TEST_FORK,
                 &self.spec,
+                None,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap()
-            .to_payload()
-            .execution_payload();
+            .unwrap();
+
+        let valid_payload = match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => block.to_payload().execution_payload(),
+            BlockProposalContentsType::Blinded(_) => panic!("Should always be a full payload"),
+        };
+
         assert_eq!(valid_payload.transactions().len(), pending_txs.len());
 
         /*
@@ -468,21 +476,26 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             Some(vec![]),
             None,
         );
-        let second_payload = self
+        let block_proposal_content_type = self
             .ee_a
             .execution_layer
-            .get_payload::<FullPayload<MainnetEthSpec>>(
+            .get_payload(
                 parent_hash,
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
                 TEST_FORK,
                 &self.spec,
+                None,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap()
-            .to_payload()
-            .execution_payload();
+            .unwrap();
+
+        let second_payload = match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => block.to_payload().execution_payload(),
+            BlockProposalContentsType::Blinded(_) => panic!("Should always be a full payload"),
+        };
 
         /*
          * Execution Engine A:

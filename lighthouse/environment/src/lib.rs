@@ -254,12 +254,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         }
 
         // Disable file logging if no path is specified.
-        let path = match config.path {
-            Some(path) => path,
-            None => {
-                self.log = Some(stdout_logger);
-                return Ok(self);
-            }
+        let Some(path) = config.path else {
+            self.log = Some(stdout_logger);
+            return Ok(self);
         };
 
         // Ensure directories are created becfore the logfile.

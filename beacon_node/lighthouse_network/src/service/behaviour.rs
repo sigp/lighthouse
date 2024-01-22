@@ -6,7 +6,7 @@ use crate::types::SnappyTransform;
 use libp2p::gossipsub;
 use libp2p::identify;
 use libp2p::swarm::NetworkBehaviour;
-use libp2p_upnp::tokio::Behaviour as Upnp;
+use libp2p::upnp::tokio::Behaviour as Upnp;
 use types::EthSpec;
 
 use super::api_types::RequestId;

@@ -23,7 +23,7 @@ use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
     pub batch_id: BatchId,
-    pub responses: Result<Vec<RpcBlock<T>>, &'static str>,
+    pub responses: Result<Vec<RpcBlock<T>>, String>,
 }
 
 pub struct BlocksAndBlobsByRangeRequest<T: EthSpec> {
@@ -338,12 +338,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: Id,
         batch_type: ByRangeRequestType,
     ) -> Option<(ChainId, BatchId)> {
-        match batch_type {
+        let req = match batch_type {
             ByRangeRequestType::BlocksAndBlobs => self
                 .range_blocks_and_blobs_requests
                 .remove(&request_id)
                 .map(|req| (req.chain_id, req.batch_id)),
             ByRangeRequestType::Blocks => self.range_requests.remove(&request_id),
+        };
+        if let Some(req) = req {
+            debug!(
+                self.log,
+                "Range sync request failed";
+                "request_id" => request_id,
+                "batch_type" => ?batch_type,
+                "chain_id" => ?req.0,
+                "batch_id" => ?req.1
+            );
+            Some(req)
+        } else {
+            debug!(self.log, "Range sync request failed"; "request_id" => request_id, "batch_type" => ?batch_type);
+            None
         }
     }
 
@@ -352,12 +366,25 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: Id,
         batch_type: ByRangeRequestType,
     ) -> Option<BatchId> {
-        match batch_type {
+        let batch_id = match batch_type {
             ByRangeRequestType::BlocksAndBlobs => self
                 .backfill_blocks_and_blobs_requests
                 .remove(&request_id)
                 .map(|(batch_id, _info)| batch_id),
             ByRangeRequestType::Blocks => self.backfill_requests.remove(&request_id),
+        };
+        if let Some(batch_id) = batch_id {
+            debug!(
+                self.log,
+                "Backfill sync request failed";
+                "request_id" => request_id,
+                "batch_type" => ?batch_type,
+                "batch_id" => ?batch_id
+            );
+            Some(batch_id)
+        } else {
+            debug!(self.log, "Backfill sync request failed"; "request_id" => request_id, "batch_type" => ?batch_type);
+            None
         }
     }
 
@@ -448,9 +475,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
         let request_id = RequestId::Sync(sync_id);
 
-        if let Some(block_root) = blob_request.blob_ids.first().map(|id| id.block_root) {
+        if let Some(block_root) = blob_request
+            .blob_ids
+            .as_slice()
+            .first()
+            .map(|id| id.block_root)
+        {
             let indices = blob_request
                 .blob_ids
+                .as_slice()
                 .iter()
                 .map(|id| id.index)
                 .collect::<Vec<_>>();
@@ -563,5 +596,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         } else {
             ByRangeRequestType::Blocks
         }
+    }
+
+    pub fn insert_range_blocks_and_blobs_request(
+        &mut self,
+        id: Id,
+        request: BlocksAndBlobsByRangeRequest<T::EthSpec>,
+    ) {
+        self.range_blocks_and_blobs_requests.insert(id, request);
+    }
+
+    pub fn insert_backfill_blocks_and_blobs_requests(
+        &mut self,
+        id: Id,
+        batch_id: BatchId,
+        request: BlocksAndBlobsRequestInfo<T::EthSpec>,
+    ) {
+        self.backfill_blocks_and_blobs_requests
+            .insert(id, (batch_id, request));
     }
 }

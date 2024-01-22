@@ -7,8 +7,8 @@ use beacon_chain::{
 use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
 use lighthouse_network::{
-    metrics::AggregatedBandwidthSinks, peer_manager::peerdb::client::ClientKind, types::GossipKind,
-    GossipTopic, Gossipsub, NetworkGlobals,
+    peer_manager::peerdb::client::ClientKind, types::GossipKind, GossipTopic, Gossipsub,
+    NetworkGlobals,
 };
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -224,12 +224,6 @@ lazy_static! {
 lazy_static! {
 
     /*
-     * Bandwidth metrics
-     */
-    pub static ref LIBP2P_BYTES: Result<IntCounterVec> =
-        try_create_int_counter_vec("libp2p_inbound_bytes", "The bandwidth over libp2p", &["direction", "transport"]);
-
-    /*
      * Sync related metrics
      */
     pub static ref PEERS_PER_SYNC_TYPE: Result<IntGaugeVec> = try_create_int_gauge_vec(
@@ -285,13 +279,22 @@ lazy_static! {
      */
     pub static ref BEACON_BLOB_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_blob_gossip_propagation_verification_delay_time",
-        "Duration between when the blob is received and when it is verified for propagation.",
+        "Duration between when the blob is received over gossip and when it is verified for propagation.",
         // [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
         decimal_buckets(-3,-1)
     );
     pub static ref BEACON_BLOB_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_blob_gossip_slot_start_delay_time",
-        "Duration between when the blob is received and the start of the slot it belongs to.",
+        "Duration between when the blob is received over gossip and the start of the slot it belongs to.",
+        // Create a custom bucket list for greater granularity in block delay
+        Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
+        // NOTE: Previous values, which we may want to switch back to.
+        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
+        //decimal_buckets(-1,2)
+    );
+    pub static ref BEACON_BLOB_RPC_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_blob_rpc_slot_start_delay_time",
+        "Duration between when a blob is received over rpc and the start of the slot it belongs to.",
         // Create a custom bucket list for greater granularity in block delay
         Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
         // NOTE: Previous values, which we may want to switch back to.
@@ -316,25 +319,6 @@ lazy_static! {
         "beacon_processor_reprocessing_queue_sent_optimistic_updates",
         "Number of queued light client optimistic updates where as matching block has been imported."
     );
-}
-
-pub fn update_bandwidth_metrics(bandwidth: &AggregatedBandwidthSinks) {
-    if let Some(tcp_in_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["inbound", "tcp"]) {
-        tcp_in_bandwidth.reset();
-        tcp_in_bandwidth.inc_by(bandwidth.total_tcp_inbound());
-    }
-    if let Some(tcp_out_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["outbound", "tcp"]) {
-        tcp_out_bandwidth.reset();
-        tcp_out_bandwidth.inc_by(bandwidth.total_tcp_outbound());
-    }
-    if let Some(quic_in_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["inbound", "quic"]) {
-        quic_in_bandwidth.reset();
-        quic_in_bandwidth.inc_by(bandwidth.total_quic_inbound());
-    }
-    if let Some(quic_out_bandwidth) = get_int_counter(&LIBP2P_BYTES, &["outbound", "quic"]) {
-        quic_out_bandwidth.reset();
-        quic_out_bandwidth.inc_by(bandwidth.total_quic_outbound());
-    }
 }
 
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
