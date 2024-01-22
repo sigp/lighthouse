@@ -4652,7 +4652,8 @@ pub fn serve<T: BeaconChainTypes>(
                         post_beacon_blocks_ssz
                             .uor(post_beacon_blocks_v2_ssz)
                             .uor(post_beacon_blinded_blocks_ssz)
-                            .uor(post_beacon_blinded_blocks_v2_ssz),
+                            .uor(post_beacon_blinded_blocks_v2_ssz)
+                            .boxed(),
                     )
                     .boxed()
                     .uor(post_beacon_blocks)
@@ -4686,6 +4687,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )
+        .boxed()
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
         .with(prometheus_metrics())
