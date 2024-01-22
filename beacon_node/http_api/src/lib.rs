@@ -1410,7 +1410,7 @@ pub fn serve<T: BeaconChainTypes>(
         .band(network_tx_filter.clone())
         .band(log_filter.clone())
         .then(
-            move |block_contents: SignedBlindedBeaconBlock<T::EthSpec>,
+            move |block_contents: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1450,6 +1450,7 @@ pub fn serve<T: BeaconChainTypes>(
                         &block_bytes,
                         &chain.spec,
                     )
+                    .map(Arc::new)
                     .map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
                     })?;
@@ -1483,50 +1484,21 @@ pub fn serve<T: BeaconChainTypes>(
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   dramastic: Dramastic,
-                  blinded_block: Box<SignedBlindedBeaconBlock<T::EthSpec>>,
+                  blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  log: Logger| {
-                async move {
-                    async move {
-                        async move {
-                            async move {
-                                async move {
-                                    async move {
-                                        async move {
-                                            async move {
-                                                async move {
-                                                    async move {
-                                                        publish_blocks::publish_blinded_block(
-                                                            *blinded_block,
-                                                            chain,
-                                                            &network_tx,
-                                                            log,
-                                                            validation_level.broadcast_validation,
-                                                            duplicate_block_status_code,
-                                                        )
-                                                        .await
-                                                        .unwrap()
-                                                    }
-                                                    .await
-                                                }
-                                                .await
-                                            }
-                                            .await
-                                        }
-                                        .await
-                                    }
-                                    .await
-                                }
-                                .await
-                            }
-                            .await
-                        }
-                        .await
-                    }
-                    .await
-                }
+                  log: Logger| async move {
+                publish_blocks::publish_blinded_block(
+                    blinded_block,
+                    chain,
+                    &network_tx,
+                    log,
+                    validation_level.broadcast_validation,
+                    duplicate_block_status_code,
+                )
+                .await
+                .unwrap()
             },
         );
 
@@ -1552,6 +1524,7 @@ pub fn serve<T: BeaconChainTypes>(
                         &block_bytes,
                         &chain.spec,
                     )
+                    .map(Arc::new)
                     .map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
                     })?;

@@ -683,7 +683,7 @@ pub trait IntoGossipVerifiedBlockContents<T: BeaconChainTypes>: Sized {
         self,
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>>;
-    fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec>;
+    fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
 }
 
 impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedBlockContents<T> {
@@ -693,8 +693,8 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedB
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
         Ok(self)
     }
-    fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        self.0.block.as_block()
+    fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.0.block.block_cloned()
     }
 }
 
@@ -722,13 +722,13 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
                 Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
             })
             .transpose()?;
-        let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;
+        let gossip_verified_block = GossipVerifiedBlock::new(block, chain)?;
 
         Ok((gossip_verified_block, gossip_verified_blobs))
     }
 
-    fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        self.signed_block()
+    fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.signed_block().clone()
     }
 }
 

@@ -3239,23 +3239,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // import
         let chain = self.clone();
-        let block_root = self
-            .spawn_blocking_handle(
-                move || {
-                    chain.import_block(
-                        block,
-                        block_root,
-                        state,
-                        confirmed_state_roots,
-                        payload_verification_outcome.payload_verification_status,
-                        parent_block,
-                        parent_eth1_finalization_data,
-                        consensus_context,
-                    )
-                },
-                "payload_verification_handle",
-            )
-            .await??;
+        let block_root = Box::pin(self.spawn_blocking_handle(
+            Box::new(move || {
+                chain.import_block(
+                    block,
+                    block_root,
+                    state,
+                    confirmed_state_roots,
+                    payload_verification_outcome.payload_verification_status,
+                    parent_block,
+                    parent_eth1_finalization_data,
+                    consensus_context,
+                )
+            }),
+            "payload_verification_handle",
+        ))
+        .await??;
         Ok(AvailabilityProcessingStatus::Imported(block_root))
     }
 

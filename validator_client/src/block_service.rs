@@ -450,7 +450,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 self.validator_store
                     .sign_block(*validator_pubkey, block, slot)
                     .await
-                    .map(|b| SignedBlock::Full(PublishBlockRequest::new(b, maybe_blobs)))
+                    .map(|b| SignedBlock::Full(PublishBlockRequest::new(Arc::new(b), maybe_blobs)))
             }
             UnsignedBlock::Blinded(block) => self
                 .validator_store

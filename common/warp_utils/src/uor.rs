@@ -1,6 +1,6 @@
 use warp::{
     filters::BoxedFilter,
-    generic::{Combine, CombinedTuples, HList, Tuple},
+    generic::{Combine, CombinedTuples, Tuple},
     reject::sealed::CombineRejection,
     Filter, Rejection,
 };
