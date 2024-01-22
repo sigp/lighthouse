@@ -44,10 +44,7 @@ OPTIONS:
             validator being created twice and therefore slashable conditions.
         --builder-boost-factor <INTEGER>
             Percentage multiplier to apply to the builder's payload value when choosing between a
-            builder payload header and payload from the paired execution node. This parameter is only
-            relevant if the beacon node is connected to a builder, deems it safe to produce a builder
-            payload, and receives valid responses from both the builder endpoint and the paired
-            execution node.
+            builder payload header and payload from the paired execution node.
         --builder-proposals <builder-proposals>
             When provided, all created validators will attempt to create blocks via builder rather than the local EL.
             [possible values: true, false]

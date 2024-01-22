@@ -28,10 +28,7 @@ FLAGS:
 OPTIONS:
         --builder-boost-factor <INTEGER>
             Percentage multiplier to apply to the builder's payload value when choosing between a
-            builder payload header and payload from the paired execution node. This parameter is only
-            relevant if the beacon node is connected to a builder, deems it safe to produce a builder
-            payload, and receives valid responses from both the builder endpoint and the paired
-            execution node.
+            builder payload header and payload from the paired execution node.
         --builder-proposals <builder-proposals>
             When provided, all created validators will attempt to create blocks via builder rather than the local EL.
             [possible values: true, false]
@@ -82,7 +79,7 @@ OPTIONS:
             Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
             chiado, sepolia, holesky]
         --prefer-builder-proposals <builder-proposals>
-            When provided, all created validators will always prefer blocks from builder rather than the local EL, regardless 
+            When provided, all created validators will always prefer blocks from the builder rather than the local EL, regardless 
             of the builder payload value.
             [possible values: true, false]
         --safe-slots-to-import-optimistically <INTEGER>

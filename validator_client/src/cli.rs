@@ -364,7 +364,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("prefer-builder-proposals")
                 .long("prefer-builder-proposals")
                 .help("If this flag is set, Lighthouse will always prefer blocks \
-                    constructed by builders, if available.")
+                    constructed by builders, regardless of payload value.")
                 .takes_value(false),
         )
 }
