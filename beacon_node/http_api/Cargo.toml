@@ -49,7 +49,6 @@ environment = { workspace = true }
 serde_json = { workspace = true }
 proto_array = { workspace = true }
 genesis = { workspace = true }
-env_logger = { workspace = true }
 
 [[test]]
 name = "bn_http_api_tests"
