@@ -33,11 +33,7 @@ pub fn upgrade_to_v19<T: BeaconChainTypes>(
     debug!(log, "Wrote {} blobs to the blobs db", num_blobs);
 
     // Delete all the blobs
-    info!(
-        log,
-        "Upgrading to v19 schema";
-        "info" => "ready for Deneb once it is scheduled"
-    );
+    info!(log, "Upgrading to v19 schema");
     Ok(hot_delete_ops)
 }
 
