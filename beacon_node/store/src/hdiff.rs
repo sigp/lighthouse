@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::io::{Read, Write};
+use std::str::FromStr;
 use types::{BeaconState, ChainSpec, EthSpec, Slot, VList};
 use zstd::{Decoder, Encoder};
 
@@ -20,6 +21,26 @@ pub enum Error {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct HierarchyConfig {
     pub exponents: Vec<u8>,
+}
+
+impl FromStr for HierarchyConfig {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        let exponents = s
+            .split(',')
+            .map(|s| {
+                s.parse()
+                    .map_err(|e| format!("invalid hierarchy-exponents: {e:?}"))
+            })
+            .collect::<Result<Vec<u8>, _>>()?;
+
+        if exponents.windows(2).any(|w| w[0] >= w[1]) {
+            return Err("hierarchy-exponents must be in ascending order".to_string());
+        }
+
+        Ok(HierarchyConfig { exponents })
+    }
 }
 
 #[derive(Debug)]

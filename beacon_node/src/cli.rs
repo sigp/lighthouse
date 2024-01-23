@@ -593,9 +593,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
-                .help("Specifies how often a freezer DB restore point should be stored. \
-                       Cannot be changed after initialization. \
-                       [default: 8192 (mainnet) or 64 (minimal)]")
+                .help("Deprecated.")
                 .takes_value(true)
         )
         .arg(
