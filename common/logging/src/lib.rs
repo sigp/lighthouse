@@ -236,6 +236,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf, turn_on_terminal_log
 
     let Ok(libp2p_writer) = RollingFileAppender::builder()
         .rotation(Rotation::DAILY)
+        .max_log_files(2)
         .filename_prefix("libp2p")
         .filename_suffix("log")
         .build(base_tracing_log_path.clone())
