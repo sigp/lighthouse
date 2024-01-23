@@ -3412,6 +3412,7 @@ dependencies = [
  "bs58 0.4.0",
  "bytes",
  "directory",
+ "env_logger 0.9.3",
  "environment",
  "eth1",
  "eth2",

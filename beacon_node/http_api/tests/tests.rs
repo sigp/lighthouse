@@ -1587,6 +1587,31 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_blob_sidecars(self) -> Self {
+        let block_id = BlockId(CoreBlockId::Finalized);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+        let num_blobs = block.num_expected_blobs() as u64;
+        let mut blob_indices = vec![];
+        for i in 0..num_blobs {
+            blob_indices.push(i);
+        }
+        let _ = env_logger::builder().is_test(true).try_init();
+        let result = match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), Some(&blob_indices))
+            .await
+        {
+            Ok(result) => result.unwrap().data,
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        let expected = block.slot();
+        assert_eq!(result.get(0).unwrap().slot(), expected);
+
+        self
+    }
+
     pub async fn test_beacon_blocks_attestations(self) -> Self {
         for block_id in self.interesting_block_ids() {
             let result = self
@@ -6288,6 +6313,25 @@ async fn builder_works_post_deneb() {
         .test_builder_works_post_deneb()
         .await
         .test_lighthouse_rejects_invalid_withdrawals_root_v3()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blob_sidecars() {
+    let mut config = ApiTesterConfig {
+        retain_historic_states: false,
+        spec: E::default_spec(),
+    };
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_post_beacon_blocks_valid()
+        .await
+        .test_get_blob_sidecars()
         .await;
 }
 
