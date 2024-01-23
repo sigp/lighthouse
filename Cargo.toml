@@ -105,7 +105,7 @@ criterion = "0.3"
 delay_map = "0.3"
 derivative = "2"
 dirs = "3"
-discv5 = { git="https://github.com/sigp/discv5", rev="dbb4a718cd32eaed8127c3c8241bfd0fde9eb908", features = ["libp2p"] }
+discv5 = { git="https://github.com/sigp/discv5", rev="e30a2c31b7ac0c57876458b971164654dfa4513b", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
 ethereum-types = "0.14"
