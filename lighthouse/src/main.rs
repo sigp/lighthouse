@@ -542,13 +542,6 @@ fn run<E: EthSpec>(
 
     let turn_on_terminal_logs = matches.is_present("env_log");
 
-    // Run a task to clean up old tracing logs.
-    let log_cleaner_context = environment.service_context("log_cleaner".to_string());
-    log_cleaner_context.executor.spawn(
-        logging::cleanup_logging_task(path.clone(), log.clone()),
-        "log_cleaner",
-    );
-
     logging::create_tracing_layer(path, turn_on_terminal_logs);
 
     // Allow Prometheus to export the time at which the process was started.
