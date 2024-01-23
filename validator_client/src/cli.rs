@@ -349,4 +349,30 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("500")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("beacon-node-sync-tolerance")
+                .long("beacon-node-sync-tolerance")
+                .help("Sets the number of slots behind the head that each connected Beacon Node can be \
+                    to still be considered synced. Effectively this gives more priority to the first \
+                    connected Beacon Node.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("beacon-node-small-sync-distance-modifier")
+                .long("beacon-node-small-sync-distance-modifier")
+                .help("Only use this if you know what you are doing. Incorrectly setting this value \
+                    can result in suboptimal fallback behaviour. Sets the size (in slots) of the \
+                    `small` sync distance range when calculating the health tiers of connected \
+                    Beacon Nodes. The range falls immediately after the end of the `synced` range.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-node-medium-sync-distance-modifier")
+                .long("beacon-node-medium-sync-distance-modifier")
+                .help("Only use this if you know what you are doing. Incorrectly setting this value \
+                    can result in suboptimal fallback behaviour. Sets the size (in slots) of the \
+                    `medium` sync distance range when calculating the health tiers of connected \
+                    Beacon Nodes. The range falls immediately after the end of the `small` range.")
+                .takes_value(true)
+        )
 }

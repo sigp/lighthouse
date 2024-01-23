@@ -8,10 +8,12 @@ mod tests;
 
 pub mod test_utils;
 
+use crate::beacon_node_fallback::CandidateError;
+use crate::beacon_node_health::BeaconNodeHealth;
 use crate::http_api::graffiti::{delete_graffiti, get_graffiti, set_graffiti};
 
 use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
-use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
+use crate::{determine_graffiti, BlockService, GraffitiFile, ValidatorStore};
 use account_utils::{
     mnemonic_from_phrase,
     validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
@@ -79,6 +81,7 @@ impl From<String> for Error {
 pub struct Context<T: SlotClock, E: EthSpec> {
     pub task_executor: TaskExecutor,
     pub api_secret: ApiSecret,
+    pub block_service: Option<BlockService<T, E>>,
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
     pub secrets_dir: Option<PathBuf>,
@@ -178,6 +181,17 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let signer = ctx.api_secret.signer();
     let signer = warp::any().map(move || signer.clone());
+
+    let inner_block_service = ctx.block_service.clone();
+    let block_service_filter = warp::any()
+        .map(move || inner_block_service.clone())
+        .and_then(|block_service: Option<_>| async move {
+            block_service.ok_or_else(|| {
+                warp_utils::reject::custom_not_found(
+                    "block service is not initialized.".to_string(),
+                )
+            })
+        });
 
     let inner_validator_store = ctx.validator_store.clone();
     let validator_store_filter = warp::any()
@@ -415,6 +429,29 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 })
             },
         );
+
+    // GET lighthouse/ui/fallback_health
+    let get_lighthouse_ui_fallback_health = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("fallback_health"))
+        .and(warp::path::end())
+        .and(signer.clone())
+        .and(block_service_filter.clone())
+        .and_then(|signer, block_filter: BlockService<T, E>| async move {
+            let mut result: HashMap<(usize, String), Result<BeaconNodeHealth, CandidateError>> =
+                HashMap::new();
+            for node in &*block_filter.beacon_nodes.candidates.read().await {
+                result.insert((node.id, node.beacon_node.to_string()), *node.health.read());
+            }
+            if let Some(proposer_nodes) = &block_filter.proposer_nodes {
+                for node in &*proposer_nodes.candidates.read().await {
+                    result.insert((node.id, node.beacon_node.to_string()), *node.health.read());
+                }
+            }
+
+            blocking_signed_json_task(signer, move || Ok(api_types::GenericResponse::from(result)))
+                .await
+        });
 
     // POST lighthouse/validators/
     let post_validators = warp::path("lighthouse")
@@ -1259,6 +1296,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_validators_pubkey)
                         .or(get_lighthouse_ui_health)
                         .or(get_lighthouse_ui_graffiti)
+                        .or(get_lighthouse_ui_fallback_health)
                         .or(get_fee_recipient)
                         .or(get_gas_limit)
                         .or(get_graffiti)

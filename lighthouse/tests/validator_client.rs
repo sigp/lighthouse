@@ -490,7 +490,6 @@ fn monitoring_endpoint() {
             assert_eq!(api_conf.update_period_secs, Some(30));
         });
 }
-
 #[test]
 fn disable_run_on_all_flag() {
     CommandLineTest::new()
@@ -548,6 +547,41 @@ fn broadcast_flag() {
         .run()
         .with_config(|config| {
             assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
+        });
+}
+
+/// Tests for validator fallback parameter flags.
+#[test]
+fn beacon_node_sync_tolerance_flag() {
+    CommandLineTest::new()
+        .flag("beacon-node-sync-tolerance", Some("4"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.beacon_node_fallback.sync_tolerance, Some(4));
+        });
+}
+#[test]
+fn beacon_node_small_sync_distance_modifier_flag() {
+    CommandLineTest::new()
+        .flag("beacon-node-small-sync-distance-modifier", Some("16"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.beacon_node_fallback.small_sync_distance_modifier,
+                Some(16)
+            );
+        });
+}
+#[test]
+fn beacon_node_medium_sync_distance_modifier_flag() {
+    CommandLineTest::new()
+        .flag("beacon-node-medium-sync-distance-modifier", Some("32"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.beacon_node_fallback.medium_sync_distance_modifier,
+                Some(32)
+            );
         });
 }
 

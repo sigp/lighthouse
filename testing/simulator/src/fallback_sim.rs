@@ -7,7 +7,7 @@ use crate::retry::with_retry;
 use futures::prelude::*;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_validator_config, ApiTopic, ValidatorFiles,
+    testing_validator_config, ValidatorFiles,
 };
 use rayon::prelude::*;
 use std::cmp::max;
@@ -22,36 +22,36 @@ const BELLATRIX_FORK_EPOCH: u64 = 2;
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
-pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
-    let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
-    let proposer_nodes = value_t!(matches, "proposer-nodes", usize).unwrap_or(0);
-    println!("PROPOSER-NODES: {}", proposer_nodes);
-    let validators_per_node = value_t!(matches, "validators_per_node", usize)
-        .expect("missing validators_per_node default");
+pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
+    let vc_count = value_t!(matches, "vc_count", usize).expect("missing vc_count default");
+    let validators_per_vc =
+        value_t!(matches, "validators_per_vc", usize).expect("missing validators_per_vc default");
+    let bns_per_vc = value_t!(matches, "bns_per_vc", usize).expect("missing bns_per_vc default");
+    assert!(bns_per_vc > 1);
     let speed_up_factor =
         value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
     let continue_after_checks = matches.is_present("continue_after_checks");
-    let post_merge_sim = matches.is_present("post-merge");
+    let post_merge_sim = true;
 
-    println!("Beacon Chain Simulator:");
-    println!(" nodes:{}, proposer_nodes: {}", node_count, proposer_nodes);
+    println!("Fallback Simulator:");
+    println!(" Validator Clients: {}", vc_count);
+    println!(" Validators per Client: {}", validators_per_vc);
+    println!(" Beacon Nodes per Validator Client: {}", bns_per_vc);
+    println!(" speed up factor:{}", speed_up_factor);
 
-    println!(" validators_per_node:{}", validators_per_node);
-    println!(" post merge simulation:{}", post_merge_sim);
-    println!(" continue_after_checks:{}", continue_after_checks);
+    let log_level = "debug";
 
     // Generate the directories and keystores required for the validator clients.
-    let validator_files = (0..node_count)
+    let validator_files = (0..vc_count)
         .into_par_iter()
         .map(|i| {
             println!(
                 "Generating keystores for validator {} of {}",
                 i + 1,
-                node_count
+                vc_count
             );
 
-            let indices =
-                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
+            let indices = (i * validators_per_vc..(i + 1) * validators_per_vc).collect::<Vec<_>>();
             ValidatorFiles::with_keystores(&indices).unwrap()
         })
         .collect::<Vec<_>>();
@@ -59,7 +59,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let mut env = EnvironmentBuilder::minimal()
         .initialize_logger(LoggerConfig {
             path: None,
-            debug_level: String::from("debug"),
+            debug_level: String::from(log_level),
             logfile_debug_level: String::from("debug"),
             log_format: None,
             logfile_format: None,
@@ -78,9 +78,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let spec = &mut env.eth2_config.spec;
 
-    let total_validator_count = validators_per_node * node_count;
-    let altair_fork_version = spec.altair_fork_version;
-    let bellatrix_fork_version = spec.bellatrix_fork_version;
+    let total_validator_count = validators_per_vc * vc_count;
+    let node_count = vc_count * bns_per_vc;
 
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
@@ -98,7 +97,6 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let seconds_per_slot = spec.seconds_per_slot;
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
-    let initial_validator_count = spec.min_genesis_active_validator_count as usize;
     let deposit_amount = env.eth2_config.spec.max_effective_balance;
 
     let context = env.core_context();
@@ -115,7 +113,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                     total_validator_count,
                     deposit_amount,
                     node_count,
-                    proposer_nodes,
+                    proposer_nodes: 0,
                     post_merge_sim,
                 },
                 context.clone(),
@@ -133,20 +131,16 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         }
 
         /*
-         * One by one, add proposer nodes to the network.
-         */
-        for _ in 0..proposer_nodes - 1 {
-            println!("Adding a proposer node");
-            network.add_beacon_node(beacon_config.clone(), true).await?;
-        }
-
-        /*
          * One by one, add validators to the network.
          */
-
         let executor = context.executor.clone();
         for (i, files) in validator_files.into_iter().enumerate() {
             let network_1 = network.clone();
+            let beacon_nodes = if i == vc_count {
+                vec![i, 0]
+            } else {
+                vec![i, i + 1]
+            };
             executor.spawn(
                 async move {
                     let mut validator_config = testing_validator_config();
@@ -154,25 +148,15 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                         validator_config.fee_recipient = Some(SUGGESTED_FEE_RECIPIENT.into());
                     }
                     println!("Adding validator client {}", i);
-
-                    // Enable broadcast on every 4th node.
-                    if i % 4 == 0 {
-                        validator_config.broadcast_topics = ApiTopic::all();
-                        let beacon_nodes = vec![i, (i + 1) % node_count];
-                        network_1
-                            .add_validator_client_with_fallbacks(
-                                validator_config,
-                                i,
-                                beacon_nodes,
-                                files,
-                            )
-                            .await
-                    } else {
-                        network_1
-                            .add_validator_client(validator_config, i, files, i % 2 == 0)
-                            .await
-                    }
-                    .expect("should add validator");
+                    network_1
+                        .add_validator_client_with_fallbacks(
+                            validator_config,
+                            i,
+                            beacon_nodes,
+                            files,
+                        )
+                        .await
+                        .expect("should add validator");
                 },
                 "vc",
             );
@@ -206,76 +190,32 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * breakage by changes to the VC.
          */
 
-        let (
-            finalization,
-            block_prod,
-            validator_count,
-            onboarding,
-            fork,
-            sync_aggregate,
-            transition,
-        ) = futures::join!(
-            // Check that the chain finalizes at the first given opportunity.
-            checks::verify_first_finalization(network.clone(), slot_duration),
-            // Check that a block is produced at every slot.
-            checks::verify_full_block_production_up_to(
+        let (disconnect, reconnect, check_attestations) = futures::join!(
+            checks::disconnect_from_execution_layer(
                 network.clone(),
-                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
+                Epoch::new(BELLATRIX_FORK_EPOCH),
                 slot_duration,
+                0
             ),
-            // Check that the chain starts with the expected validator count.
-            checks::verify_initial_validator_count(
+            checks::reconnect_to_execution_layer(
                 network.clone(),
+                Epoch::new(BELLATRIX_FORK_EPOCH),
                 slot_duration,
-                initial_validator_count,
+                0,
+                2,
             ),
-            // Check that validators greater than `spec.min_genesis_active_validator_count` are
-            // onboarded at the first possible opportunity.
-            checks::verify_validator_onboarding(
+            checks::check_attestation_correctness(
                 network.clone(),
+                Epoch::new(0),
+                Epoch::new(END_EPOCH - 2),
+                MinimalEthSpec::slots_per_epoch(),
                 slot_duration,
-                total_validator_count,
+                1,
             ),
-            // Check that all nodes have transitioned to the required fork.
-            checks::verify_fork_version(
-                network.clone(),
-                if post_merge_sim {
-                    Epoch::new(BELLATRIX_FORK_EPOCH)
-                } else {
-                    Epoch::new(ALTAIR_FORK_EPOCH)
-                },
-                slot_duration,
-                if post_merge_sim {
-                    bellatrix_fork_version
-                } else {
-                    altair_fork_version
-                }
-            ),
-            // Check that all sync aggregates are full.
-            checks::verify_full_sync_aggregates_up_to(
-                network.clone(),
-                // Start checking for sync_aggregates at `FORK_EPOCH + 1` to account for
-                // inefficiencies in finding subnet peers at the `fork_slot`.
-                Epoch::new(ALTAIR_FORK_EPOCH + 1).start_slot(MinimalEthSpec::slots_per_epoch()),
-                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
-                slot_duration,
-            ),
-            // Check that the transition block is finalized.
-            checks::verify_transition_block_finalized(
-                network.clone(),
-                Epoch::new(TERMINAL_BLOCK / MinimalEthSpec::slots_per_epoch()),
-                slot_duration,
-                post_merge_sim
-            )
         );
-
-        block_prod?;
-        finalization?;
-        validator_count?;
-        onboarding?;
-        fork?;
-        sync_aggregate?;
-        transition?;
+        disconnect?;
+        reconnect?;
+        check_attestations?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `continue_after_checks`.
@@ -289,7 +229,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          */
         println!(
             "Simulation complete. Finished with {} beacon nodes and {} validator clients",
-            network.beacon_node_count() + network.proposer_node_count(),
+            network.beacon_node_count(),
             network.validator_client_count()
         );
 

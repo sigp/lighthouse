@@ -1,6 +1,6 @@
 use crate::beacon_node_fallback::ApiTopic;
 use crate::graffiti_file::GraffitiFile;
-use crate::{http_api, http_metrics};
+use crate::{beacon_node_fallback, http_api, http_metrics};
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 use directory::{
@@ -19,7 +19,7 @@ use types::{Address, GRAFFITI_BYTES_LEN};
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 
 /// Stores the core configuration for this validator instance.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     /// The data directory, which stores all validator databases
     pub validator_dir: PathBuf,
@@ -50,6 +50,8 @@ pub struct Config {
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
     pub http_metrics: http_metrics::Config,
+    /// Configuration for the Beacon Node fallback.
+    pub beacon_node_fallback: beacon_node_fallback::Config,
     /// Configuration for sending metrics to a remote explorer endpoint.
     pub monitoring_api: Option<monitoring_api::Config>,
     /// If true, enable functionality that monitors the network for attestations or proposals from
@@ -107,6 +109,7 @@ impl Default for Config {
             fee_recipient: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
+            beacon_node_fallback: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
             enable_high_validator_count_metrics: false,
@@ -237,6 +240,38 @@ impl Config {
                         .map_err(|_| format!("Unknown API topic to broadcast: {t}"))
                 })
                 .collect::<Result<_, _>>()?;
+        }
+
+        /*
+         * Beacon node fallback
+         */
+
+        config.beacon_node_fallback.disable_run_on_all = cli_args.is_present("disable-run-on-all");
+
+        if let Some(sync_tolerance) = cli_args.value_of("beacon-node-sync-tolerance") {
+            config.beacon_node_fallback.sync_tolerance = Some(
+                sync_tolerance
+                    .parse::<u64>()
+                    .map_err(|_| "beacon-node-sync-tolerance is not a valid u64.")?,
+            );
+        }
+
+        if let Some(small_modifier) = cli_args.value_of("beacon-node-small-sync-distance-modifier")
+        {
+            config.beacon_node_fallback.small_sync_distance_modifier = Some(
+                small_modifier
+                    .parse::<u64>()
+                    .map_err(|_| "beacon-node-small-sync-distance-modifier is not a valid u64.")?,
+            );
+        }
+
+        if let Some(medium_modifier) =
+            cli_args.value_of("beacon-node-medium-sync-distance-modifier")
+        {
+            config.beacon_node_fallback.medium_sync_distance_modifier =
+                Some(medium_modifier.parse::<u64>().map_err(|_| {
+                    "beacon-node-medium-sync-distance-modifier is not a valid u64."
+                })?);
         }
 
         /*

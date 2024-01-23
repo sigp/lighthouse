@@ -269,6 +269,22 @@ jobs:
           cache-target: release
     - name: Run the beacon chain sim without an eth1 connection
       run: cargo run --release --bin simulator no-eth1-sim
+  fallback-simulator-ubuntu:
+    name: fallback-simulator-ubuntu
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v3
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Install Protoc
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Install Foundry (anvil)
+      uses: foundry-rs/foundry-toolchain@v1
+    - name: Run the fallback simulator
+      run: cargo run --release --bin simulator fallback-sim
   syncing-simulator-ubuntu:
     name: syncing-simulator-ubuntu
     runs-on: ubuntu-latest
