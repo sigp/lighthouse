@@ -102,7 +102,7 @@ OPTIONS:
         --output-path <DIRECTORY>
             The path to a directory where the validator and (optionally) deposits files will be created. The directory
             will be created if it does not exist.
-        --prefer-builder-proposals <builder-proposals>
+        --prefer-builder-proposals <prefer-builder-proposals>
             When provided, all created validators will always prefer blocks from the builder rather than the local EL, regardless 
             of the builder payload value.
             [possible values: true, false]

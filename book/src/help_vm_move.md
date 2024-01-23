@@ -78,7 +78,7 @@ OPTIONS:
         --network <network>
             Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
             chiado, sepolia, holesky]
-        --prefer-builder-proposals <builder-proposals>
+        --prefer-builder-proposals <prefer-builder-proposals>
             When provided, all created validators will always prefer blocks from the builder rather than the local EL, regardless 
             of the builder payload value.
             [possible values: true, false]
