@@ -272,8 +272,6 @@ impl<T: EthSpec> OperationPool<T> {
                 num_valid.fetch_add(aggregates.len(), Ordering::Relaxed);
                 (data, aggregates)
             })
-            .collect::<Vec<_>>()
-            .into_par_iter()
             .map(|(data, mut aggregates)| {
                 // Take the N aggregates with the highest number of set bits
                 // This is needed to avoid the bron_kerbosch algorithm generating millions of
