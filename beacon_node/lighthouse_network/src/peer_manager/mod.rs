@@ -326,8 +326,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             //    considered a priority. We have pre-allocated some extra priority slots for these
             //    peers as specified by PRIORITY_PEER_EXCESS. Therefore we dial these peers, even
             //    if we are already at our max_peer limit.
-            if min_ttl.is_some() && connected_or_dialing + to_dial_peers < self.max_priority_peers()
-                || connected_or_dialing + to_dial_peers < self.max_peers()
+            if !self.peers_to_dial.contains(&enr)
+                && ((min_ttl.is_some()
+                    && connected_or_dialing + to_dial_peers < self.max_priority_peers())
+                    || connected_or_dialing + to_dial_peers < self.max_peers())
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed
