@@ -2597,7 +2597,7 @@ impl ApiTester {
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_contents =
-                PublishBlockRequest::try_from(signed_block.clone()).unwrap();
+                PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
 
             self.client
                 .post_beacon_blocks(&signed_block_contents)
@@ -2670,8 +2670,8 @@ impl ApiTester {
                 .unwrap();
 
             assert_eq!(
-                self.chain.head_beacon_block().as_ref(),
-                signed_block_contents.signed_block()
+                self.chain.head_beacon_block(),
+                *signed_block_contents.signed_block()
             );
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
@@ -2763,8 +2763,8 @@ impl ApiTester {
                         .unwrap();
 
                     assert_eq!(
-                        self.chain.head_beacon_block().as_ref(),
-                        signed_block_contents.signed_block()
+                        self.chain.head_beacon_block(),
+                        *signed_block_contents.signed_block()
                     );
 
                     self.chain.slot_clock.set_slot(slot.as_u64() + 1);
@@ -2994,7 +2994,7 @@ impl ApiTester {
                 .data;
 
             let signed_block = signed_block_contents.signed_block();
-            assert_eq!(&head_block, signed_block);
+            assert_eq!(head_block, **signed_block);
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
