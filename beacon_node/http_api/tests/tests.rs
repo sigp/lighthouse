@@ -1587,25 +1587,33 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_blob_sidecars(self) -> Self {
+    pub async fn test_get_blob_sidecars(self, use_indices: bool) -> Self {
         let block_id = BlockId(CoreBlockId::Finalized);
         let (block_root, _, _) = block_id.root(&self.chain).unwrap();
         let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
-        let num_blobs = block.num_expected_blobs() as u64;
-        let mut blob_indices = vec![];
-        for i in 0..num_blobs {
-            blob_indices.push(i);
-        }
-        let _ = env_logger::builder().is_test(true).try_init();
+        let num_blobs = block.num_expected_blobs();
+        let blob_indices = if use_indices {
+            Some(
+                (0..num_blobs.saturating_sub(1) as u64)
+                    .into_iter()
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            None
+        };
         let result = match self
             .client
-            .get_blobs::<E>(CoreBlockId::Root(block_root), Some(&blob_indices))
+            .get_blobs::<E>(CoreBlockId::Root(block_root), blob_indices.as_deref())
             .await
         {
             Ok(result) => result.unwrap().data,
             Err(e) => panic!("query failed incorrectly: {e:?}"),
         };
 
+        assert_eq!(
+            result.len(),
+            blob_indices.map_or(num_blobs, |indices| indices.len())
+        );
         let expected = block.slot();
         assert_eq!(result.get(0).unwrap().slot(), expected);
 
@@ -6331,7 +6339,9 @@ async fn get_blob_sidecars() {
         .await
         .test_post_beacon_blocks_valid()
         .await
-        .test_get_blob_sidecars()
+        .test_get_blob_sidecars(false)
+        .await
+        .test_get_blob_sidecars(true)
         .await;
 }
 
