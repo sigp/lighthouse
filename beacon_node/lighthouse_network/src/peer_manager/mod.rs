@@ -405,7 +405,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /* Notifications from the Swarm */
 
     /// A peer is being dialed.
-    /// Returns true, if this peer should be dialed.
+    /// Returns true, if this peer will be dialed.
     pub fn dial_peer(&mut self, peer: Enr) -> bool {
         if self
             .network_globals
