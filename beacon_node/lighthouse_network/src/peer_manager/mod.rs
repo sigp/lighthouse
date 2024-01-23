@@ -916,7 +916,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             {
                 self.max_outbound_dialing_peers()
                     .saturating_sub(dialing_peers)
-                    - peer_count
+                    .saturating_sub(peer_count)
             } else {
                 0
             };
