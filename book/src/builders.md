@@ -58,7 +58,7 @@ relays, run one of the following services and configure lighthouse to use it wit
 In the validator client you can configure gas limit and fee recipient on a per-validator basis. If no gas limit is
 configured, Lighthouse will use a default gas limit of 30,000,000, which is the current default value used in execution
 engines.  You can also enable or disable use of external builders on a per-validator basis rather than using
-`--builder-proposals`, `--builder-boost-factor` or `--prefer-builder-proposals`, which apply builder related preferences fpr all validators.
+`--builder-proposals`, `--builder-boost-factor` or `--prefer-builder-proposals`, which apply builder related preferences for all validators.
 In order to manage these configurations per-validator, you can either make updates to the `validator_definitions.yml` file
 or you can use the HTTP requests described below.
 
