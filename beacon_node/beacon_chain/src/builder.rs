@@ -832,10 +832,14 @@ where
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
             Slot::new(0)
         } else {
+            #[cfg(not(test_backfill))]
             let backfill_epoch_range = (self.spec.min_validator_withdrawability_delay
                 + self.spec.churn_limit_quotient)
                 .as_u64()
                 / 2;
+            #[cfg(test_backfill)]
+            let backfill_epoch_range = 3;
+
             match slot_clock.now() {
                 Some(current_slot) => {
                     let genesis_backfill_epoch = current_slot
