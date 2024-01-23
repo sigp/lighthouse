@@ -1704,18 +1704,19 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("blob_sidecars"))
         .and(block_id_or_err)
-        .and(warp::query::<api_types::BlobIndicesQuery>())
         .and(warp::path::end())
+        .and(multi_key_query::<api_types::BlobIndicesQuery>())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |block_id: BlockId,
-             indices: api_types::BlobIndicesQuery,
+             indices_res: Result<api_types::BlobIndicesQuery, warp::Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
+                    let indices = indices_res?;
                     let blob_sidecar_list_filtered =
                         block_id.blob_sidecar_list_filtered(indices, &chain)?;
                     match accept_header {

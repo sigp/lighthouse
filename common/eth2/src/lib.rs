@@ -1064,8 +1064,18 @@ impl BeaconNodeHttpClient {
     pub async fn get_blobs<T: EthSpec>(
         &self,
         block_id: BlockId,
+        indices: Option<&[u64]>,
     ) -> Result<Option<GenericResponse<BlobSidecarList<T>>>, Error> {
-        let path = self.get_blobs_path(block_id)?;
+        let mut path = self.get_blobs_path(block_id)?;
+        if let Some(indices) = indices {
+            let indices_string = indices
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut()
+                .append_pair("indices", &indices_string);
+        }
         let Some(response) = self.get_response(path, |b| b).await.optional()? else {
             return Ok(None);
         };
