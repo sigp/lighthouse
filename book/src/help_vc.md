@@ -57,7 +57,8 @@ FLAGS:
             be used with caution. For Windows users, the log file permissions will be inherited from the parent folder.
         --metrics                                Enable the Prometheus metrics HTTP server. Disabled by default.
         --prefer-builder-proposals
-            If this flag is set, Lighthouse will always prefer blocks constructed by builders, regardless of builder payload value.
+            If this flag is set, Lighthouse will always prefer blocks constructed by builders, regardless of payload
+            value.
         --produce-block-v3
             Enable block production via the block v3 endpoint for this validator client. This should only be enabled
             when paired with a beacon node that has this endpoint implemented. This flag will be enabled by default in
@@ -82,9 +83,9 @@ OPTIONS:
             Comma-separated list of beacon API topics to broadcast to all beacon nodes. Possible values are: none,
             attestations, blocks, subscriptions, sync-committee. Default (when flag is omitted) is to broadcast
             subscriptions only.
-        --builder-boost-factor <INTEGER>
-            Percentage multiplier to apply to the builder's payload value when choosing between a
-            builder payload header and payload from the paired execution node.
+        --builder-boost-factor <UINT64>
+            Defines the boost factor, a percentage multiplier to apply to the builder's payload value when choosing
+            between a builder payload header and payload from the local execution node.
         --builder-registration-timestamp-override <builder-registration-timestamp-override>
             This flag takes a unix timestamp value that will be used to override the timestamp used in the builder api
             registration

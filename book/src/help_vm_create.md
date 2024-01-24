@@ -42,14 +42,15 @@ OPTIONS:
             A HTTP(S) address of a beacon node using the beacon-API. If this value is provided, an error will be raised
             if any validator key here is already known as a validator by that beacon node. This helps prevent the same
             validator being created twice and therefore slashable conditions.
-        --builder-boost-factor <INTEGER>
-            Percentage multiplier to apply to the builder's payload value when choosing between a
-            builder payload header and payload from the paired execution node.
+        --builder-boost-factor <UINT64>
+            Defines the boost factor, a percentage multiplier to apply to the builder's payload value when choosing
+            between a builder payload header and payload from the local execution node.
         --builder-proposals <builder-proposals>
             When provided, all created validators will attempt to create blocks via builder rather than the local EL.
             [possible values: true, false]
         --count <VALIDATOR_COUNT>
             The number of validators to create, regardless of how many already exist
+
     -d, --datadir <DIR>
             Used to specify a custom root data directory for lighthouse keys and databases. Defaults to
             $HOME/.lighthouse/{network} where network is the value of the `network` flag Note: Users should specify
@@ -95,7 +96,9 @@ OPTIONS:
         --logfile-max-size <SIZE>
             The maximum size (in MB) each log file can grow to before rotating. If set to 0, background file logging is
             disabled. [default: 200]
-        --mnemonic-path <MNEMONIC_PATH>                         If present, the mnemonic will be read in from this file.
+        --mnemonic-path <MNEMONIC_PATH>
+            If present, the mnemonic will be read in from this file.
+
         --network <network>
             Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
             chiado, sepolia, holesky]
@@ -103,9 +106,8 @@ OPTIONS:
             The path to a directory where the validator and (optionally) deposits files will be created. The directory
             will be created if it does not exist.
         --prefer-builder-proposals <prefer-builder-proposals>
-            When provided, all created validators will always prefer blocks from the builder rather than the local EL, regardless 
-            of the builder payload value.
-            [possible values: true, false]
+            If this flag is set, Lighthouse will always prefer blocks constructed by builders, regardless of payload
+            value. [possible values: true, false]
         --safe-slots-to-import-optimistically <INTEGER>
             Used to coordinate manual overrides of the SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
