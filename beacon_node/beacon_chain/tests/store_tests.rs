@@ -3,6 +3,7 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
+use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
     mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
@@ -2547,6 +2548,25 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         }
     }
 
+    // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
+    // signatures correctly. This is a regression test for XXX.
+    let mut batch_with_invalid_first_block = available_blocks.clone();
+    batch_with_invalid_first_block[0] = {
+        let (block_root, block, blobs) = available_blocks[0].clone().deconstruct();
+        let mut corrupt_block = (*block).clone();
+        *corrupt_block.signature_mut() = Signature::empty();
+        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), blobs)
+    };
+
+    // Importing the invalid batch should error.
+    assert!(matches!(
+        beacon_chain
+            .import_historical_block_batch(batch_with_invalid_first_block)
+            .unwrap_err(),
+        BeaconChainError::HistoricalBlockError(HistoricalBlockError::InvalidSignature)
+    ));
+
+    // Importing the batch with valid signatures should succeed.
     beacon_chain
         .import_historical_block_batch(available_blocks.clone())
         .unwrap();
