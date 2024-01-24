@@ -695,6 +695,32 @@ impl ApiTester {
         self
     }
 
+    pub async fn assert_validator_derived_builder_boost_factor(
+        self,
+        index: usize,
+        builder_boost_factor: Option<u64>,
+    ) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        assert_eq!(
+            self.validator_store
+                .determine_validator_builder_boost_factor(&validator.voting_pubkey),
+            builder_boost_factor
+        );
+
+        self
+    }
+
+    pub fn assert_default_builder_boost_factor(self, builder_boost_factor: Option<u64>) -> Self {
+        assert_eq!(
+            self.validator_store
+                .determine_default_builder_boost_factor(),
+            builder_boost_factor
+        );
+
+        self
+    }
+
     pub async fn assert_prefer_builder_proposals(
         self,
         index: usize,
@@ -1115,8 +1141,10 @@ async fn validator_builder_boost_factor() {
         .await;
 }
 
+/// Verifies the builder boost factors translated from the `builder_proposals`,
+/// `prefer_builder_proposals` and `builder_boost_factor` values.
 #[tokio::test]
-async fn validator_builder_boost_factor_with_process_defaults() {
+async fn validator_derived_builder_boost_factor_with_process_defaults() {
     let config = Config {
         builder_proposals: true,
         prefer_builder_proposals: false,
@@ -1132,11 +1160,20 @@ async fn validator_builder_boost_factor_with_process_defaults() {
             disabled: vec![],
         })
         .await
-        .assert_builder_boost_factor(0, Some(80))
+        .assert_default_builder_boost_factor(Some(80))
+        .assert_validator_derived_builder_boost_factor(0, None)
         .await
-        .set_builder_boost_factor(0, 120)
+        .set_builder_proposals(0, false)
         .await
-        .assert_builder_boost_factor(0, Some(120))
+        .assert_validator_derived_builder_boost_factor(0, Some(0))
+        .await
+        .set_builder_boost_factor(1, 120)
+        .await
+        .assert_validator_derived_builder_boost_factor(1, Some(120))
+        .await
+        .set_prefer_builder_proposals(2, true)
+        .await
+        .assert_validator_derived_builder_boost_factor(2, Some(u64::MAX))
         .await;
 }
 
