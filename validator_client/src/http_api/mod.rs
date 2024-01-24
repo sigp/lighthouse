@@ -701,6 +701,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     == body.builder_boost_factor
                                 && initialized_validator.get_builder_proposals()
                                     == body.builder_proposals
+                                && initialized_validator.get_prefer_builder_proposals()
+                                    == body.prefer_builder_proposals
                                 && initialized_validator.get_graffiti() == maybe_graffiti =>
                         {
                             Ok(())

@@ -165,6 +165,10 @@ impl InitializedValidator {
         self.builder_boost_factor
     }
 
+    pub fn get_prefer_builder_proposals(&self) -> Option<bool> {
+        self.prefer_builder_proposals
+    }
+
     pub fn get_builder_proposals(&self) -> Option<bool> {
         self.builder_proposals
     }
