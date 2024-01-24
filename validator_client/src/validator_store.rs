@@ -99,6 +99,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     builder_proposals: bool,
     produce_block_v3: bool,
     prefer_builder_proposals: bool,
+    builder_boost_factor: Option<u64>,
     task_executor: TaskExecutor,
     _phantom: PhantomData<E>,
 }
@@ -132,6 +133,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             builder_proposals: config.builder_proposals,
             produce_block_v3: config.produce_block_v3,
             prefer_builder_proposals: config.prefer_builder_proposals,
+            builder_boost_factor: config.builder_boost_factor,
             task_executor,
             _phantom: PhantomData,
         }
@@ -493,7 +495,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         )
     }
 
-    /// Returns a `u64` for the given public key that denotes the builder boost factor. The priority order for fetching this value is:
+    /// Returns a `u64` for the given public key that denotes the builder boost factor.
     ///
     /// 1. validator_definitions.yml
     /// 2. process level flag
@@ -501,6 +503,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators
             .read()
             .builder_boost_factor(validator_pubkey)
+            .or(self.builder_boost_factor)
     }
 
     /// Returns a `bool` for the given public key that denotes whether this validator should prefer a
@@ -519,6 +522,62 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         builder_proposals
             // If there's nothing in the file, try the process-level default value.
             .unwrap_or(self.builder_proposals)
+    }
+
+    /// Translate the per validator `builder_proposals`, `builder_boost_factor` and
+    /// `prefer_builder_proposals` to a boost factor, if available.
+    /// - If `prefer_builder_proposals` is true, set boost factor to `u64::MAX` to indicate a
+    /// preference for builder payloads.
+    /// - If `builder_boost_factor` is a value other than None, return its value as the boost factor.
+    /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
+    ///   local payloads.
+    /// - Else return `None` to indicate no preference between builder and local payloads.
+    pub fn determine_validator_builder_boost_factor(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Option<u64> {
+        let validator_prefer_builder_proposals = self
+            .validators
+            .read()
+            .prefer_builder_proposals(validator_pubkey);
+
+        if matches!(validator_prefer_builder_proposals, Some(true)) {
+            return Some(u64::MAX);
+        }
+
+        self.validators
+            .read()
+            .builder_boost_factor(validator_pubkey)
+            .or_else(|| {
+                if matches!(
+                    self.validators.read().builder_proposals(validator_pubkey),
+                    Some(false)
+                ) {
+                    return Some(0);
+                }
+                None
+            })
+    }
+
+    /// Translate the process-wide `builder_proposals`, `builder_boost_factor` and
+    /// `prefer_builder_proposals` configurations to a boost factor.
+    /// - If `prefer_builder_proposals` is true, set boost factor to `u64::MAX` to indicate a
+    ///   preference for builder payloads.
+    /// - If `builder_boost_factor` is a value other than None, return its value as the boost factor.
+    /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
+    ///   local payloads.
+    /// - Else return `None` to indicate no preference between builder and local payloads.
+    pub fn determine_default_builder_boost_factor(&self) -> Option<u64> {
+        if self.prefer_builder_proposals {
+            return Some(u64::MAX);
+        }
+        self.builder_boost_factor.or({
+            if self.builder_proposals {
+                Some(0)
+            } else {
+                None
+            }
+        })
     }
 
     pub async fn sign_block<Payload: AbstractExecPayload<E>>(

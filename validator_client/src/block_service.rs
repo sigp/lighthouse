@@ -846,28 +846,24 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         Ok::<_, BlockError>(unsigned_block)
     }
 
-    /// Translate `builder_proposals``, `builder_boost_factor`` and `prefer_builder_proposals`` to a
-    /// boost factor. If `prefer_builder_proposals` is true, set boost factor to
-    /// u64::MAX to indicate a preference for builder payloads. If `builder_boost_factor`
-    /// is a value other than None, return its value as the boost factor. If `builder_proposals`
-    /// is set to false, set boost factor to 0 to indicate a preference for local payloads.
-    /// Else return None to indicate no preference between builder and local payloads.
+    /// Returns the builder boost factor of the given public key.
+    /// The priority order for fetching this value is:
+    ///
+    /// 1. validator_definitions.yml
+    /// 2. process level flag
     fn get_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64> {
-        let builder_proposals = self.validator_store.get_builder_proposals(validator_pubkey);
-
-        let builder_boost_factor = self
+        // Apply per validator configuration first.
+        let validator_builder_boost_factor = self
             .validator_store
-            .get_builder_boost_factor(validator_pubkey);
+            .determine_validator_builder_boost_factor(validator_pubkey);
 
-        let prefer_builder_proposals = self
-            .validator_store
-            .get_prefer_builder_proposals(validator_pubkey);
+        // Fallback to process-wide configuration if needed.
+        let maybe_builder_boost_factor = validator_builder_boost_factor.or_else(|| {
+            self.validator_store
+                .determine_default_builder_boost_factor()
+        });
 
-        if prefer_builder_proposals {
-            return Some(u64::MAX);
-        }
-
-        if let Some(builder_boost_factor) = builder_boost_factor {
+        if let Some(builder_boost_factor) = maybe_builder_boost_factor {
             // if builder boost factor is set to 100 it should be treated
             // as None to prevent unnecessary calculations that could
             // lead to loss of information.
@@ -875,10 +871,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 return None;
             }
             return Some(builder_boost_factor);
-        }
-
-        if !builder_proposals {
-            return Some(0);
         }
 
         None
