@@ -2549,7 +2549,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     }
 
     // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
-    // signatures correctly. This is a regression test for XXX.
+    // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
     let mut batch_with_invalid_first_block = available_blocks.clone();
     batch_with_invalid_first_block[0] = {
         let (block_root, block, blobs) = available_blocks[0].clone().deconstruct();
