@@ -169,6 +169,13 @@ pub struct ChainSpec {
     pub deneb_fork_epoch: Option<Epoch>,
 
     /*
+     * Electra hard fork params
+     */
+    pub electra_fork_version: [u8; 4],
+    /// The Electra fork epoch is optional, with `None` representing "Electra never happens".
+    pub electra_fork_epoch: Option<Epoch>,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -280,15 +287,18 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.deneb_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-            _ => match self.capella_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                _ => match self.bellatrix_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-                    _ => match self.altair_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                        _ => ForkName::Base,
+        match self.electra_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
+            _ => match self.deneb_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
+                _ => match self.capella_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+                    _ => match self.bellatrix_fork_epoch {
+                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+                        _ => match self.altair_fork_epoch {
+                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                            _ => ForkName::Base,
+                        },
                     },
                 },
             },
@@ -303,6 +313,7 @@ impl ChainSpec {
             ForkName::Merge => self.bellatrix_fork_version,
             ForkName::Capella => self.capella_fork_version,
             ForkName::Deneb => self.deneb_fork_version,
+            ForkName::Electra => self.electra_fork_version,
         }
     }
 
@@ -314,6 +325,7 @@ impl ChainSpec {
             ForkName::Merge => self.bellatrix_fork_epoch,
             ForkName::Capella => self.capella_fork_epoch,
             ForkName::Deneb => self.deneb_fork_epoch,
+            ForkName::Electra => self.electra_fork_epoch,
         }
     }
 
@@ -325,6 +337,7 @@ impl ChainSpec {
             BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
             BeaconState::Deneb(_) => self.inactivity_penalty_quotient_bellatrix,
+            BeaconState::Electra(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -339,6 +352,7 @@ impl ChainSpec {
             BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
             BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
             BeaconState::Deneb(_) => self.proportional_slashing_multiplier_bellatrix,
+            BeaconState::Electra(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -353,6 +367,7 @@ impl ChainSpec {
             BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
             BeaconState::Deneb(_) => self.min_slashing_penalty_quotient_bellatrix,
+            BeaconState::Electra(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -511,7 +526,7 @@ impl ChainSpec {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                 self.max_blocks_by_root_request
             }
-            ForkName::Deneb => self.max_blocks_by_root_request_deneb,
+            ForkName::Deneb | ForkName::Electra => self.max_blocks_by_root_request_deneb,
         }
     }
 
@@ -520,7 +535,7 @@ impl ChainSpec {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                 self.max_request_blocks
             }
-            ForkName::Deneb => self.max_request_blocks_deneb,
+            ForkName::Deneb | ForkName::Electra => self.max_request_blocks_deneb,
         };
         max_request_blocks as usize
     }
@@ -682,6 +697,12 @@ impl ChainSpec {
             deneb_fork_epoch: None,
 
             /*
+             * Electra hard fork params
+             */
+            electra_fork_version: [0x05, 00, 00, 00],
+            electra_fork_epoch: None,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -775,6 +796,9 @@ impl ChainSpec {
             // Deneb
             deneb_fork_version: [0x04, 0x00, 0x00, 0x01],
             deneb_fork_epoch: None,
+            // Electra
+            electra_fork_version: [0x05, 0x00, 0x00, 0x01],
+            electra_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -943,6 +967,12 @@ impl ChainSpec {
             deneb_fork_epoch: None,
 
             /*
+             * Electra hard fork params
+             */
+            electra_fork_version: [0x05, 0x00, 0x00, 0x64],
+            electra_fork_epoch: None,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -1063,6 +1093,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub deneb_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_electra_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    electra_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub electra_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1164,6 +1202,11 @@ fn default_capella_fork_version() -> [u8; 4] {
 }
 
 fn default_deneb_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_electra_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -1368,17 +1411,25 @@ impl Config {
             altair_fork_epoch: spec
                 .altair_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+
             bellatrix_fork_version: spec.bellatrix_fork_version,
             bellatrix_fork_epoch: spec
                 .bellatrix_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+
             capella_fork_version: spec.capella_fork_version,
             capella_fork_epoch: spec
                 .capella_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+
             deneb_fork_version: spec.deneb_fork_version,
             deneb_fork_epoch: spec
                 .deneb_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
+            electra_fork_version: spec.electra_fork_version,
+            electra_fork_epoch: spec
+                .electra_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
@@ -1449,6 +1500,8 @@ impl Config {
             capella_fork_version,
             deneb_fork_epoch,
             deneb_fork_version,
+            electra_fork_epoch,
+            electra_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1502,6 +1555,8 @@ impl Config {
             capella_fork_version,
             deneb_fork_epoch: deneb_fork_epoch.map(|q| q.value),
             deneb_fork_version,
+            electra_fork_epoch: electra_fork_epoch.map(|q| q.value),
+            electra_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,

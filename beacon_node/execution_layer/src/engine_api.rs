@@ -27,8 +27,8 @@ pub use types::{
     Withdrawal, Withdrawals,
 };
 use types::{
-    BeaconStateError, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge,
-    KzgProofs, VersionedHash,
+    BeaconStateError, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra,
+    ExecutionPayloadMerge, KzgProofs, VersionedHash,
 };
 
 pub mod auth;
@@ -150,7 +150,7 @@ pub struct ExecutionBlock {
 
 /// Representation of an execution block with enough detail to reconstruct a payload.
 #[superstruct(
-    variants(Merge, Capella, Deneb),
+    variants(Merge, Capella, Deneb, Electra),
     variant_attributes(
         derive(Clone, Debug, PartialEq, Serialize, Deserialize,),
         serde(bound = "T: EthSpec", rename_all = "camelCase"),
@@ -184,12 +184,12 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
-    #[superstruct(only(Capella, Deneb))]
+    #[superstruct(only(Capella, Deneb, Electra))]
     pub withdrawals: Vec<JsonWithdrawal>,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Deneb, Electra))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Deneb, Electra))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
 }
@@ -271,6 +271,34 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                 blob_gas_used: block.blob_gas_used,
                 excess_blob_gas: block.excess_blob_gas,
             }),
+            ExecutionPayload::Electra(block) => {
+                Self::Electra(ExecutionBlockWithTransactionsElectra {
+                    parent_hash: block.parent_hash,
+                    fee_recipient: block.fee_recipient,
+                    state_root: block.state_root,
+                    receipts_root: block.receipts_root,
+                    logs_bloom: block.logs_bloom,
+                    prev_randao: block.prev_randao,
+                    block_number: block.block_number,
+                    gas_limit: block.gas_limit,
+                    gas_used: block.gas_used,
+                    timestamp: block.timestamp,
+                    extra_data: block.extra_data,
+                    base_fee_per_gas: block.base_fee_per_gas,
+                    block_hash: block.block_hash,
+                    transactions: block
+                        .transactions
+                        .iter()
+                        .map(|tx| Transaction::decode(&Rlp::new(tx)))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    withdrawals: Vec::from(block.withdrawals)
+                        .into_iter()
+                        .map(|withdrawal| withdrawal.into())
+                        .collect(),
+                    blob_gas_used: block.blob_gas_used,
+                    excess_blob_gas: block.excess_blob_gas,
+                })
+            }
         };
         Ok(json_payload)
     }
@@ -390,7 +418,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Merge, Capella, Deneb),
+    variants(Merge, Capella, Deneb, Electra),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -405,10 +433,12 @@ pub struct GetPayloadResponse<T: EthSpec> {
     pub execution_payload: ExecutionPayloadCapella<T>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
     pub execution_payload: ExecutionPayloadDeneb<T>,
+    #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
+    pub execution_payload: ExecutionPayloadElectra<T>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Deneb, Electra))]
     pub blobs_bundle: BlobsBundle<T>,
-    #[superstruct(only(Deneb), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
     pub should_override_builder: bool,
 }
 
@@ -459,6 +489,11 @@ impl<T: EthSpec> From<GetPayloadResponse<T>>
             ),
             GetPayloadResponse::Deneb(inner) => (
                 ExecutionPayload::Deneb(inner.execution_payload),
+                inner.block_value,
+                Some(inner.blobs_bundle),
+            ),
+            GetPayloadResponse::Electra(inner) => (
+                ExecutionPayload::Electra(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
             ),
@@ -562,7 +597,35 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     }))
                 } else {
                     Err(format!(
-                        "block {} is post capella but payload body doesn't have withdrawals",
+                        "block {} is post-capella but payload body doesn't have withdrawals",
+                        header.block_hash
+                    ))
+                }
+            }
+            ExecutionPayloadHeader::Electra(header) => {
+                if let Some(withdrawals) = self.withdrawals {
+                    Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        blob_gas_used: header.blob_gas_used,
+                        excess_blob_gas: header.excess_blob_gas,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is post-capella but payload body doesn't have withdrawals",
                         header.block_hash
                     ))
                 }
@@ -572,7 +635,7 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
 }
 
 #[superstruct(
-    variants(Merge, Capella, Deneb),
+    variants(Merge, Capella, Deneb, Electra),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -593,9 +656,11 @@ pub struct NewPayloadRequest<E: EthSpec> {
     pub execution_payload: ExecutionPayloadCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
     pub execution_payload: ExecutionPayloadDeneb<E>,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
+    pub execution_payload: ExecutionPayloadElectra<E>,
+    #[superstruct(only(Deneb, Electra))]
     pub versioned_hashes: Vec<VersionedHash>,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Deneb, Electra))]
     pub parent_beacon_block_root: Hash256,
 }
 
@@ -605,6 +670,7 @@ impl<E: EthSpec> NewPayloadRequest<E> {
             Self::Merge(payload) => payload.execution_payload.parent_hash,
             Self::Capella(payload) => payload.execution_payload.parent_hash,
             Self::Deneb(payload) => payload.execution_payload.parent_hash,
+            Self::Electra(payload) => payload.execution_payload.parent_hash,
         }
     }
 
@@ -613,6 +679,7 @@ impl<E: EthSpec> NewPayloadRequest<E> {
             Self::Merge(payload) => payload.execution_payload.block_hash,
             Self::Capella(payload) => payload.execution_payload.block_hash,
             Self::Deneb(payload) => payload.execution_payload.block_hash,
+            Self::Electra(payload) => payload.execution_payload.block_hash,
         }
     }
 
@@ -621,6 +688,7 @@ impl<E: EthSpec> NewPayloadRequest<E> {
             Self::Merge(payload) => payload.execution_payload.block_number,
             Self::Capella(payload) => payload.execution_payload.block_number,
             Self::Deneb(payload) => payload.execution_payload.block_number,
+            Self::Electra(payload) => payload.execution_payload.block_number,
         }
     }
 
@@ -655,6 +723,16 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<E> {
                     .collect(),
                 parent_beacon_block_root: block_ref.parent_root,
             })),
+            BeaconBlockRef::Electra(block_ref) => Ok(Self::Electra(NewPayloadRequestElectra {
+                execution_payload: block_ref.body.execution_payload.execution_payload.clone(),
+                versioned_hashes: block_ref
+                    .body
+                    .blob_kzg_commitments
+                    .iter()
+                    .map(kzg_commitment_to_versioned_hash)
+                    .collect(),
+                parent_beacon_block_root: block_ref.parent_root,
+            })),
         }
     }
 }
@@ -671,6 +749,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for NewPayloadRequest<E> {
                 execution_payload: payload,
             })),
             ExecutionPayload::Deneb(_) => Err(Self::Error::IncorrectStateVariant),
+            ExecutionPayload::Electra(_) => Err(Self::Error::IncorrectStateVariant),
         }
     }
 }

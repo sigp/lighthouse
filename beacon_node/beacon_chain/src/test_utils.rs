@@ -580,6 +580,9 @@ pub fn mock_execution_layer_from_parts<T: EthSpec>(
     let cancun_time = spec.deneb_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
     });
+    let prague_time = spec.electra_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
+    });
 
     let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
         .map_err(|e| format!("Unable to read trusted setup file: {}", e))
@@ -591,6 +594,7 @@ pub fn mock_execution_layer_from_parts<T: EthSpec>(
         DEFAULT_TERMINAL_BLOCK,
         shanghai_time,
         cancun_time,
+        prague_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec.clone(),
         Some(kzg),
@@ -878,7 +882,9 @@ where
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) => (signed_block, block_response.blob_items),
+            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+                (signed_block, block_response.blob_items)
+            }
         };
 
         (block_contents, block_response.state)
@@ -940,7 +946,9 @@ where
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) => (signed_block, block_response.blob_items),
+            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+                (signed_block, block_response.blob_items)
+            }
         };
         (block_contents, pre_state)
     }

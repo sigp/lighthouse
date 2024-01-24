@@ -57,7 +57,7 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientBootstrap<T> {
                 Ok(serde_json::from_value::<LightClientBootstrap<T>>(value)
                     .map_err(serde::de::Error::custom))?
             }
-            ForkName::Base | ForkName::Capella | ForkName::Deneb => {
+            ForkName::Base | ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                 Err(serde::de::Error::custom(format!(
                     "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
                     fork_name

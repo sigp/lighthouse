@@ -12,9 +12,9 @@ use types::{
     Attestation, AttesterSlashing, BlobSidecar, EthSpec, ForkContext, ForkName,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockMerge,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
+    SignedBeaconBlockMerge, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -193,6 +193,10 @@ impl<T: EthSpec> PubsubMessage<T> {
                                     SignedBeaconBlockDeneb::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
+                                Some(ForkName::Electra) => SignedBeaconBlock::<T>::Electra(
+                                    SignedBeaconBlockElectra::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
                                 None => {
                                     return Err(format!(
                                         "Unknown gossipsub fork digest: {:?}",
@@ -204,7 +208,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                     }
                     GossipKind::BlobSidecar(blob_index) => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                            Some(ForkName::Deneb) => {
+                            Some(ForkName::Deneb | ForkName::Electra) => {
                                 let blob_sidecar = Arc::new(
                                     BlobSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,

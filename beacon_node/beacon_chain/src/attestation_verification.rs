@@ -1059,7 +1059,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     let earliest_permissible_slot = match current_fork {
         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => one_epoch_prior,
         // EIP-7045
-        ForkName::Deneb => one_epoch_prior
+        ForkName::Deneb | ForkName::Electra => one_epoch_prior
             .epoch(E::slots_per_epoch())
             .start_slot(E::slots_per_epoch()),
     };

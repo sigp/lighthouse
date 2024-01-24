@@ -20,9 +20,9 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
+    BeaconBlockMerge, BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName,
+    MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -68,6 +68,13 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
+    pub static ref SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Electra(BeaconBlockElectra::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+
     /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
     /// We calculate the value from its fields instead of constructing the block and checking the length.
     /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
@@ -85,6 +92,12 @@ lazy_static! {
     pub static ref SIGNED_BEACON_BLOCK_DENEB_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_deneb_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
+    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
+    + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
+                                    //
+    pub static ref SIGNED_BEACON_BLOCK_ELECTRA_MAX: usize = *SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_electra_size() // adding max size of execution payload (~16gb)
+    + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional ssz offset for the `ExecutionPayload` field
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
 
@@ -115,6 +128,7 @@ pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize 
         ForkName::Merge => max_chunk_size,
         ForkName::Capella => max_chunk_size,
         ForkName::Deneb => max_chunk_size,
+        ForkName::Electra => max_chunk_size,
     }
 }
 
@@ -141,7 +155,11 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
         ),
         ForkName::Deneb => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
-            *SIGNED_BEACON_BLOCK_DENEB_MAX, // EIP 4844 block is larger than all prior fork blocks
+            *SIGNED_BEACON_BLOCK_DENEB_MAX, // Deneb block is larger than all prior fork blocks
+        ),
+        ForkName::Electra => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
+            *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
         ),
     }
 }

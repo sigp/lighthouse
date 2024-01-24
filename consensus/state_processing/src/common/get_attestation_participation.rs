@@ -53,7 +53,7 @@ pub fn get_attestation_participation_flag_indices<T: EthSpec>(
                 participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
             }
         }
-        &BeaconState::Deneb(_) => {
+        &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
             if is_matching_target {
                 // [Modified in Deneb:EIP7045]
                 participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
