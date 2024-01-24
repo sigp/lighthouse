@@ -697,6 +697,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         (Some(is_enabled), Some(initialized_validator))
                             if Some(is_enabled) == body.enabled
                                 && initialized_validator.get_gas_limit() == body.gas_limit
+                                && initialized_validator.get_builder_boost_factor()
+                                    == body.builder_boost_factor
                                 && initialized_validator.get_builder_proposals()
                                     == body.builder_proposals
                                 && initialized_validator.get_graffiti() == maybe_graffiti =>

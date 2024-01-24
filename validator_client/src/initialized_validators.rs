@@ -161,6 +161,10 @@ impl InitializedValidator {
         self.gas_limit
     }
 
+    pub fn get_builder_boost_factor(&self) -> Option<u64> {
+        self.builder_boost_factor
+    }
+
     pub fn get_builder_proposals(&self) -> Option<bool> {
         self.builder_proposals
     }
@@ -908,6 +912,12 @@ impl InitializedValidators {
             }
             if let Some(graffiti) = graffiti {
                 val.graffiti = Some(graffiti.into());
+            }
+            if let Some(builder_boost_factor) = builder_boost_factor {
+                val.builder_boost_factor = Some(builder_boost_factor);
+            }
+            if let Some(prefer_builder_proposals) = prefer_builder_proposals {
+                val.prefer_builder_proposals = Some(prefer_builder_proposals);
             }
         }
 
