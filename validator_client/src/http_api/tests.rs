@@ -52,6 +52,12 @@ struct ApiTester {
 
 impl ApiTester {
     pub async fn new() -> Self {
+        let mut config = Config::default();
+        config.fee_recipient = Some(TEST_DEFAULT_FEE_RECIPIENT);
+        Self::new_with_config(config).await
+    }
+
+    pub async fn new_with_config(mut config: Config) -> Self {
         let log = test_logger();
 
         let validator_dir = tempdir().unwrap();
@@ -70,10 +76,8 @@ impl ApiTester {
         let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
         let api_pubkey = api_secret.api_token();
 
-        let mut config = Config::default();
         config.validator_dir = validator_dir.path().into();
         config.secrets_dir = secrets_dir.path().into();
-        config.fee_recipient = Some(TEST_DEFAULT_FEE_RECIPIENT);
 
         let spec = E::default_spec();
 
@@ -1108,6 +1112,31 @@ async fn validator_builder_boost_factor() {
         .await
         .assert_enabled_validators_count(2)
         .assert_builder_boost_factor(0, Some(80))
+        .await;
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_with_process_defaults() {
+    let config = Config {
+        builder_proposals: true,
+        prefer_builder_proposals: false,
+        builder_boost_factor: Some(80),
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 3,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_builder_boost_factor(0, Some(80))
+        .await
+        .set_builder_boost_factor(0, 120)
+        .await
+        .assert_builder_boost_factor(0, Some(120))
         .await;
 }
 

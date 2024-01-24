@@ -495,7 +495,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         )
     }
 
-    /// Returns a `u64` for the given public key that denotes the builder boost factor.
+    /// Returns a `u64` for the given public key that denotes the builder boost factor. The priority order for fetching this value is:
     ///
     /// 1. validator_definitions.yml
     /// 2. process level flag
