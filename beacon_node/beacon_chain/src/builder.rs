@@ -692,6 +692,7 @@ where
             None
         };
 
+        let anchor_state = fork_choice.anchor_state();
         let initial_head_block_root = fork_choice
             .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
@@ -741,6 +742,7 @@ where
                 Some(current_slot),
                 &self.spec,
                 self.chain_config.progressive_balances_mode,
+                anchor_state,
                 &log,
             )?;
         }

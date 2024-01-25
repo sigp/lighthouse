@@ -104,6 +104,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     current_slot: Option<Slot>,
     spec: &ChainSpec,
     progressive_balances_mode: ProgressiveBalancesMode,
+    anchor_state: AnchorState,
     log: &Logger,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
@@ -157,7 +158,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         finalized_block_root,
         &finalized_snapshot.beacon_block,
         &finalized_snapshot.beacon_state,
-        AnchorState::Finalized, // FIXME: this needs to be understood
+        anchor_state,
         current_slot,
         spec,
     )

@@ -746,7 +746,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head_hash: new_forkchoice_update_parameters.head_hash,
                 justified_hash: new_forkchoice_update_parameters.justified_hash,
                 finalized_hash: new_forkchoice_update_parameters.finalized_hash,
-                anchor_state: new_view.anchor_state, // TODO: check this
+                anchor_state: new_view.anchor_state,
             };
 
             let mut cached_head_write_lock = self.canonical_head.cached_head_write_lock();
