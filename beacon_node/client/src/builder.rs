@@ -397,7 +397,6 @@ where
                 let remote_state_id = if let Some(id) = remote_state {
                     id
                 } else {
-                    // TODO: Check finalized state inside DA boundary
                     StateId::Finalized
                 };
 
@@ -413,15 +412,57 @@ where
                 };
                 debug!(context.log(), "Downloading {}", state_string);
 
-                let state = remote
+                let checkpoint_state = remote
                     .get_debug_beacon_states_ssz::<TEthSpec>(remote_state_id, &spec)
                     .await
                     .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
                     .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
 
-                debug!(context.log(), "Downloaded {}", state_string; "slot" => ?state.slot());
+                debug!(context.log(), "Downloaded {}", state_string; "slot" => ?checkpoint_state.slot());
 
-                let state_block_slot = state.latest_block_header().slot;
+                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
+
+                if let Some(deneb_fork_epoch) = spec.deneb_fork_epoch {
+                    // Deneb is enabled. We must ensure the checkpoint state is within the data availability boundary.
+                    let genesis_time = genesis_state.genesis_time();
+                    let slot_clock = SystemTimeSlotClock::new(
+                        spec.genesis_slot,
+                        Duration::from_secs(genesis_time),
+                        Duration::from_secs(spec.seconds_per_slot),
+                    );
+                    let slot_clock_current_epoch = slot_clock
+                        .now()
+                        .map(|slot| slot.epoch(TEthSpec::slots_per_epoch()))
+                        .ok_or("Unable to determine current slot for DA boundary calculation")?;
+
+                    if slot_clock_current_epoch > deneb_fork_epoch {
+                        let cutoff_epoch = if checkpoint_state.current_epoch() < deneb_fork_epoch {
+                            // The chain is past the deneb fork and we are trying to checkpoint sync to a state
+                            // before the fork. Here we use a modified DA boundary calculation. As long as we can
+                            // sync up to the deneb fork before the DA boundary advances past it, we are good.
+                            slot_clock_current_epoch.saturating_sub(
+                                spec.min_epochs_for_blob_sidecars_requests
+                                    .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS),
+                            )
+                        } else {
+                            std::cmp::max(
+                                deneb_fork_epoch,
+                                slot_clock_current_epoch
+                                    .saturating_sub(spec.min_epochs_for_blob_sidecars_requests),
+                            )
+                        };
+
+                        if checkpoint_state.current_epoch() < cutoff_epoch {
+                            return Err("Requested checkpoint state is outside of the data availability boundary".to_string());
+                        }
+                    }
+                    debug!(
+                        context.log(),
+                        "Checkpoint state is within data availability boundary"
+                    );
+                }
+
+                let state_block_slot = checkpoint_state.latest_block_header().slot;
 
                 debug!(context.log(), "Downloading corresponding block"; "block_slot" => ?state_block_slot);
                 let block = remote
@@ -439,7 +480,7 @@ where
 
                 debug!(context.log(), "Downloaded corresponding block");
 
-                let anchor_state = if matches!(remote_state_id, StateId::Finalized) {
+                let anchor_state = if remote_state_id == StateId::Finalized {
                     AnchorState::Finalized
                 } else {
                     debug!(context.log(), "Downloading finalized block header");
@@ -459,21 +500,20 @@ where
                         .header
                         .message;
                     debug!(context.log(), "Downloaded finalized block header"; "anchor_slot" => block.slot(), "finalized_slot" => finalized_header.slot);
-                    if finalized_header.slot < state.slot() {
-                        debug!(context.log(), "Checkpoint state is newer than remote finalized checkpoint! Treating as non-revertible!");
+                    if finalized_header.slot < checkpoint_state.slot() {
+                        debug!(context.log(), "Checkpoint state is newer than remote finalized checkpoint. Treating anchor state as non-revertible.");
+                        // TODO: does this work with checkpointz?
                         AnchorState::NonRevertible
                     } else {
                         AnchorState::Finalized
                     }
                 };
 
-                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
-
                 info!(
                     context.log(),
                     "Loaded checkpoint block and state";
                     "block_slot" => block.slot(),
-                    "state_slot" => state.slot(),
+                    "state_slot" => checkpoint_state.slot(),
                     "block_root" => ?block.canonical_root(),
                 );
 
@@ -502,7 +542,7 @@ where
                     });
 
                 builder
-                    .weak_subjectivity_state(state, block, genesis_state, anchor_state)
+                    .weak_subjectivity_state(checkpoint_state, block, genesis_state, anchor_state)
                     .map(|v| (v, service))?
             }
             ClientGenesis::DepositContract => {
