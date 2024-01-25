@@ -137,7 +137,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
             task_executor,
-            task_executor,
             _phantom: PhantomData,
         }
     }

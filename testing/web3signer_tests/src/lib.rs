@@ -707,7 +707,11 @@ mod tests {
         test_merge_types("sepolia", 4252).await
     }
 
-    async fn test_lighthouse_slashing_protection(slashing_protection_enabled: bool, port: u16) {
+    // FIXME(sproul): actually write tests here
+    async fn test_lighthouse_slashing_protection(
+        _slashing_protection_enabled: bool,
+        listen_port: u16,
+    ) {
         // Run these tests on mainnet.
         let network = "mainnet";
 
@@ -733,8 +737,6 @@ mod tests {
 
     #[tokio::test]
     async fn slashing_protection_disabled_everywhere() {
-        test_lighthouse_slashing_protection(false,
+        test_lighthouse_slashing_protection(false, 4253).await
     }
-
-
 }
