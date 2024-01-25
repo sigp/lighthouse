@@ -132,11 +132,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             fee_recipient_process: config.fee_recipient,
             gas_limit: config.gas_limit,
             builder_proposals: config.builder_proposals,
+            enable_web3signer_slashing_protection: config.enable_web3signer_slashing_protection,
             produce_block_v3: config.produce_block_v3,
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
             task_executor,
-            enable_web3signer_slashing_protection: config.enable_web3signer_slashing_protection,
+            task_executor,
             _phantom: PhantomData,
         }
     }
