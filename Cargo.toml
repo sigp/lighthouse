@@ -107,7 +107,7 @@ crossbeam-channel = "0.5.8"
 delay_map = "0.3"
 derivative = "2"
 dirs = "3"
-discv5 = { git="https://github.com/sigp/discv5", rev="dbb4a718cd32eaed8127c3c8241bfd0fde9eb908", features = ["libp2p"] }
+discv5 = { git="https://github.com/sigp/discv5", rev="e30a2c31b7ac0c57876458b971164654dfa4513b", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
 ethereum-types = "0.14"
@@ -163,6 +163,10 @@ tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.6", features = ["codec", "compat", "time"] }
+tracing-appender = "0.2"
+tracing-core = "0.1"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tree_hash = "0.5"
 tree_hash_derive = "0.5"
 url = "2"

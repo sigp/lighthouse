@@ -18,6 +18,7 @@ pub mod canonical_head;
 pub mod capella_readiness;
 pub mod chain_config;
 pub mod data_availability_checker;
+pub mod deneb_readiness;
 mod early_attester_cache;
 mod errors;
 pub mod eth1_chain;

@@ -952,7 +952,7 @@ mod test {
         };
 
         let availability_pending_block = AvailabilityPendingExecutedBlock {
-            block: Arc::new(block),
+            block,
             import_data,
             payload_verification_outcome,
         };

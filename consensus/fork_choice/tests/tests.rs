@@ -323,8 +323,9 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let (mut block_tuple, mut state) = self.harness.make_block(state, slot).await;
-        func(&mut block_tuple.0, &mut state);
+        let ((block_arc, _block_blobs), mut state) = self.harness.make_block(state, slot).await;
+        let mut block = (*block_arc).clone();
+        func(&mut block, &mut state);
         let current_slot = self.harness.get_current_slot();
         self.harness
             .chain
@@ -332,8 +333,8 @@ impl ForkChoiceTest {
             .fork_choice_write_lock()
             .on_block(
                 current_slot,
-                block_tuple.0.message(),
-                block_tuple.0.canonical_root(),
+                block.message(),
+                block.canonical_root(),
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
@@ -366,8 +367,9 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let (mut block_tuple, mut state) = self.harness.make_block(state, slot).await;
-        mutation_func(&mut block_tuple.0, &mut state);
+        let ((block_arc, _block_blobs), mut state) = self.harness.make_block(state, slot).await;
+        let mut block = (*block_arc).clone();
+        mutation_func(&mut block, &mut state);
         let current_slot = self.harness.get_current_slot();
         let err = self
             .harness
@@ -376,8 +378,8 @@ impl ForkChoiceTest {
             .fork_choice_write_lock()
             .on_block(
                 current_slot,
-                block_tuple.0.message(),
-                block_tuple.0.canonical_root(),
+                block.message(),
+                block.canonical_root(),
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,

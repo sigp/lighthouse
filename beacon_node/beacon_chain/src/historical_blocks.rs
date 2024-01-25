@@ -100,8 +100,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
 
+        let mut blob_batch = Vec::with_capacity(n_blobs_lists_to_import);
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
-        let mut hot_batch = Vec::with_capacity(blocks_to_import.len() + n_blobs_lists_to_import);
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
         for available_block in blocks_to_import.into_iter().rev() {
@@ -126,7 +126,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if let Some(blobs) = maybe_blobs {
                 new_oldest_blob_slot = Some(block.slot());
                 self.store
-                    .blobs_as_kv_store_ops(&block_root, blobs, &mut hot_batch);
+                    .blobs_as_kv_store_ops(&block_root, blobs, &mut blob_batch);
             }
 
             // Store block roots, including at all skip slots in the freezer DB.
@@ -203,7 +203,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(verify_timer);
         drop(sig_timer);
 
-        // Write the I/O batch to disk.
+        // Write the I/O batches to disk.
+        self.store.blobs_db.do_atomically(blob_batch)?;
         self.store.cold_db.do_atomically(cold_batch)?;
 
         let mut anchor_and_blob_batch = Vec::with_capacity(2);
