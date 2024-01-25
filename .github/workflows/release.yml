@@ -282,6 +282,6 @@ jobs:
                   | <img src="https://simpleicons.org/icons/docker.svg" style="width: 32px;"/> | Docker | [${{ env.VERSION }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}/tags?page=1&ordering=last_updated&name=${{ env.VERSION }}) | [${{ env.IMAGE_NAME }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}) |
                   ENDBODY
                   )
-                  assets=(./lighthouse-*.tar.gz*)
+                  assets=(./lighthouse-*.tar.gz*/lighthouse-*.tar.gz*)
                   tag_name="${{ env.VERSION }}"
                   echo "$body" | gh release create --draft -F "-" "$tag_name" "${assets[@]}"

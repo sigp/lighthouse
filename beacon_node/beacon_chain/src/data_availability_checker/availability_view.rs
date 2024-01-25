@@ -278,8 +278,8 @@ pub mod tests {
 
     type Setup<E> = (
         SignedBeaconBlock<E>,
-        FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
     );
 
     pub fn pre_setup() -> Setup<E> {
@@ -290,20 +290,20 @@ pub mod tests {
 
         for blob in blobs_vec {
             if let Some(b) = blobs.get_mut(blob.index as usize) {
-                *b = Some(blob);
+                *b = Some(Arc::new(blob));
             }
         }
 
         let mut invalid_blobs: FixedVector<
-            Option<BlobSidecar<E>>,
+            Option<Arc<BlobSidecar<E>>>,
             <E as EthSpec>::MaxBlobsPerBlock,
         > = FixedVector::default();
         for (index, blob) in blobs.iter().enumerate() {
-            let mut invalid_blob_opt = blob.clone();
-            if let Some(invalid_blob) = invalid_blob_opt.as_mut() {
-                invalid_blob.kzg_commitment = KzgCommitment::random_for_test(&mut rng);
+            if let Some(invalid_blob) = blob {
+                let mut blob_copy = invalid_blob.as_ref().clone();
+                blob_copy.kzg_commitment = KzgCommitment::random_for_test(&mut rng);
+                *invalid_blobs.get_mut(index).unwrap() = Some(Arc::new(blob_copy));
             }
-            *invalid_blobs.get_mut(index).unwrap() = invalid_blob_opt;
         }
 
         (block, blobs, invalid_blobs)
@@ -317,8 +317,8 @@ pub mod tests {
 
     pub fn setup_processing_components(
         block: SignedBeaconBlock<E>,
-        valid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        invalid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        valid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        invalid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
     ) -> ProcessingViewSetup<E> {
         let commitments = block
             .message()
@@ -349,8 +349,8 @@ pub mod tests {
 
     pub fn setup_pending_components(
         block: SignedBeaconBlock<E>,
-        valid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        invalid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        valid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        invalid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
     ) -> PendingComponentsSetup<E> {
         let blobs = FixedVector::from(
             valid_blobs
@@ -358,7 +358,7 @@ pub mod tests {
                 .map(|blob_opt| {
                     blob_opt
                         .as_ref()
-                        .map(|blob| KzgVerifiedBlob::new(blob.clone()))
+                        .map(|blob| KzgVerifiedBlob::__assumed_valid(blob.clone()))
                 })
                 .collect::<Vec<_>>(),
         );
@@ -368,7 +368,7 @@ pub mod tests {
                 .map(|blob_opt| {
                     blob_opt
                         .as_ref()
-                        .map(|blob| KzgVerifiedBlob::new(blob.clone()))
+                        .map(|blob| KzgVerifiedBlob::__assumed_valid(blob.clone()))
                 })
                 .collect::<Vec<_>>(),
         );
@@ -402,21 +402,12 @@ pub mod tests {
 
     pub fn setup_child_components(
         block: SignedBeaconBlock<E>,
-        valid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        invalid_blobs: FixedVector<Option<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        valid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        invalid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
     ) -> ChildComponentsSetup<E> {
-        let blobs = FixedVector::from(
-            valid_blobs
-                .into_iter()
-                .map(|blob_opt| blob_opt.clone().map(Arc::new))
-                .collect::<Vec<_>>(),
-        );
-        let invalid_blobs = FixedVector::from(
-            invalid_blobs
-                .into_iter()
-                .map(|blob_opt| blob_opt.clone().map(Arc::new))
-                .collect::<Vec<_>>(),
-        );
+        let blobs = FixedVector::from(valid_blobs.into_iter().cloned().collect::<Vec<_>>());
+        let invalid_blobs =
+            FixedVector::from(invalid_blobs.into_iter().cloned().collect::<Vec<_>>());
         (Arc::new(block), blobs, invalid_blobs)
     }
 

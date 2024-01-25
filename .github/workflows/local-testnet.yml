@@ -87,3 +87,14 @@ jobs:
       - name: Stop local testnet with blinded block production
         run: ./stop_local_testnet.sh
         working-directory: scripts/local_testnet
+
+  # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
+  # a PR is safe to merge. New jobs should be added here.
+  local-testnet-success:
+    name: local-testnet-success
+    runs-on: ubuntu-latest
+    needs: ["run-local-testnet"]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check that success job is dependent on all others
+        run: ./scripts/ci/check-success-job.sh ./.github/workflows/local-testnet.yml local-testnet-success

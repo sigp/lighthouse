@@ -1,7 +1,6 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
-use crate::network_beacon_processor::DELAYED_PEER_CACHE_SIZE;
 use crate::{
     network_beacon_processor::{
         ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
@@ -19,13 +18,11 @@ use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::rpc::SubstreamId;
 use lighthouse_network::{
-    discv5::enr::{CombinedKey, EnrBuilder},
+    discv5::enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
     Client, MessageId, NetworkGlobals, PeerId, Response,
 };
-use lru::LruCache;
-use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use std::iter::Iterator;
 use std::sync::Arc;
@@ -206,7 +203,7 @@ impl TestRig {
             syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
         });
         let enr_key = CombinedKey::generate_secp256k1();
-        let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
+        let enr = enr::Enr::builder().build(&enr_key).unwrap();
         let network_globals = Arc::new(NetworkGlobals::new(enr, meta_data, vec![], false, &log));
 
         let executor = harness.runtime.task_executor.clone();
@@ -223,7 +220,6 @@ impl TestRig {
             reprocess_tx: work_reprocessing_tx.clone(),
             network_globals: network_globals.clone(),
             invalid_block_storage: InvalidBlockStorage::Disabled,
-            delayed_lookup_peers: Mutex::new(LruCache::new(DELAYED_PEER_CACHE_SIZE)),
             executor: executor.clone(),
             log: log.clone(),
         };
@@ -254,7 +250,7 @@ impl TestRig {
         };
         Self {
             chain,
-            next_block: Arc::new(block),
+            next_block: block,
             next_blobs: blob_sidecars,
             attestations,
             next_block_attestations,

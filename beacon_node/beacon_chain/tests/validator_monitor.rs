@@ -1,9 +1,9 @@
-use lazy_static::lazy_static;
-
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::validator_monitor::{ValidatorMonitorConfig, MISSED_BLOCK_LAG_SLOTS};
+use lazy_static::lazy_static;
+use logging::test_logger;
 use types::{Epoch, EthSpec, Keypair, MainnetEthSpec, PublicKeyBytes, Slot};
 
 // Should ideally be divisible by 3.
@@ -23,6 +23,7 @@ fn get_harness(
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .logger(test_logger())
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .validator_monitor_config(ValidatorMonitorConfig {
@@ -37,6 +38,83 @@ fn get_harness(
     harness.advance_slot();
 
     harness
+}
+
+// Regression test for off-by-one caching issue in missed block detection.
+#[tokio::test]
+async fn missed_blocks_across_epochs() {
+    let slots_per_epoch = E::slots_per_epoch();
+    let all_validators = (0..VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let harness = get_harness(VALIDATOR_COUNT, vec![]);
+    let validator_monitor = &harness.chain.validator_monitor;
+    let mut genesis_state = harness.get_current_state();
+    let genesis_state_root = genesis_state.update_tree_hash_cache().unwrap();
+    let genesis_block_root = harness.head_block_root();
+
+    // Skip a slot in the first epoch (to prime the cache inside the missed block function) and then
+    // at a different offset in the 2nd epoch. The missed block in the 2nd epoch MUST NOT reuse
+    // the cache from the first epoch.
+    let first_skip_offset = 3;
+    let second_skip_offset = slots_per_epoch / 2;
+    assert_ne!(first_skip_offset, second_skip_offset);
+    let first_skip_slot = Slot::new(first_skip_offset);
+    let second_skip_slot = Slot::new(slots_per_epoch + second_skip_offset);
+    let slots = (1..2 * slots_per_epoch)
+        .map(Slot::new)
+        .filter(|slot| *slot != first_skip_slot && *slot != second_skip_slot)
+        .collect::<Vec<_>>();
+
+    let (block_roots_by_slot, state_roots_by_slot, _, head_state) = harness
+        .add_attested_blocks_at_slots(genesis_state, genesis_state_root, &slots, &all_validators)
+        .await;
+
+    // Prime the proposer shuffling cache.
+    let mut proposer_shuffling_cache = harness.chain.beacon_proposer_cache.lock();
+    for epoch in [0, 1].into_iter().map(Epoch::new) {
+        let start_slot = epoch.start_slot(slots_per_epoch) + 1;
+        let state = harness
+            .get_hot_state(state_roots_by_slot[&start_slot])
+            .unwrap();
+        let decision_root = state
+            .proposer_shuffling_decision_root(genesis_block_root)
+            .unwrap();
+        proposer_shuffling_cache
+            .insert(
+                epoch,
+                decision_root,
+                state
+                    .get_beacon_proposer_indices(&harness.chain.spec)
+                    .unwrap(),
+                state.fork(),
+            )
+            .unwrap();
+    }
+    drop(proposer_shuffling_cache);
+
+    // Monitor the validator that proposed the block at the same offset in the 0th epoch as the skip
+    // in the 1st epoch.
+    let innocent_proposer_slot = Slot::new(second_skip_offset);
+    let innocent_proposer = harness
+        .get_block(block_roots_by_slot[&innocent_proposer_slot])
+        .unwrap()
+        .message()
+        .proposer_index();
+
+    let mut vm_write = validator_monitor.write();
+
+    // Call `process_` once to update validator indices.
+    vm_write.process_valid_state(head_state.current_epoch(), &head_state, &harness.chain.spec);
+    // Start monitoring the innocent validator.
+    vm_write.add_validator_pubkey(KEYPAIRS[innocent_proposer as usize].pk.compress());
+    // Check for missed blocks.
+    vm_write.process_valid_state(head_state.current_epoch(), &head_state, &harness.chain.spec);
+
+    // My client is innocent, your honour!
+    assert_eq!(
+        vm_write.get_monitored_validator_missed_block_count(innocent_proposer),
+        0
+    );
 }
 
 #[tokio::test]
@@ -110,7 +188,7 @@ async fn produces_missed_blocks() {
         // Let's validate the state which will call the function responsible for
         // adding the missed blocks to the validator monitor
         let mut validator_monitor = harness1.chain.validator_monitor.write();
-        validator_monitor.process_valid_state(nb_epoch_to_simulate, _state);
+        validator_monitor.process_valid_state(nb_epoch_to_simulate, _state, &harness1.chain.spec);
 
         // We should have one entry in the missed blocks map
         assert_eq!(
@@ -193,7 +271,7 @@ async fn produces_missed_blocks() {
         // Let's validate the state which will call the function responsible for
         // adding the missed blocks to the validator monitor
         let mut validator_monitor2 = harness2.chain.validator_monitor.write();
-        validator_monitor2.process_valid_state(epoch, _state2);
+        validator_monitor2.process_valid_state(epoch, _state2, &harness2.chain.spec);
         // We should have one entry in the missed blocks map
         assert_eq!(
             validator_monitor2.get_monitored_validator_missed_block_count(validator_index as u64),
@@ -219,7 +297,7 @@ async fn produces_missed_blocks() {
 
         // Let's validate the state which will call the function responsible for
         // adding the missed blocks to the validator monitor
-        validator_monitor2.process_valid_state(epoch, _state2);
+        validator_monitor2.process_valid_state(epoch, _state2, &harness2.chain.spec);
 
         // We shouldn't have any entry in the missed blocks map
         assert_ne!(validator_index, not_monitored_validator_index);
@@ -288,7 +366,7 @@ async fn produces_missed_blocks() {
         // Let's validate the state which will call the function responsible for
         // adding the missed blocks to the validator monitor
         let mut validator_monitor3 = harness3.chain.validator_monitor.write();
-        validator_monitor3.process_valid_state(epoch, _state3);
+        validator_monitor3.process_valid_state(epoch, _state3, &harness3.chain.spec);
 
         // We shouldn't have one entry in the missed blocks map
         assert_eq!(

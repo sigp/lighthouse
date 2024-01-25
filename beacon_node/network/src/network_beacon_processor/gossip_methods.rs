@@ -4,8 +4,6 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
-use std::collections::HashSet;
-
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::store::Error;
@@ -756,11 +754,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        let delay_lookup = self
-            .chain
-            .data_availability_checker
-            .should_delay_lookup(blob_slot);
-
         match self.chain.process_gossip_blob(verified_blob).await {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
                 // Note: Reusing block imported metric here
@@ -772,29 +765,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 self.chain.recompute_head_at_current_slot().await;
             }
-            Ok(AvailabilityProcessingStatus::MissingComponents(_slot, block_root)) => {
-                if delay_lookup {
-                    self.cache_peer(peer_id, &block_root);
-                    trace!(
-                        self.log,
-                        "Processed blob, delaying lookup for other components";
-                        "slot" => %blob_slot,
-                        "blob_index" => %blob_index,
-                        "block_root" => %block_root,
-                    );
-                } else {
-                    trace!(
-                        self.log,
-                        "Missing block components for gossip verified blob";
-                        "slot" => %blob_slot,
-                        "blob_index" => %blob_index,
-                        "block_root" => %block_root,
-                    );
-                    self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
-                        vec![peer_id],
-                        block_root,
-                    ));
-                }
+            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
+                trace!(
+                    self.log,
+                    "Processed blob, waiting for other components";
+                    "slot" => %slot,
+                    "blob_index" => %blob_index,
+                    "block_root" => %block_root,
+                );
             }
             Err(err) => {
                 debug!(
@@ -815,18 +793,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Invalid gossip blob ssz";
                 );
             }
-        }
-    }
-
-    /// Cache the peer id for the given block root.
-    fn cache_peer(self: &Arc<Self>, peer_id: PeerId, block_root: &Hash256) {
-        let mut guard = self.delayed_lookup_peers.lock();
-        if let Some(peers) = guard.get_mut(block_root) {
-            peers.insert(peer_id);
-        } else {
-            let mut peers = HashSet::new();
-            peers.insert(peer_id);
-            guard.push(*block_root, peers);
         }
     }
 
@@ -1170,11 +1136,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
-        let delay_lookup = self
-            .chain
-            .data_availability_checker
-            .should_delay_lookup(verified_block.block.slot());
-
         let result = self
             .chain
             .process_block_with_early_caching(block_root, verified_block, NotifyExecutionLayer::Yes)
@@ -1209,26 +1170,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                if delay_lookup {
-                    self.cache_peer(peer_id, block_root);
-                    trace!(
-                        self.log,
-                        "Processed block, delaying lookup for other components";
-                        "slot" => slot,
-                        "block_root" => %block_root,
-                    );
-                } else {
-                    trace!(
-                        self.log,
-                        "Missing block components for gossip verified block";
-                        "slot" => slot,
-                        "block_root" => %block_root,
-                    );
-                    self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
-                        vec![peer_id],
-                        *block_root,
-                    ));
-                }
+                trace!(
+                    self.log,
+                    "Processed block, waiting for other components";
+                    "slot" => slot,
+                    "block_root" => %block_root,
+                );
             }
             Err(BlockError::ParentUnknown(block)) => {
                 // Inform the sync manager to find parents for this block
