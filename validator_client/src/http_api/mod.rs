@@ -49,13 +49,11 @@ use warp::reply::Reply;
 use warp::{
     http::{
         header::{HeaderValue, CONTENT_TYPE},
-        response::Response,
-        StatusCode,
     },
     sse::Event,
     Filter,
 };
-use warp::reply::Response as respuesta;
+use warp::reply::Response;
 #[derive(Debug)]
 pub enum Error {
     Warp(warp::Error),
@@ -1044,7 +1042,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(graffiti_flag_filter)
         .and(signer.clone())
-        .and_then(
+        .then(
             |pubkey: PublicKey,
              validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_flag: Option<Graffiti>,
@@ -1069,7 +1067,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(graffiti_file_filter.clone())
         .and(signer.clone())
-        .and_then(
+        .then(
             |pubkey: PublicKey,
              query: SetGraffitiRequest,
              validator_store: Arc<ValidatorStore<T, E>>,
@@ -1097,7 +1095,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(graffiti_file_filter.clone())
         .and(signer.clone())
-        .and_then(
+        .then(
             |pubkey: PublicKey,
              validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>,
@@ -1322,68 +1320,55 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 /// This function should *always* be used to convert rejections into responses. This prevents warp
 /// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
 
-pub async fn convert_rejection<T>(res: Result<T, warp::Rejection>) -> respuesta
-where
-    T: Serialize + Send + 'static,
-{
-    match res {
-        Ok(blockedtask) => {
-            let response = match serde_json::to_vec(&blockedtask) {
-                Ok(body) => {
-                    let mut respuesta = respuesta::new(body);
-                    respuesta.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-                    respuesta
-                    // I need to change this 
-                }
-                Err(_) =>warp::reply::with_status( 
-                    warp::reply::json(&"can produce simple response from static values"), 
-                    eth2::StatusCode::INTERNAL_SERVER_ERROR, 
-            };
-            response
-        }
-        Err(e) => {
-            let resp = warp_utils::reject::handle_rejection(e).await;
-            //Building the response with the Rejection
-            match resp {
-                Ok(reply) => {
-                    let response = reply.into_response();
-
-                    // See if this part can be built with response builder from the reply of warp 
-                    let (_parts, body) = response.into_parts();
-                    let body_bytes = hyper::body::to_bytes(body).await.unwrap();
-                    Response::builder()
-                        .status(StatusCode::BAD_REQUEST)
-                        .body(body_bytes.to_vec())
-                        .expect("can't produce response from rejection")
-                }
-                Err(_) => warp::reply::with_status( 
-                    warp::reply::json(&"unhandled error in blocking task"), 
-                    eth2::StatusCode::INTERNAL_SERVER_ERROR, 
-                ) 
-                // This is infallible
-                .into_response(), 
-            }
-        }
-    } // The response that we were previously using whas an struct called Response that has head and body 
-    // Now we are gonna use the response from warp reply 
+pub async fn convert_rejection(e: warp::Rejection , signature : String) -> Response {
+    let mut resp = warp_utils::reject::handle_rejection(e).await.into_response(); // It's infallible 
+    let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
+    resp.headers_mut().append("Signature", header_value);
+    resp
 }
+
 
 /// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
 /// JSON-encodes the return value of `func`, using the `signer` function to produce a signature of
 /// those bytes.
-pub async fn blocking_signed_json_task<S, F, T>(signer: S, func: F) -> Response<Vec<u8>>
+pub async fn blocking_signed_json_task<S, F, T>(signer: S, func: F) -> Response
 where
     S: Fn(&[u8]) -> String,
-    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static, // This specify the function that recieves this function as a F parameter
+    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
     T: Serialize + Send + 'static,
 {
-    // I get the response from my blocking task 
-    let response = warp_utils::task::blocking_task(func).await; // Here i do get what i want 
+    match warp_utils::task::blocking_task(func).await {
+        Ok(blocked_task) => {
+            match serde_json::to_vec(&blocked_task) {
+                Ok(body) => {
+                    let signature = signer(&body);
+                    let mut response = Response::new(body.into());
+                    response.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                    let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
+                    response.headers_mut().append("Signature", header_value);
+                    response
+                }
+                Err(_) => {
+                    let data = "error producing response from blocking task" ;
+                    let body= warp::reply::json(&data); // This does not implement the trait serialize    
+                    let byte_slice: &[u8] = data.as_bytes();
+                    let mut rejection = warp::reply::with_status( 
+                        body, 
+                        eth2::StatusCode::INTERNAL_SERVER_ERROR, 
+                    ).into_response();
+                    let signature = signer(byte_slice);
+                    let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
+                    rejection.headers_mut().append("Signature", header_value);
+                    rejection
+                }   
 
-    let mut conv_res = convert_rejection(response).await;
-    let body: &Vec<u8> = conv_res.body();
-    let signature = signer(body);
-    let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
-    conv_res.headers_mut().append("Signature", header_value);
-    conv_res
+            }
+        }
+        Err(rejection) => {
+            let data = "error in blocking task" ;
+            let byte_slice: &[u8] = data.as_bytes();
+            let signature = signer(byte_slice);
+            convert_rejection(rejection, signature).await
+        }
+    }
 }
