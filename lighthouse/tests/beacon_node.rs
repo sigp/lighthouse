@@ -859,6 +859,23 @@ fn network_port_flag_over_ipv4() {
                     listen_addr.quic_port,
                     listen_addr.tcp_port
                 )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+        });
+
+    let port = 9000;
+    CommandLineTest::new()
+        .flag("port", Some(port.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
                 Some((port, port + 1, port))
             );
         });
@@ -877,7 +894,85 @@ fn network_port_flag_over_ipv6() {
                     listen_addr.quic_port,
                     listen_addr.tcp_port
                 )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+        });
+
+    let port = 9000;
+    CommandLineTest::new()
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
                 Some((port, port + 1, port))
+            );
+        });
+}
+#[test]
+fn network_port_flag_over_ipv4_and_ipv6() {
+    let port = 0;
+    let port6 = 0;
+    CommandLineTest::new()
+        .flag("listen-address", Some("127.0.0.1"))
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("port6", Some(port6.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port6, 0, port6))
+            );
+        });
+
+    let port = 19000;
+    let port6 = 29000;
+    CommandLineTest::new()
+        .flag("listen-address", Some("127.0.0.1"))
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("port6", Some(port6.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
+                Some((port, port + 1, port))
+            );
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
+                Some((port6, port6 + 1, port6))
             );
         });
 }

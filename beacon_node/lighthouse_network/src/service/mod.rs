@@ -1161,9 +1161,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         // Remove the ENR from the cache to prevent continual re-dialing on disconnects
         for enr in peers_to_dial {
-            debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %enr.peer_id());
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
-            self.peer_manager_mut().dial_peer(enr);
+            let peer_id = enr.peer_id();
+            if self.peer_manager_mut().dial_peer(enr) {
+                debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
+            }
         }
     }
 

@@ -101,11 +101,10 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     fn build_request_and_send(
         &mut self,
         id: Id,
-        already_downloaded: bool,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         // Check if request is necessary.
-        if already_downloaded || !matches!(self.get_state().state, State::AwaitingDownload) {
+        if !matches!(self.get_state().state, State::AwaitingDownload) {
             return Ok(());
         }
 
