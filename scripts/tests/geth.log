@@ -1,2 +1,0 @@
-../local_testnet/geth.sh /home/mac/.lighthouse/local-testnet/geth_datadir1 6000 5000 4000
-../local_testnet/geth.sh: line 37: geth: command not found
