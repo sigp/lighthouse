@@ -2268,17 +2268,17 @@ async fn garbage_collect_temp_states_from_failed_block() {
         let block_slot = Slot::new(2 * slots_per_epoch);
         let ((signed_block, _), state) = harness.make_block(genesis_state, block_slot).await;
 
-        let (mut block, _) = signed_block.deconstruct();
+        let (mut block, _) = (*signed_block).clone().deconstruct();
 
         // Mutate the block to make it invalid, and re-sign it.
         *block.state_root_mut() = Hash256::repeat_byte(0xff);
         let proposer_index = block.proposer_index() as usize;
-        let block = block.sign(
+        let block = Arc::new(block.sign(
             &harness.validator_keypairs[proposer_index].sk,
             &state.fork(),
             state.genesis_validators_root(),
             &harness.spec,
-        );
+        ));
 
         // The block should be rejected, but should store a bunch of temporary states.
         harness.set_current_slot(block_slot);
@@ -2421,7 +2421,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .unwrap();
 
     let mock =
-        mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone(), None);
+        mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
 
     // Initialise a new beacon chain from the finalized checkpoint.
     // The slot clock must be set to a time ahead of the checkpoint state.
@@ -2677,7 +2677,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         .chain
         .process_block(
             invalid_fork_block.canonical_root(),
-            Arc::new(invalid_fork_block.clone()),
+            invalid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -2690,7 +2690,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         .chain
         .process_block(
             valid_fork_block.canonical_root(),
-            Arc::new(valid_fork_block.clone()),
+            valid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )

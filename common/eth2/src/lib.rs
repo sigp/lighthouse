@@ -46,6 +46,9 @@ pub const EXECUTION_PAYLOAD_BLINDED_HEADER: &str = "Eth-Execution-Payload-Blinde
 pub const EXECUTION_PAYLOAD_VALUE_HEADER: &str = "Eth-Execution-Payload-Value";
 pub const CONSENSUS_BLOCK_VALUE_HEADER: &str = "Eth-Consensus-Block-Value";
 
+pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
+pub const SSZ_CONTENT_TYPE_HEADER: &str = "application/octet-stream";
+
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
@@ -376,6 +379,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
+<<<<<<< HEAD
     /// Does not include Content-Type application/json in the request header.
     async fn post_generic_json_without_content_type_header<T: Serialize, U: IntoUrl>(
         &self,
@@ -414,6 +418,8 @@ impl BeaconNodeHttpClient {
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
+=======
+>>>>>>> c7e5dd1098a145c0d2174dc65bd23faeb5074249
     async fn post_generic_with_consensus_version<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
@@ -883,10 +889,11 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blocks");
 
-        self.post_generic_with_ssz_body(
+        self.post_generic_with_consensus_version_and_ssz_body(
             path,
             block_contents.as_ssz_bytes(),
             Some(self.timeouts.proposal),
+            block_contents.signed_block().fork_name_unchecked(),
         )
         .await?;
 
@@ -927,8 +934,13 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blinded_blocks");
 
-        self.post_generic_with_ssz_body(path, block.as_ssz_bytes(), Some(self.timeouts.proposal))
-            .await?;
+        self.post_generic_with_consensus_version_and_ssz_body(
+            path,
+            block.as_ssz_bytes(),
+            Some(self.timeouts.proposal),
+            block.fork_name_unchecked(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -1094,8 +1106,18 @@ impl BeaconNodeHttpClient {
     pub async fn get_blobs<T: EthSpec>(
         &self,
         block_id: BlockId,
+        indices: Option<&[u64]>,
     ) -> Result<Option<GenericResponse<BlobSidecarList<T>>>, Error> {
-        let path = self.get_blobs_path(block_id)?;
+        let mut path = self.get_blobs_path(block_id)?;
+        if let Some(indices) = indices {
+            let indices_string = indices
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut()
+                .append_pair("indices", &indices_string);
+        }
         let Some(response) = self.get_response(path, |b| b).await.optional()? else {
             return Ok(None);
         };
@@ -1848,6 +1870,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
+        builder_booster_factor: Option<u64>,
     ) -> Result<Url, Error> {
         let mut path = self.eth_path(V3)?;
 
@@ -1870,6 +1893,11 @@ impl BeaconNodeHttpClient {
                 .append_pair("skip_randao_verification", "");
         }
 
+        if let Some(builder_booster_factor) = builder_booster_factor {
+            path.query_pairs_mut()
+                .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
+        }
+
         Ok(path)
     }
 
@@ -1879,12 +1907,14 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
+        builder_booster_factor: Option<u64>,
     ) -> Result<(JsonProduceBlockV3Response<T>, ProduceBlockV3Metadata), Error> {
         self.get_validator_blocks_v3_modular(
             slot,
             randao_reveal,
             graffiti,
             SkipRandaoVerification::No,
+            builder_booster_factor,
         )
         .await
     }
@@ -1896,9 +1926,16 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
+        builder_booster_factor: Option<u64>,
     ) -> Result<(JsonProduceBlockV3Response<T>, ProduceBlockV3Metadata), Error> {
         let path = self
-            .get_validator_blocks_v3_path(slot, randao_reveal, graffiti, skip_randao_verification)
+            .get_validator_blocks_v3_path(
+                slot,
+                randao_reveal,
+                graffiti,
+                skip_randao_verification,
+                builder_booster_factor,
+            )
             .await?;
 
         let opt_result = self
@@ -1939,12 +1976,14 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
+        builder_booster_factor: Option<u64>,
     ) -> Result<(ProduceBlockV3Response<T>, ProduceBlockV3Metadata), Error> {
         self.get_validator_blocks_v3_modular_ssz::<T>(
             slot,
             randao_reveal,
             graffiti,
             SkipRandaoVerification::No,
+            builder_booster_factor,
         )
         .await
     }
@@ -1956,9 +1995,16 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
+        builder_booster_factor: Option<u64>,
     ) -> Result<(ProduceBlockV3Response<T>, ProduceBlockV3Metadata), Error> {
         let path = self
-            .get_validator_blocks_v3_path(slot, randao_reveal, graffiti, skip_randao_verification)
+            .get_validator_blocks_v3_path(
+                slot,
+                randao_reveal,
+                graffiti,
+                skip_randao_verification,
+                builder_booster_factor,
+            )
             .await?;
 
         let opt_response = self

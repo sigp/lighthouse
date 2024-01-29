@@ -12,8 +12,8 @@ use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
-    signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
-    IntoExecutionPendingBlock,
+    signature_verify_chain_segment, verify_header_signature, BlockError, ExecutionPendingBlock,
+    GossipVerifiedBlock, IntoExecutionPendingBlock,
 };
 use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RpcBlock,
@@ -30,7 +30,7 @@ use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
-use crate::head_tracker::HeadTracker;
+use crate::head_tracker::{HeadTracker, HeadTrackerReader, SszHeadTracker};
 use crate::historical_blocks::HistoricalBlockError;
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
@@ -52,6 +52,7 @@ use crate::observed_attesters::{
 use crate::observed_blob_sidecars::ObservedBlobSidecars;
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
+use crate::observed_slashable::ObservedSlashable;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
@@ -407,6 +408,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of blob sidecars seen over the gossip network.
     pub observed_blob_sidecars: RwLock<ObservedBlobSidecars<T::EthSpec>>,
+    /// Maintains a record of slashable message seen over the gossip network or RPC.
+    pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
     pub(crate) observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
     /// Maintains a record of which validators we've seen proposer slashings for.
@@ -508,11 +511,15 @@ impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
         }
     }
 
-    pub fn consensus_block_value(&self) -> u64 {
+    pub fn consensus_block_value_gwei(&self) -> u64 {
         match self {
             BeaconBlockResponseWrapper::Full(resp) => resp.consensus_block_value,
             BeaconBlockResponseWrapper::Blinded(resp) => resp.consensus_block_value,
         }
+    }
+
+    pub fn consensus_block_value_wei(&self) -> Uint256 {
+        Uint256::from(self.consensus_block_value_gwei()) * 1_000_000_000
     }
 
     pub fn is_blinded(&self) -> bool {
@@ -603,12 +610,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut batch = vec![];
 
         let _head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
-        batch.push(self.persist_head_in_batch());
+
+        // Hold a lock to head_tracker until it has been persisted to disk. Otherwise there's a race
+        // condition with the pruning thread which can result in a block present in the head tracker
+        // but absent in the DB. This inconsistency halts pruning and dramastically increases disk
+        // size. Ref: https://github.com/sigp/lighthouse/issues/4773
+        let head_tracker = self.head_tracker.0.read();
+        batch.push(self.persist_head_in_batch(&head_tracker));
 
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
         batch.push(self.persist_fork_choice_in_batch());
 
         self.store.hot_db.do_atomically(batch)?;
+        drop(head_tracker);
 
         Ok(())
     }
@@ -616,25 +630,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return a `PersistedBeaconChain` without reference to a `BeaconChain`.
     pub fn make_persisted_head(
         genesis_block_root: Hash256,
-        head_tracker: &HeadTracker,
+        head_tracker_reader: &HeadTrackerReader,
     ) -> PersistedBeaconChain {
         PersistedBeaconChain {
             _canonical_head_block_root: DUMMY_CANONICAL_HEAD_BLOCK_ROOT,
             genesis_block_root,
-            ssz_head_tracker: head_tracker.to_ssz_container(),
+            ssz_head_tracker: SszHeadTracker::from_map(head_tracker_reader),
         }
     }
 
     /// Return a database operation for writing the beacon chain head to disk.
-    pub fn persist_head_in_batch(&self) -> KeyValueStoreOp {
-        Self::persist_head_in_batch_standalone(self.genesis_block_root, &self.head_tracker)
+    pub fn persist_head_in_batch(
+        &self,
+        head_tracker_reader: &HeadTrackerReader,
+    ) -> KeyValueStoreOp {
+        Self::persist_head_in_batch_standalone(self.genesis_block_root, head_tracker_reader)
     }
 
     pub fn persist_head_in_batch_standalone(
         genesis_block_root: Hash256,
-        head_tracker: &HeadTracker,
+        head_tracker_reader: &HeadTrackerReader,
     ) -> KeyValueStoreOp {
-        Self::make_persisted_head(genesis_block_root, head_tracker)
+        Self::make_persisted_head(genesis_block_root, head_tracker_reader)
             .as_kv_store_op(BEACON_CHAIN_DB_KEY)
     }
 
@@ -1334,6 +1351,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.head_tracker.heads()
     }
 
+    /// Only used in tests.
     pub fn knows_head(&self, block_hash: &SignedBeaconBlockHash) -> bool {
         self.head_tracker.contains_head((*block_hash).into())
     }
@@ -3157,9 +3175,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        if let Some(slasher) = self.slasher.as_ref() {
-            for blob_sidecar in blobs.iter().filter_map(|blob| blob.clone()) {
-                slasher.accept_block_header(blob_sidecar.signed_block_header.clone());
+        // Need to scope this to ensure the lock is dropped before calling `process_availability`
+        // Even an explicit drop is not enough to convince the borrow checker.
+        {
+            let mut slashable_cache = self.observed_slashable.write();
+            for header in blobs
+                .into_iter()
+                .filter_map(|b| b.as_ref().map(|b| b.signed_block_header.clone()))
+                .unique()
+            {
+                if verify_header_signature::<T, BlockError<T::EthSpec>>(self, &header).is_ok() {
+                    slashable_cache
+                        .observe_slashable(
+                            header.message.slot,
+                            header.message.proposer_index,
+                            block_root,
+                        )
+                        .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                    if let Some(slasher) = self.slasher.as_ref() {
+                        slasher.accept_block_header(header);
+                    }
+                }
             }
         }
         let availability = self
@@ -4021,6 +4057,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
+        builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<BeaconBlockResponseWrapper<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
@@ -4049,6 +4086,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             randao_reveal,
             validator_graffiti,
             verification,
+            builder_boost_factor,
             block_production_version,
         )
         .await
@@ -4652,6 +4690,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
+        builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<BeaconBlockResponseWrapper<T::EthSpec>, BlockProductionError> {
         // Part 1/3 (blocking)
@@ -4668,6 +4707,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         produce_at_slot,
                         randao_reveal,
                         validator_graffiti,
+                        builder_boost_factor,
                         block_production_version,
                     )
                 },
@@ -4757,6 +4797,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn produce_partial_beacon_block(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
@@ -4764,6 +4805,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
+        builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<PartialBeaconBlock<T::EthSpec>, BlockProductionError> {
         let eth1_chain = self
@@ -4825,6 +4867,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     parent_root,
                     proposer_index,
                     builder_params,
+                    builder_boost_factor,
                     block_production_version,
                 )?;
                 Some(prepare_payload_handle)

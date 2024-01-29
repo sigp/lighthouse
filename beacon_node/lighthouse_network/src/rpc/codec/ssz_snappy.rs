@@ -15,10 +15,11 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
+use types::ChainSpec;
 use types::{
-    BlobSidecar, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockMerge,
+    BlobSidecar, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap,
+    RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -140,7 +141,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
-        let ssz_limits = self.protocol.rpc_request_limits();
+        let ssz_limits = self.protocol.rpc_request_limits(&self.fork_context.spec);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
                 "RPC request length for protocol {:?} is out of bounds, length {}",
@@ -161,7 +162,11 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
-                handle_rpc_request(self.protocol.versioned_protocol, &decoded_buffer)
+                handle_rpc_request(
+                    self.protocol.versioned_protocol,
+                    &decoded_buffer,
+                    &self.fork_context.spec,
+                )
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
@@ -451,6 +456,7 @@ fn handle_length(
 fn handle_rpc_request<T: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
+    spec: &ChainSpec,
 ) -> Result<Option<InboundRequest<T>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(InboundRequest::Status(
@@ -467,12 +473,18 @@ fn handle_rpc_request<T: EthSpec>(
         ))),
         SupportedProtocol::BlocksByRootV2 => Ok(Some(InboundRequest::BlocksByRoot(
             BlocksByRootRequest::V2(BlocksByRootRequestV2 {
-                block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
+                block_roots: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    spec.max_request_blocks as usize,
+                )?,
             }),
         ))),
         SupportedProtocol::BlocksByRootV1 => Ok(Some(InboundRequest::BlocksByRoot(
             BlocksByRootRequest::V1(BlocksByRootRequestV1 {
-                block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
+                block_roots: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    spec.max_request_blocks as usize,
+                )?,
             }),
         ))),
         SupportedProtocol::BlobsByRangeV1 => Ok(Some(InboundRequest::BlobsByRange(
@@ -480,7 +492,10 @@ fn handle_rpc_request<T: EthSpec>(
         ))),
         SupportedProtocol::BlobsByRootV1 => {
             Ok(Some(InboundRequest::BlobsByRoot(BlobsByRootRequest {
-                blob_ids: VariableList::from_ssz_bytes(decoded_buffer)?,
+                blob_ids: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    spec.max_request_blob_sidecars as usize,
+                )?,
             })))
         }
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
@@ -773,21 +788,22 @@ mod tests {
         }
     }
 
-    fn bbroot_request_v1() -> BlocksByRootRequest {
-        BlocksByRootRequest::new_v1(vec![Hash256::zero()].into())
+    fn bbroot_request_v1(spec: &ChainSpec) -> BlocksByRootRequest {
+        BlocksByRootRequest::new_v1(vec![Hash256::zero()], spec)
     }
 
-    fn bbroot_request_v2() -> BlocksByRootRequest {
-        BlocksByRootRequest::new(vec![Hash256::zero()].into())
+    fn bbroot_request_v2(spec: &ChainSpec) -> BlocksByRootRequest {
+        BlocksByRootRequest::new(vec![Hash256::zero()], spec)
     }
 
-    fn blbroot_request() -> BlobsByRootRequest {
-        BlobsByRootRequest {
-            blob_ids: VariableList::from(vec![BlobIdentifier {
+    fn blbroot_request(spec: &ChainSpec) -> BlobsByRootRequest {
+        BlobsByRootRequest::new(
+            vec![BlobIdentifier {
                 block_root: Hash256::zero(),
                 index: 0,
-            }]),
-        }
+            }],
+            spec,
+        )
     }
 
     fn ping_message() -> Ping {
@@ -1391,21 +1407,21 @@ mod tests {
 
     #[test]
     fn test_encode_then_decode_request() {
+        let chain_spec = Spec::default_spec();
+
         let requests: &[OutboundRequest<Spec>] = &[
             OutboundRequest::Ping(ping_message()),
             OutboundRequest::Status(status_message()),
             OutboundRequest::Goodbye(GoodbyeReason::Fault),
             OutboundRequest::BlocksByRange(bbrange_request_v1()),
             OutboundRequest::BlocksByRange(bbrange_request_v2()),
-            OutboundRequest::BlocksByRoot(bbroot_request_v1()),
-            OutboundRequest::BlocksByRoot(bbroot_request_v2()),
+            OutboundRequest::BlocksByRoot(bbroot_request_v1(&chain_spec)),
+            OutboundRequest::BlocksByRoot(bbroot_request_v2(&chain_spec)),
             OutboundRequest::MetaData(MetadataRequest::new_v1()),
             OutboundRequest::BlobsByRange(blbrange_request()),
-            OutboundRequest::BlobsByRoot(blbroot_request()),
+            OutboundRequest::BlobsByRoot(blbroot_request(&chain_spec)),
             OutboundRequest::MetaData(MetadataRequest::new_v2()),
         ];
-
-        let chain_spec = Spec::default_spec();
 
         for req in requests.iter() {
             for fork_name in ForkName::list_all() {

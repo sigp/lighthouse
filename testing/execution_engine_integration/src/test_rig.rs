@@ -334,6 +334,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 builder_params,
                 TEST_FORK,
                 &self.spec,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await
@@ -485,6 +486,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 builder_params,
                 TEST_FORK,
                 &self.spec,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await

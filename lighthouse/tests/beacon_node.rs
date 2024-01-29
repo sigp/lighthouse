@@ -93,6 +93,22 @@ fn staking_flag() {
 }
 
 #[test]
+fn allow_insecure_genesis_sync() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, false);
+        });
+
+    CommandLineTest::new()
+        .flag("allow-insecure-genesis-sync", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, true);
+        });
+}
+
+#[test]
 fn wss_checkpoint_flag() {
     let state = Some(Checkpoint {
         epoch: Epoch::new(1010),
@@ -581,102 +597,6 @@ fn builder_fallback_flags() {
             assert_eq!(config.chain.builder_fallback_disable_checks, true);
         },
     );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("builder-profit-threshold"),
-        Some("1000000000000000000000000"),
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .builder_profit_threshold,
-                1000000000000000000000000
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .builder_profit_threshold,
-                0
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("always-prefer-builder-payload"),
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .always_prefer_builder_payload,
-                true
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .always_prefer_builder_payload,
-                false
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("ignore-builder-override-suggestion-threshold"),
-        Some("53.4"),
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .ignore_builder_override_suggestion_threshold,
-                53.4f32
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .ignore_builder_override_suggestion_threshold,
-                10.0f32
-            );
-        },
-    );
 }
 
 #[test]
@@ -939,6 +859,23 @@ fn network_port_flag_over_ipv4() {
                     listen_addr.quic_port,
                     listen_addr.tcp_port
                 )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+        });
+
+    let port = 9000;
+    CommandLineTest::new()
+        .flag("port", Some(port.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
                 Some((port, port + 1, port))
             );
         });
@@ -957,7 +894,85 @@ fn network_port_flag_over_ipv6() {
                     listen_addr.quic_port,
                     listen_addr.tcp_port
                 )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+        });
+
+    let port = 9000;
+    CommandLineTest::new()
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
                 Some((port, port + 1, port))
+            );
+        });
+}
+#[test]
+fn network_port_flag_over_ipv4_and_ipv6() {
+    let port = 0;
+    let port6 = 0;
+    CommandLineTest::new()
+        .flag("listen-address", Some("127.0.0.1"))
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("port6", Some(port6.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port6, 0, port6))
+            );
+        });
+
+    let port = 19000;
+    let port6 = 29000;
+    CommandLineTest::new()
+        .flag("listen-address", Some("127.0.0.1"))
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("port6", Some(port6.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
+                Some((port, port + 1, port))
+            );
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
+                Some((port6, port6 + 1, port6))
             );
         });
 }

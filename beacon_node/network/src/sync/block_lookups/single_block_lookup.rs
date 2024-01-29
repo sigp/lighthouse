@@ -92,6 +92,10 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.block_request_state.requested_block_root = block_root;
         self.block_request_state.state.state = State::AwaitingDownload;
         self.blob_request_state.state.state = State::AwaitingDownload;
+        self.block_request_state.state.component_downloaded = false;
+        self.blob_request_state.state.component_downloaded = false;
+        self.block_request_state.state.component_processed = false;
+        self.blob_request_state.state.component_processed = false;
         self.child_components = Some(ChildComponents::empty(block_root));
     }
 
@@ -110,19 +114,18 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         &mut self,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
-        let block_root = self.block_root();
         let block_already_downloaded = self.block_already_downloaded();
         let blobs_already_downloaded = self.blobs_already_downloaded();
 
-        if block_already_downloaded && blobs_already_downloaded {
-            trace!(cx.log, "Lookup request already completed"; "block_root"=> ?block_root);
-            return Ok(());
+        if !block_already_downloaded {
+            self.block_request_state
+                .build_request_and_send(self.id, cx)?;
         }
-        let id = self.id;
-        self.block_request_state
-            .build_request_and_send(id, block_already_downloaded, cx)?;
-        self.blob_request_state
-            .build_request_and_send(id, blobs_already_downloaded, cx)
+        if !blobs_already_downloaded {
+            self.blob_request_state
+                .build_request_and_send(self.id, cx)?;
+        }
+        Ok(())
     }
 
     /// Returns a `CachedChild`, which is a wrapper around a `RpcBlock` that is either:
@@ -575,7 +578,7 @@ mod tests {
             HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
                 .expect("store");
         let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec)
+            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
                 .expect("data availability checker"),
         );
         let mut sl = SingleBlockLookup::<TestLookup1, T>::new(
@@ -587,6 +590,7 @@ mod tests {
         );
         <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::build_request(
             &mut sl.block_request_state,
+            &spec,
         )
         .unwrap();
         sl.block_request_state.state.state = State::Downloading { peer_id };
@@ -616,7 +620,7 @@ mod tests {
                 .expect("store");
 
         let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec)
+            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
                 .expect("data availability checker"),
         );
 
@@ -630,6 +634,7 @@ mod tests {
         for _ in 1..TestLookup2::MAX_ATTEMPTS {
             <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
                 &mut sl.block_request_state,
+                &spec,
             )
             .unwrap();
             sl.block_request_state.state.register_failure_downloading();
@@ -638,6 +643,7 @@ mod tests {
         // Now we receive the block and send it for processing
         <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
             &mut sl.block_request_state,
+            &spec,
         )
         .unwrap();
         sl.block_request_state.state.state = State::Downloading { peer_id };
@@ -654,7 +660,8 @@ mod tests {
         sl.block_request_state.state.register_failure_processing();
         assert_eq!(
             <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
-                &mut sl.block_request_state
+                &mut sl.block_request_state,
+                &spec
             ),
             Err(LookupRequestError::TooManyAttempts {
                 cannot_process: false

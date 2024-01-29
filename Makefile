@@ -14,7 +14,7 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
-# List of features to use when building natively. Can be overriden via the environment.
+# List of features to use when building natively. Can be overridden via the environment.
 # No jemalloc on Windows
 ifeq ($(OS),Windows_NT)
     FEATURES?=
@@ -200,12 +200,17 @@ test-exec-engine:
 # test vectors.
 test: test-release
 
-# Updates the CLI help text pages in the Lighthouse book.
+# Updates the CLI help text pages in the Lighthouse book, building with Docker.
 cli:
 	docker run --rm --user=root \
 	-v ${PWD}:/home/runner/actions-runner/lighthouse sigmaprime/github-runner \
 	bash -c 'cd lighthouse && make && ./scripts/cli.sh'
-	
+
+# Updates the CLI help text pages in the Lighthouse book, building using local
+# `cargo`.
+cli-local:
+	make && ./scripts/cli.sh
+
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
