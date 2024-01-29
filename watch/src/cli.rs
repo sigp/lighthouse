@@ -1,6 +1,5 @@
 use crate::{config::Config, logger, server, updater};
 use clap::{App, Arg};
-use tokio::sync::oneshot;
 
 pub const SERVE: &str = "serve";
 pub const RUN_UPDATER: &str = "run-updater";
@@ -44,12 +43,9 @@ pub async fn run() -> Result<(), String> {
         (RUN_UPDATER, Some(_)) => updater::run_updater(config)
             .await
             .map_err(|e| format!("Failure: {:?}", e)),
-        (SERVE, Some(_)) => {
-            let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-            server::serve(config, shutdown_rx)
-                .await
-                .map_err(|e| format!("Failure: {:?}", e))
-        }
+        (SERVE, Some(_)) => server::serve(config)
+            .await
+            .map_err(|e| format!("Failure: {:?}", e)),
         _ => Err("Unsupported subcommand. See --help".into()),
     }
 }

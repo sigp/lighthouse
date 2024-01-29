@@ -112,7 +112,7 @@ impl Default for ChainConfig {
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
             always_prepare_payload: false,
-            progressive_balances_mode: ProgressiveBalancesMode::Checked,
+            progressive_balances_mode: ProgressiveBalancesMode::Fast,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
         }
     }

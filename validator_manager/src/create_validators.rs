@@ -25,6 +25,8 @@ pub const ETH1_WITHDRAWAL_ADDRESS_FLAG: &str = "eth1-withdrawal-address";
 pub const GAS_LIMIT_FLAG: &str = "gas-limit";
 pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
 pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
+pub const BUILDER_BOOST_FACTOR_FLAG: &str = "builder-boost-factor";
+pub const PREFER_BUILDER_PROPOSALS_FLAG: &str = "prefer-builder-proposals";
 pub const BEACON_NODE_FLAG: &str = "beacon-node";
 pub const FORCE_BLS_WITHDRAWAL_CREDENTIALS: &str = "force-bls-withdrawal-credentials";
 
@@ -183,6 +185,30 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     address. This is not recommended.",
                 ),
         )
+        .arg(
+            Arg::with_name(BUILDER_BOOST_FACTOR_FLAG)
+                .long(BUILDER_BOOST_FACTOR_FLAG)
+                .takes_value(true)
+                .value_name("UINT64")
+                .required(false)
+                .help(
+                    "Defines the boost factor, \
+                    a percentage multiplier to apply to the builder's payload value \
+                    when choosing between a builder payload header and payload from \
+                    the local execution node.",
+                ),
+        )
+        .arg(
+            Arg::with_name(PREFER_BUILDER_PROPOSALS_FLAG)
+                .long(PREFER_BUILDER_PROPOSALS_FLAG)
+                .help(
+                    "If this flag is set, Lighthouse will always prefer blocks \
+                    constructed by builders, regardless of payload value.",
+                )
+                .required(false)
+                .possible_values(&["true", "false"])
+                .takes_value(true),
+        )
 }
 
 /// The CLI arguments are parsed into this struct before running the application. This step of
@@ -199,6 +225,8 @@ pub struct CreateConfig {
     pub specify_voting_keystore_password: bool,
     pub eth1_withdrawal_address: Option<Address>,
     pub builder_proposals: Option<bool>,
+    pub builder_boost_factor: Option<u64>,
+    pub prefer_builder_proposals: Option<bool>,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
     pub bn_url: Option<SensitiveUrl>,
@@ -223,6 +251,11 @@ impl CreateConfig {
                 ETH1_WITHDRAWAL_ADDRESS_FLAG,
             )?,
             builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS_FLAG)?,
+            builder_boost_factor: clap_utils::parse_optional(matches, BUILDER_BOOST_FACTOR_FLAG)?,
+            prefer_builder_proposals: clap_utils::parse_optional(
+                matches,
+                PREFER_BUILDER_PROPOSALS_FLAG,
+            )?,
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
             bn_url: clap_utils::parse_optional(matches, BEACON_NODE_FLAG)?,
@@ -254,6 +287,8 @@ impl ValidatorsAndDeposits {
             gas_limit,
             bn_url,
             force_bls_withdrawal_credentials,
+            builder_boost_factor,
+            prefer_builder_proposals,
         } = config;
 
         // Since Capella, it really doesn't make much sense to use BLS
@@ -456,6 +491,8 @@ impl ValidatorsAndDeposits {
                 fee_recipient,
                 gas_limit,
                 builder_proposals,
+                builder_boost_factor,
+                prefer_builder_proposals,
                 // Allow the VC to choose a default "enabled" state. Since "enabled" is not part of
                 // the standard API, leaving this as `None` means we are not forced to use the
                 // non-standard API.
@@ -585,6 +622,8 @@ pub mod tests {
                 specify_voting_keystore_password: false,
                 eth1_withdrawal_address: junk_execution_address(),
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 bn_url: None,
