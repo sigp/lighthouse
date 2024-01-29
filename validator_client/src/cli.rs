@@ -371,8 +371,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("disable-slashing-protection-web3signer")
                 .long("disable-slashing-protection-web3signer")
                 .help("Disable Lighthouse's slashing protection for all web3signer keys. This can \
-                       reduce the I/O burden on the VC and is safe as long as the remote signer \
-                       implements slashing protection correctly.")
+                       reduce the I/O burden on the VC and is safe as long as slashing protection \
+                       is enabled on the remote signer and is implemented correctly.")
                 .takes_value(true),
         )
 }
