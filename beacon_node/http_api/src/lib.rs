@@ -1410,7 +1410,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            move |block_contents: SignedBlindedBeaconBlock<T::EthSpec>,
+            move |block_contents: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1450,6 +1450,7 @@ pub fn serve<T: BeaconChainTypes>(
                         &block_bytes,
                         &chain.spec,
                     )
+                    .map(Arc::new)
                     .map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
                     })?;
@@ -1478,7 +1479,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  blinded_block: SignedBlindedBeaconBlock<T::EthSpec>,
+                  blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1519,6 +1520,7 @@ pub fn serve<T: BeaconChainTypes>(
                         &block_bytes,
                         &chain.spec,
                     )
+                    .map(Arc::new)
                     .map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
                     })?;
@@ -1702,18 +1704,19 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("blob_sidecars"))
         .and(block_id_or_err)
-        .and(warp::query::<api_types::BlobIndicesQuery>())
         .and(warp::path::end())
+        .and(multi_key_query::<api_types::BlobIndicesQuery>())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |block_id: BlockId,
-             indices: api_types::BlobIndicesQuery,
+             indices_res: Result<api_types::BlobIndicesQuery, warp::Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
+                    let indices = indices_res?;
                     let blob_sidecar_list_filtered =
                         block_id.blob_sidecar_list_filtered(indices, &chain)?;
                     match accept_header {
