@@ -1,5 +1,5 @@
 use crate::hdiff::HierarchyConfig;
-use crate::{DBColumn, Error, StoreItem};
+use crate::{AnchorInfo, DBColumn, Error, Split, StoreItem};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -117,15 +117,22 @@ impl StoreConfig {
     pub fn check_compatibility(
         &self,
         on_disk_config: &OnDiskStoreConfig,
+        split: &Split,
+        anchor: Option<&AnchorInfo>,
     ) -> Result<(), StoreConfigError> {
         let db_config = self.as_disk_config();
-        if db_config.ne(on_disk_config) {
-            return Err(StoreConfigError::IncompatibleStoreConfig {
+        // Allow changing the hierarchy exponents if no historic states are stored.
+        if db_config.linear_blocks == on_disk_config.linear_blocks
+            && (db_config.hierarchy_config == on_disk_config.hierarchy_config
+                || anchor.map_or(false, |anchor| anchor.state_upper_limit >= split.slot))
+        {
+            Ok(())
+        } else {
+            Err(StoreConfigError::IncompatibleStoreConfig {
                 config: db_config,
                 on_disk: on_disk_config.clone(),
-            });
+            })
         }
-        Ok(())
     }
 
     /// Check that the configuration is valid.
