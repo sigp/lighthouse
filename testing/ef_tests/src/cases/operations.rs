@@ -490,7 +490,7 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
 
         // Processing requires the committee caches.
         // NOTE: some of the withdrawals tests have 0 active validators, do not try
-        // to build the commitee cache in this case.
+        // to build the committee cache in this case.
         if O::handler_name() != "withdrawals" {
             state.build_all_committee_caches(spec).unwrap();
         }
