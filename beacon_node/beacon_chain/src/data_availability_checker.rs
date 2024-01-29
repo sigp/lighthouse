@@ -192,8 +192,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.peek_blob(blob_id)
     }
 
-    /// Get a block from the availability cache. Only checks for blocks stored in memory. Useful
-    /// for serving RPC requests.
+    /// Get a block from the availability cache. Includes any blocks we are currently processing.
     pub fn get_block(&self, block_root: &Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
         self.processing_cache
             .read()
