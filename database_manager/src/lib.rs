@@ -537,7 +537,10 @@ pub fn prune_states<E: EthSpec>(
     // Check that the user has confirmed they want to proceed.
     if !prune_config.confirm {
         match db.get_anchor_info() {
-            Some(anchor_info) if anchor_info.state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN => {
+            Some(anchor_info)
+                if anchor_info.state_lower_limit == 0
+                    && anchor_info.state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN =>
+            {
                 info!(log, "States have already been pruned");
                 return Ok(());
             }
