@@ -35,11 +35,11 @@ use state_processing::{
 use std::cmp::min;
 use std::convert::TryInto;
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::BlobSidecarList;
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -85,7 +85,7 @@ struct BlockCache<E: EthSpec> {
 }
 
 impl<E: EthSpec> BlockCache<E> {
-    pub fn new(size: usize) -> Self {
+    pub fn new(size: NonZeroUsize) -> Self {
         Self {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
@@ -2054,7 +2054,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
         let min_data_availability_boundary = std::cmp::max(
             deneb_fork_epoch,
-            min_current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+            min_current_epoch.saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
         );
 
         self.try_prune_blobs(force, min_data_availability_boundary)
@@ -2216,7 +2216,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// This function fills in missing block roots between last restore point slot and split
     /// slot, if any.  
-    pub fn heal_freezer_block_roots(&self) -> Result<(), Error> {
+    pub fn heal_freezer_block_roots_at_split(&self) -> Result<(), Error> {
         let split = self.get_split_info();
         let last_restore_point_slot = (split.slot - 1) / self.config.slots_per_restore_point
             * self.config.slots_per_restore_point;
@@ -2245,6 +2245,53 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
+    pub fn heal_freezer_block_roots_at_genesis(&self) -> Result<(), Error> {
+        let oldest_block_slot = self.get_oldest_block_slot();
+        let split_slot = self.get_split_slot();
+
+        // Check if backfill has been completed AND the freezer db has data in it
+        if oldest_block_slot != 0 || split_slot == 0 {
+            return Ok(());
+        }
+
+        let mut block_root_iter = self.forwards_block_roots_iterator_until(
+            Slot::new(0),
+            split_slot - 1,
+            || {
+                Err(Error::DBError {
+                    message: "Should not require end state".to_string(),
+                })
+            },
+            &self.spec,
+        )?;
+
+        let (genesis_block_root, _) = block_root_iter.next().ok_or_else(|| Error::DBError {
+            message: "Genesis block root missing".to_string(),
+        })??;
+
+        let slots_to_fix = itertools::process_results(block_root_iter, |iter| {
+            iter.take_while(|(block_root, _)| block_root.is_zero())
+                .map(|(_, slot)| slot)
+                .collect::<Vec<_>>()
+        })?;
+
+        let Some(first_slot) = slots_to_fix.first() else {
+            return Ok(());
+        };
+
+        let mut chunk_writer =
+            ChunkWriter::<BlockRoots, _, _>::new(&self.cold_db, first_slot.as_usize())?;
+        let mut ops = vec![];
+        for slot in slots_to_fix {
+            chunk_writer.set(slot.as_usize(), genesis_block_root, &mut ops)?;
+        }
+
+        chunk_writer.write(&mut ops)?;
+        self.cold_db.do_atomically(ops)?;
+
+        Ok(())
+    }
+
     /// Delete *all* states from the freezer database and update the anchor accordingly.
     ///
     /// WARNING: this method deletes the genesis state and replaces it with the provided
@@ -2257,7 +2304,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         genesis_state: &BeaconState<E>,
     ) -> Result<(), Error> {
         // Make sure there is no missing block roots before pruning
-        self.heal_freezer_block_roots()?;
+        self.heal_freezer_block_roots_at_split()?;
 
         // Update the anchor to use the dummy state upper limit and disable historic state storage.
         let old_anchor = self.get_anchor_info();

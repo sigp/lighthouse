@@ -137,6 +137,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("produce-block-v3")
+                .long("produce-block-v3")
+                .help("Enable block production via the block v3 endpoint for this validator client. \
+                       This should only be enabled when paired with a beacon node \
+                       that has this endpoint implemented. This flag will be enabled by default in \
+                       future.")
+                .takes_value(false)
+        )
+        .arg(
             Arg::with_name("distributed")
                 .long("distributed")
                 .help("Enables functionality required for running the validator in a distributed validator cluster.")
@@ -345,5 +354,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     can be reduced to avoid timeouts from builders.")
                 .default_value("500")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("builder-boost-factor")
+                .long("builder-boost-factor")
+                .value_name("UINT64")
+                .help("Defines the boost factor, \
+                    a percentage multiplier to apply to the builder's payload value \
+                    when choosing between a builder payload header and payload from \
+                    the local execution node.")
+                .conflicts_with("prefer-builder-proposals")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("prefer-builder-proposals")
+                .long("prefer-builder-proposals")
+                .help("If this flag is set, Lighthouse will always prefer blocks \
+                    constructed by builders, regardless of payload value.")
+                .takes_value(false),
         )
 }

@@ -46,7 +46,8 @@ pub fn upgrade_to_v18<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    db.heal_freezer_block_roots()?;
+    db.heal_freezer_block_roots_at_split()?;
+    db.heal_freezer_block_roots_at_genesis()?;
     info!(log, "Healed freezer block roots");
 
     // No-op, even if Deneb has already occurred. The database is probably borked in this case, but

@@ -49,7 +49,7 @@ lazy_static::lazy_static! {
     // Gossip blobs.
     pub static ref BEACON_PROCESSOR_GOSSIP_BLOB_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_gossip_blob_queue_total",
-        "Count of blocks from gossip waiting to be verified."
+        "Count of blobs from gossip waiting to be verified."
     );
     // Gossip Exits.
     pub static ref BEACON_PROCESSOR_EXIT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(

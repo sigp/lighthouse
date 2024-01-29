@@ -14,8 +14,8 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
+use eth2::types::FullPayloadContents;
 use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
-use eth2::types::{FullPayloadContents, SignedBlockContents};
 use ethers_core::types::Transaction as EthersTransaction;
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
@@ -29,6 +29,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -42,9 +43,11 @@ use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::builder_bid::BuilderBid;
+use types::non_zero_usize::new_non_zero_usize;
 use types::payload::BlockProductionVersion;
-use types::sidecar::{BlobItems, Sidecar};
-use types::{AbstractExecPayload, ExecutionPayloadDeneb, KzgProofs};
+use types::{
+    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, KzgProofs, SignedBlindedBeaconBlock,
+};
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadCapella,
     ExecutionPayloadMerge, FullPayload, ProposerPreparationData, PublicKeyBytes, Signature, Slot,
@@ -67,7 +70,7 @@ pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
 
 /// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
 /// in an LRU cache to avoid redundant lookups. This is the size of that cache.
-const EXECUTION_BLOCKS_LRU_CACHE_SIZE: usize = 128;
+const EXECUTION_BLOCKS_LRU_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.
@@ -103,12 +106,8 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
             BuilderBid::Deneb(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Deneb(builder_bid.header).into(),
                 block_value: builder_bid.value,
-                kzg_commitments: builder_bid.blinded_blobs_bundle.commitments,
-                blobs: BlobItems::<E>::try_from_blob_roots(
-                    builder_bid.blinded_blobs_bundle.blob_roots,
-                )
-                .map_err(Error::InvalidBlobConversion)?,
-                proofs: builder_bid.blinded_blobs_bundle.proofs,
+                kzg_commitments: builder_bid.blob_kzg_commitments,
+                blobs_and_proofs: None,
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -170,8 +169,8 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         payload: Payload,
         block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
-        blobs: <Payload::Sidecar as Sidecar<T>>::BlobItems,
-        proofs: KzgProofs<T>,
+        /// `None` for blinded `PayloadAndBlobs`.
+        blobs_and_proofs: Option<(BlobsList<T>, KzgProofs<T>)>,
     },
 }
 
@@ -179,15 +178,26 @@ impl<T: EthSpec> From<BlockProposalContents<T, FullPayload<T>>>
     for BlockProposalContents<T, BlindedPayload<T>>
 {
     fn from(item: BlockProposalContents<T, FullPayload<T>>) -> Self {
-        let block_value = item.block_value().to_owned();
-
-        let blinded_payload: BlockProposalContents<T, BlindedPayload<T>> =
+        match item {
             BlockProposalContents::Payload {
-                payload: item.to_payload().execution_payload().into(),
+                payload,
                 block_value,
-            };
-
-        blinded_payload
+            } => BlockProposalContents::Payload {
+                payload: payload.execution_payload().into(),
+                block_value,
+            },
+            BlockProposalContents::PayloadAndBlobs {
+                payload,
+                block_value,
+                kzg_commitments,
+                blobs_and_proofs: _,
+            } => BlockProposalContents::PayloadAndBlobs {
+                payload: payload.execution_payload().into(),
+                block_value,
+                kzg_commitments,
+                blobs_and_proofs: None,
+            },
+        }
     }
 }
 
@@ -203,9 +213,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
                 payload: execution_payload.into(),
                 block_value,
                 kzg_commitments: bundle.commitments,
-                blobs: BlobItems::try_from_blobs(bundle.blobs)
-                    .map_err(Error::InvalidBlobConversion)?,
-                proofs: bundle.proofs,
+                blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
             }),
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),
@@ -233,26 +241,23 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
     ) -> (
         Payload,
         Option<KzgCommitments<T>>,
-        Option<<Payload::Sidecar as Sidecar<T>>::BlobItems>,
-        Option<KzgProofs<T>>,
+        Option<(BlobsList<T>, KzgProofs<T>)>,
         Uint256,
     ) {
         match self {
             Self::Payload {
                 payload,
                 block_value,
-            } => (payload, None, None, None, block_value),
+            } => (payload, None, None, block_value),
             Self::PayloadAndBlobs {
                 payload,
                 block_value,
                 kzg_commitments,
-                blobs,
-                proofs,
+                blobs_and_proofs,
             } => (
                 payload,
                 Some(kzg_commitments),
-                Some(blobs),
-                Some(proofs),
+                blobs_and_proofs,
                 block_value,
             ),
         }
@@ -275,23 +280,6 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             Self::Payload { block_value, .. } => block_value,
             Self::PayloadAndBlobs { block_value, .. } => block_value,
         }
-    }
-    pub fn default_at_fork(fork_name: ForkName) -> Result<Self, BeaconStateError> {
-        Ok(match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                BlockProposalContents::Payload {
-                    payload: Payload::default_at_fork(fork_name)?,
-                    block_value: Uint256::zero(),
-                }
-            }
-            ForkName::Deneb => BlockProposalContents::PayloadAndBlobs {
-                payload: Payload::default_at_fork(fork_name)?,
-                block_value: Uint256::zero(),
-                blobs: Payload::default_blobs_at_fork(fork_name)?,
-                kzg_commitments: VariableList::default(),
-                proofs: VariableList::default(),
-            },
-        })
     }
 }
 
@@ -347,10 +335,7 @@ struct Inner<E: EthSpec> {
     proposers: RwLock<HashMap<ProposerKey, Proposer>>,
     executor: TaskExecutor,
     payload_cache: PayloadCache<E>,
-    builder_profit_threshold: Uint256,
     log: Logger,
-    always_prefer_builder_payload: bool,
-    ignore_builder_override_suggestion_threshold: f32,
     /// Track whether the last `newPayload` call errored.
     ///
     /// This is used *only* in the informational sync status endpoint, so that a VC using this
@@ -377,11 +362,7 @@ pub struct Config {
     pub jwt_version: Option<String>,
     /// Default directory for the jwt secret if not provided through cli.
     pub default_datadir: PathBuf,
-    /// The minimum value of an external payload for it to be considered in a proposal.
-    pub builder_profit_threshold: u128,
     pub execution_timeout_multiplier: Option<u32>,
-    pub always_prefer_builder_payload: bool,
-    pub ignore_builder_override_suggestion_threshold: f32,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -389,40 +370,6 @@ pub struct Config {
 #[derive(Clone)]
 pub struct ExecutionLayer<T: EthSpec> {
     inner: Arc<Inner<T>>,
-}
-
-/// This function will return the percentage difference between 2 U256 values, using `base_value`
-/// as the denominator. It is accurate to 7 decimal places which is about the precision of
-/// an f32.
-///
-/// If some error is encountered in the calculation, None will be returned.
-fn percentage_difference_u256(base_value: Uint256, comparison_value: Uint256) -> Option<f32> {
-    if base_value == Uint256::zero() {
-        return None;
-    }
-    // this is the total supply of ETH in WEI
-    let max_value = Uint256::from(12u8) * Uint256::exp10(25);
-    if base_value > max_value || comparison_value > max_value {
-        return None;
-    }
-
-    // Now we should be able to calculate the difference without division by zero or overflow
-    const PRECISION: usize = 7;
-    let precision_factor = Uint256::exp10(PRECISION);
-    let scaled_difference = if base_value <= comparison_value {
-        (comparison_value - base_value) * precision_factor
-    } else {
-        (base_value - comparison_value) * precision_factor
-    };
-    let scaled_proportion = scaled_difference / base_value;
-    // max value of scaled difference is 1.2 * 10^33, well below the max value of a u128 / f64 / f32
-    let percentage =
-        100.0f64 * scaled_proportion.low_u128() as f64 / precision_factor.low_u128() as f64;
-    if base_value <= comparison_value {
-        Some(percentage as f32)
-    } else {
-        Some(-percentage as f32)
-    }
 }
 
 impl<T: EthSpec> ExecutionLayer<T> {
@@ -437,10 +384,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             jwt_id,
             jwt_version,
             default_datadir,
-            builder_profit_threshold,
             execution_timeout_multiplier,
-            always_prefer_builder_payload,
-            ignore_builder_override_suggestion_threshold,
         } = config;
 
         if urls.len() > 1 {
@@ -501,10 +445,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
             payload_cache: PayloadCache::default(),
-            builder_profit_threshold: Uint256::from(builder_profit_threshold),
             log,
-            always_prefer_builder_payload,
-            ignore_builder_override_suggestion_threshold,
             last_new_payload_errored: RwLock::new(false),
         };
 
@@ -542,7 +483,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             self.log(),
             "Using external block builder";
             "builder_url" => ?builder_url,
-            "builder_profit_threshold" => self.inner.builder_profit_threshold.as_u128(),
             "local_user_agent" => builder_client.get_user_agent(),
         );
         self.inner.builder.swap(Some(Arc::new(builder_client)));
@@ -753,6 +693,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
     }
 
+    /// Delete proposer preparation data for `proposer_index`. This is only useful in tests.
+    pub async fn clear_proposer_preparation(&self, proposer_index: u64) {
+        self.proposer_preparation_data()
+            .await
+            .remove(&proposer_index);
+    }
+
     /// Removes expired entries from proposer_preparation_data and proposers caches
     async fn clean_proposer_caches(&self, current_epoch: Epoch) -> Result<(), Error> {
         let mut proposer_preparation_data = self.proposer_preparation_data().await;
@@ -841,6 +788,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         builder_params: BuilderParams,
         current_fork: ForkName,
         spec: &ChainSpec,
+        builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<BlockProposalContentsType<T>, Error> {
         let payload_result_type = match block_production_version {
@@ -851,6 +799,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     forkchoice_update_params,
                     builder_params,
                     current_fork,
+                    builder_boost_factor,
                     spec,
                 )
                 .await
@@ -875,6 +824,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     forkchoice_update_params,
                     builder_params,
                     current_fork,
+                    None,
                     spec,
                 )
                 .await?
@@ -995,6 +945,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         (relay_result, local_result)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn determine_and_fetch_payload(
         &self,
         parent_hash: ExecutionBlockHash,
@@ -1002,6 +953,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         forkchoice_update_params: ForkchoiceUpdateParameters,
         builder_params: BuilderParams,
         current_fork: ForkName,
+        builder_boost_factor: Option<u64>,
         spec: &ChainSpec,
     ) -> Result<ProvenancedPayload<BlockProposalContentsType<T>>, Error> {
         let Some(builder) = self.builder() else {
@@ -1153,17 +1105,35 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     )));
                 }
 
-                if self.inner.always_prefer_builder_payload {
-                    return ProvenancedPayload::try_from(relay.data.message);
-                }
-
                 let relay_value = *relay.data.message.value();
+
+                let boosted_relay_value = match builder_boost_factor {
+                    Some(builder_boost_factor) => {
+                        (relay_value / 100).saturating_mul(builder_boost_factor.into())
+                    }
+                    None => relay_value,
+                };
+
                 let local_value = *local.block_value();
 
-                if local_value >= relay_value {
+                if local_value >= boosted_relay_value {
                     info!(
                         self.log(),
                         "Local block is more profitable than relay block";
+                        "local_block_value" => %local_value,
+                        "relay_value" => %relay_value,
+                        "boosted_relay_value" => %boosted_relay_value,
+                        "builder_boost_factor" => ?builder_boost_factor,
+                    );
+                    return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
+                        local.try_into()?,
+                    )));
+                }
+
+                if local.should_override_builder().unwrap_or(false) {
+                    info!(
+                        self.log(),
+                        "Using local payload because execution engine suggested we ignore builder payload";
                         "local_block_value" => %local_value,
                         "relay_value" => %relay_value
                     );
@@ -1172,43 +1142,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     )));
                 }
 
-                if relay_value < self.inner.builder_profit_threshold {
-                    info!(
-                        self.log(),
-                        "Builder payload ignored";
-                        "info" => "using local payload",
-                        "reason" => format!("payload value of {} does not meet user-configured profit-threshold of {}", relay_value, self.inner.builder_profit_threshold),
-                        "relay_block_hash" => ?header.block_hash(),
-                        "parent_hash" => ?parent_hash,
-                    );
-                    return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
-                        local.try_into()?,
-                    )));
-                }
-
-                if local.should_override_builder().unwrap_or(false) {
-                    let percentage_difference =
-                        percentage_difference_u256(local_value, relay_value);
-                    if percentage_difference.map_or(false, |percentage| {
-                        percentage < self.inner.ignore_builder_override_suggestion_threshold
-                    }) {
-                        info!(
-                            self.log(),
-                            "Using local payload because execution engine suggested we ignore builder payload";
-                            "local_block_value" => %local_value,
-                            "relay_value" => %relay_value
-                        );
-                        return Ok(ProvenancedPayload::Local(BlockProposalContentsType::Full(
-                            local.try_into()?,
-                        )));
-                    }
-                }
-
                 info!(
                     self.log(),
                     "Relay block is more profitable than local block";
                     "local_block_value" => %local_value,
-                    "relay_value" => %relay_value
+                    "relay_value" => %relay_value,
+                    "boosted_relay_value" => %boosted_relay_value,
+                    "builder_boost_factor" => ?builder_boost_factor
                 );
 
                 Ok(ProvenancedPayload::try_from(relay.data.message)?)
@@ -2003,7 +1943,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn propose_blinded_beacon_block(
         &self,
         block_root: Hash256,
-        block: &SignedBlockContents<T, BlindedPayload<T>>,
+        block: &SignedBlindedBeaconBlock<T>,
     ) -> Result<FullPayloadContents<T>, Error> {
         debug!(
             self.log(),
@@ -2052,7 +1992,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "relay_response_ms" => duration.as_millis(),
                         "block_root" => ?block_root,
                         "parent_hash" => ?block
-                            .signed_block()
                             .message()
                             .execution_payload()
                             .map(|payload| format!("{}", payload.parent_hash()))
@@ -2379,43 +2318,5 @@ mod test {
                 )
             })
             .await;
-    }
-
-    #[tokio::test]
-    async fn percentage_difference_u256_tests() {
-        // ensure function returns `None` when base value is zero
-        assert_eq!(percentage_difference_u256(0.into(), 1.into()), None);
-        // ensure function returns `None` when either value is greater than 120 Million ETH
-        let max_value = Uint256::from(12u8) * Uint256::exp10(25);
-        assert_eq!(
-            percentage_difference_u256(1u8.into(), max_value + Uint256::from(1u8)),
-            None
-        );
-        assert_eq!(
-            percentage_difference_u256(max_value + Uint256::from(1u8), 1u8.into()),
-            None
-        );
-        // it should work up to max value
-        assert_eq!(
-            percentage_difference_u256(max_value, max_value / Uint256::from(2u8)),
-            Some(-50f32)
-        );
-        // should work when base value is greater than comparison value
-        assert_eq!(
-            percentage_difference_u256(4u8.into(), 3u8.into()),
-            Some(-25f32)
-        );
-        // should work when comparison value is greater than base value
-        assert_eq!(
-            percentage_difference_u256(4u8.into(), 5u8.into()),
-            Some(25f32)
-        );
-        // should be accurate to 7 decimal places
-        let result =
-            percentage_difference_u256(Uint256::from(31415926u64), Uint256::from(13371337u64))
-                .expect("should get percentage");
-        // result = -57.4377116
-        assert!(result > -57.43772);
-        assert!(result <= -57.43771);
     }
 }

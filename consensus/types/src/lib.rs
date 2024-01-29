@@ -100,8 +100,8 @@ pub mod sqlite;
 
 pub mod blob_sidecar;
 pub mod light_client_header;
-pub mod sidecar;
-pub mod signed_blob;
+pub mod non_zero_usize;
+pub mod runtime_var_list;
 
 use ethereum_types::{H160, H256};
 
@@ -121,10 +121,7 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
-pub use crate::blob_sidecar::{
-    BlindedBlobSidecar, BlindedBlobSidecarList, BlobRootsList, BlobSidecar, BlobSidecarList,
-    BlobsList, SidecarList,
-};
+pub use crate::blob_sidecar::{BlobSidecar, BlobSidecarList, BlobsList};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
@@ -172,6 +169,7 @@ pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset
 pub use crate::proposer_preparation_data::ProposerPreparationData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
+pub use crate::runtime_var_list::RuntimeVariableList;
 pub use crate::selection_proof::SelectionProof;
 pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
@@ -182,7 +180,6 @@ pub use crate::signed_beacon_block::{
     SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
-pub use crate::signed_blob::*;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
@@ -221,8 +218,7 @@ pub use bls::{
     Signature, SignatureBytes,
 };
 
-pub use kzg::{KzgCommitment, KzgProof};
+pub use kzg::{KzgCommitment, KzgProof, VERSIONED_HASH_VERSION_KZG};
 
-pub use sidecar::Sidecar;
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 pub use superstruct::superstruct;
