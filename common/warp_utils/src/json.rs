@@ -17,6 +17,6 @@ impl Json {
 
 pub fn json<T: DeserializeOwned + Send>() -> impl Filter<Extract = (T,), Error = Rejection> + Copy {
     warp::body::bytes().and_then(|bytes: Bytes| async move {
-        Json::decode(bytes).map_err(|err| reject::custom_bad_request(format!("{:?}", err)))
+        Json::decode(bytes).map_err(|err| reject::custom_deserialize_error(format!("{:?}", err)))
     })
 }

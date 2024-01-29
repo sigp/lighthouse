@@ -379,7 +379,6 @@ impl BeaconNodeHttpClient {
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
-<<<<<<< HEAD
     /// Does not include Content-Type application/json in the request header.
     async fn post_generic_json_without_content_type_header<T: Serialize, U: IntoUrl>(
         &self,
@@ -418,8 +417,6 @@ impl BeaconNodeHttpClient {
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
-=======
->>>>>>> c7e5dd1098a145c0d2174dc65bd23faeb5074249
     async fn post_generic_with_consensus_version<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
