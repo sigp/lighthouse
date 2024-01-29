@@ -96,6 +96,9 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             ip_colocation_factor_threshold: 8.0, // Allow up to 8 nodes per IP
             behaviour_penalty_threshold: 6.0,
             behaviour_penalty_decay: self.score_parameter_decay(self.epoch * 10),
+            slow_peer_decay: 0.1,
+            slow_peer_weight: -10.0,
+            slow_peer_threshold: 0.0,
             ..Default::default()
         };
 

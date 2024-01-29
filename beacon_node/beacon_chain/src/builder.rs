@@ -786,6 +786,7 @@ where
             validator_monitor.process_valid_state(
                 slot.epoch(TEthSpec::slots_per_epoch()),
                 &head_snapshot.beacon_state,
+                &self.spec,
             );
         }
 
@@ -804,10 +805,11 @@ where
         //
         // This *must* be stored before constructing the `BeaconChain`, so that its `Drop` instance
         // doesn't write a `PersistedBeaconChain` without the rest of the batch.
+        let head_tracker_reader = head_tracker.0.read();
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
         >::persist_head_in_batch_standalone(
-            genesis_block_root, &head_tracker
+            genesis_block_root, &head_tracker_reader
         ));
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
@@ -818,6 +820,7 @@ where
             .hot_db
             .do_atomically(self.pending_io_batch)
             .map_err(|e| format!("Error writing chain & metadata to disk: {:?}", e))?;
+        drop(head_tracker_reader);
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
@@ -879,6 +882,7 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             observed_blob_sidecars: <_>::default(),
+            observed_slashable: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),

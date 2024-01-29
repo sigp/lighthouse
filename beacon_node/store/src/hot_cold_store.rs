@@ -35,11 +35,11 @@ use state_processing::{
 use std::cmp::min;
 use std::convert::TryInto;
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::BlobSidecarList;
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -85,7 +85,7 @@ struct BlockCache<E: EthSpec> {
 }
 
 impl<E: EthSpec> BlockCache<E> {
-    pub fn new(size: usize) -> Self {
+    pub fn new(size: NonZeroUsize) -> Self {
         Self {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
@@ -2054,7 +2054,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
         let min_data_availability_boundary = std::cmp::max(
             deneb_fork_epoch,
-            min_current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+            min_current_epoch.saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
         );
 
         self.try_prune_blobs(force, min_data_availability_boundary)

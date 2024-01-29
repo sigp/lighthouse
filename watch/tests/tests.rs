@@ -17,7 +17,6 @@ use std::env;
 use std::net::SocketAddr;
 use std::time::Duration;
 use testcontainers::{clients::Cli, core::WaitFor, Image, RunnableImage};
-use tokio::sync::oneshot;
 use tokio::{runtime, task::JoinHandle};
 use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
 use types::{Hash256, MainnetEthSpec, Slot};
@@ -188,11 +187,7 @@ impl TesterBuilder {
         /*
          * Spawn a Watch HTTP API.
          */
-        let (_watch_shutdown_tx, watch_shutdown_rx) = oneshot::channel();
-        let watch_server = start_server(&self.config, SLOTS_PER_EPOCH, pool, async {
-            let _ = watch_shutdown_rx.await;
-        })
-        .unwrap();
+        let watch_server = start_server(&self.config, SLOTS_PER_EPOCH, pool).unwrap();
         tokio::spawn(watch_server);
 
         let addr = SocketAddr::new(
@@ -228,7 +223,6 @@ impl TesterBuilder {
             config: self.config,
             updater,
             _bn_network_rx: self._bn_network_rx,
-            _watch_shutdown_tx,
         }
     }
     async fn initialize_database(&self) -> PgPool {
@@ -245,7 +239,6 @@ struct Tester {
     pub config: Config,
     pub updater: UpdateHandler<E>,
     _bn_network_rx: NetworkReceivers<E>,
-    _watch_shutdown_tx: oneshot::Sender<()>,
 }
 
 impl Tester {

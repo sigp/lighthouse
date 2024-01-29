@@ -423,3 +423,36 @@ jobs:
         cache-target: release
     - name: Run Makefile to trigger the bash script
       run: make cli
+  # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
+  # a PR is safe to merge. New jobs should be added here.
+  test-suite-success:
+    name: test-suite-success
+    runs-on: ubuntu-latest
+    needs: [
+      'target-branch-check',
+      'release-tests-ubuntu',
+      'release-tests-windows',
+      'beacon-chain-tests',
+      'op-pool-tests',
+      'network-tests',
+      'slasher-tests',
+      'debug-tests-ubuntu',
+      'state-transition-vectors-ubuntu',
+      'ef-tests-ubuntu',
+      'dockerfile-ubuntu',
+      'eth1-simulator-ubuntu',
+      'merge-transition-ubuntu',
+      'no-eth1-simulator-ubuntu',
+      'syncing-simulator-ubuntu',
+      'doppelganger-protection-test',
+      'execution-engine-integration-ubuntu',
+      'check-code',
+      'check-msrv',
+      'cargo-udeps',
+      'compile-with-beta-compiler',
+      'cli-check',
+    ]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check that success job is dependent on all others
+        run: ./scripts/ci/check-success-job.sh ./.github/workflows/test-suite.yml test-suite-success

@@ -50,8 +50,7 @@ pub fn build_transport(
     mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
 
     // yamux config
-    let mut yamux_config = yamux::Config::default();
-    yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());
+    let yamux_config = yamux::Config::default();
     // Creates the TCP transport layer
     let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
         .upgrade(core::upgrade::Version::V1)

@@ -428,7 +428,7 @@ Example Response Body
 
 ## `PATCH /lighthouse/validators/:voting_pubkey`
 
-Update some values for the validator with `voting_pubkey`. Possible fields: `enabled`, `gas_limit`, `builder_proposals`, 
+Update some values for the validator with `voting_pubkey`. Possible fields: `enabled`, `gas_limit`, `builder_proposals`, `builder_boost_factor`, `prefer_builder_proposals`
 and `graffiti`.  The following example updates a validator from `enabled: true` to `enabled: false`.
 
 ### HTTP Specification
