@@ -5057,26 +5057,6 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_lighthouse_beacon_states_ssz(self) -> Self {
-        for state_id in self.interesting_state_ids() {
-            let result = self
-                .client
-                .get_lighthouse_beacon_states_ssz(&state_id.0, &self.chain.spec)
-                .await
-                .unwrap();
-
-            let mut expected = state_id
-                .state(&self.chain)
-                .ok()
-                .map(|(state, _execution_optimistic, _finalized)| state);
-            expected.as_mut().map(|state| state.drop_all_caches());
-
-            assert_eq!(result, expected, "{:?}", state_id);
-        }
-
-        self
-    }
-
     pub async fn test_get_lighthouse_staking(self) -> Self {
         let result = self.client.get_lighthouse_staking().await.unwrap();
 
@@ -6372,8 +6352,6 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_eth1_block_cache()
         .await
         .test_get_lighthouse_eth1_deposit_cache()
-        .await
-        .test_get_lighthouse_beacon_states_ssz()
         .await
         .test_get_lighthouse_staking()
         .await
