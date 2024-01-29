@@ -621,7 +621,7 @@ fn main() {
                         .value_name("EPOCH")
                         .takes_value(true)
                         .help(
-                            "The epoch at which to enable the Merge hard fork",
+                            "The epoch at which to enable the Bellatrix hard fork",
                         ),
                 )
                 .arg(
@@ -639,7 +639,7 @@ fn main() {
                         .value_name("EPOCH")
                         .takes_value(true)
                         .help(
-                            "The epoch at which to enable the deneb hard fork",
+                            "The epoch at which to enable the Deneb hard fork",
                         ),
                 )
                 .arg(
