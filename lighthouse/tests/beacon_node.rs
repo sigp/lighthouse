@@ -899,6 +899,7 @@ fn network_port_flag_over_ipv4() {
     let port = 9000;
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -936,6 +937,7 @@ fn network_port_flag_over_ipv6() {
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -958,6 +960,7 @@ fn network_port_flag_over_ipv4_and_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
         .flag("port6", Some(port6.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -987,6 +990,7 @@ fn network_port_flag_over_ipv4_and_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
         .flag("port6", Some(port6.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
