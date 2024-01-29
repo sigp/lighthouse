@@ -4,7 +4,7 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
-use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
+use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
@@ -1141,10 +1141,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(
-            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::Yes)?
-                .launch_stream(block_roots, executor),
-        )
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::Yes)?
+            .launch_stream(block_roots, executor))
     }
 
     pub fn get_blocks(
@@ -1160,10 +1158,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(
-            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::No)?
-                .launch_stream(block_roots, executor),
-        )
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::No)?
+            .launch_stream(block_roots, executor))
     }
 
     pub fn get_blobs_checking_early_attester_cache(

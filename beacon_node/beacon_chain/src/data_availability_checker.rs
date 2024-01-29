@@ -192,6 +192,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.peek_blob(blob_id)
     }
 
+    /// Get a block from the availability cache. Only checks for blocks stored in memory. Useful
+    /// for serving RPC requests.
+    pub fn get_block(&self, block_root: &Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
+        self.availability_cache.peek_block(block_root)
+    }
+
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG
     /// verification on the blobs in the list.
     pub fn put_rpc_blobs(
