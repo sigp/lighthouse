@@ -86,6 +86,11 @@ pub fn run_parse_ssz<T: EthSpec>(
             SignedBeaconBlockElectra::<T>::from_ssz_bytes,
             format,
         )?,
+        "BeaconState" => decode_and_print::<BeaconState<T>>(
+            &bytes,
+            |bytes| BeaconState::from_ssz_bytes(bytes, spec),
+            format,
+        )?,
         "BeaconStateBase" | "BeaconStatePhase0" => {
             decode_and_print(&bytes, BeaconStateBase::<T>::from_ssz_bytes, format)?
         }

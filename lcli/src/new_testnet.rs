@@ -10,7 +10,8 @@ use ssz::Decode;
 use ssz::Encode;
 use state_processing::process_activations;
 use state_processing::upgrade::{
-    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_electra,
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
+    upgrade_to_electra,
 };
 use std::fs::File;
 use std::io::Read;
@@ -350,6 +351,19 @@ fn initialize_state_with_validators<T: EthSpec>(
         post_merge = true;
     }
 
+    // Similarly, perform an upgrade to Deneb if configured from genesis.
+    if spec
+        .deneb_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        upgrade_to_deneb(&mut state, spec).unwrap();
+
+        // Remove intermediate Capella fork from `state.fork`.
+        state.fork_mut().previous_version = spec.deneb_fork_version;
+
+        post_merge = true;
+    }
+
     // Similarly, perform an upgrade to Electra if configured from genesis.
     if spec
         .electra_fork_epoch
@@ -357,7 +371,7 @@ fn initialize_state_with_validators<T: EthSpec>(
     {
         upgrade_to_electra(&mut state, spec).unwrap();
 
-        // Remove intermediate Capella fork from `state.fork`.
+        // Remove intermediate Deneb fork from `state.fork`.
         state.fork_mut().previous_version = spec.electra_fork_version;
 
         post_merge = true;
@@ -367,8 +381,6 @@ fn initialize_state_with_validators<T: EthSpec>(
     if post_merge {
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
-
-        // Currently, we only support starting from a bellatrix state
         match state
             .latest_execution_payload_header_mut()
             .map_err(|e| format!("Failed to get execution payload header: {:?}", e))?
@@ -387,15 +399,19 @@ fn initialize_state_with_validators<T: EthSpec>(
                     return Err("Execution payload header must be a capella header".to_string());
                 }
             }
+            ExecutionPayloadHeaderRefMut::Deneb(header_mut) => {
+                if let ExecutionPayloadHeader::Deneb(eph) = execution_payload_header {
+                    *header_mut = eph;
+                } else {
+                    return Err("Execution payload header must be a deneb header".to_string());
+                }
+            }
             ExecutionPayloadHeaderRefMut::Electra(header_mut) => {
                 if let ExecutionPayloadHeader::Electra(eph) = execution_payload_header {
                     *header_mut = eph;
                 } else {
                     return Err("Execution payload header must be a electra header".to_string());
                 }
-            }
-            ExecutionPayloadHeaderRefMut::Deneb(_) => {
-                return Err("Cannot start genesis from a deneb state".to_string())
             }
         }
     }

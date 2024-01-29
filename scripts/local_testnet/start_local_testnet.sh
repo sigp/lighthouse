@@ -103,7 +103,7 @@ echo "executing: ./setup.sh >> $LOG_DIR/setup.log"
 ./setup.sh >> $LOG_DIR/setup.log 2>&1
 
 # Call setup_time.sh to update future hardforks time in the EL genesis file based on the CL genesis time
-./setup_time.sh genesis.json
+./setup_time.sh $genesis_file
 
 # Delay to let boot_enr.yaml to be created
 execute_command_add_PID bootnode.log ./bootnode.sh

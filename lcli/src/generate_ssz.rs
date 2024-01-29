@@ -15,9 +15,15 @@ enum SszType<T: EthSpec> {
     BaseState(BeaconStateBase<T>),
     AltairState(BeaconStateAltair<T>),
     BellatrixState(BeaconStateMerge<T>),
+    CapellaState(BeaconStateCapella<T>),
+    DenebState(BeaconStateDeneb<T>),
+    ElectraState(BeaconStateElectra<T>),
     BaseBlock(BeaconBlockBase<T>),
     AltairBlock(BeaconBlockAltair<T>),
     BellatrixBlock(BeaconBlockMerge<T>),
+    CapellaBlock(BeaconBlockCapella<T>),
+    DenebBlock(BeaconBlockDeneb<T>),
+    ElectraBlock(BeaconBlockElectra<T>),
 }
 
 pub fn run_parse_json<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
@@ -36,12 +42,18 @@ pub fn run_parse_json<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     })?;
 
     let bytes = match ssz_type {
-        SszType::BaseState(bases) => bases.as_ssz_bytes(),
-        SszType::AltairState(altairs) => altairs.as_ssz_bytes(),
-        SszType::BellatrixState(bellatrixs) => bellatrixs.as_ssz_bytes(),
-        SszType::BaseBlock(baseb) => baseb.as_ssz_bytes(),
-        SszType::AltairBlock(altairb) => altairb.as_ssz_bytes(),
-        SszType::BellatrixBlock(bellatrixb) => bellatrixb.as_ssz_bytes(),
+        SszType::BaseState(base_state) => base_state.as_ssz_bytes(),
+        SszType::AltairState(altair_state) => altair_state.as_ssz_bytes(),
+        SszType::BellatrixState(bellatrix_state) => bellatrix_state.as_ssz_bytes(),
+        SszType::CapellaState(capella_state) => capella_state.as_ssz_bytes(),
+        SszType::DenebState(deneb_state) => deneb_state.as_ssz_bytes(),
+        SszType::ElectraState(electra_state) => electra_state.as_ssz_bytes(),
+        SszType::BaseBlock(base_block) => base_block.as_ssz_bytes(),
+        SszType::AltairBlock(altair_block) => altair_block.as_ssz_bytes(),
+        SszType::BellatrixBlock(bellatrix_block) => bellatrix_block.as_ssz_bytes(),
+        SszType::CapellaBlock(capella_block) => capella_block.as_ssz_bytes(),
+        SszType::DenebBlock(deneb_block) => deneb_block.as_ssz_bytes(),
+        SszType::ElectraBlock(electra_block) => electra_block.as_ssz_bytes(),
     };
 
     let mut output =
