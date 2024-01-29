@@ -2753,6 +2753,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let columns = [
             DBColumn::BeaconState,
             DBColumn::BeaconStateSummary,
+            DBColumn::BeaconStateDiff,
             DBColumn::BeaconRestorePoint,
             DBColumn::BeaconStateRoots,
             DBColumn::BeaconHistoricalRoots,
