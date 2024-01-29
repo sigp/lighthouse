@@ -35,10 +35,6 @@ impl<E: EthSpec> DietAvailabilityPendingExecutedBlock<E> {
         &self.block
     }
 
-    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        self.block.clone()
-    }
-
     pub fn num_blobs_expected(&self) -> usize {
         self.block
             .message()

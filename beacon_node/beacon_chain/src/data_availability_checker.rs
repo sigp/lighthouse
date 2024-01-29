@@ -20,7 +20,7 @@ use std::fmt::Debug;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
+use types::beacon_block_body::KzgCommitmentOpts;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -195,7 +195,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Get a block from the availability cache. Only checks for blocks stored in memory. Useful
     /// for serving RPC requests.
     pub fn get_block(&self, block_root: &Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
-        self.availability_cache.peek_block(block_root)
+        self.processing_cache
+            .read()
+            .get(block_root)
+            .and_then(|cached| cached.block.clone())
     }
 
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG
@@ -350,20 +353,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block.num_expected_blobs() > 0 && self.da_check_required_for_epoch(block.epoch())
     }
 
-    /// Adds block commitments to the processing cache. These commitments are unverified but caching
+    /// Adds a block to the processing cache. This block's commitments are unverified but caching
     /// them here is useful to avoid duplicate downloads of blocks, as well as understanding
-    /// our blob download requirements.
-    pub fn notify_block_commitments(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        commitments: KzgCommitments<T::EthSpec>,
-    ) {
+    /// our blob download requirements. We will also serve this over RPC.
+    pub fn notify_block(&self, block_root: Hash256, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
+        let slot = block.slot();
         self.processing_cache
             .write()
             .entry(block_root)
             .or_insert_with(|| ProcessingComponents::new(slot))
-            .merge_block(commitments);
+            .merge_block(block);
     }
 
     /// Add a single blob commitment to the processing cache. This commitment is unverified but caching
@@ -589,6 +588,15 @@ pub enum MaybeAvailableBlock<E: EthSpec> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
     },
+}
+
+impl<E: EthSpec> MaybeAvailableBlock<E> {
+    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        match self {
+            Self::Available(block) => block.block_cloned(),
+            Self::AvailabilityPending { block, .. } => block.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

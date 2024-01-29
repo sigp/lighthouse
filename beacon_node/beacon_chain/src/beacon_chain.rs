@@ -2940,18 +2940,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        if let Ok(commitments) = unverified_block
-            .block()
-            .message()
-            .body()
-            .blob_kzg_commitments()
-        {
-            self.data_availability_checker.notify_block_commitments(
-                unverified_block.block().slot(),
-                block_root,
-                commitments.clone(),
-            );
-        };
+        self.data_availability_checker
+            .notify_block(block_root, unverified_block.block_cloned());
         let r = self
             .process_block(block_root, unverified_block, notify_execution_layer, || {
                 Ok(())

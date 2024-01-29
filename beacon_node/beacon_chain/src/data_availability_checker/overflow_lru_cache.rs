@@ -45,7 +45,7 @@ use ssz_types::{FixedVector, VariableList};
 use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
-use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256};
 
 /// This represents the components of a partially available block
 ///
@@ -322,18 +322,6 @@ impl<T: BeaconChainTypes> Critical<T> {
         }
     }
 
-    /// This only checks for the blocks in memory
-    pub fn peek_block(&self, block_root: &Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
-        self.in_memory
-            .peek(block_root)
-            .and_then(|pending_components| {
-                pending_components
-                    .executed_block
-                    .as_ref()
-                    .map(|block| block.block_cloned())
-            })
-    }
-
     /// Puts the pending components in the LRU cache. If the cache
     /// is at capacity, the LRU entry is written to the store first
     pub fn put_pending_components(
@@ -409,11 +397,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             maintenance_lock: Mutex::new(()),
             capacity,
         })
-    }
-
-    /// Just checks for blocks stored in memory
-    pub fn peek_block(&self, block_root: &Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
-        self.critical.read().peek_block(block_root)
     }
 
     /// Fetch a blob from the cache without affecting the LRU ordering
