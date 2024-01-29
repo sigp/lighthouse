@@ -398,25 +398,6 @@ impl BeaconNodeHttpClient {
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
-    async fn post_generic_with_ssz_body<T: Into<Body>, U: IntoUrl>(
-        &self,
-        url: U,
-        body: T,
-        timeout: Option<Duration>,
-    ) -> Result<Response, Error> {
-        let mut builder = self.client.post(url);
-        if let Some(timeout) = timeout {
-            builder = builder.timeout(timeout);
-        }
-        let response = builder
-            .header("Content-Type", "application/octet-stream")
-            .body(body)
-            .send()
-            .await?;
-        ok_or_error(response).await
-    }
-
-    /// Generic POST function supporting arbitrary responses and timeouts.
     async fn post_generic_with_consensus_version<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
