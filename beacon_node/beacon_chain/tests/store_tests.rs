@@ -10,8 +10,9 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
-    migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
-    BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
+    migrate::MigratorConfig, AnchorState, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconSnapshot, BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler,
+    WhenSlotSkipped,
 };
 use eth2_network_config::TRUSTED_SETUP_BYTES;
 use kzg::TrustedSetup;
@@ -2437,7 +2438,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .custom_spec(test_spec::<E>())
         .task_executor(harness.chain.task_executor.clone())
         .logger(log.clone())
-        .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
+        .weak_subjectivity_state(
+            wss_state,
+            wss_block.clone(),
+            genesis_state,
+            AnchorState::Finalized,
+        )
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
         .dummy_eth1_backend()
