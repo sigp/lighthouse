@@ -43,11 +43,11 @@ prometheus-client = "0.22.0"
 unused_port = { workspace = true }
 delay_map = { workspace = true }
 void = "1"
-libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p/", rev = "b96b90894faab0a1eed78e1c82c6452138a3538a" }
+libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p/", rev = "cfa3275ca17e502799ed56e555b6c0611752e369" }
 
 [dependencies.libp2p]
 git = "https://github.com/sigp/rust-libp2p/"
-rev = "b96b90894faab0a1eed78e1c82c6452138a3538a"
+rev = "cfa3275ca17e502799ed56e555b6c0611752e369"
 default-features = false
 features = ["identify", "yamux", "noise", "gossipsub", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic"]
 

@@ -31,6 +31,18 @@ blinded blocks, you should use the following flag:
 lighthouse vc --builder-proposals
 ```
 With the `--builder-proposals` flag, the validator client will ask for blinded blocks for all validators it manages.
+
+```
+lighthouse vc --prefer-builder-proposals
+```
+With the `--prefer-builder-proposals` flag, the validator client will always prefer blinded blocks, regardless of the payload value, for all validators it manages.
+
+```
+lighthouse vc --builder-boost-factor <INTEGER>
+```
+With the `--builder-boost-factor` flag, a percentage multiplier is applied to the builder's payload value when choosing between a
+builder payload header and payload from the paired execution node.
+
 In order to configure whether a validator queries for blinded blocks check out [this section.](#validator-client-configuration)
 
 ## Multiple builders
@@ -46,9 +58,9 @@ relays, run one of the following services and configure lighthouse to use it wit
 In the validator client you can configure gas limit and fee recipient on a per-validator basis. If no gas limit is
 configured, Lighthouse will use a default gas limit of 30,000,000, which is the current default value used in execution
 engines.  You can also enable or disable use of external builders on a per-validator basis rather than using
-`--builder-proposals`, which enables external builders for all validators. In order to manage these configurations
-per-validator, you can either make updates to the `validator_definitions.yml` file or you can use the HTTP requests
-described below.
+`--builder-proposals`, `--builder-boost-factor` or `--prefer-builder-proposals`, which apply builder related preferences for all validators.
+In order to manage these configurations per-validator, you can either make updates to the `validator_definitions.yml` file
+or you can use the HTTP requests described below.
 
 Both the gas limit and fee recipient will be passed along as suggestions to connected builders. If there is a discrepancy
 in either, it will *not* keep you from proposing a block with the builder. This is because the bounds on gas limit are
