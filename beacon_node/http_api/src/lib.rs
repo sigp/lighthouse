@@ -95,7 +95,7 @@ use warp::http::StatusCode;
 use warp::hyper::Body;
 use warp::sse::Event;
 use warp::Reply;
-use warp::{http::Response, Filter};
+use warp::{http::Response, Filter, Rejection};
 use warp_utils::{query::multi_key_query, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
@@ -451,7 +451,7 @@ pub fn serve<T: BeaconChainTypes>(
         warp::any()
             .and(network_globals.clone())
             .and(chain_filter.clone())
-            .and_then(
+            .then(
                 move |network_globals: Arc<NetworkGlobals<T::EthSpec>>,
                       chain: Arc<BeaconChain<T>>| async move {
                     match *network_globals.sync_state.read() {
@@ -486,8 +486,7 @@ pub fn serve<T: BeaconChainTypes>(
                         )),
                     }
                 },
-            )
-            .untuple_one();
+            );
 
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
@@ -3167,10 +3166,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .then(
             |epoch: Epoch,
+             not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    if let Err(e) = not_synced_filter { return Err(e) }
                     proposer_duties::proposer_duties(epoch, &chain, &log)
                 })
             },
@@ -3196,6 +3197,7 @@ pub fn serve<T: BeaconChainTypes>(
             |endpoint_version: EndpointVersion,
              slot: Slot,
              accept_header: Option<api_types::Accept>,
+             not_synced_filter: Result<(), Rejection>,
              query: api_types::ValidatorBlocksQuery,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -3206,6 +3208,8 @@ pub fn serve<T: BeaconChainTypes>(
                         "Block production request from HTTP API";
                         "slot" => slot
                     );
+
+                    if let Err(e) = not_synced_filter { return Err(e) }
 
                     if endpoint_version == V3 {
                         produce_block_v3(accept_header, chain, slot, query).await
@@ -3233,11 +3237,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .then(
             |slot: Slot,
+             not_synced_filter: Result<(), Rejection>,
              query: api_types::ValidatorBlocksQuery,
              accept_header: Option<api_types::Accept>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    if let Err(e) = not_synced_filter { return Err(e) }
                     produce_blinded_block_v2(EndpointVersion(2), accept_header, chain, slot, query)
                         .await
                 })
@@ -3255,9 +3261,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .then(
             |query: api_types::ValidatorAttestationDataQuery,
+             not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    if let Err(e) = not_synced_filter { return Err(e) }
+
                     let current_slot = chain
                         .slot()
                         .map_err(warp_utils::reject::beacon_chain_error)?;
@@ -3290,9 +3299,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .then(
             |query: api_types::ValidatorAggregateAttestationQuery,
+             not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    if let Err(e) = not_synced_filter { return Err(e) }
                     chain
                         .get_aggregated_attestation_by_slot_and_root(
                             query.slot,
@@ -3331,10 +3342,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .then(
             |epoch: Epoch,
+             not_synced_filter: Result<(), Rejection>,
              indices: api_types::ValidatorIndexData,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    if let Err(e) = not_synced_filter { return Err(e) }
                     attester_duties::attester_duties(epoch, &indices.0, &chain)
                 })
             },
@@ -3357,10 +3370,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .then(
             |epoch: Epoch,
+             not_synced_filter: Result<(), Rejection>,
              indices: api_types::ValidatorIndexData,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    if let Err(e) = not_synced_filter { return Err(e) }
                     sync_committees::sync_committee_duties(epoch, &indices.0, &chain)
                 })
             },
@@ -3377,9 +3392,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .then(
             |sync_committee_data: SyncContributionData,
+             not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    if let Err(e) = not_synced_filter { return Err(e) }
                     chain
                         .get_aggregated_sync_committee_contribution(&sync_committee_data)
                         .map_err(|e| {
@@ -3410,11 +3427,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
+            |not_synced_filter: Result<(), Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>, log: Logger| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    if let Err(e) = not_synced_filter { return Err(e) }
+
                     let seen_timestamp = timestamp_now();
                     let mut verified_aggregates = Vec::with_capacity(aggregates.len());
                     let mut messages = Vec::with_capacity(aggregates.len());
@@ -3523,12 +3543,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter)
         .and(log_filter.clone())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
+            |not_synced_filter: Result<(), Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              contributions: Vec<SignedContributionAndProof<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    if let Err(e) = not_synced_filter { return Err(e) }
                     sync_committees::process_signed_contribution_and_proofs(
                         contributions,
                         network_tx,
@@ -3603,11 +3625,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .and(warp::body::json())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
+            |not_synced_filter: Result<(), Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              log: Logger,
              preparation_data: Vec<ProposerPreparationData>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    if let Err(e) = not_synced_filter { return Err(e) }
                     let execution_layer = chain
                         .execution_layer
                         .as_ref()
@@ -4341,8 +4365,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+            |not_synced_filter: Result<(), Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
+                    if let Err(e) = not_synced_filter { return Err(e) }
                     chain.store_migrator.process_reconstruction();
                     Ok("success")
                 })
