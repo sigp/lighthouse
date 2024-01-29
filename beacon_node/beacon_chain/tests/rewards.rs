@@ -134,17 +134,35 @@ async fn test_verify_attestation_rewards_base() {
     let two_thirds = (VALIDATOR_COUNT / 3) * 2;
     let two_thirds_validators: Vec<usize> = (0..two_thirds).collect();
     harness
-        .extend_chain(
-            E::slots_per_epoch() as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(two_thirds_validators),
-        )
+        .extend_slots_some_validators(E::slots_per_epoch() as usize, two_thirds_validators.clone())
         .await;
 
     let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
 
-    // extend slots to beginning of epoch N + 2
-    harness.extend_slots(E::slots_per_epoch() as usize).await;
+    let mut proposal_rewards_map: HashMap<u64, u64> = HashMap::new();
+
+    for _ in 0..E::slots_per_epoch() {
+        let state = harness.get_current_state();
+        let slot = state.slot() + Slot::new(1);
+
+        let ((signed_block, _maybe_blob_sidecars), mut state) =
+            harness.make_block_return_pre_state(state, slot).await;
+        let beacon_block_reward = harness
+            .chain
+            .compute_beacon_block_reward(
+                signed_block.message(),
+                signed_block.canonical_root(),
+                &mut state,
+            )
+            .unwrap();
+        let total_proposer_reward = proposal_rewards_map
+            .get(&beacon_block_reward.proposer_index)
+            .unwrap_or(&0u64)
+            + beacon_block_reward.total;
+        proposal_rewards_map.insert(beacon_block_reward.proposer_index, total_proposer_reward);
+
+        harness.extend_slots(1).await;
+    }
 
     // compute reward deltas for all validators in epoch N
     let StandardAttestationRewards {
@@ -161,6 +179,7 @@ async fn test_verify_attestation_rewards_base() {
 
     // apply attestation rewards to initial balances
     let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
+    let expected_balances = apply_beacon_block_rewards(&proposal_rewards_map, expected_balances);
 
     // verify expected balances against actual balances
     let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
@@ -177,26 +196,45 @@ async fn test_verify_attestation_rewards_base_inactivity_leak() {
     // target epoch is the epoch where the chain enters inactivity leak
     let target_epoch = &spec.min_epochs_to_inactivity_penalty + 1;
 
-    // advance until beginning of epoch N + 1 and get balances
+    //advance until beginning of epoch N + 1  and get balances
     harness
-        .extend_chain(
+        .extend_slots_some_validators(
             (E::slots_per_epoch() * (target_epoch + 1)) as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(half_validators.clone()),
+            half_validators.clone(),
         )
         .await;
-    let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
 
-    // extend slots to beginning of epoch N + 2
-    harness.advance_slot();
-    harness
-        .extend_chain(
-            E::slots_per_epoch() as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(half_validators),
-        )
-        .await;
-    let _slot = harness.get_current_slot();
+    let initial_balances = harness.get_current_state().balances().clone();
+
+    // advance until epoch N + 2 and build proposal rewards map
+    let mut proposal_rewards_map: HashMap<u64, u64> = HashMap::new();
+
+    for _ in 0..E::slots_per_epoch() {
+        let state = harness.get_current_state();
+        let slot = state.slot() + Slot::new(1);
+
+        let ((signed_block, _maybe_blob_sidecars), mut state) =
+            harness.make_block_return_pre_state(state, slot).await;
+        let beacon_block_reward = harness
+            .chain
+            .compute_beacon_block_reward(
+                signed_block.message(),
+                signed_block.canonical_root(),
+                &mut state,
+            )
+            .unwrap();
+
+        let total_proposer_reward = proposal_rewards_map
+            .get(&beacon_block_reward.proposer_index)
+            .unwrap_or(&0u64)
+            + beacon_block_reward.total;
+
+        proposal_rewards_map.insert(beacon_block_reward.proposer_index, total_proposer_reward);
+
+        harness
+            .extend_slots_some_validators(1, half_validators.clone())
+            .await;
+    }
 
     // compute reward deltas for all validators in epoch N
     let StandardAttestationRewards {
@@ -213,6 +251,7 @@ async fn test_verify_attestation_rewards_base_inactivity_leak() {
 
     // apply attestation rewards to initial balances
     let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
+    let expected_balances = apply_beacon_block_rewards(&proposal_rewards_map, expected_balances);
 
     // verify expected balances against actual balances
     let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
@@ -568,11 +607,7 @@ async fn test_verify_attestation_rewards_base_subset_only() {
     let two_thirds = (VALIDATOR_COUNT / 3) * 2;
     let two_thirds_validators: Vec<usize> = (0..two_thirds).collect();
     harness
-        .extend_chain(
-            E::slots_per_epoch() as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(two_thirds_validators),
-        )
+        .extend_slots_some_validators(E::slots_per_epoch() as usize, two_thirds_validators.clone())
         .await;
 
     // a small subset of validators to compute attestation rewards for
@@ -582,7 +617,35 @@ async fn test_verify_attestation_rewards_base_subset_only() {
     let initial_balances = get_validator_balances(harness.get_current_state(), &validators_subset);
 
     // extend slots to beginning of epoch N + 2
-    harness.extend_slots(E::slots_per_epoch() as usize).await;
+    let mut proposal_rewards_map: HashMap<u64, u64> = HashMap::new();
+
+    for _ in 0..E::slots_per_epoch() {
+        let state = harness.get_current_state();
+        let slot = state.slot() + Slot::new(1);
+
+        // calculate beacon block rewards / penalties
+        let ((signed_block, _maybe_blob_sidecars), mut state) =
+            harness.make_block_return_pre_state(state, slot).await;
+        let beacon_block_reward = harness
+            .chain
+            .compute_beacon_block_reward(
+                signed_block.message(),
+                signed_block.canonical_root(),
+                &mut state,
+            )
+            .unwrap();
+
+        let total_proposer_reward = proposal_rewards_map
+            .get(&beacon_block_reward.proposer_index)
+            .unwrap_or(&0u64)
+            + beacon_block_reward.total;
+
+        proposal_rewards_map.insert(beacon_block_reward.proposer_index, total_proposer_reward);
+
+        harness
+            .extend_slots_some_validators(1, two_thirds_validators.clone())
+            .await;
+    }
 
     let validators_subset_ids: Vec<ValidatorId> = validators_subset
         .into_iter()
@@ -600,6 +663,7 @@ async fn test_verify_attestation_rewards_base_subset_only() {
 
     // apply attestation rewards to initial balances
     let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
+    let expected_balances = apply_beacon_block_rewards(&proposal_rewards_map, expected_balances);
 
     // verify expected balances against actual balances
     let balances = get_validator_balances(harness.get_current_state(), &validators_subset);
