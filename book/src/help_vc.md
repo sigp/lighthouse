@@ -96,6 +96,9 @@ OPTIONS:
         --debug-level <LEVEL>
             Specifies the verbosity level used when emitting logs to the terminal. [default: info]  [possible values:
             info, debug, trace, warn, error, crit]
+        --disable-slashing-protection-web3signer <disable-slashing-protection-web3signer>
+            Disable Lighthouse's slashing protection for all web3signer keys. This can reduce the I/O burden on the VC
+            and is safe as long as slashing protection is enabled on the remote signer and is implemented correctly.
         --gas-limit <INTEGER>
             The gas limit to be used in all builder proposals for all validators managed by this validator client. Note
             this will not necessarily be used if the gas limit set here moves too far from the previous block's gas
