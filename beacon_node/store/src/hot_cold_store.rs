@@ -357,7 +357,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                     db.log,
                     "Updating historic state config";
                     "previous_config" => ?disk_config.hierarchy_config,
-                    "new_config" => ?disk_config.hierarchy_config,
+                    "new_config" => ?db.config.hierarchy_config,
                 );
             }
         }
