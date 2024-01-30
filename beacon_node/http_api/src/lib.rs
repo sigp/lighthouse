@@ -3171,7 +3171,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    if let Err(e) = not_synced_filter { return Err(e) }
+                    not_synced_filter?;
                     proposer_duties::proposer_duties(epoch, &chain, &log)
                 })
             },
@@ -3209,7 +3209,7 @@ pub fn serve<T: BeaconChainTypes>(
                         "slot" => slot
                     );
 
-                    if let Err(e) = not_synced_filter { return Err(e) }
+                    not_synced_filter?;
 
                     if endpoint_version == V3 {
                         produce_block_v3(accept_header, chain, slot, query).await
@@ -3243,7 +3243,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    if let Err(e) = not_synced_filter { return Err(e) }
+                    not_synced_filter?;
                     produce_blinded_block_v2(EndpointVersion(2), accept_header, chain, slot, query)
                         .await
                 })
@@ -3265,7 +3265,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    if let Err(e) = not_synced_filter { return Err(e) }
+                    not_synced_filter?;
 
                     let current_slot = chain
                         .slot()
@@ -3303,7 +3303,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    if let Err(e) = not_synced_filter { return Err(e) }
+                    not_synced_filter?;
                     chain
                         .get_aggregated_attestation_by_slot_and_root(
                             query.slot,
@@ -3347,7 +3347,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    if let Err(e) = not_synced_filter { return Err(e) }
+                    not_synced_filter?;
                     attester_duties::attester_duties(epoch, &indices.0, &chain)
                 })
             },
@@ -3375,7 +3375,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    if let Err(e) = not_synced_filter { return Err(e) }
+                    not_synced_filter?;
                     sync_committees::sync_committee_duties(epoch, &indices.0, &chain)
                 })
             },
@@ -3396,7 +3396,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    if let Err(e) = not_synced_filter { return Err(e) }
+                    not_synced_filter?;
                     chain
                         .get_aggregated_sync_committee_contribution(&sync_committee_data)
                         .map_err(|e| {
@@ -3433,8 +3433,7 @@ pub fn serve<T: BeaconChainTypes>(
              aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>, log: Logger| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    if let Err(e) = not_synced_filter { return Err(e) }
-
+                    not_synced_filter?;
                     let seen_timestamp = timestamp_now();
                     let mut verified_aggregates = Vec::with_capacity(aggregates.len());
                     let mut messages = Vec::with_capacity(aggregates.len());
@@ -3550,7 +3549,7 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    if let Err(e) = not_synced_filter { return Err(e) }
+                    not_synced_filter?;
                     sync_committees::process_signed_contribution_and_proofs(
                         contributions,
                         network_tx,
@@ -3631,7 +3630,7 @@ pub fn serve<T: BeaconChainTypes>(
              log: Logger,
              preparation_data: Vec<ProposerPreparationData>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    if let Err(e) = not_synced_filter { return Err(e) }
+                    not_synced_filter?;
                     let execution_layer = chain
                         .execution_layer
                         .as_ref()
@@ -4369,7 +4368,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
-                    if let Err(e) = not_synced_filter { return Err(e) }
+                    not_synced_filter?;
                     chain.store_migrator.process_reconstruction();
                     Ok("success")
                 })
