@@ -1,7 +1,9 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use strum::{Display, EnumString, EnumVariantNames};
+use types::non_zero_usize::new_non_zero_usize;
 use types::{Epoch, EthSpec, IndexedAttestation};
 
 pub const DEFAULT_CHUNK_SIZE: usize = 16;
@@ -10,7 +12,7 @@ pub const DEFAULT_HISTORY_LENGTH: usize = 4096;
 pub const DEFAULT_UPDATE_PERIOD: u64 = 12;
 pub const DEFAULT_SLOT_OFFSET: f64 = 10.5;
 pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
-pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: usize = 100_000;
+pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(100_000);
 pub const DEFAULT_BROADCAST: bool = false;
 
 #[cfg(all(feature = "mdbx", not(feature = "lmdb")))]
@@ -38,7 +40,7 @@ pub struct Config {
     /// Maximum size of the database in megabytes.
     pub max_db_size_mbs: usize,
     /// Maximum size of the in-memory cache for attestation roots.
-    pub attestation_root_cache_size: usize,
+    pub attestation_root_cache_size: NonZeroUsize,
     /// Whether to broadcast slashings found to the network.
     pub broadcast: bool,
     /// Database backend to use.
