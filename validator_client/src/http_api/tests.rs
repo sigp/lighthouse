@@ -1191,6 +1191,19 @@ async fn validator_builder_boost_factor_global_builder_proposals_true() {
 }
 
 #[tokio::test]
+async fn validator_builder_boost_factor_global_builder_proposals_false() {
+    let config = Config {
+        builder_proposals: false,
+        prefer_builder_proposals: false,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(Some(0));
+}
+
+#[tokio::test]
 async fn validator_builder_boost_factor_global_prefer_builder_proposals_true() {
     let config = Config {
         builder_proposals: true,
@@ -1214,19 +1227,6 @@ async fn validator_builder_boost_factor_global_prefer_builder_proposals_false() 
     ApiTester::new_with_config(config)
         .await
         .assert_default_builder_boost_factor(None);
-}
-
-#[tokio::test]
-async fn validator_builder_boost_factor_global_builder_proposals_false() {
-    let config = Config {
-        builder_proposals: false,
-        prefer_builder_proposals: false,
-        builder_boost_factor: None,
-        ..Config::default()
-    };
-    ApiTester::new_with_config(config)
-        .await
-        .assert_default_builder_boost_factor(Some(0));
 }
 
 #[tokio::test]
