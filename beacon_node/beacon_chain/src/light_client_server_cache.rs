@@ -3,7 +3,9 @@ use crate::{metrics, BeaconChainTypes, BeaconStore};
 use parking_lot::{Mutex, RwLock};
 use slog::{debug, Logger};
 use ssz_types::FixedVector;
+use std::num::NonZeroUsize;
 use types::light_client_update::{FinalizedRootProofLen, FINALIZED_ROOT_INDEX};
+use types::non_zero_usize::new_non_zero_usize;
 use types::{
     BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientFinalityUpdate,
     LightClientHeader, LightClientOptimisticUpdate, Slot, SyncAggregate,
@@ -12,7 +14,7 @@ use types::{
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
 /// prev block cache are very small 32 * (6 + 1) = 224 bytes. 32 is an arbitrary number that
 /// represents unlikely re-orgs, while keeping the cache very small.
-const PREV_BLOCK_CACHE_SIZE: usize = 32;
+const PREV_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(32);
 
 /// This cache computes light client messages ahead of time, required to satisfy p2p and API
 /// requests. These messages include proofs on historical states, so on-demand computation is
