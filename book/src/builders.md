@@ -41,7 +41,7 @@ With the `--prefer-builder-proposals` flag, the validator client will always pre
 lighthouse vc --builder-boost-factor <INTEGER>
 ```
 With the `--builder-boost-factor` flag, a percentage multiplier is applied to the builder's payload value when choosing between a
-builder payload header and payload from the paired execution node.
+builder payload header and payload from the paired execution node. For example, `--builder-boost-factor 50` will only use the builder payload if it is 2x more profitable than the local payload. 
 
 In order to configure whether a validator queries for blinded blocks check out [this section.](#validator-client-configuration)
 
@@ -157,6 +157,7 @@ You can also directly configure these fields in the `validator_definitions.yml` 
   suggested_fee_recipient: "0x6cc8dcbca744a6e4ffedb98e1d0df903b10abd21"
   gas_limit: 30000001
   builder_proposals: true
+  builder_boost_factor: 50
 - enabled: false
   voting_public_key: "0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477"
   type: local_keystore voting_keystore_path: /home/paul/.lighthouse/validators/0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477/voting-keystore.json
@@ -164,6 +165,7 @@ You can also directly configure these fields in the `validator_definitions.yml` 
   suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
   gas_limit: 33333333
   builder_proposals: true
+  prefer_builder_proposals: true
 ```
 
 ## Circuit breaker conditions
