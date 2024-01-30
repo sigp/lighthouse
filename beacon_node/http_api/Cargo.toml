@@ -2,54 +2,53 @@
 name = "http_api"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 autotests = false                               # using a single test binary compiles faster
 
 [dependencies]
-warp = { version = "0.3.2", features = ["tls"] }
-serde = { version = "1.0.116", features = ["derive"] }
-tokio = { version = "1.14.0", features = ["macros", "sync"] }
-tokio-stream = { version = "0.1.3", features = ["sync"] }
-types = { path = "../../consensus/types" }
-hex = "0.4.2"
-beacon_chain = { path = "../beacon_chain" }
-eth2 = { path = "../../common/eth2", features = ["lighthouse"] }
-slog = "2.5.2"
-network = { path = "../network" }
-lighthouse_network = { path = "../lighthouse_network" }
-eth1 = { path = "../eth1" }
-state_processing = { path = "../../consensus/state_processing" }
-lighthouse_version = { path = "../../common/lighthouse_version" }
-lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-lazy_static = "1.4.0"
-warp_utils = { path = "../../common/warp_utils" }
-slot_clock = { path = "../../common/slot_clock" }
-ethereum_ssz = "0.5.0"
+warp = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+types = { workspace = true }
+hex = { workspace = true }
+beacon_chain = { workspace = true }
+eth2 = { workspace = true }
+slog = { workspace = true }
+network = { workspace = true }
+lighthouse_network = { workspace = true }
+eth1 = { workspace = true }
+state_processing = { workspace = true }
+lighthouse_version = { workspace = true }
+lighthouse_metrics = { workspace = true }
+lazy_static = { workspace = true }
+warp_utils = { workspace = true }
+slot_clock = { workspace = true }
+ethereum_ssz = { workspace = true }
 bs58 = "0.4.0"
-futures = "0.3.8"
-execution_layer = { path = "../execution_layer" }
-parking_lot = "0.12.0"
-safe_arith = { path = "../../consensus/safe_arith" }
-task_executor = { path = "../../common/task_executor" }
-lru = "0.7.7"
-tree_hash = "0.5.0"
-sysinfo = "0.26.5"
+futures = { workspace = true }
+execution_layer = { workspace = true }
+parking_lot = { workspace = true }
+safe_arith = { workspace = true }
+task_executor = { workspace = true }
+lru = { workspace = true }
+tree_hash = { workspace = true }
+sysinfo = { workspace = true }
 system_health = { path = "../../common/system_health" }
-directory = { path = "../../common/directory" }
-logging = { path = "../../common/logging" }
-ethereum_serde_utils = "0.5.0"
-operation_pool = { path = "../operation_pool" }
-sensitive_url = { path = "../../common/sensitive_url" }
-unused_port = { path = "../../common/unused_port" }
-store = { path = "../store" }
-bytes = "1.1.0"
-beacon_processor = { path = "../beacon_processor" }
+directory = { workspace = true }
+logging = { workspace = true }
+ethereum_serde_utils = { workspace = true }
+operation_pool = { workspace = true }
+sensitive_url = { workspace = true }
+store = { workspace = true }
+bytes = { workspace = true }
+beacon_processor = { workspace = true }
 
 [dev-dependencies]
-environment = { path = "../../lighthouse/environment" }
-serde_json = "1.0.58"
-proto_array = { path = "../../consensus/proto_array" }
-genesis = { path = "../genesis" }
+environment = { workspace = true }
+serde_json = { workspace = true }
+proto_array = { workspace = true }
+genesis = { workspace = true }
 
 [[test]]
 name = "bn_http_api_tests"

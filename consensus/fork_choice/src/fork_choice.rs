@@ -197,7 +197,8 @@ impl<T> From<proto_array::Error> for Error<T> {
 /// Indicates if a block has been verified by an execution payload.
 ///
 /// There is no variant for "invalid", since such a block should never be added to fork choice.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Encode, Decode)]
+#[ssz(enum_behaviour = "tag")]
 pub enum PayloadVerificationStatus {
     /// An EL has declared the execution payload to be valid.
     Verified,
@@ -290,7 +291,7 @@ pub enum AttestationFromBlock {
 }
 
 /// Parameters which are cached between calls to `ForkChoice::get_head`.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ForkchoiceUpdateParameters {
     /// The most recent result of running `ForkChoice::get_head`.
     pub head_root: Hash256,
@@ -680,7 +681,7 @@ where
             .ok_or_else(|| Error::InvalidBlock(InvalidBlock::UnknownParent(block.parent_root())))?;
 
         // Blocks cannot be in the future. If they are, their consideration must be delayed until
-        // the are in the past.
+        // they are in the past.
         //
         // Note: presently, we do not delay consideration. We just drop the block.
         if block.slot() > current_slot {
@@ -722,7 +723,8 @@ where
         // Add proposer score boost if the block is timely.
         let is_before_attesting_interval =
             block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);
-        if current_slot == block.slot() && is_before_attesting_interval {
+        let is_first_block = self.fc_store.proposer_boost_root().is_zero();
+        if current_slot == block.slot() && is_before_attesting_interval && is_first_block {
             self.fc_store.set_proposer_boost_root(block_root);
         }
 
@@ -762,7 +764,8 @@ where
             (parent_justified, parent_finalized)
         } else {
             let justification_and_finalization_state = match block {
-                BeaconBlockRef::Capella(_)
+                BeaconBlockRef::Deneb(_)
+                | BeaconBlockRef::Capella(_)
                 | BeaconBlockRef::Merge(_)
                 | BeaconBlockRef::Altair(_) => match progressive_balances_mode {
                     ProgressiveBalancesMode::Disabled => {

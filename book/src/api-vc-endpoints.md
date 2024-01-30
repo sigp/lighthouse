@@ -243,6 +243,7 @@ Example Response Body
     "INACTIVITY_SCORE_RECOVERY_RATE": "16",
     "EJECTION_BALANCE": "16000000000",
     "MIN_PER_EPOCH_CHURN_LIMIT": "4",
+    "MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT": "8",
     "CHURN_LIMIT_QUOTIENT": "65536",
     "PROPOSER_SCORE_BOOST": "40",
     "DEPOSIT_CHAIN_ID": "5",
@@ -426,7 +427,7 @@ Example Response Body
 
 ## `PATCH /lighthouse/validators/:voting_pubkey`
 
-Update some values for the validator with `voting_pubkey`. Possible fields: `enabled`, `gas_limit`, `builder_proposals`, 
+Update some values for the validator with `voting_pubkey`. Possible fields: `enabled`, `gas_limit`, `builder_proposals`, `builder_boost_factor`, `prefer_builder_proposals`
 and `graffiti`.  The following example updates a validator from `enabled: true` to `enabled: false`.
 
 ### HTTP Specification

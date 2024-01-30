@@ -9,7 +9,7 @@ use crate::{
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use slog::{error, Logger};
 use std::collections::HashSet;
 use std::fs::{self, File};
@@ -157,6 +157,12 @@ pub struct ValidatorDefinition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefer_builder_proposals: Option<bool>,
+    #[serde(default)]
     pub description: String,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
@@ -169,6 +175,7 @@ impl ValidatorDefinition {
     /// ## Notes
     ///
     /// This function does not check the password against the keystore.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_keystore_with_password<P: AsRef<Path>>(
         voting_keystore_path: P,
         voting_keystore_password_storage: PasswordStorage,
@@ -176,6 +183,8 @@ impl ValidatorDefinition {
         suggested_fee_recipient: Option<Address>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        builder_boost_factor: Option<u64>,
+        prefer_builder_proposals: Option<bool>,
     ) -> Result<Self, Error> {
         let voting_keystore_path = voting_keystore_path.as_ref().into();
         let keystore =
@@ -196,6 +205,8 @@ impl ValidatorDefinition {
             suggested_fee_recipient,
             gas_limit,
             builder_proposals,
+            builder_boost_factor,
+            prefer_builder_proposals,
             signing_definition: SigningDefinition::LocalKeystore {
                 voting_keystore_path,
                 voting_keystore_password_path,
@@ -344,6 +355,8 @@ impl ValidatorDefinitions {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_password_path,
@@ -367,7 +380,8 @@ impl ValidatorDefinitions {
     pub fn save<P: AsRef<Path>>(&self, validators_dir: P) -> Result<(), Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         let temp_path = validators_dir.as_ref().join(CONFIG_TEMP_FILENAME);
-        let bytes = serde_yaml::to_vec(self).map_err(Error::UnableToEncodeFile)?;
+        let mut bytes = vec![];
+        serde_yaml::to_writer(&mut bytes, self).map_err(Error::UnableToEncodeFile)?;
 
         write_file_via_temporary(&config_path, &temp_path, &bytes)
             .map_err(Error::UnableToWriteFile)?;

@@ -1,14 +1,37 @@
 //! The main bootnode server execution.
 
 use super::BootNodeConfig;
+use crate::config::BootNodeConfigSerialization;
+use clap::ArgMatches;
+use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::{
-    discv5::{enr::NodeId, Discv5, Discv5Event},
+    discv5::{self, enr::NodeId, Discv5},
     EnrExt, Eth2Enr,
 };
 use slog::info;
 use types::EthSpec;
 
-pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
+pub async fn run<T: EthSpec>(
+    lh_matches: &ArgMatches<'_>,
+    bn_matches: &ArgMatches<'_>,
+    eth2_network_config: &Eth2NetworkConfig,
+    log: slog::Logger,
+) -> Result<(), String> {
+    // parse the CLI args into a useable config
+    let config: BootNodeConfig<T> = BootNodeConfig::new(bn_matches, eth2_network_config).await?;
+
+    // Dump configs if `dump-config` or `dump-chain-config` flags are set
+    let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
+    clap_utils::check_dump_configs::<_, T>(
+        lh_matches,
+        &config_sz,
+        &eth2_network_config.chain_spec::<T>()?,
+    )?;
+
+    if lh_matches.is_present("immediate-shutdown") {
+        return Ok(());
+    }
+
     let BootNodeConfig {
         boot_nodes,
         local_enr,
@@ -65,8 +88,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
 
     // start the server
     if let Err(e) = discv5.start().await {
-        slog::crit!(log, "Could not start discv5 server"; "error" => %e);
-        return;
+        return Err(format!("Could not start discv5 server: {e:?}"));
     }
 
     // if there are peers in the local routing table, establish a session by running a query
@@ -82,8 +104,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     let mut event_stream = match discv5.event_stream().await {
         Ok(stream) => stream,
         Err(e) => {
-            slog::crit!(log, "Failed to obtain event stream"; "error" => %e);
-            return;
+            return Err(format!("Failed to obtain event stream: {e:?}"));
         }
     };
 
@@ -123,17 +144,17 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
             }
             Some(event) = event_stream.recv() => {
                 match event {
-                    Discv5Event::Discovered(_enr) => {
+                    discv5::Event::Discovered(_enr) => {
                         // An ENR has bee obtained by the server
                         // Ignore these events here
                     }
-                    Discv5Event::EnrAdded { .. } => {}     // Ignore
-                    Discv5Event::TalkRequest(_) => {}     // Ignore
-                    Discv5Event::NodeInserted { .. } => {} // Ignore
-                    Discv5Event::SocketUpdated(socket_addr) => {
+                    discv5::Event::EnrAdded { .. } => {}     // Ignore
+                    discv5::Event::TalkRequest(_) => {}     // Ignore
+                    discv5::Event::NodeInserted { .. } => {} // Ignore
+                    discv5::Event::SocketUpdated(socket_addr) => {
                         info!(log, "Advertised socket address updated"; "socket_addr" => %socket_addr);
                     }
-                    Discv5Event::SessionEstablished{ .. } => {} // Ignore
+                    discv5::Event::SessionEstablished{ .. } => {} // Ignore
                 }
             }
         }

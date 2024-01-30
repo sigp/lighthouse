@@ -11,6 +11,7 @@ mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
 mod mnemonic_validators;
+mod mock_el;
 mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
@@ -432,7 +433,7 @@ fn main() {
                     .takes_value(true)
                     .default_value("bellatrix")
                     .help("The fork for which the execution payload header should be created.")
-                    .possible_values(&["merge", "bellatrix", "capella"])
+                    .possible_values(&["merge", "bellatrix", "capella", "deneb"])
             )
         )
         .subcommand(
@@ -606,6 +607,15 @@ fn main() {
                         .takes_value(true)
                         .help(
                             "The epoch at which to enable the Capella hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("deneb-fork-epoch")
+                        .long("deneb-fork-epoch")
+                        .value_name("EPOCH")
+                        .takes_value(true)
+                        .help(
+                            "The epoch at which to enable the deneb hard fork",
                         ),
                 )
                 .arg(
@@ -882,6 +892,61 @@ fn main() {
                         .help("Number of repeat runs, useful for benchmarking."),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("mock-el")
+                .about("Creates a mock execution layer server. This is NOT SAFE and should only \
+                be used for testing and development on testnets. Do not use in production. Do not \
+                use on mainnet. It cannot perform validator duties.")
+                .arg(
+                    Arg::with_name("jwt-output-path")
+                        .long("jwt-output-path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Path to write the JWT secret."),
+                )
+                .arg(
+                    Arg::with_name("listen-address")
+                        .long("listen-address")
+                        .value_name("IP_ADDRESS")
+                        .takes_value(true)
+                        .help("The server will listen on this address.")
+                        .default_value("127.0.0.1")
+                )
+                .arg(
+                    Arg::with_name("listen-port")
+                        .long("listen-port")
+                        .value_name("PORT")
+                        .takes_value(true)
+                        .help("The server will listen on this port.")
+                        .default_value("8551")
+                )
+                .arg(
+                    Arg::with_name("all-payloads-valid")
+                        .long("all-payloads-valid")
+                        .takes_value(true)
+                        .help("Controls the response to newPayload and forkchoiceUpdated. \
+                            Set to 'true' to return VALID. Set to 'false' to return SYNCING.")
+                        .default_value("false")
+                        .hidden(true)
+                )
+                .arg(
+                    Arg::with_name("shanghai-time")
+                        .long("shanghai-time")
+                        .value_name("UNIX_TIMESTAMP")
+                        .takes_value(true)
+                        .help("The payload timestamp that enables Shanghai. Defaults to the mainnet value.")
+                        .default_value("1681338479")
+                )
+                .arg(
+                    Arg::with_name("cancun-time")
+                        .long("cancun-time")
+                        .value_name("UNIX_TIMESTAMP")
+                        .takes_value(true)
+                        .help("The payload timestamp that enables Cancun. No default is provided \
+                                until Cancun is triggered on mainnet.")
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -1023,6 +1088,8 @@ fn run<T: EthSpec>(
             state_root::run::<T>(env, network_config, matches)
                 .map_err(|e| format!("Failed to run state-root command: {}", e))
         }
+        ("mock-el", Some(matches)) => mock_el::run::<T>(env, matches)
+            .map_err(|e| format!("Failed to run mock-el command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }

@@ -1,13 +1,19 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use ::fork_choice::PayloadVerificationStatus;
+use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
+use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
+use beacon_chain::blob_verification::GossipBlobError;
+use beacon_chain::chain_config::{
+    DisallowedReOrgOffsets, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+};
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     attestation_verification::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
+    blob_verification::GossipVerifiedBlob,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
 };
 use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
 use serde::Deserialize;
@@ -17,9 +23,9 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, Checkpoint, EthSpec,
-    ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, ProgressiveBalancesMode,
-    SignedBeaconBlock, Slot, Uint256,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
+    EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
+    ProgressiveBalancesMode, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -37,6 +43,13 @@ pub struct Head {
     root: Hash256,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShouldOverrideFcu {
+    validator_is_connected: bool,
+    result: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Checks {
@@ -49,6 +62,8 @@ pub struct Checks {
     u_justified_checkpoint: Option<Checkpoint>,
     u_finalized_checkpoint: Option<Checkpoint>,
     proposer_boost_root: Option<Hash256>,
+    get_proposer_head: Option<Hash256>,
+    should_override_forkchoice_update: Option<ShouldOverrideFcu>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -71,25 +86,27 @@ impl From<PayloadStatus> for PayloadStatusV1 {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub enum Step<B, A, AS, P> {
+pub enum Step<TBlock, TBlobs, TAttestation, TAttesterSlashing, TPowBlock> {
     Tick {
         tick: u64,
     },
     ValidBlock {
-        block: B,
+        block: TBlock,
     },
     MaybeValidBlock {
-        block: B,
+        block: TBlock,
+        blobs: Option<TBlobs>,
+        proofs: Option<Vec<KzgProof>>,
         valid: bool,
     },
     Attestation {
-        attestation: A,
+        attestation: TAttestation,
     },
     AttesterSlashing {
-        attester_slashing: AS,
+        attester_slashing: TAttesterSlashing,
     },
     PowBlock {
-        pow_block: P,
+        pow_block: TPowBlock,
     },
     OnPayloadInfo {
         block_hash: ExecutionBlockHash,
@@ -113,7 +130,9 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
     #[allow(clippy::type_complexity)]
-    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, AttesterSlashing<E>, PowBlock>>,
+    pub steps: Vec<
+        Step<SignedBeaconBlock<E>, BlobsList<E>, Attestation<E>, AttesterSlashing<E>, PowBlock>,
+    >,
 }
 
 impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
@@ -126,7 +145,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &testing_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String, String, String>> =
+        let steps: Vec<Step<String, String, String, String, String>> =
             yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
@@ -139,11 +158,25 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     })
                     .map(|block| Step::ValidBlock { block })
                 }
-                Step::MaybeValidBlock { block, valid } => {
-                    ssz_decode_file_with(&path.join(format!("{}.ssz_snappy", block)), |bytes| {
-                        SignedBeaconBlock::from_ssz_bytes(bytes, spec)
+                Step::MaybeValidBlock {
+                    block,
+                    blobs,
+                    proofs,
+                    valid,
+                } => {
+                    let block =
+                        ssz_decode_file_with(&path.join(format!("{block}.ssz_snappy")), |bytes| {
+                            SignedBeaconBlock::from_ssz_bytes(bytes, spec)
+                        })?;
+                    let blobs = blobs
+                        .map(|blobs| ssz_decode_file(&path.join(format!("{blobs}.ssz_snappy"))))
+                        .transpose()?;
+                    Ok(Step::MaybeValidBlock {
+                        block,
+                        blobs,
+                        proofs,
+                        valid,
                     })
-                    .map(|block| Step::MaybeValidBlock { block, valid })
                 }
                 Step::Attestation { attestation } => {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation)))
@@ -204,10 +237,15 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         for step in &self.steps {
             match step {
                 Step::Tick { tick } => tester.set_tick(*tick),
-                Step::ValidBlock { block } => tester.process_block(block.clone(), true)?,
-                Step::MaybeValidBlock { block, valid } => {
-                    tester.process_block(block.clone(), *valid)?
+                Step::ValidBlock { block } => {
+                    tester.process_block(block.clone(), None, None, true)?
                 }
+                Step::MaybeValidBlock {
+                    block,
+                    blobs,
+                    proofs,
+                    valid,
+                } => tester.process_block(block.clone(), blobs.clone(), proofs.clone(), *valid)?,
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::AttesterSlashing { attester_slashing } => {
                     tester.process_attester_slashing(attester_slashing)
@@ -232,6 +270,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         u_justified_checkpoint,
                         u_finalized_checkpoint,
                         proposer_boost_root,
+                        get_proposer_head,
+                        should_override_forkchoice_update: should_override_fcu,
                     } = checks.as_ref();
 
                     if let Some(expected_head) = head {
@@ -270,6 +310,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     if let Some(expected_proposer_boost_root) = proposer_boost_root {
                         tester.check_expected_proposer_boost_root(*expected_proposer_boost_root)?;
                     }
+
+                    if let Some(should_override_fcu) = should_override_fcu {
+                        tester.check_should_override_fcu(*should_override_fcu)?;
+                    }
+
+                    if let Some(expected_proposer_head) = get_proposer_head {
+                        tester.check_expected_proposer_head(*expected_proposer_head)?;
+                    }
                 }
             }
         }
@@ -300,7 +348,8 @@ impl<E: EthSpec> Tester<E> {
             ));
         }
 
-        let harness = BeaconChainHarness::builder(E::default())
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+            .logger(logging::test_logger())
             .spec(spec.clone())
             .keypairs(vec![])
             .chain_config(ChainConfig {
@@ -380,16 +429,79 @@ impl<E: EthSpec> Tester<E> {
             .unwrap();
     }
 
-    pub fn process_block(&self, block: SignedBeaconBlock<E>, valid: bool) -> Result<(), Error> {
+    pub fn process_block(
+        &self,
+        block: SignedBeaconBlock<E>,
+        blobs: Option<BlobsList<E>>,
+        kzg_proofs: Option<Vec<KzgProof>>,
+        valid: bool,
+    ) -> Result<(), Error> {
         let block_root = block.canonical_root();
+
+        let mut blob_success = true;
+
+        // Convert blobs and kzg_proofs into sidecars, then plumb them into the availability tracker
+        if let Some(blobs) = blobs.clone() {
+            let proofs = kzg_proofs.unwrap();
+            let commitments = block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .unwrap()
+                .clone();
+
+            // Zipping will stop when any of the zipped lists runs out, which is what we want. Some
+            // of the tests don't provide enough proofs/blobs, and should fail the availability
+            // check.
+            for (i, ((blob, kzg_proof), kzg_commitment)) in blobs
+                .into_iter()
+                .zip(proofs)
+                .zip(commitments.into_iter())
+                .enumerate()
+            {
+                let blob_sidecar = Arc::new(BlobSidecar {
+                    index: i as u64,
+                    blob,
+                    kzg_commitment,
+                    kzg_proof,
+                    signed_block_header: block.signed_block_header(),
+                    kzg_commitment_inclusion_proof: block
+                        .message()
+                        .body()
+                        .kzg_commitment_merkle_proof(i)
+                        .unwrap(),
+                });
+
+                let chain = self.harness.chain.clone();
+                let blob =
+                    match GossipVerifiedBlob::new(blob_sidecar.clone(), blob_sidecar.index, &chain)
+                    {
+                        Ok(gossip_verified_blob) => gossip_verified_blob,
+                        Err(GossipBlobError::KzgError(_)) => {
+                            blob_success = false;
+                            GossipVerifiedBlob::__assumed_valid(blob_sidecar)
+                        }
+                        Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
+                    };
+                let result =
+                    self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
+                if valid {
+                    assert!(result.is_ok());
+                }
+            }
+        };
+
         let block = Arc::new(block);
-        let result = self.block_on_dangerous(self.harness.chain.process_block(
-            block_root,
-            block.clone(),
-            NotifyExecutionLayer::Yes,
-            || Ok(()),
-        ))?;
-        if result.is_ok() != valid {
+        let result: Result<Result<Hash256, ()>, _> = self
+            .block_on_dangerous(self.harness.chain.process_block(
+                block_root,
+                block.clone(),
+                NotifyExecutionLayer::Yes,
+                || Ok(()),
+            ))?
+            .map(|avail: AvailabilityProcessingStatus| avail.try_into());
+        let success = blob_success && result.as_ref().map_or(false, |inner| inner.is_ok());
+        if success != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
                 block_root,
@@ -401,8 +513,8 @@ impl<E: EthSpec> Tester<E> {
 
         // Apply invalid blocks directly against the fork choice `on_block` function. This ensures
         // that the block is being rejected by `on_block`, not just some upstream block processing
-        // function.
-        if !valid {
+        // function. When blobs exist, we don't do this.
+        if !valid && blobs.is_none() {
             // A missing parent block whilst `valid == false` means the test should pass.
             if let Some(parent_block) = self
                 .harness
@@ -623,6 +735,82 @@ impl<E: EthSpec> Tester<E> {
             "proposer_boost_root",
             proposer_boost_root,
             expected_proposer_boost_root,
+        )
+    }
+
+    pub fn check_expected_proposer_head(
+        &self,
+        expected_proposer_head: Hash256,
+    ) -> Result<(), Error> {
+        let mut fc = self.harness.chain.canonical_head.fork_choice_write_lock();
+        let slot = self.harness.chain.slot().unwrap();
+        let canonical_head = fc.get_head(slot, &self.harness.spec).unwrap();
+        let proposer_head_result = fc.get_proposer_head(
+            slot,
+            canonical_head,
+            DEFAULT_RE_ORG_THRESHOLD,
+            &DisallowedReOrgOffsets::default(),
+            DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+        );
+        let proposer_head = match proposer_head_result {
+            Ok(head) => head.parent_node.root,
+            Err(ProposerHeadError::DoNotReOrg(_)) => canonical_head,
+            _ => panic!("Unexpected error in get proposer head"),
+        };
+
+        check_equal("proposer_head", proposer_head, expected_proposer_head)
+    }
+
+    pub fn check_should_override_fcu(
+        &self,
+        expected_should_override_fcu: ShouldOverrideFcu,
+    ) -> Result<(), Error> {
+        // Determine proposer.
+        let cached_head = self.harness.chain.canonical_head.cached_head();
+        let next_slot = cached_head.snapshot.beacon_block.slot() + 1;
+        let next_slot_epoch = next_slot.epoch(E::slots_per_epoch());
+        let (proposer_indices, decision_root, _, fork) =
+            compute_proposer_duties_from_head(next_slot_epoch, &self.harness.chain).unwrap();
+        let proposer_index = proposer_indices[next_slot.as_usize() % E::slots_per_epoch() as usize];
+
+        // Ensure the proposer index cache is primed.
+        self.harness
+            .chain
+            .beacon_proposer_cache
+            .lock()
+            .insert(next_slot_epoch, decision_root, proposer_indices, fork)
+            .unwrap();
+
+        // Update the execution layer proposer preparation to match the test config.
+        let el = self.harness.chain.execution_layer.clone().unwrap();
+        self.block_on_dangerous(async {
+            if expected_should_override_fcu.validator_is_connected {
+                el.update_proposer_preparation(
+                    next_slot_epoch,
+                    &[ProposerPreparationData {
+                        validator_index: dbg!(proposer_index) as u64,
+                        fee_recipient: Default::default(),
+                    }],
+                )
+                .await;
+            } else {
+                el.clear_proposer_preparation(proposer_index as u64).await;
+            }
+        })
+        .unwrap();
+
+        // Check forkchoice override.
+        let canonical_fcu_params = cached_head.forkchoice_update_parameters();
+        let fcu_params = self
+            .harness
+            .chain
+            .overridden_forkchoice_update_params(canonical_fcu_params)
+            .unwrap();
+
+        check_equal(
+            "should_override_forkchoice_update",
+            fcu_params != canonical_fcu_params,
+            expected_should_override_fcu.result,
         )
     }
 }

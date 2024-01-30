@@ -1,6 +1,6 @@
 use crate::hot_cold_store::{BytesKey, HotColdDBError};
 use crate::{
-    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp,
+    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, KeyValueStoreOp, RawEntryIter, RawKeyIter, KeyValueStore
 };
 use leveldb::compaction::Compaction;
 use leveldb::database::batch::{Batch, Writebatch};
@@ -12,6 +12,7 @@ use parking_lot::{Mutex, MutexGuard};
 use std::marker::PhantomData;
 use std::path::Path;
 use types::{EthSpec, Hash256};
+use crate::Key;
 
 pub struct BeaconNodeBackend<E: EthSpec> {
     db: Database<BytesKey>,
@@ -162,16 +163,15 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         for (start_key, end_key) in [
             endpoints(DBColumn::BeaconStateTemporary),
             endpoints(DBColumn::BeaconState),
+            endpoints(DBColumn::BeaconStateSummary),
         ] {
             self.db.compact(&start_key, &end_key);
         }
         Ok(())
     }
 
-    /// Iterate through all keys and values in a particular column.
-    pub fn iter_column(&self, column: DBColumn) -> ColumnIter {
-        let start_key =
-            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
+    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
 
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
@@ -179,21 +179,20 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         Box::new(
             iter.take_while(move |(key, _)| key.matches_column(column))
                 .map(move |(bytes_key, value)| {
-                    let key =
-                        bytes_key
-                            .remove_column(column)
-                            .ok_or(HotColdDBError::IterationError {
-                                unexpected_key: bytes_key,
-                            })?;
-                    Ok((key, value))
+                    let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
+                        HotColdDBError::IterationError {
+                            unexpected_key: bytes_key.clone(),
+                        }
+                    })?;
+                    Ok((K::from_bytes(key)?, value))
                 }),
         )
     }
 
     /// Iterate through all keys and values in a particular column.
-    pub fn iter_column_keys(&self, column: DBColumn) -> ColumnKeyIter {
+    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
         let start_key =
-            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
+            BytesKey::from_vec(get_key_for_col(column.into(), &vec![0; column.key_size()]));
 
         let iter = self.db.keys_iter(self.read_options());
         iter.seek(&start_key);
@@ -201,13 +200,12 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         Box::new(
             iter.take_while(move |key| key.matches_column(column))
                 .map(move |bytes_key| {
-                    let key =
-                        bytes_key
-                            .remove_column(column)
-                            .ok_or(HotColdDBError::IterationError {
-                                unexpected_key: bytes_key,
-                            })?;
-                    Ok(key)
+                    let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
+                        HotColdDBError::IterationError {
+                            unexpected_key: bytes_key.clone(),
+                        }
+                    })?;
+                    K::from_bytes(key)
                 }),
         )
     }
@@ -233,5 +231,180 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
                     .into()
                 })
             })
+        }
+
+    pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+        self.iter_column_from(column, &vec![0; column.key_size()])
     }
 }
+
+impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
+
+
+    fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, crate::Error> {
+        let column_key = get_key_for_col(col, key);
+
+        metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
+        let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
+
+        self.db
+            .get(self.read_options(), BytesKey::from_vec(column_key))
+            .map_err(Into::into)
+            .map(|opt| {
+                opt.map(|bytes| {
+                    metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, bytes.len() as u64);
+                    metrics::stop_timer(timer);
+                    bytes
+                })
+            })
+    }
+
+    fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), crate::Error> {
+        self.put_bytes_with_options(col, key, val, self.write_options())
+    }
+
+    fn put_bytes_sync(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), crate::Error> {
+        self.put_bytes_with_options(col, key, val, self.write_options_sync())
+    }
+
+    fn sync(&self) -> Result<(), crate::Error> {
+        self.put_bytes_sync("sync", b"sync", b"sync")
+    }
+
+    fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, crate::Error> {
+        let column_key = get_key_for_col(col, key);
+
+        metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
+
+        self.db
+            .get(self.read_options(), BytesKey::from_vec(column_key))
+            .map_err(Into::into)
+            .map(|val| val.is_some())
+    }
+
+    fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), crate::Error> {
+        let column_key = get_key_for_col(col, key);
+
+        metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
+
+        self.db
+            .delete(self.write_options(), BytesKey::from_vec(column_key))
+            .map_err(Into::into)
+    }
+
+    fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) -> Result<(), crate::Error> {
+        let mut leveldb_batch = Writebatch::new();
+        for op in ops_batch {
+            match op {
+                KeyValueStoreOp::PutKeyValue(key, value) => {
+                    leveldb_batch.put(BytesKey::from_vec(key), &value);
+                }
+
+                KeyValueStoreOp::DeleteKey(key) => {
+                    leveldb_batch.delete(BytesKey::from_vec(key));
+                }
+            }
+        }
+        self.db.write(self.write_options(), &leveldb_batch)?;
+        Ok(())
+    }
+
+    fn begin_rw_transaction(&self) -> MutexGuard<()> {
+        self.transaction_mutex.lock()
+    }
+
+    fn compact(&self) -> Result<(), crate::Error> {
+        let endpoints = |column: DBColumn| {
+            (
+                BytesKey::from_vec(get_key_for_col(column.as_str(), Hash256::zero().as_bytes())),
+                BytesKey::from_vec(get_key_for_col(
+                    column.as_str(),
+                    Hash256::repeat_byte(0xff).as_bytes(),
+                )),
+            )
+        };
+
+        for (start_key, end_key) in [
+            endpoints(DBColumn::BeaconStateTemporary),
+            endpoints(DBColumn::BeaconState),
+            endpoints(DBColumn::BeaconStateSummary),
+        ] {
+            self.db.compact(&start_key, &end_key);
+        }
+        Ok(())
+    }
+
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
+
+        let iter = self.db.iter(self.read_options());
+        iter.seek(&start_key);
+
+        Box::new(
+            iter.take_while(move |(key, _)| key.matches_column(column))
+                .map(move |(bytes_key, value)| {
+                    let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
+                        HotColdDBError::IterationError {
+                            unexpected_key: bytes_key.clone(),
+                        }
+                    })?;
+                    Ok((K::from_bytes(key)?, value))
+                }),
+        )
+    }
+
+    fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
+        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
+
+        let iter = self.db.iter(self.read_options());
+        iter.seek(&start_key);
+
+        Box::new(
+            iter.take_while(move |(key, _)| key.key.starts_with(start_key.key.as_slice()))
+                .map(move |(bytes_key, value)| {
+                    let subkey = &bytes_key.key[column.as_bytes().len()..];
+                    Ok((Vec::from(subkey), value))
+                }),
+        )
+    }
+
+    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
+        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
+
+        let iter = self.db.keys_iter(self.read_options());
+        iter.seek(&start_key);
+
+        Box::new(
+            iter.take_while(move |key| key.key.starts_with(start_key.key.as_slice()))
+                .map(move |bytes_key| {
+                    let subkey = &bytes_key.key[column.as_bytes().len()..];
+                    Ok(Vec::from(subkey))
+                }),
+        )
+    }
+
+    /// Iterate through all keys and values in a particular column.
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+        let start_key =
+            BytesKey::from_vec(get_key_for_col(column.into(), &vec![0; column.key_size()]));
+
+        let iter = self.db.keys_iter(self.read_options());
+        iter.seek(&start_key);
+
+        Box::new(
+            iter.take_while(move |key| key.matches_column(column))
+                .map(move |bytes_key| {
+                    let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
+                        HotColdDBError::IterationError {
+                            unexpected_key: bytes_key.clone(),
+                        }
+                    })?;
+                    K::from_bytes(key)
+                }),
+        )
+    }
+}
+
+impl<E: EthSpec> ItemStore<E> for BeaconNodeBackend<E> {}
+
+

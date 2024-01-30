@@ -1,19 +1,15 @@
 //! Utilities for managing database schema changes.
-mod migration_schema_v12;
-mod migration_schema_v13;
-mod migration_schema_v14;
-mod migration_schema_v15;
-mod migration_schema_v16;
 mod migration_schema_v17;
+mod migration_schema_v18;
+mod migration_schema_v19;
 
-use crate::beacon_chain::{BeaconChainTypes, ETH1_CACHE_DB_KEY};
-use crate::eth1_chain::SszEth1;
+use crate::beacon_chain::BeaconChainTypes;
 use crate::types::ChainSpec;
-use slog::{warn, Logger};
+use slog::Logger;
 use std::sync::Arc;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
-use store::{Error as StoreError, StoreItem};
+use store::Error as StoreError;
 
 /// Migrate the database from one schema version to another, applying all requisite mutations.
 #[allow(clippy::only_used_in_recursion)] // spec is not used but likely to be used in future
@@ -56,98 +52,30 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
 
         //
-        // Migrations from before SchemaVersion(11) are deprecated.
+        // Migrations from before SchemaVersion(16) are deprecated.
         //
-
-        // Upgrade from v11 to v12 to store richer metadata in the attestation op pool.
-        (SchemaVersion(11), SchemaVersion(12)) => {
-            let ops = migration_schema_v12::upgrade_to_v12::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        // Downgrade from v12 to v11 to drop richer metadata from the attestation op pool.
-        (SchemaVersion(12), SchemaVersion(11)) => {
-            let ops = migration_schema_v12::downgrade_from_v12::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(12), SchemaVersion(13)) => {
-            let mut ops = vec![];
-            if let Some(persisted_eth1_v1) = db.get_item::<SszEth1>(&ETH1_CACHE_DB_KEY)? {
-                let upgraded_eth1_cache =
-                    match migration_schema_v13::update_eth1_cache(persisted_eth1_v1) {
-                        Ok(upgraded_eth1) => upgraded_eth1,
-                        Err(e) => {
-                            warn!(log, "Failed to deserialize SszEth1CacheV1"; "error" => ?e);
-                            warn!(log, "Reinitializing eth1 cache");
-                            migration_schema_v13::reinitialized_eth1_cache_v13(
-                                deposit_contract_deploy_block,
-                            )
-                        }
-                    };
-                ops.push(upgraded_eth1_cache.as_kv_store_op(ETH1_CACHE_DB_KEY));
-            }
-
-            db.store_schema_version_atomically(to, ops)?;
-
-            Ok(())
-        }
-        (SchemaVersion(13), SchemaVersion(12)) => {
-            let mut ops = vec![];
-            if let Some(persisted_eth1_v13) = db.get_item::<SszEth1>(&ETH1_CACHE_DB_KEY)? {
-                let downgraded_eth1_cache = match migration_schema_v13::downgrade_eth1_cache(
-                    persisted_eth1_v13,
-                ) {
-                    Ok(Some(downgraded_eth1)) => downgraded_eth1,
-                    Ok(None) => {
-                        warn!(log, "Unable to downgrade eth1 cache from newer version: reinitializing eth1 cache");
-                        migration_schema_v13::reinitialized_eth1_cache_v1(
-                            deposit_contract_deploy_block,
-                        )
-                    }
-                    Err(e) => {
-                        warn!(log, "Unable to downgrade eth1 cache from newer version: failed to deserialize SszEth1CacheV13"; "error" => ?e);
-                        warn!(log, "Reinitializing eth1 cache");
-                        migration_schema_v13::reinitialized_eth1_cache_v1(
-                            deposit_contract_deploy_block,
-                        )
-                    }
-                };
-                ops.push(downgraded_eth1_cache.as_kv_store_op(ETH1_CACHE_DB_KEY));
-            }
-
-            db.store_schema_version_atomically(to, ops)?;
-
-            Ok(())
-        }
-        (SchemaVersion(13), SchemaVersion(14)) => {
-            let ops = migration_schema_v14::upgrade_to_v14::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(14), SchemaVersion(13)) => {
-            let ops = migration_schema_v14::downgrade_from_v14::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(14), SchemaVersion(15)) => {
-            let ops = migration_schema_v15::upgrade_to_v15::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(15), SchemaVersion(14)) => {
-            let ops = migration_schema_v15::downgrade_from_v15::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(15), SchemaVersion(16)) => {
-            let ops = migration_schema_v16::upgrade_to_v16::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(16), SchemaVersion(15)) => {
-            let ops = migration_schema_v16::downgrade_from_v16::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
         (SchemaVersion(16), SchemaVersion(17)) => {
             let ops = migration_schema_v17::upgrade_to_v17::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
         (SchemaVersion(17), SchemaVersion(16)) => {
             let ops = migration_schema_v17::downgrade_from_v17::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(17), SchemaVersion(18)) => {
+            let ops = migration_schema_v18::upgrade_to_v18::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(18), SchemaVersion(17)) => {
+            let ops = migration_schema_v18::downgrade_from_v18::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(18), SchemaVersion(19)) => {
+            let ops = migration_schema_v19::upgrade_to_v19::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(19), SchemaVersion(18)) => {
+            let ops = migration_schema_v19::downgrade_from_v19::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.

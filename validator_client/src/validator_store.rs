@@ -20,11 +20,11 @@ use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData, VoluntaryExit,
+    Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, Keypair, PublicKeyBytes,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
+    Slot, SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
 };
 use validator_dir::ValidatorDir;
 
@@ -97,6 +97,9 @@ pub struct ValidatorStore<T, E: EthSpec> {
     fee_recipient_process: Option<Address>,
     gas_limit: Option<u64>,
     builder_proposals: bool,
+    produce_block_v3: bool,
+    prefer_builder_proposals: bool,
+    builder_boost_factor: Option<u64>,
     task_executor: TaskExecutor,
     _phantom: PhantomData<E>,
 }
@@ -128,6 +131,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             fee_recipient_process: config.fee_recipient,
             gas_limit: config.gas_limit,
             builder_proposals: config.builder_proposals,
+            produce_block_v3: config.produce_block_v3,
+            prefer_builder_proposals: config.prefer_builder_proposals,
+            builder_boost_factor: config.builder_boost_factor,
             task_executor,
             _phantom: PhantomData,
         }
@@ -176,6 +182,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         suggested_fee_recipient: Option<Address>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        builder_boost_factor: Option<u64>,
+        prefer_builder_proposals: Option<bool>,
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
@@ -184,6 +192,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             suggested_fee_recipient,
             gas_limit,
             builder_proposals,
+            builder_boost_factor,
+            prefer_builder_proposals,
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
@@ -336,6 +346,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.spec.fork_at_epoch(epoch)
     }
 
+    pub fn produce_block_v3(&self) -> bool {
+        self.produce_block_v3
+    }
+
     /// Returns a `SigningMethod` for `validator_pubkey` *only if* that validator is considered safe
     /// by doppelganger protection.
     fn doppelganger_checked_signing_method(
@@ -369,11 +383,35 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     fn signing_context(&self, domain: Domain, signing_epoch: Epoch) -> SigningContext {
-        SigningContext {
-            domain,
-            epoch: signing_epoch,
-            fork: self.fork(signing_epoch),
-            genesis_validators_root: self.genesis_validators_root,
+        if domain == Domain::VoluntaryExit {
+            match self.spec.fork_name_at_epoch(signing_epoch) {
+                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                    SigningContext {
+                        domain,
+                        epoch: signing_epoch,
+                        fork: self.fork(signing_epoch),
+                        genesis_validators_root: self.genesis_validators_root,
+                    }
+                }
+                // EIP-7044
+                ForkName::Deneb => SigningContext {
+                    domain,
+                    epoch: signing_epoch,
+                    fork: Fork {
+                        previous_version: self.spec.capella_fork_version,
+                        current_version: self.spec.capella_fork_version,
+                        epoch: signing_epoch,
+                    },
+                    genesis_validators_root: self.genesis_validators_root,
+                },
+            }
+        } else {
+            SigningContext {
+                domain,
+                epoch: signing_epoch,
+                fork: self.fork(signing_epoch),
+                genesis_validators_root: self.genesis_validators_root,
+            }
         }
     }
 
@@ -444,7 +482,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .unwrap_or(DEFAULT_GAS_LIMIT)
     }
 
-    /// Returns a `bool` for the given public key that denotes whther this validator should use the
+    /// Returns a `bool` for the given public key that denotes whether this validator should use the
     /// builder API. The priority order for fetching this value is:
     ///
     /// 1. validator_definitions.yml
@@ -457,10 +495,89 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         )
     }
 
+    /// Returns a `u64` for the given public key that denotes the builder boost factor. The priority order for fetching this value is:
+    ///
+    /// 1. validator_definitions.yml
+    /// 2. process level flag
+    pub fn get_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64> {
+        self.validators
+            .read()
+            .builder_boost_factor(validator_pubkey)
+            .or(self.builder_boost_factor)
+    }
+
+    /// Returns a `bool` for the given public key that denotes whether this validator should prefer a
+    /// builder payload. The priority order for fetching this value is:
+    ///
+    /// 1. validator_definitions.yml
+    /// 2. process level flag
+    pub fn get_prefer_builder_proposals(&self, validator_pubkey: &PublicKeyBytes) -> bool {
+        self.validators
+            .read()
+            .prefer_builder_proposals(validator_pubkey)
+            .unwrap_or(self.prefer_builder_proposals)
+    }
+
     fn get_builder_proposals_defaulting(&self, builder_proposals: Option<bool>) -> bool {
         builder_proposals
             // If there's nothing in the file, try the process-level default value.
             .unwrap_or(self.builder_proposals)
+    }
+
+    /// Translate the per validator `builder_proposals`, `builder_boost_factor` and
+    /// `prefer_builder_proposals` to a boost factor, if available.
+    /// - If `prefer_builder_proposals` is true, set boost factor to `u64::MAX` to indicate a
+    /// preference for builder payloads.
+    /// - If `builder_boost_factor` is a value other than None, return its value as the boost factor.
+    /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
+    ///   local payloads.
+    /// - Else return `None` to indicate no preference between builder and local payloads.
+    pub fn determine_validator_builder_boost_factor(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Option<u64> {
+        let validator_prefer_builder_proposals = self
+            .validators
+            .read()
+            .prefer_builder_proposals(validator_pubkey);
+
+        if matches!(validator_prefer_builder_proposals, Some(true)) {
+            return Some(u64::MAX);
+        }
+
+        self.validators
+            .read()
+            .builder_boost_factor(validator_pubkey)
+            .or_else(|| {
+                if matches!(
+                    self.validators.read().builder_proposals(validator_pubkey),
+                    Some(false)
+                ) {
+                    return Some(0);
+                }
+                None
+            })
+    }
+
+    /// Translate the process-wide `builder_proposals`, `builder_boost_factor` and
+    /// `prefer_builder_proposals` configurations to a boost factor.
+    /// - If `prefer_builder_proposals` is true, set boost factor to `u64::MAX` to indicate a
+    ///   preference for builder payloads.
+    /// - If `builder_boost_factor` is a value other than None, return its value as the boost factor.
+    /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
+    ///   local payloads.
+    /// - Else return `None` to indicate no preference between builder and local payloads.
+    pub fn determine_default_builder_boost_factor(&self) -> Option<u64> {
+        if self.prefer_builder_proposals {
+            return Some(u64::MAX);
+        }
+        self.builder_boost_factor.or({
+            if self.builder_proposals {
+                Some(0)
+            } else {
+                None
+            }
+        })
     }
 
     pub async fn sign_block<Payload: AbstractExecPayload<E>>(

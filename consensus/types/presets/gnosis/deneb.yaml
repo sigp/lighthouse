@@ -1,0 +1,14 @@
+# Gnosis preset - Deneb
+# NOTE: The below are PLACEHOLDER values from Mainnet.
+# Gnosis preset for the Deneb fork TBD: https://github.com/gnosischain/configs/tree/main/presets/gnosis
+
+# Misc
+# ---------------------------------------------------------------
+# `uint64(4096)`
+FIELD_ELEMENTS_PER_BLOB: 4096
+# `uint64(2**12)` (= 4096)
+MAX_BLOB_COMMITMENTS_PER_BLOCK: 4096
+# `uint64(6)`
+MAX_BLOBS_PER_BLOCK: 6
+# `floorlog2(BLOB_KZG_COMMITMENTS_GINDEX) + 1 + ceillog2(MAX_BLOB_COMMITMENTS_PER_BLOCK)` = 4 + 1 + 12 = 17
+KZG_COMMITMENT_INCLUSION_PROOF_DEPTH: 17

@@ -1,11 +1,14 @@
 mod api_secret;
 mod create_signed_voluntary_exit;
 mod create_validator;
+mod graffiti;
 mod keystores;
 mod remotekeys;
 mod tests;
 
 pub mod test_utils;
+
+use crate::http_api::graffiti::{delete_graffiti, get_graffiti, set_graffiti};
 
 use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
@@ -19,7 +22,10 @@ use create_validator::{
 };
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
-    types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
+    types::{
+        self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, PublicKey,
+        PublicKeyBytes, SetGraffitiRequest,
+    },
 };
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
@@ -559,6 +565,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let suggested_fee_recipient = body.suggested_fee_recipient;
                     let gas_limit = body.gas_limit;
                     let builder_proposals = body.builder_proposals;
+                    let builder_boost_factor = body.builder_boost_factor;
+                    let prefer_builder_proposals = body.prefer_builder_proposals;
 
                     let validator_def = {
                         if let Some(handle) = task_executor.handle() {
@@ -571,6 +579,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     suggested_fee_recipient,
                                     gas_limit,
                                     builder_proposals,
+                                    builder_boost_factor,
+                                    prefer_builder_proposals,
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
@@ -619,6 +629,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 suggested_fee_recipient: web3signer.suggested_fee_recipient,
                                 gas_limit: web3signer.gas_limit,
                                 builder_proposals: web3signer.builder_proposals,
+                                builder_boost_factor: web3signer.builder_boost_factor,
+                                prefer_builder_proposals: web3signer.prefer_builder_proposals,
                                 description: web3signer.description,
                                 signing_definition: SigningDefinition::Web3Signer(
                                     Web3SignerDefinition {
@@ -653,7 +665,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_store_filter.clone())
-        .and(graffiti_file_filter)
+        .and(graffiti_file_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
@@ -685,8 +697,12 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         (Some(is_enabled), Some(initialized_validator))
                             if Some(is_enabled) == body.enabled
                                 && initialized_validator.get_gas_limit() == body.gas_limit
+                                && initialized_validator.get_builder_boost_factor()
+                                    == body.builder_boost_factor
                                 && initialized_validator.get_builder_proposals()
                                     == body.builder_proposals
+                                && initialized_validator.get_prefer_builder_proposals()
+                                    == body.prefer_builder_proposals
                                 && initialized_validator.get_graffiti() == maybe_graffiti =>
                         {
                             Ok(())
@@ -700,6 +716,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                             body.enabled,
                                             body.gas_limit,
                                             body.builder_proposals,
+                                            body.builder_boost_factor,
+                                            body.prefer_builder_proposals,
                                             body.graffiti,
                                         ),
                                     )
@@ -1028,6 +1046,86 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         );
 
+    // GET /eth/v1/validator/{pubkey}/graffiti
+    let get_graffiti = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("graffiti"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(graffiti_flag_filter)
+        .and(signer.clone())
+        .and_then(
+            |pubkey: PublicKey,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             graffiti_flag: Option<Graffiti>,
+             signer| {
+                blocking_signed_json_task(signer, move || {
+                    let graffiti = get_graffiti(pubkey.clone(), validator_store, graffiti_flag)?;
+                    Ok(GenericResponse::from(GetGraffitiResponse {
+                        pubkey: pubkey.into(),
+                        graffiti,
+                    }))
+                })
+            },
+        );
+
+    // POST /eth/v1/validator/{pubkey}/graffiti
+    let post_graffiti = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("graffiti"))
+        .and(warp::body::json())
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(graffiti_file_filter.clone())
+        .and(signer.clone())
+        .and_then(
+            |pubkey: PublicKey,
+             query: SetGraffitiRequest,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             graffiti_file: Option<GraffitiFile>,
+             signer| {
+                blocking_signed_json_task(signer, move || {
+                    if graffiti_file.is_some() {
+                        return Err(warp_utils::reject::invalid_auth(
+                            "Unable to update graffiti as the \"--graffiti-file\" flag is set"
+                                .to_string(),
+                        ));
+                    }
+                    set_graffiti(pubkey.clone(), query.graffiti, validator_store)
+                })
+            },
+        )
+        .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::ACCEPTED));
+
+    // DELETE /eth/v1/validator/{pubkey}/graffiti
+    let delete_graffiti = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("graffiti"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(graffiti_file_filter.clone())
+        .and(signer.clone())
+        .and_then(
+            |pubkey: PublicKey,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             graffiti_file: Option<GraffitiFile>,
+             signer| {
+                blocking_signed_json_task(signer, move || {
+                    if graffiti_file.is_some() {
+                        return Err(warp_utils::reject::invalid_auth(
+                            "Unable to delete graffiti as the \"--graffiti-file\" flag is set"
+                                .to_string(),
+                        ));
+                    }
+                    delete_graffiti(pubkey.clone(), validator_store)
+                })
+            },
+        )
+        .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::NO_CONTENT));
+
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores
         .and(signer.clone())
@@ -1175,8 +1273,10 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_ui_graffiti)
                         .or(get_fee_recipient)
                         .or(get_gas_limit)
+                        .or(get_graffiti)
                         .or(get_std_keystores)
-                        .or(get_std_remotekeys),
+                        .or(get_std_remotekeys)
+                        .recover(warp_utils::reject::handle_rejection),
                 )
                 .or(warp::post().and(
                     post_validators
@@ -1187,15 +1287,20 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(post_fee_recipient)
                         .or(post_gas_limit)
                         .or(post_std_keystores)
-                        .or(post_std_remotekeys),
+                        .or(post_std_remotekeys)
+                        .or(post_graffiti)
+                        .recover(warp_utils::reject::handle_rejection),
                 ))
-                .or(warp::patch().and(patch_validators))
+                .or(warp::patch()
+                    .and(patch_validators.recover(warp_utils::reject::handle_rejection)))
                 .or(warp::delete().and(
                     delete_lighthouse_keystores
                         .or(delete_fee_recipient)
                         .or(delete_gas_limit)
                         .or(delete_std_keystores)
-                        .or(delete_std_remotekeys),
+                        .or(delete_std_remotekeys)
+                        .or(delete_graffiti)
+                        .recover(warp_utils::reject::handle_rejection),
                 )),
         )
         // The auth route and logs  are the only routes that are allowed to be accessed without the API token.

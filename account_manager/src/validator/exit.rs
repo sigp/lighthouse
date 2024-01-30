@@ -10,12 +10,11 @@ use eth2_keystore::Keystore;
 use eth2_network_config::Eth2NetworkConfig;
 use safe_arith::SafeArith;
 use sensitive_url::SensitiveUrl;
-use slog::Logger;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
+use types::{ChainSpec, Epoch, EthSpec, VoluntaryExit};
 
 pub const CMD: &str = "exit";
 pub const KEYSTORE_FLAG: &str = "keystore";
@@ -79,12 +78,6 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let password_file_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
 
-    let genesis_state_url: Option<String> =
-        clap_utils::parse_optional(matches, "genesis-state-url")?;
-    let genesis_state_url_timeout =
-        clap_utils::parse_required(matches, "genesis-state-url-timeout")
-            .map(Duration::from_secs)?;
-
     let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
     let no_wait = matches.is_present(NO_WAIT);
     let no_confirmation = matches.is_present(NO_CONFIRMATION);
@@ -111,9 +104,6 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         &eth2_network_config,
         no_wait,
         no_confirmation,
-        genesis_state_url,
-        genesis_state_url_timeout,
-        env.core_context().log(),
     ))?;
 
     Ok(())
@@ -130,13 +120,10 @@ async fn publish_voluntary_exit<E: EthSpec>(
     eth2_network_config: &Eth2NetworkConfig,
     no_wait: bool,
     no_confirmation: bool,
-    genesis_state_url: Option<String>,
-    genesis_state_url_timeout: Duration,
-    log: &Logger,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = eth2_network_config
-        .genesis_validators_root::<E>(genesis_state_url.as_deref(), genesis_state_url_timeout, log)?
+        .genesis_validators_root::<E>()?
         .ok_or("Genesis state is unknown")?;
 
     // Verify that the beacon node and validator being exited are on the same network.
@@ -159,7 +146,6 @@ async fn publish_voluntary_exit<E: EthSpec>(
         .ok_or("Failed to get current epoch. Please check your system time")?;
     let validator_index = get_validator_index_for_exit(client, &keypair.pk, epoch, spec).await?;
 
-    let fork = get_beacon_state_fork(client).await?;
     let voluntary_exit = VoluntaryExit {
         epoch,
         validator_index,
@@ -186,12 +172,8 @@ async fn publish_voluntary_exit<E: EthSpec>(
 
     if confirmation == CONFIRMATION_PHRASE {
         // Sign and publish the voluntary exit to network
-        let signed_voluntary_exit = voluntary_exit.sign(
-            &keypair.sk,
-            &fork,
-            genesis_data.genesis_validators_root,
-            spec,
-        );
+        let signed_voluntary_exit =
+            voluntary_exit.sign(&keypair.sk, genesis_data.genesis_validators_root, spec);
         client
             .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
             .await
@@ -327,16 +309,6 @@ async fn is_syncing(client: &BeaconNodeHttpClient) -> Result<bool, String> {
         .map_err(|e| format!("Failed to get sync status: {:?}", e))?
         .data
         .is_syncing)
-}
-
-/// Get fork object for the current state by querying the beacon node client.
-async fn get_beacon_state_fork(client: &BeaconNodeHttpClient) -> Result<Fork, String> {
-    Ok(client
-        .get_beacon_states_fork(StateId::Head)
-        .await
-        .map_err(|e| format!("Failed to get get fork: {:?}", e))?
-        .ok_or("Failed to get fork, state not found")?
-        .data)
 }
 
 /// Calculates the current epoch from the genesis time and current time.

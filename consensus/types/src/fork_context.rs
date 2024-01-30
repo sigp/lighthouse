@@ -9,6 +9,7 @@ pub struct ForkContext {
     current_fork: RwLock<ForkName>,
     fork_to_digest: HashMap<ForkName, [u8; 4]>,
     digest_to_fork: HashMap<[u8; 4], ForkName>,
+    pub spec: ChainSpec,
 }
 
 impl ForkContext {
@@ -54,6 +55,13 @@ impl ForkContext {
             ));
         }
 
+        if spec.deneb_fork_epoch.is_some() {
+            fork_to_digest.push((
+                ForkName::Deneb,
+                ChainSpec::compute_fork_digest(spec.deneb_fork_version, genesis_validators_root),
+            ));
+        }
+
         let fork_to_digest: HashMap<ForkName, [u8; 4]> = fork_to_digest.into_iter().collect();
 
         let digest_to_fork = fork_to_digest
@@ -66,6 +74,7 @@ impl ForkContext {
             current_fork: RwLock::new(spec.fork_name_at_slot::<T>(current_slot)),
             fork_to_digest,
             digest_to_fork,
+            spec: spec.clone(),
         }
     }
 
