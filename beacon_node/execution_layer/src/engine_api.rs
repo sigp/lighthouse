@@ -1,9 +1,9 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
-    ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
-    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1,
-    ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
+    ENGINE_CLIENT_VERSION_V1, ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2,
+    ENGINE_FORKCHOICE_UPDATED_V3, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -584,6 +584,7 @@ pub struct EngineCapabilities {
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
+    pub client_version_v1: bool,
 }
 
 impl EngineCapabilities {
@@ -622,7 +623,111 @@ impl EngineCapabilities {
         if self.get_payload_v3 {
             response.push(ENGINE_GET_PAYLOAD_V3);
         }
+        if self.client_version_v1 {
+            response.push(ENGINE_CLIENT_VERSION_V1);
+        }
 
         response
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ClientCode {
+    Besu,
+    EtherumJS,
+    Erigon,
+    GoEthereum,
+    Grandine,
+    Lighthouse,
+    Lodestar,
+    Nethermind,
+    Nimbus,
+    Teku,
+    Prysm,
+    Reth,
+    Unknown(String),
+}
+
+impl std::fmt::Display for ClientCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            ClientCode::Besu => "BU",
+            ClientCode::EtherumJS => "EJ",
+            ClientCode::Erigon => "EG",
+            ClientCode::GoEthereum => "GE",
+            ClientCode::Grandine => "GR",
+            ClientCode::Lighthouse => "LH",
+            ClientCode::Lodestar => "LS",
+            ClientCode::Nethermind => "NM",
+            ClientCode::Nimbus => "NB",
+            ClientCode::Teku => "TK",
+            ClientCode::Prysm => "PM",
+            ClientCode::Reth => "RH",
+            ClientCode::Unknown(code) => &code,
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl TryFrom<String> for ClientCode {
+    type Error = String;
+
+    fn try_from(code: String) -> Result<Self, Self::Error> {
+        match code.as_str() {
+            "BU" => Ok(Self::Besu),
+            "EJ" => Ok(Self::EtherumJS),
+            "EG" => Ok(Self::Erigon),
+            "GE" => Ok(Self::GoEthereum),
+            "GR" => Ok(Self::Grandine),
+            "LH" => Ok(Self::Lighthouse),
+            "LS" => Ok(Self::Lodestar),
+            "NM" => Ok(Self::Nethermind),
+            "NB" => Ok(Self::Nimbus),
+            "TK" => Ok(Self::Teku),
+            "PM" => Ok(Self::Prysm),
+            "RH" => Ok(Self::Reth),
+            string => {
+                if string.len() == 2 {
+                    Ok(Self::Unknown(code))
+                } else {
+                    Err(format!("Invalid client code: {}", code))
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CommitPrefix(pub String);
+
+impl TryFrom<String> for CommitPrefix {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        // Ensure length is exactly 8 characters
+        if value.len() != 8 {
+            return Err("Input must be exactly 8 characters long".to_string());
+        }
+
+        // Ensure all characters are valid hex digits
+        if value.chars().all(|c| c.is_digit(16)) {
+            Ok(CommitPrefix(value.to_lowercase()))
+        } else {
+            Err("Input must contain only hexadecimal characters".to_string())
+        }
+    }
+}
+
+impl std::fmt::Display for CommitPrefix {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ClientVersionV1 {
+    pub code: ClientCode,
+    pub client_name: String,
+    pub version: String,
+    pub commit: CommitPrefix,
 }

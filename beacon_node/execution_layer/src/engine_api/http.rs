@@ -51,6 +51,9 @@ pub const ENGINE_GET_PAYLOAD_BODIES_TIMEOUT: Duration = Duration::from_secs(10);
 pub const ENGINE_EXCHANGE_CAPABILITIES: &str = "engine_exchangeCapabilities";
 pub const ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT: Duration = Duration::from_secs(1);
 
+pub const ENGINE_CLIENT_VERSION_V1: &str = "engine_clientVersionV1";
+pub const ENGINE_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
 /// This code is returned by all clients when a method is not supported
@@ -69,6 +72,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_CLIENT_VERSION_V1,
 ];
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
@@ -546,22 +550,21 @@ pub mod deposit_methods {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct CapabilitiesCacheEntry {
-    engine_capabilities: EngineCapabilities,
-    fetch_time: Instant,
+pub struct CachedResponse<T: Clone> {
+    pub data: T,
+    pub fetch_time: Instant,
 }
 
-impl CapabilitiesCacheEntry {
-    pub fn new(engine_capabilities: EngineCapabilities) -> Self {
+impl<T: Clone> CachedResponse<T> {
+    pub fn new(data: T) -> Self {
         Self {
-            engine_capabilities,
+            data,
             fetch_time: Instant::now(),
         }
     }
 
-    pub fn engine_capabilities(&self) -> EngineCapabilities {
-        self.engine_capabilities
+    pub fn data(&self) -> T {
+        self.data.clone()
     }
 
     pub fn age(&self) -> Duration {
@@ -578,7 +581,7 @@ pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
-    pub engine_capabilities_cache: Mutex<Option<CapabilitiesCacheEntry>>,
+    pub engine_capabilities_cache: Mutex<Option<CachedResponse<EngineCapabilities>>>,
     auth: Option<Auth>,
 }
 
@@ -1017,6 +1020,7 @@ impl HttpJsonRpc {
             get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
             get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
             get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
+            client_version_v1: capabilities.contains(ENGINE_CLIENT_VERSION_V1),
         })
     }
 
@@ -1040,10 +1044,10 @@ impl HttpJsonRpc {
         let mut lock = self.engine_capabilities_cache.lock().await;
 
         if let Some(lock) = lock.as_ref().filter(|entry| !entry.older_than(age_limit)) {
-            Ok(lock.engine_capabilities())
+            Ok(lock.data())
         } else {
             let engine_capabilities = self.exchange_capabilities().await?;
-            *lock = Some(CapabilitiesCacheEntry::new(engine_capabilities));
+            *lock = Some(CachedResponse::new(engine_capabilities));
             Ok(engine_capabilities)
         }
     }
