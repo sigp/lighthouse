@@ -1,3 +1,4 @@
+#[cfg(feature = "leveldb")]
 use crate::hot_cold_store::{BytesKey, HotColdDBError};
 use crate::Key;
 use crate::{
