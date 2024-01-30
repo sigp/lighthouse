@@ -206,8 +206,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(sig_timer);
 
         // Write the I/O batches to disk.
+        // We fsync after each write because we need the writes to the blob and freezer DB to
+        // be persisted if the writes to the hot DB are persisted. Without fsync we could end up
+        // in a situation where the hot DB's anchor is updated but the actual blocks are forgotten
+        // from disk.
         self.store.blobs_db.do_atomically(blob_batch)?;
+        self.store.blobs_db.sync()?;
         self.store.cold_db.do_atomically(cold_batch)?;
+        self.store.cold_db.sync()?;
 
         let mut anchor_and_blob_batch = Vec::with_capacity(2);
 
@@ -237,6 +243,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .compare_and_set_anchor_info(Some(anchor_info), Some(new_anchor))?,
         );
         self.store.hot_db.do_atomically(anchor_and_blob_batch)?;
+        self.store.hot_db.sync()?;
 
         // If backfill has completed and the chain is configured to reconstruct historic states,
         // send a message to the background migrator instructing it to begin reconstruction.
