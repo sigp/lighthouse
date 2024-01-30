@@ -4023,7 +4023,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .task_executor
             .spawn_blocking_handle(
                 move || chain.load_state_for_block_production(slot),
-                "produce_partial_beacon_block",
+                "load_state_for_block_production",
             )
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
