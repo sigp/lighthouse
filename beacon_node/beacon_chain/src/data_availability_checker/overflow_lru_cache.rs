@@ -47,7 +47,6 @@ use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256};
 
-
 /// This represents the components of a partially available block
 ///
 /// The blobs are all gossip and kzg verified.
@@ -970,7 +969,11 @@ mod test {
     )
     where
         E: EthSpec,
-        T: BeaconChainTypes<HotStore = BeaconNodeBackend<E>, ColdStore = BeaconNodeBackend<E>, EthSpec = E>,
+        T: BeaconChainTypes<
+            HotStore = BeaconNodeBackend<E>,
+            ColdStore = BeaconNodeBackend<E>,
+            EthSpec = E,
+        >,
     {
         let log = test_logger();
         let chain_db_path = tempdir().expect("should get temp dir");

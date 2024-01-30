@@ -2,9 +2,13 @@ use crate::database::leveldb_impl;
 use crate::database::redb_impl;
 use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
 use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
-use leveldb::options::WriteOptions;
 use std::path::Path;
 use types::{EthSpec, Hash256};
+
+pub enum BeaconNodeBackend<E: EthSpec> {
+    #[cfg(feature = "leveldb")]
+    LevelDb(leveldb_impl::LevelDB<E>),
+}
 
 impl<E: EthSpec> ItemStore<E> for BeaconNodeBackend<E> {}
 
@@ -12,90 +16,74 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
     fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::get_bytes(txn, column, key)
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::get_bytes(txn, column, key),
         }
     }
 
     fn put_bytes(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::put_bytes_with_options(
-                    txn,
-                    column,
-                    key,
-                    value,
-                    txn.write_options(),
-                )
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::put_bytes_with_options(
+                txn,
+                column,
+                key,
+                value,
+                txn.write_options(),
+            ),
         }
     }
 
     fn put_bytes_sync(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::put_bytes_with_options(
-                    txn,
-                    column,
-                    key,
-                    value,
-                    txn.write_options_sync(),
-                )
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::put_bytes_with_options(
+                txn,
+                column,
+                key,
+                value,
+                txn.write_options_sync(),
+            ),
         }
     }
 
     fn sync(&self) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::put_bytes_with_options(
-                    txn,
-                    "sync",
-                    b"sync",
-                    b"sync",
-                    txn.write_options_sync(),
-                )
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::put_bytes_with_options(
+                txn,
+                "sync",
+                b"sync",
+                b"sync",
+                txn.write_options_sync(),
+            ),
         }
     }
 
     fn key_exists(&self, column: &str, key: &[u8]) -> Result<bool, Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::key_exists(txn, column, key)
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::key_exists(txn, column, key),
         }
     }
 
     fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::key_delete(txn, column, key)
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::key_delete(txn, column, key),
         }
     }
 
     fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::do_atomically(txn, batch)
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::do_atomically(txn, batch),
         }
     }
 
     fn begin_rw_transaction(&self) -> parking_lot::MutexGuard<()> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::begin_rw_transaction(txn)
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::begin_rw_transaction(txn),
         }
     }
 
@@ -160,27 +148,21 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
     pub fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::get_bytes(txn, col, key)
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::get_bytes(txn, col, key),
         }
     }
 
     pub fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::key_delete(txn, col, key)
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::key_delete(txn, col, key),
         }
     }
 
     pub fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::do_atomically(txn, ops_batch)
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::do_atomically(txn, ops_batch),
         }
     }
 
@@ -194,9 +176,7 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::iter_column(txn, column)
-            }
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::iter_column(txn, column),
         }
     }
 
@@ -210,5 +190,22 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
                 leveldb_impl::LevelDB::iter_temporary_state_roots(txn, column)
             }
         }
+    }
+}
+
+pub struct WriteOptions {
+    /// fsync before acknowledging a write operation.
+    pub sync: bool,
+}
+
+impl WriteOptions {
+    pub fn new() -> Self {
+        WriteOptions { sync: false }
+    }
+}
+
+impl Default for WriteOptions {
+    fn default() -> Self {
+        Self::new()
     }
 }

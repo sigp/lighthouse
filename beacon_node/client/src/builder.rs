@@ -35,8 +35,8 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use store::database::interface::BeaconNodeBackend;
 use std::time::{SystemTime, UNIX_EPOCH};
+use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tokio::sync::oneshot;
 use types::{
