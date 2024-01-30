@@ -1,24 +1,36 @@
 use crate::hot_cold_store::{BytesKey, HotColdDBError};
+use crate::Key;
 use crate::{
-    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, KeyValueStoreOp, RawEntryIter, RawKeyIter, KeyValueStore
+    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, KeyValueStore,
+    KeyValueStoreOp, RawEntryIter, RawKeyIter,
 };
 use leveldb::compaction::Compaction;
 use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
 use leveldb::database::Database;
 use leveldb::iterator::{Iterable, LevelDBIterator};
-use leveldb::options::{Options, ReadOptions, WriteOptions};
+use leveldb::options::{Options, ReadOptions};
 use parking_lot::{Mutex, MutexGuard};
 use std::marker::PhantomData;
 use std::path::Path;
 use types::{EthSpec, Hash256};
-use crate::Key;
+
+use super::interface::WriteOptions;
 
 pub struct LevelDB<E: EthSpec> {
     db: Database<BytesKey>,
     /// A mutex to synchronise sensitive read-write transactions.
     transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
+}
+
+impl From<WriteOptions> for leveldb::options::WriteOptions {
+    fn from(options: WriteOptions) -> Self {
+        // Assuming LevelDBWriteOptions has a new method that accepts a bool parameter for sync.
+        let mut opts = leveldb::options::WriteOptions::new();
+        opts.sync = options.sync;
+        opts
+    }
 }
 
 impl<E: EthSpec> LevelDB<E> {
@@ -65,7 +77,7 @@ impl<E: EthSpec> LevelDB<E> {
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
 
         self.db
-            .put(opts, BytesKey::from_vec(column_key), val)
+            .put(opts.into(), BytesKey::from_vec(column_key), val)
             .map_err(Into::into)
             .map(|()| {
                 metrics::stop_timer(timer);
@@ -123,7 +135,7 @@ impl<E: EthSpec> LevelDB<E> {
         metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
 
         self.db
-            .delete(self.write_options(), BytesKey::from_vec(column_key))
+            .delete(self.write_options().into(), BytesKey::from_vec(column_key))
             .map_err(Into::into)
     }
 
@@ -140,7 +152,7 @@ impl<E: EthSpec> LevelDB<E> {
                 }
             }
         }
-        self.db.write(self.write_options(), &leveldb_batch)?;
+        self.db.write(self.write_options().into(), &leveldb_batch)?;
         Ok(())
     }
 
@@ -231,7 +243,7 @@ impl<E: EthSpec> LevelDB<E> {
                     .into()
                 })
             })
-        }
+    }
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
         self.iter_column_from(column, &vec![0; column.key_size()])
@@ -239,8 +251,6 @@ impl<E: EthSpec> LevelDB<E> {
 }
 
 impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
-
-
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, crate::Error> {
         let column_key = get_key_for_col(col, key);
 
@@ -288,7 +298,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
 
         self.db
-            .delete(self.write_options(), BytesKey::from_vec(column_key))
+            .delete(self.write_options().into(), BytesKey::from_vec(column_key))
             .map_err(Into::into)
     }
 
@@ -305,7 +315,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
                 }
             }
         }
-        self.db.write(self.write_options(), &leveldb_batch)?;
+        self.db.write(self.write_options().into(), &leveldb_batch)?;
         Ok(())
     }
 
@@ -406,5 +416,3 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
 }
 
 impl<E: EthSpec> ItemStore<E> for LevelDB<E> {}
-
-

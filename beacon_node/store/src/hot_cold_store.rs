@@ -20,6 +20,7 @@ use crate::{
     get_key_for_col, ChunkWriter, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
     PartialBeaconState, StoreItem, StoreOp,
 };
+use db_key::Key;
 use itertools::process_results;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -39,7 +40,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::BlobSidecarList;
 use types::*;
-use db_key::Key;
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -2699,7 +2699,7 @@ impl BytesKey {
         None
     }
 
-        /// Remove the column from a key.
+    /// Remove the column from a key.
     ///
     /// Will return `None` if the value doesn't match the column or has the wrong length.
     pub fn remove_column_variable(&self, column: DBColumn) -> Option<&[u8]> {
