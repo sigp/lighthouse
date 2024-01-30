@@ -178,6 +178,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 debug_assert_eq!(proof.len(), T::kzg_proof_inclusion_proof_depth());
                 Ok(proof.into())
             }
+            // TODO(electra): De-duplicate proof computation.
             Self::Electra(body) => {
                 // We compute the branches by generating 2 merkle trees:
                 // 1. Merkle tree for the `blob_kzg_commitments` List object

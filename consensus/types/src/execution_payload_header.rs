@@ -185,8 +185,8 @@ impl<T: EthSpec> ExecutionPayloadHeaderDeneb<T> {
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
             withdrawals_root: self.withdrawals_root,
-            blob_gas_used: 0,
-            excess_blob_gas: 0,
+            blob_gas_used: self.blob_gas_used,
+            excess_blob_gas: self.excess_blob_gas,
         }
     }
 }
