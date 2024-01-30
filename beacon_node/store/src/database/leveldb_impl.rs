@@ -14,14 +14,14 @@ use std::path::Path;
 use types::{EthSpec, Hash256};
 use crate::Key;
 
-pub struct BeaconNodeBackend<E: EthSpec> {
+pub struct LevelDB<E: EthSpec> {
     db: Database<BytesKey>,
     /// A mutex to synchronise sensitive read-write transactions.
     transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> BeaconNodeBackend<E> {
+impl<E: EthSpec> LevelDB<E> {
     pub fn open(path: &Path) -> Result<Self, Error> {
         let mut options = Options::new();
 
@@ -238,7 +238,7 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
     }
 }
 
-impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
+impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
 
 
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, crate::Error> {
@@ -405,6 +405,6 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
     }
 }
 
-impl<E: EthSpec> ItemStore<E> for BeaconNodeBackend<E> {}
+impl<E: EthSpec> ItemStore<E> for LevelDB<E> {}
 
 
