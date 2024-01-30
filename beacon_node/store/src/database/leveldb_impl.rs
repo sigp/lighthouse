@@ -1,3 +1,4 @@
+#![cfg(feature = "leveldb")]
 use crate::hot_cold_store::{BytesKey, HotColdDBError};
 use crate::{
     get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, KeyValueStoreOp, RawEntryIter, RawKeyIter, KeyValueStore

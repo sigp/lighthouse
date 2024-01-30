@@ -1,4 +1,5 @@
 use crate::database::leveldb_impl;
+use crate::database::redb_impl;
 use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
 use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
 use leveldb::options::WriteOptions;
@@ -127,6 +128,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
 pub enum BeaconNodeBackend<E: EthSpec> {
     #[cfg(feature = "leveldb")]
     LevelDb(leveldb_impl::LevelDB<E>),
+    #[cfg(feature = "redb")]
+    Redb(redb_impl::Redb<E>),
 }
 
 impl<E: EthSpec> BeaconNodeBackend<E> {
