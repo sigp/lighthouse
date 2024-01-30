@@ -2794,6 +2794,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self.cold_db.do_atomically(cold_ops)?;
         }
 
+        // In order to reclaim space, we need to compact the freezer DB as well.
+        self.cold_db.compact()?;
+
         Ok(())
     }
 }
