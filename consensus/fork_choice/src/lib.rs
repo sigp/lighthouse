@@ -4,7 +4,8 @@ mod fork_choice_store;
 pub use crate::fork_choice::{
     AnchorState, AttestationFromBlock, Error, ForkChoice, ForkChoiceView,
     ForkchoiceUpdateParameters, InvalidAttestation, InvalidBlock, PayloadVerificationStatus,
-    PersistedForkChoice, QueuedAttestation, ResetPayloadStatuses,
+    PersistedForkChoice, PersistedForkChoiceV19, PersistedForkChoiceV20, QueuedAttestation,
+    ResetPayloadStatuses,
 };
 pub use fork_choice_store::ForkChoiceStore;
 pub use proto_array::{

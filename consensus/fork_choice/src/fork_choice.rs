@@ -17,6 +17,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
+use types::superstruct;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
@@ -284,7 +285,8 @@ fn dequeue_attestations(
 /// latter case only occurs when we weak subjectivity sync against a state which is not finalized.
 /// This could be necessary in extreme circumstances where finalization extends past the data
 /// availabilty boundary post-deneb.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Encode, Decode)]
+#[ssz(enum_behaviour = "tag")]
 pub enum AnchorState {
     /// The finalized checkpoint is truly finalized
     Finalized,
@@ -1552,8 +1554,7 @@ where
                 // Will be updated in the following call to `Self::get_head`.
                 head_root: Hash256::zero(),
             },
-            // FIXME: actually persist / load anchor state!!!
-            anchor_state: AnchorState::Finalized,
+            anchor_state: persisted.anchor_state,
             _phantom: PhantomData,
         };
 
@@ -1587,6 +1588,7 @@ where
         PersistedForkChoice {
             proto_array_bytes: self.proto_array().as_bytes(),
             queued_attestations: self.queued_attestations().to_vec(),
+            anchor_state: self.anchor_state,
         }
     }
 }
@@ -1680,10 +1682,38 @@ where
 /// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.
 ///
 /// This is used when persisting the state of the fork choice to disk.
-#[derive(Encode, Decode, Clone)]
+
+pub type PersistedForkChoice = PersistedForkChoiceV20;
+
+#[superstruct(
+    variants(V19, V20),
+    variant_attributes(derive(Encode, Decode, Clone)),
+    no_enum
+)]
 pub struct PersistedForkChoice {
     pub proto_array_bytes: Vec<u8>,
     queued_attestations: Vec<QueuedAttestation>,
+    #[superstruct(only(V20))]
+    pub anchor_state: AnchorState,
+}
+
+impl Into<PersistedForkChoiceV20> for PersistedForkChoiceV19 {
+    fn into(self) -> PersistedForkChoiceV20 {
+        PersistedForkChoiceV20 {
+            proto_array_bytes: self.proto_array_bytes,
+            queued_attestations: self.queued_attestations,
+            anchor_state: AnchorState::Finalized,
+        }
+    }
+}
+
+impl Into<PersistedForkChoiceV19> for PersistedForkChoiceV20 {
+    fn into(self) -> PersistedForkChoiceV19 {
+        PersistedForkChoiceV19 {
+            proto_array_bytes: self.proto_array_bytes,
+            queued_attestations: self.queued_attestations,
+        }
+    }
 }
 
 #[cfg(test)]

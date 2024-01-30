@@ -389,9 +389,9 @@ pub struct PersistedForkChoiceStore {
     pub equivocating_indices: BTreeSet<u64>,
 }
 
-impl Into<PersistedForkChoiceStore> for PersistedForkChoiceStoreV11 {
-    fn into(self) -> PersistedForkChoiceStore {
-        PersistedForkChoiceStore {
+impl Into<PersistedForkChoiceStoreV17> for PersistedForkChoiceStoreV11 {
+    fn into(self) -> PersistedForkChoiceStoreV17 {
+        PersistedForkChoiceStoreV17 {
             balances_cache: self.balances_cache,
             time: self.time,
             finalized_checkpoint: self.finalized_checkpoint,
@@ -405,7 +405,7 @@ impl Into<PersistedForkChoiceStore> for PersistedForkChoiceStoreV11 {
     }
 }
 
-impl Into<PersistedForkChoiceStoreV11> for PersistedForkChoiceStore {
+impl Into<PersistedForkChoiceStoreV11> for PersistedForkChoiceStoreV17 {
     fn into(self) -> PersistedForkChoiceStoreV11 {
         PersistedForkChoiceStoreV11 {
             balances_cache: self.balances_cache,
