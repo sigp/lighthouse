@@ -114,6 +114,16 @@ where
     #[ssz(skip_serializing, skip_deserializing)]
     #[superstruct(only(Capella, Deneb))]
     pub historical_summaries: Option<VariableList<HistoricalSummary, T::HistoricalRootsLimit>>,
+
+    // MaxEB
+    #[superstruct(only(Deneb))]
+    pub deposit_balance_to_consume: Gwei,
+    #[superstruct(only(Deneb))]
+    pub pending_balance_deposits: VariableList<PendingBalanceDeposit, T::MaxPendingBalanceDeposits>,
+    #[superstruct(only(Deneb))]
+    pub exit_balance_to_consume: Gwei,
+    #[superstruct(only(Deneb))]
+    pub earliest_exit_epoch: Epoch,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -240,7 +250,11 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_balance_to_consume,
+                    pending_balance_deposits,
+                    earliest_exit_epoch,
+                    exit_balance_to_consume
                 ],
                 [historical_summaries]
             ),
@@ -485,7 +499,11 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_balance_to_consume,
+                    pending_balance_deposits,
+                    earliest_exit_epoch,
+                    exit_balance_to_consume
                 ],
                 [historical_summaries]
             ),

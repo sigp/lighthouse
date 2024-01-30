@@ -754,7 +754,7 @@ mod test {
             let mut deposit = DepositData {
                 pubkey: keypair.pk.into(),
                 withdrawal_credentials: Hash256::zero(),
-                amount: spec.max_effective_balance,
+                amount: spec.min_activation_balance,
                 signature: Signature::empty().into(),
             };
 

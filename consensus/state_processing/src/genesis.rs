@@ -134,6 +134,7 @@ pub fn process_activations<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    let fork = state.fork_name_unchecked();
     let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
     for (index, validator) in validators.iter_mut().enumerate() {
         let balance = balances
@@ -142,9 +143,9 @@ pub fn process_activations<T: EthSpec>(
             .ok_or(Error::BalancesOutOfBounds(index))?;
         validator.effective_balance = std::cmp::min(
             balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
-            spec.max_effective_balance,
+            spec.max_effective_balance(fork),
         );
-        if validator.effective_balance == spec.max_effective_balance {
+        if validator.effective_balance >= spec.min_activation_balance {
             validator.activation_eligibility_epoch = T::genesis_epoch();
             validator.activation_epoch = T::genesis_epoch();
         }

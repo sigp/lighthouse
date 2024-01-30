@@ -394,7 +394,11 @@ pub fn process_deposit<T: EthSpec>(
 
     if let Some(index) = validator_index {
         // Update the existing validator balance.
-        increase_balance(state, index as usize, amount)?;
+        if let Ok(pending_balance_deposits) = state.pending_balance_deposits_mut() {
+            pending_balance_deposits.push(PendingBalanceDeposit { index, amount })?
+        } else {
+            increase_balance(state, index as usize, amount)?;
+        }
     } else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
@@ -410,14 +414,24 @@ pub fn process_deposit<T: EthSpec>(
             activation_epoch: spec.far_future_epoch,
             exit_epoch: spec.far_future_epoch,
             withdrawable_epoch: spec.far_future_epoch,
-            effective_balance: std::cmp::min(
-                amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
-                spec.max_effective_balance,
-            ),
+            effective_balance: if state.fork_name_unchecked() >= ForkName::Deneb {
+                0
+            } else {
+                std::cmp::min(
+                    amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
+                    spec.max_effective_balance_base,
+                )
+            },
             slashed: false,
         };
         state.validators_mut().push(validator)?;
-        state.balances_mut().push(deposit.data.amount)?;
+
+        let index = state.validators().len().safe_sub(1)? as u64;
+        if let Ok(pending_balance_deposits) = state.pending_balance_deposits_mut() {
+            pending_balance_deposits.push(PendingBalanceDeposit { index, amount })?
+        } else {
+            state.balances_mut().push(amount)?;
+        }
 
         // Altair or later initializations.
         if let Ok(previous_epoch_participation) = state.previous_epoch_participation_mut() {

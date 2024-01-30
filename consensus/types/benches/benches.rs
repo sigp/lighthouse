@@ -33,7 +33,7 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
         .map(|&i| Validator {
             pubkey: generate_deterministic_keypair(i).pk.into(),
             withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
-            effective_balance: spec.max_effective_balance,
+            effective_balance: spec.min_activation_balance,
             slashed: false,
             activation_eligibility_epoch: Epoch::new(0),
             activation_epoch: Epoch::new(0),

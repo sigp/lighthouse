@@ -318,7 +318,7 @@ impl ApiTester {
                 builder_proposals: None,
                 builder_boost_factor: None,
                 prefer_builder_proposals: None,
-                deposit_gwei: E::default_spec().max_effective_balance,
+                deposit_gwei: E::default_spec().min_activation_balance,
             })
             .collect::<Vec<_>>();
 
@@ -400,7 +400,7 @@ impl ApiTester {
             let deposit_bytes = serde_utils::hex::decode(&item.eth1_deposit_tx_data).unwrap();
 
             let (deposit_data, _) =
-                decode_eth1_tx_data(&deposit_bytes, E::default_spec().max_effective_balance)
+                decode_eth1_tx_data(&deposit_bytes, E::default_spec().min_activation_balance)
                     .unwrap();
 
             assert_eq!(

@@ -10,6 +10,7 @@ pub fn process_effective_balance_updates<T: EthSpec>(
     maybe_participation_cache: Option<&ParticipationCache>,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
+    let fork = state.fork_name_unchecked();
     let hysteresis_increment = spec
         .effective_balance_increment
         .safe_div(spec.hysteresis_quotient)?;
@@ -29,7 +30,7 @@ pub fn process_effective_balance_updates<T: EthSpec>(
             let old_effective_balance = validator.effective_balance;
             let new_effective_balance = std::cmp::min(
                 balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
-                spec.max_effective_balance,
+                validator.compute_effective_balance_limit(spec, fork),
             );
 
             if let Some(participation_cache) = maybe_participation_cache {

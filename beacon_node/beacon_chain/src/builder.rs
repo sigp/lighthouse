@@ -1273,8 +1273,8 @@ mod test {
 
         for b in state.balances() {
             assert_eq!(
-                *b, spec.max_effective_balance,
-                "validator balances should be max effective balance"
+                *b, spec.min_activation_balance,
+                "validator balances should be min activation balance"
             );
         }
 

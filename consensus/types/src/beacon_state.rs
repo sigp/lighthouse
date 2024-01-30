@@ -317,6 +317,16 @@ where
     #[superstruct(only(Capella, Deneb))]
     pub historical_summaries: VariableList<HistoricalSummary, T::HistoricalRootsLimit>,
 
+    // MaxEB
+    #[superstruct(only(Deneb))]
+    pub deposit_balance_to_consume: Gwei,
+    #[superstruct(only(Deneb))]
+    pub pending_balance_deposits: VariableList<PendingBalanceDeposit, T::MaxPendingBalanceDeposits>,
+    #[superstruct(only(Deneb))]
+    pub exit_balance_to_consume: Gwei,
+    #[superstruct(only(Deneb))]
+    pub earliest_exit_epoch: Epoch,
+
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -726,7 +736,7 @@ impl<T: EthSpec> BeaconState<T> {
             let effective_balance = self.get_effective_balance(candidate_index)?;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
                 >= spec
-                    .max_effective_balance
+                    .max_effective_balance(self.fork_name_unchecked())
                     .safe_mul(u64::from(random_byte))?
             {
                 return Ok(candidate_index);
@@ -918,7 +928,7 @@ impl<T: EthSpec> BeaconState<T> {
             let effective_balance = self.get_validator(candidate_index)?.effective_balance;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
                 >= spec
-                    .max_effective_balance
+                    .max_effective_balance(self.fork_name_unchecked())
                     .safe_mul(u64::from(random_byte))?
             {
                 sync_committee_indices.push(candidate_index);
@@ -1355,6 +1365,56 @@ impl<T: EthSpec> BeaconState<T> {
                 self.get_churn_limit(spec)?,
             ),
         })
+    }
+
+    /// Return the churn limit for the current epoch dedicated to activations and exits.
+    pub fn get_activation_exit_churn_limit(&self, spec: &ChainSpec) -> Result<Gwei, Error> {
+        let churn_limit = std::cmp::max(
+            spec.min_per_epoch_churn_limit_maxeb,
+            Gwei::new(
+                self.get_total_active_balance()?
+                    .safe_div(spec.churn_limit_quotient)?,
+            ),
+        );
+
+        let churn_limit = churn_limit
+            .safe_sub(churn_limit.safe_rem(Gwei::new(spec.effective_balance_increment))?)?;
+
+        Ok(std::cmp::min(
+            spec.max_per_epoch_activation_churn_limit_maxeb,
+            churn_limit,
+        ))
+    }
+
+    pub fn compute_exit_epoch_and_update_churn(
+        &mut self,
+        exit_balance: Gwei,
+        spec: &ChainSpec,
+    ) -> Result<Epoch, Error> {
+        let earliest_exit_epoch = self.compute_activation_exit_epoch(self.current_epoch(), spec)?;
+        let per_epoch_churn = self.get_activation_exit_churn_limit(spec)?;
+        // New epoch for exits.
+        if *self.earliest_exit_epoch()? < earliest_exit_epoch {
+            *self.earliest_exit_epoch_mut()? = earliest_exit_epoch;
+            *self.exit_balance_to_consume_mut()? = per_epoch_churn;
+        }
+
+        // Exit fits in the current earliest epoch.
+        if exit_balance <= *self.exit_balance_to_consume()? {
+            self.exit_balance_to_consume_mut()?
+                .safe_sub_assign(exit_balance)?;
+        } else {
+            // Exit doesn't fit in the current earliest epoch.
+            let balance_to_process = exit_balance.safe_sub(*self.exit_balance_to_consume()?)?;
+            let additional_epochs =
+                Epoch::new((balance_to_process.safe_div(per_epoch_churn)?).into());
+            let remainder = balance_to_process.safe_rem(per_epoch_churn)?;
+            self.earliest_exit_epoch_mut()?
+                .safe_add_assign(additional_epochs.safe_add(1)?)?;
+            *self.exit_balance_to_consume_mut()? = per_epoch_churn.safe_sub(remainder)?;
+        }
+
+        Ok(*self.earliest_exit_epoch()?)
     }
 
     /// Returns the `slot`, `index`, `committee_position` and `committee_len` for which a validator must produce an

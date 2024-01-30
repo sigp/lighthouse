@@ -92,7 +92,7 @@ impl BasePreset {
             hysteresis_upward_multiplier: spec.hysteresis_upward_multiplier,
             safe_slots_to_update_justified: spec.safe_slots_to_update_justified,
             min_deposit_amount: spec.min_deposit_amount,
-            max_effective_balance: spec.max_effective_balance,
+            max_effective_balance: spec.max_effective_balance_base,
             effective_balance_increment: spec.effective_balance_increment,
             min_attestation_inclusion_delay: spec.min_attestation_inclusion_delay,
             slots_per_epoch: T::SlotsPerEpoch::to_u64(),

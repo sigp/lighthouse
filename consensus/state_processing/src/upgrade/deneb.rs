@@ -6,6 +6,15 @@ pub fn upgrade_to_deneb<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    let earliest_exit_epoch = pre_state
+        .validators()
+        .iter()
+        .map(|v| v.exit_epoch.as_u64())
+        .filter(|exit_epoch| *exit_epoch != spec.far_future_epoch.as_u64())
+        .max()
+        .unwrap_or(0);
+    let exit_balance_to_consume = pre_state.get_activation_exit_churn_limit(spec)?;
+
     let epoch = pre_state.current_epoch();
     let pre = pre_state.as_capella_mut()?;
 
@@ -61,6 +70,11 @@ pub fn upgrade_to_deneb<E: EthSpec>(
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         historical_summaries: pre.historical_summaries.clone(),
+        // MaxEB
+        deposit_balance_to_consume: 0u64.into(),
+        pending_balance_deposits: <_>::default(),
+        earliest_exit_epoch: earliest_exit_epoch.into(),
+        exit_balance_to_consume: exit_balance_to_consume.into(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),

@@ -38,6 +38,22 @@ use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssi
     Deserialize,
 )]
 #[serde(transparent)]
+pub struct Gwei(#[serde(with = "serde_utils::quoted_u64")] u64);
+
+#[derive(
+    arbitrary::Arbitrary,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
 pub struct Slot(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 #[derive(
@@ -58,6 +74,17 @@ pub struct Epoch(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 impl_common!(Slot);
 impl_common!(Epoch);
+impl_common!(Gwei);
+
+impl Gwei {
+    pub const fn new(gwei: u64) -> Self {
+        Self(gwei)
+    }
+
+    pub fn max_value() -> Self {
+        Self(u64::max_value())
+    }
+}
 
 impl Slot {
     pub const fn new(slot: u64) -> Slot {

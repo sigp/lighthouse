@@ -1,7 +1,7 @@
 use crate::{common::initiate_validator_exit, per_epoch_processing::Error};
 use itertools::Itertools;
 use safe_arith::SafeArith;
-use types::{BeaconState, ChainSpec, EthSpec, Validator};
+use types::{BeaconState, ChainSpec, EthSpec, ForkName, Validator};
 
 /// Performs a validator registry update, if required.
 ///
@@ -50,7 +50,12 @@ pub fn process_registry_updates<T: EthSpec>(
         .collect_vec();
 
     // Dequeue validators for activation up to churn limit
-    let activation_churn_limit = state.get_activation_churn_limit(spec)? as usize;
+    let activation_churn_limit = if state.fork_name_unchecked() >= ForkName::Deneb {
+        // activation churn limit controlled by pending deposits
+        usize::MAX
+    } else {
+        state.get_activation_churn_limit(spec)? as usize
+    };
     let delayed_activation_epoch = state.compute_activation_exit_epoch(current_epoch, spec)?;
     for index in activation_queue.into_iter().take(activation_churn_limit) {
         state.get_validator_mut(index)?.activation_epoch = delayed_activation_epoch;

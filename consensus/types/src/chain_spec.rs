@@ -52,7 +52,9 @@ pub struct ChainSpec {
     pub max_committees_per_slot: usize,
     pub target_committee_size: usize,
     pub min_per_epoch_churn_limit: u64,
+    pub min_per_epoch_churn_limit_maxeb: Gwei,
     pub max_per_epoch_activation_churn_limit: u64,
+    pub max_per_epoch_activation_churn_limit_maxeb: Gwei,
     pub churn_limit_quotient: u64,
     pub shuffle_round_count: u8,
     pub min_genesis_active_validator_count: u64,
@@ -66,7 +68,9 @@ pub struct ChainSpec {
      *  Gwei values
      */
     pub min_deposit_amount: u64,
-    pub max_effective_balance: u64,
+    pub max_effective_balance_base: u64,
+    pub max_effective_balance_maxeb: u64,
+    pub min_activation_balance: u64,
     pub ejection_balance: u64,
     pub effective_balance_increment: u64,
 
@@ -76,6 +80,7 @@ pub struct ChainSpec {
     pub genesis_fork_version: [u8; 4],
     pub bls_withdrawal_prefix_byte: u8,
     pub eth1_address_withdrawal_prefix_byte: u8,
+    pub compounding_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
@@ -358,6 +363,14 @@ impl ChainSpec {
         }
     }
 
+    pub fn max_effective_balance(&self, fork: ForkName) -> u64 {
+        if fork > ForkName::Deneb {
+            self.max_effective_balance_maxeb
+        } else {
+            self.max_effective_balance_base
+        }
+    }
+
     /// Returns a full `Fork` struct for a given epoch.
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);
@@ -548,7 +561,9 @@ impl ChainSpec {
             max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
+            min_per_epoch_churn_limit_maxeb: Gwei::new(128),
             max_per_epoch_activation_churn_limit: 8,
+            max_per_epoch_activation_churn_limit_maxeb: Gwei::new(256),
             churn_limit_quotient: 65_536,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 16_384,
@@ -564,7 +579,15 @@ impl ChainSpec {
                 u64::checked_pow(2, 0)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
-            max_effective_balance: option_wrapper(|| {
+            max_effective_balance_base: option_wrapper(|| {
+                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_effective_balance_maxeb: option_wrapper(|| {
+                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            min_activation_balance: option_wrapper(|| {
                 u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
@@ -583,6 +606,7 @@ impl ChainSpec {
             genesis_fork_version: [0; 4],
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
+            compounding_withdrawal_prefix_byte: 0x02,
 
             /*
              * Time parameters
@@ -810,6 +834,8 @@ impl ChainSpec {
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
             max_per_epoch_activation_churn_limit: 2,
+            min_per_epoch_churn_limit_maxeb: Gwei::new(128),
+            max_per_epoch_activation_churn_limit_maxeb: Gwei::new(256),
             churn_limit_quotient: 4_096,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 4_096,
@@ -825,7 +851,15 @@ impl ChainSpec {
                 u64::checked_pow(2, 0)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
-            max_effective_balance: option_wrapper(|| {
+            max_effective_balance_base: option_wrapper(|| {
+                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_effective_balance_maxeb: option_wrapper(|| {
+                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            min_activation_balance: option_wrapper(|| {
                 u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
@@ -844,6 +878,7 @@ impl ChainSpec {
             genesis_fork_version: [0x00, 0x00, 0x00, 0x64],
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
+            compounding_withdrawal_prefix_byte: 0x02,
 
             /*
              * Time parameters
@@ -1091,11 +1126,15 @@ pub struct Config {
     ejection_balance: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_per_epoch_churn_limit_maxeb: Gwei,
     #[serde(default = "default_max_per_epoch_activation_churn_limit")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_churn_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     churn_limit_quotient: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_per_epoch_activation_churn_limit_maxeb: Gwei,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
@@ -1411,7 +1450,10 @@ impl Config {
             ejection_balance: spec.ejection_balance,
             churn_limit_quotient: spec.churn_limit_quotient,
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
+            min_per_epoch_churn_limit_maxeb: spec.min_per_epoch_churn_limit_maxeb,
             max_per_epoch_activation_churn_limit: spec.max_per_epoch_activation_churn_limit,
+            max_per_epoch_activation_churn_limit_maxeb: spec
+                .max_per_epoch_activation_churn_limit_maxeb,
 
             proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
 
@@ -1478,7 +1520,9 @@ impl Config {
             inactivity_score_recovery_rate,
             ejection_balance,
             min_per_epoch_churn_limit,
+            min_per_epoch_churn_limit_maxeb,
             max_per_epoch_activation_churn_limit,
+            max_per_epoch_activation_churn_limit_maxeb,
             churn_limit_quotient,
             proposer_score_boost,
             deposit_chain_id,
@@ -1532,7 +1576,9 @@ impl Config {
             inactivity_score_recovery_rate,
             ejection_balance,
             min_per_epoch_churn_limit,
+            min_per_epoch_churn_limit_maxeb,
             max_per_epoch_activation_churn_limit,
+            max_per_epoch_activation_churn_limit_maxeb,
             churn_limit_quotient,
             proposer_score_boost: proposer_score_boost.map(|q| q.value),
             deposit_chain_id,
@@ -1802,7 +1848,9 @@ mod yaml_tests {
         INACTIVITY_SCORE_RECOVERY_RATE: 16
         EJECTION_BALANCE: 16000000000
         MIN_PER_EPOCH_CHURN_LIMIT: 4
+        MIN_PER_EPOCH_CHURN_LIMIT_MAXEB: 128
         MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
+        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT_MAXEB: 256
         CHURN_LIMIT_QUOTIENT: 65536
         PROPOSER_SCORE_BOOST: 40
         DEPOSIT_CHAIN_ID: 1
