@@ -154,25 +154,15 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         self.transaction_mutex.lock()
     }
 
-    /// Compact all values in the states and states flag columns.
-    fn compact(&self) -> Result<(), Error> {
-        let endpoints = |column: DBColumn| {
-            (
-                BytesKey::from_vec(get_key_for_col(column.as_str(), Hash256::zero().as_bytes())),
-                BytesKey::from_vec(get_key_for_col(
-                    column.as_str(),
-                    Hash256::repeat_byte(0xff).as_bytes(),
-                )),
-            )
-        };
-
-        for (start_key, end_key) in [
-            endpoints(DBColumn::BeaconStateTemporary),
-            endpoints(DBColumn::BeaconState),
-            endpoints(DBColumn::BeaconStateSummary),
-        ] {
-            self.db.compact(&start_key, &end_key);
-        }
+    fn compact_column(&self, column: DBColumn) -> Result<(), Error> {
+        // Use key-size-agnostic keys [] and 0xff..ff (Hash256) to account for columns that may
+        // change size between databases or schema versions.
+        let start_key = BytesKey::from_vec(get_key_for_col(column.as_str(), &[]));
+        let end_key = BytesKey::from_vec(get_key_for_col(
+            column.as_str(),
+            Hash256::repeat_byte(0xff).as_bytes(),
+        ));
+        self.db.compact(&start_key, &end_key);
         Ok(())
     }
 
