@@ -389,6 +389,7 @@ async fn create_local_network<E: EthSpec>(
     beacon_config.network.target_peers = node_count + proposer_nodes - 1;
 
     beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
+    beacon_config.network.enable_light_client_server = true;
 
     if post_merge_sim {
         let el_config = execution_layer::Config {
