@@ -1,6 +1,7 @@
 use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
 use crate::hot_cold_store::HotColdDBError;
+#[cfg(feature = "leveldb")]
 use leveldb::error::Error as LevelDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
@@ -49,7 +50,10 @@ pub enum Error {
     InvalidBytes,
     UnableToDowngrade,
     InconsistentFork(InconsistentFork),
+    #[cfg(feature = "leveldb")]
     LevelDbError(LevelDBError),
+    #[cfg(feature = "redb")]
+    RedbError(redb::Error),
 }
 
 pub trait HandleUnavailable<T> {
@@ -114,9 +118,59 @@ impl From<InconsistentFork> for Error {
     }
 }
 
+#[cfg(feature = "leveldb")]
 impl From<LevelDBError> for Error {
     fn from(e: LevelDBError) -> Error {
         Error::LevelDbError(e)
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::Error> for Error {
+    fn from(e: redb::Error) -> Self {
+        Error::RedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::TableError> for Error {
+    fn from(e: redb::TableError) -> Self {
+        Error::RedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::TransactionError> for Error {
+    fn from(e: redb::TransactionError) -> Self {
+        Error::RedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::DatabaseError> for Error {
+    fn from(e: redb::DatabaseError) -> Self {
+        Error::RedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::StorageError> for Error {
+    fn from(e: redb::StorageError) -> Self {
+        Error::RedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::CommitError> for Error {
+    fn from(e: redb::CommitError) -> Self {
+        Error::RedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::CompactionError> for Error {
+    fn from(e: redb::CompactionError) -> Self {
+        Error::RedbError(e.into())
     }
 }
 

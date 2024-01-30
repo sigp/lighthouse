@@ -64,7 +64,10 @@ impl Default for StoreConfig {
             compact_on_init: false,
             compact_on_prune: true,
             prune_payloads: true,
+            #[cfg(feature = "leveldb")]
             backend: DatabaseBackend::LevelDb,
+            #[cfg(feature = "redb")]
+            backend: DatabaseBackend::Redb,
             prune_blobs: true,
             epochs_per_blob_prune: DEFAULT_EPOCHS_PER_BLOB_PRUNE,
             blob_prune_margin_epochs: DEFAULT_BLOB_PUNE_MARGIN_EPOCHS,
@@ -112,5 +115,8 @@ impl StoreItem for OnDiskStoreConfig {
 )]
 #[strum(serialize_all = "lowercase")]
 pub enum DatabaseBackend {
+    #[cfg(feature = "leveldb")]
     LevelDb,
+    #[cfg(feature = "redb")]
+    Redb,
 }

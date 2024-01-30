@@ -1,4 +1,6 @@
+#[cfg(feature = "leveldb")]
 use crate::database::leveldb_impl;
+#[cfg(feature = "redb")]
 use crate::database::redb_impl;
 use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
 use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
@@ -8,6 +10,8 @@ use types::{EthSpec, Hash256};
 pub enum BeaconNodeBackend<E: EthSpec> {
     #[cfg(feature = "leveldb")]
     LevelDb(leveldb_impl::LevelDB<E>),
+    #[cfg(feature = "redb")]
+    Redb(redb_impl::Redb<E>),
 }
 
 impl<E: EthSpec> ItemStore<E> for BeaconNodeBackend<E> {}
@@ -17,6 +21,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::get_bytes(txn, column, key),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -30,6 +36,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 value,
                 txn.write_options(),
             ),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -43,6 +51,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 value,
                 txn.write_options_sync(),
             ),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -56,6 +66,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 b"sync",
                 txn.write_options_sync(),
             ),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -63,6 +75,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::key_exists(txn, column, key),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -70,6 +84,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::key_delete(txn, column, key),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -77,6 +93,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::do_atomically(txn, batch),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -84,6 +102,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::begin_rw_transaction(txn),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -91,6 +111,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact(txn),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -100,6 +122,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => {
                 leveldb_impl::LevelDB::iter_column_keys(txn, _column)
             }
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -109,15 +133,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => {
                 leveldb_impl::LevelDB::iter_column_from(txn, column, from)
             }
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
-}
-
-pub enum BeaconNodeBackend<E: EthSpec> {
-    #[cfg(feature = "leveldb")]
-    LevelDb(leveldb_impl::LevelDB<E>),
-    #[cfg(feature = "redb")]
-    Redb(redb_impl::Redb<E>),
 }
 
 impl<E: EthSpec> BeaconNodeBackend<E> {
@@ -127,6 +146,8 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             DatabaseBackend::LevelDb => {
                 leveldb_impl::LevelDB::open(path).map(BeaconNodeBackend::LevelDb)
             }
+            #[cfg(feature = "redb")]
+            DatabaseBackend::Redb => todo!(),
         }
     }
 
@@ -142,6 +163,8 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => {
                 leveldb_impl::LevelDB::put_bytes_with_options(txn, col, key, val, opts)
             }
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -149,6 +172,8 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::get_bytes(txn, col, key),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -156,6 +181,8 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::key_delete(txn, col, key),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -163,6 +190,8 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::do_atomically(txn, ops_batch),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -170,6 +199,8 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact(txn),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -177,6 +208,8 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::iter_column(txn, column),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 
@@ -189,6 +222,8 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => {
                 leveldb_impl::LevelDB::iter_temporary_state_roots(txn, column)
             }
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => todo!(),
         }
     }
 }
