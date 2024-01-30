@@ -88,6 +88,26 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
+pub fn compact_cli_app<'a, 'b>() -> App<'a, 'b> {
+    App::new("compact")
+        .setting(clap::AppSettings::ColoredHelp)
+        .about("Compact database manually")
+        .arg(
+            Arg::with_name("column")
+                .long("column")
+                .value_name("TAG")
+                .help("3-byte column ID (see `DBColumn`)")
+                .takes_value(true)
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("freezer")
+                .long("freezer")
+                .help("Compact the freezer DB rather than the hot DB")
+                .takes_value(false),
+        )
+}
+
 pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
     App::new("prune-payloads")
         .alias("prune_payloads")
@@ -186,6 +206,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(migrate_cli_app())
         .subcommand(version_cli_app())
         .subcommand(inspect_cli_app())
+        .subcommand(compact_cli_app())
         .subcommand(prune_payloads_app())
         .subcommand(prune_blobs_app())
         .subcommand(diff_app())
@@ -391,6 +412,41 @@ pub fn inspect_db<E: EthSpec>(
     println!("Num keys: {}", num_keys);
     println!("Total: {} bytes", total);
 
+    Ok(())
+}
+
+pub struct CompactConfig {
+    column: DBColumn,
+    freezer: bool,
+}
+
+fn parse_compact_config(cli_args: &ArgMatches) -> Result<CompactConfig, String> {
+    let column = clap_utils::parse_required(cli_args, "column")?;
+    let freezer = cli_args.is_present("freezer");
+    Ok(CompactConfig { column, freezer })
+}
+
+pub fn compact_db<E: EthSpec>(
+    compact_config: CompactConfig,
+    client_config: ClientConfig,
+    log: Logger,
+) -> Result<(), Error> {
+    let hot_path = client_config.get_db_path();
+    let cold_path = client_config.get_freezer_db_path();
+    let column = compact_config.column;
+
+    let (sub_db, db_name) = if compact_config.freezer {
+        (LevelDB::<E>::open(&cold_path)?, "freezer_db")
+    } else {
+        (LevelDB::<E>::open(&hot_path)?, "hot_db")
+    };
+    info!(
+        log,
+        "Compacting database";
+        "db" => db_name,
+        "column" => ?column
+    );
+    sub_db.compact_column(column)?;
     Ok(())
 }
 
@@ -650,6 +706,10 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
         ("inspect", Some(cli_args)) => {
             let inspect_config = parse_inspect_config(cli_args)?;
             inspect_db::<T>(inspect_config, client_config)
+        }
+        ("compact", Some(cli_args)) => {
+            let compact_config = parse_compact_config(cli_args)?;
+            compact_db::<T>(compact_config, client_config, log).map_err(format_err)
         }
         ("prune-payloads", Some(_)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)
