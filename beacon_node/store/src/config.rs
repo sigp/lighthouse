@@ -1,5 +1,5 @@
 use crate::hdiff::HierarchyConfig;
-use crate::{DBColumn, Error, StoreItem};
+use crate::{AnchorInfo, DBColumn, Error, Split, StoreItem};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -117,15 +117,22 @@ impl StoreConfig {
     pub fn check_compatibility(
         &self,
         on_disk_config: &OnDiskStoreConfig,
+        split: &Split,
+        anchor: Option<&AnchorInfo>,
     ) -> Result<(), StoreConfigError> {
         let db_config = self.as_disk_config();
-        if db_config.ne(on_disk_config) {
-            return Err(StoreConfigError::IncompatibleStoreConfig {
+        // Allow changing the hierarchy exponents if no historic states are stored.
+        if db_config.linear_blocks == on_disk_config.linear_blocks
+            && (db_config.hierarchy_config == on_disk_config.hierarchy_config
+                || anchor.map_or(false, |anchor| anchor.no_historic_states_stored(split.slot)))
+        {
+            Ok(())
+        } else {
+            Err(StoreConfigError::IncompatibleStoreConfig {
                 config: db_config,
                 on_disk: on_disk_config.clone(),
-            });
+            })
         }
-        Ok(())
     }
 
     /// Check that the configuration is valid.
@@ -218,6 +225,8 @@ impl StoreItem for OnDiskStoreConfig {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{metadata::STATE_UPPER_LIMIT_NO_RETAIN, AnchorInfo, Split};
+    use types::{Hash256, Slot};
 
     #[test]
     fn check_compatibility_ok() {
@@ -229,7 +238,10 @@ mod test {
             linear_blocks: true,
             hierarchy_config: store_config.hierarchy_config.clone(),
         };
-        assert!(store_config.check_compatibility(&on_disk_config).is_ok());
+        let split = Split::default();
+        assert!(store_config
+            .check_compatibility(&on_disk_config, &split, None)
+            .is_ok());
     }
 
     #[test]
@@ -242,7 +254,10 @@ mod test {
             linear_blocks: false,
             hierarchy_config: store_config.hierarchy_config.clone(),
         };
-        assert!(store_config.check_compatibility(&on_disk_config).is_err());
+        let split = Split::default();
+        assert!(store_config
+            .check_compatibility(&on_disk_config, &split, None)
+            .is_err());
     }
 
     #[test]
@@ -257,6 +272,34 @@ mod test {
                 exponents: vec![5, 8, 11, 13, 16, 18, 21],
             },
         };
-        assert!(store_config.check_compatibility(&on_disk_config).is_err());
+        let split = Split::default();
+        assert!(store_config
+            .check_compatibility(&on_disk_config, &split, None)
+            .is_err());
+    }
+
+    #[test]
+    fn check_compatibility_hierarchy_config_update() {
+        let store_config = StoreConfig {
+            linear_blocks: true,
+            ..Default::default()
+        };
+        let on_disk_config = OnDiskStoreConfig {
+            linear_blocks: true,
+            hierarchy_config: HierarchyConfig {
+                exponents: vec![5, 8, 11, 13, 16, 18, 21],
+            },
+        };
+        let split = Split::default();
+        let anchor = AnchorInfo {
+            anchor_slot: Slot::new(0),
+            oldest_block_slot: Slot::new(0),
+            oldest_block_parent: Hash256::zero(),
+            state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
+            state_lower_limit: Slot::new(0),
+        };
+        assert!(store_config
+            .check_compatibility(&on_disk_config, &split, Some(&anchor))
+            .is_ok());
     }
 }

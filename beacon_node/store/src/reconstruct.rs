@@ -106,7 +106,7 @@ where
                 self.store_cold_state(&state_root, &state, &mut io_batch)?;
 
                 // If the slot lies on an epoch boundary, commit the batch and update the anchor.
-                if slot % E::slots_per_epoch() == 0 || slot + 1 == upper_limit_slot {
+                if self.hierarchy.should_commit_immediately(slot)? || slot + 1 == upper_limit_slot {
                     info!(
                         self.log,
                         "State reconstruction in progress";

@@ -346,7 +346,20 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
 
         // Ensure that any on-disk config is compatible with the supplied config.
         if let Some(disk_config) = db.load_config()? {
-            db.config.check_compatibility(&disk_config)?;
+            let split = db.get_split_info();
+            let anchor = db.get_anchor_info();
+            db.config
+                .check_compatibility(&disk_config, &split, anchor.as_ref())?;
+
+            // Inform user if hierarchy config is changing.
+            if db.config.hierarchy_config != disk_config.hierarchy_config {
+                info!(
+                    db.log,
+                    "Updating historic state config";
+                    "previous_config" => ?disk_config.hierarchy_config,
+                    "new_config" => ?db.config.hierarchy_config,
+                );
+            }
         }
         db.store_config()?;
 
@@ -2740,6 +2753,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let columns = [
             DBColumn::BeaconState,
             DBColumn::BeaconStateSummary,
+            DBColumn::BeaconStateDiff,
             DBColumn::BeaconRestorePoint,
             DBColumn::BeaconStateRoots,
             DBColumn::BeaconHistoricalRoots,
@@ -2779,6 +2793,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self.store_cold_state(&genesis_state_root, genesis_state, &mut cold_ops)?;
             self.cold_db.do_atomically(cold_ops)?;
         }
+
+        // In order to reclaim space, we need to compact the freezer DB as well.
+        self.cold_db.compact()?;
 
         Ok(())
     }
