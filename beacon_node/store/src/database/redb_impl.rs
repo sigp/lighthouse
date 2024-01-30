@@ -5,7 +5,7 @@ use crate::{
 };
 use crate::{DBColumn, Error, KeyValueStoreOp};
 use redb::{ReadableTable, TableDefinition};
-use std::{marker::PhantomData, path::Path, sync::Mutex};
+use std::{f64::consts::E, marker::PhantomData, path::Path, sync::Mutex};
 use types::{EthSpec, Hash256};
 
 use super::interface::WriteOptions;
@@ -14,6 +14,17 @@ pub struct Redb<E: EthSpec> {
     db: redb::Database,
     transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
+}
+
+
+impl From<WriteOptions> for redb::Durability {
+    fn from(options: WriteOptions) -> Self {
+        if options.sync {
+            redb::Durability::Immediate
+        } else {
+            redb::Durability::Eventual
+        }
+    }
 }
 
 impl<E: EthSpec> Redb<E> {
@@ -50,14 +61,16 @@ impl<E: EthSpec> Redb<E> {
         metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as u64);
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
-        let tx = self.db.begin_write()?;
+        let mut tx = self.db.begin_write()?;
+        tx.set_durability(opts.into());
         let mut table = tx.open_table(table_definition)?;
         table
             .insert(column_key.as_slice(), val)
-            .map_err(Into::into)
             .map(|_| {
                 metrics::stop_timer(timer);
-            })
+            })?;
+
+        tx.commit().map_err(Into::into)
     }
 
     /// Store some `value` in `column`, indexed with `key`.
@@ -127,15 +140,19 @@ impl<E: EthSpec> Redb<E> {
 
         table
             .remove(column_key.as_slice())
-            .map_err(Into::into)
-            .map(|_| ())
+            .map(|_| ())?;
+
+        tx.commit().map_err(Into::into)
     }
 
     // TODO we need some way to fetch the correct table
     pub fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
+
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("");
-        let tx = self.db.begin_write()?;
+        let mut tx = self.db.begin_write()?;
         let mut table = tx.open_table(table_definition)?;
+
+        let savepoint = tx.ephemeral_savepoint().unwrap();
         for op in ops_batch {
             match op {
                 KeyValueStoreOp::PutKeyValue(key, value) => {
@@ -147,6 +164,8 @@ impl<E: EthSpec> Redb<E> {
                 }
             }
         }
+
+        tx.commit()?;
         Ok(())
     }
 
