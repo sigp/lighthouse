@@ -894,26 +894,26 @@ where
                         "addr_broadcast",
                     );
                 }
+            }
 
-                // Spawn service to publish light_client updates at some interval into the slot
-                if let Some(light_client_server_rv) = self.light_client_server_rv {
-                    let inner_chain = beacon_chain.clone();
-                    let broadcast_context =
-                        runtime_context.service_context("lcserv_bcast".to_string());
-                    let log = broadcast_context.log().clone();
-                    broadcast_context.executor.spawn(
-                        async move {
-                            compute_light_client_updates(
-                                &inner_chain,
-                                light_client_server_rv,
-                                beacon_processor_channels.work_reprocessing_tx,
-                                &log,
-                            )
-                            .await
-                        },
-                        "lcserv_broadcast",
-                    );
-                }
+            // Spawn service to publish light_client updates at some interval into the slot.
+            if let Some(light_client_server_rv) = self.light_client_server_rv {
+                let inner_chain = beacon_chain.clone();
+                let light_client_update_context =
+                    runtime_context.service_context("lc_update".to_string());
+                let log = light_client_update_context.log().clone();
+                light_client_update_context.executor.spawn(
+                    async move {
+                        compute_light_client_updates(
+                            &inner_chain,
+                            light_client_server_rv,
+                            beacon_processor_channels.work_reprocessing_tx,
+                            &log,
+                        )
+                        .await
+                    },
+                    "lc_update",
+                );
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());

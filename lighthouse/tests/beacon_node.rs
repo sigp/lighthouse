@@ -2372,6 +2372,7 @@ fn light_client_server_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enable_light_client_server, false);
+            assert_eq!(config.chain.enable_light_client_server, false);
             assert_eq!(config.http_api.enable_light_client_server, false);
         });
 }
