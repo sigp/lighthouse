@@ -3,7 +3,7 @@
 //! You can start a suitable instance using the `anvil_test_node.sh` script in the `scripts`
 //! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
-use environment::{Environment, EnvironmentBuilder};
+use environment::{test_logger, Environment, EnvironmentBuilder};
 use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
 use eth1_test_rig::{AnvilEth1Instance, DelayThenDeposit, Middleware};
 use genesis::{Eth1Config, Eth1GenesisService};
@@ -16,7 +16,7 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
-        .null_logger()
+        .test_logger()
         .expect("should start null logger")
         .build()
         .expect("should build env")

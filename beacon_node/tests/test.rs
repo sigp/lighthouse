@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use beacon_chain::StateSkipConfig;
+use logging::test_logger;
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     eth2::types::StateId,
@@ -25,8 +26,7 @@ fn build_node<E: EthSpec>(env: &mut Environment<E>) -> LocalBeaconNode<E> {
 #[test]
 fn http_server_genesis_state() {
     let mut env = env_builder()
-        .null_logger()
-        //.async_logger("debug", None)
+        .test_logger()
         .expect("should build env logger")
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
