@@ -20,7 +20,7 @@ mod tests {
         fn get_topic_params(
             &self,
             topic: GossipTopic,
-        ) -> Option<&lighthouse_network::libp2p::gossipsub::TopicScoreParams> {
+        ) -> Option<&lighthouse_network::gossipsub::TopicScoreParams> {
             self.libp2p.get_topic_params(topic)
         }
     }
