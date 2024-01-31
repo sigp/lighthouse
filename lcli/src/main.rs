@@ -7,7 +7,6 @@ mod create_payload_header;
 mod deploy_deposit_contract;
 mod eth1_genesis;
 mod generate_bootnode_enr;
-mod generate_ssz;
 mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
@@ -24,7 +23,6 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 use clap_utils::parse_optional;
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::Eth2NetworkConfig;
-use generate_ssz::run_parse_json;
 use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
@@ -213,28 +211,6 @@ fn main() {
                         .takes_value(false)
                         .help("If present, don't rebuild the tree-hash-cache after applying \
                             the block."),
-                )
-        )
-        .subcommand(
-            SubCommand::with_name("generate-ssz")
-                .about("Generates the corresponding SSZ from JSON-encoded data in a file")
-                .arg(
-                    Arg::with_name("file")
-                        .short("f")
-                        .long("file")
-                        .value_name("FILE")
-                        .takes_value(true)
-                        .required(true)
-                        .help("Path of the file containing the JSON-encoded data")
-                )
-                .arg(
-                    Arg::with_name("output")
-                        .short("o")
-                        .long("output")
-                        .value_name("FILE")
-                        .takes_value(true)
-                        .required(true)
-                        .help("Path of the file to write the SSZ to")
                 )
         )
         .subcommand(
@@ -1072,9 +1048,6 @@ fn run<T: EthSpec>(
             let network_config = get_network_config()?;
             skip_slots::run::<T>(env, network_config, matches)
                 .map_err(|e| format!("Failed to skip slots: {}", e))
-        }
-        ("generate-ssz", Some(matches)) => {
-            run_parse_json::<T>(matches).map_err(|e| format!("Failed to generate ssz: {}", e))
         }
         ("pretty-ssz", Some(matches)) => {
             let network_config = get_network_config()?;
