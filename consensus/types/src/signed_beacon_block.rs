@@ -69,16 +69,8 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
-    #[superstruct(only(Base), partial_getter(rename = "message_base"))]
-    pub message: BeaconBlockBase<E, Payload>,
-    #[superstruct(only(Altair), partial_getter(rename = "message_altair"))]
-    pub message: BeaconBlockAltair<E, Payload>,
-    #[superstruct(only(Merge), partial_getter(rename = "message_merge"))]
-    pub message: BeaconBlockMerge<E, Payload>,
-    #[superstruct(only(Capella), partial_getter(rename = "message_capella"))]
-    pub message: BeaconBlockCapella<E, Payload>,
-    #[superstruct(only(Deneb), partial_getter(rename = "message_deneb"))]
-    pub message: BeaconBlockDeneb<E, Payload>,
+    #[superstruct(flatten)]
+    pub message: BeaconBlock<E, Payload>,
     pub signature: Signature,
 }
 

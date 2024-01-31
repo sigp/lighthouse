@@ -140,12 +140,8 @@ pub trait AbstractExecPayload<T: EthSpec>:
 #[arbitrary(bound = "T: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct FullPayload<T: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload: ExecutionPayloadMerge<T>,
-    #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload: ExecutionPayloadCapella<T>,
-    #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload: ExecutionPayloadDeneb<T>,
+    #[superstruct(flatten)]
+    pub execution_payload: ExecutionPayload<T>,
 }
 
 impl<T: EthSpec> From<FullPayload<T>> for ExecutionPayload<T> {
@@ -459,12 +455,8 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for FullPayload<T> {
 #[arbitrary(bound = "T: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BlindedPayload<T: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload_header: ExecutionPayloadHeaderMerge<T>,
-    #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload_header: ExecutionPayloadHeaderCapella<T>,
-    #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload_header: ExecutionPayloadHeaderDeneb<T>,
+    #[superstruct(flatten)]
+    pub execution_payload_header: ExecutionPayloadHeader<T>,
 }
 
 impl<'a, T: EthSpec> From<BlindedPayloadRef<'a, T>> for BlindedPayload<T> {
