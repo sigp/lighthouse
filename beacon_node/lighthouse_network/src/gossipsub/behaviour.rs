@@ -41,8 +41,8 @@ use libp2p::identity::PeerId;
 use libp2p::swarm::{
     behaviour::{AddressChange, ConnectionClosed, ConnectionEstablished, FromSwarm},
     dial_opts::DialOpts,
-    ConnectionDenied, ConnectionId, DialFailure, ListenFailure, NetworkBehaviour, NotifyHandler,
-    THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+    ConnectionDenied, ConnectionId, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
+    THandlerOutEvent, ToSwarm,
 };
 
 use super::gossip_promises::GossipPromises;
@@ -3253,30 +3253,6 @@ where
             }
             FromSwarm::ConnectionClosed(connection_closed) => {
                 self.on_connection_closed(connection_closed)
-            }
-            FromSwarm::DialFailure(DialFailure {
-                peer_id,
-                connection_id,
-                ..
-            })
-            | FromSwarm::ListenFailure(ListenFailure {
-                connection_id,
-                peer_id,
-                ..
-            }) => {
-                if let Some(peer_id) = peer_id {
-                    if let Some(mut peer) = self.connected_peers.remove(&peer_id) {
-                        if let Some(index) =
-                            peer.connections.iter().position(|v| v == &connection_id)
-                        {
-                            peer.connections.remove(index);
-                        }
-
-                        if !peer.connections.is_empty() {
-                            self.connected_peers.insert(peer_id, peer);
-                        }
-                    }
-                }
             }
             FromSwarm::AddressChange(address_change) => self.on_address_change(address_change),
             _ => {}

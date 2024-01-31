@@ -58,12 +58,11 @@ void = "1.0.2"
 async-channel = "1.9.0"
 asynchronous-codec = "0.7.0"
 base64 = "0.21.5"
-quick-protobuf-codec = { git = "https://github.com/sigp/rust-libp2p/", rev = "7c094d2ff6e177a7b2a46a0b87e9b6915c999d20" }
-libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p/", rev = "cfa3275ca17e502799ed56e555b6c0611752e369" }
+libp2p-mplex = "0.41"
+quick-protobuf-codec = "0.3"
 
 [dependencies.libp2p]
-git = "https://github.com/sigp/rust-libp2p/"
-rev = "cfa3275ca17e502799ed56e555b6c0611752e369"
+version = "0.53"
 default-features = false
 features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic"]
 
