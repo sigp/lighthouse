@@ -301,10 +301,12 @@ mod tests {
             let log = environment::null_logger().unwrap();
             let validator_dir = TempDir::new().unwrap();
 
+            let config = validator_client::Config::default();
             let validator_definitions = ValidatorDefinitions::from(validator_definitions);
             let initialized_validators = InitializedValidators::from_definitions(
                 validator_definitions,
                 validator_dir.path().into(),
+                config.clone(),
                 log.clone(),
             )
             .await
@@ -331,7 +333,6 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-            let config = validator_client::Config::default();
 
             let validator_store = ValidatorStore::<_, E>::new(
                 initialized_validators,
