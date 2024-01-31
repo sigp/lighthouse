@@ -4267,36 +4267,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET lighthouse/beacon/states/{state_id}/ssz
-    let get_lighthouse_beacon_states_ssz = warp::path("lighthouse")
-        .and(warp::path("beacon"))
-        .and(warp::path("states"))
-        .and(warp::path::param::<StateId>())
-        .and(warp::path("ssz"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |state_id: StateId,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_response_task(Priority::P1, move || {
-                    // This debug endpoint provides no indication of optimistic status.
-                    let (state, _execution_optimistic, _finalized) = state_id.state(&chain)?;
-                    Response::builder()
-                        .status(200)
-                        .body(state.as_ssz_bytes().into())
-                        .map(|res: Response<Body>| add_ssz_content_type_header(res))
-                        .map_err(|e| {
-                            warp_utils::reject::custom_server_error(format!(
-                                "failed to create response: {}",
-                                e
-                            ))
-                        })
-                })
-            },
-        );
-
     // GET lighthouse/staking
     let get_lighthouse_staking = warp::path("lighthouse")
         .and(warp::path("staking"))
@@ -4631,7 +4601,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_eth1_syncing)
                 .uor(get_lighthouse_eth1_block_cache)
                 .uor(get_lighthouse_eth1_deposit_cache)
-                .uor(get_lighthouse_beacon_states_ssz)
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
                 .uor(get_lighthouse_block_rewards)
