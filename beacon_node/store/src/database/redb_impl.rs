@@ -57,13 +57,16 @@ impl<E: EthSpec> Redb<E> {
         opts: WriteOptions,
     ) -> Result<(), Error> {
         let column_key = get_key_for_col(col, key);
+       
         metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
         metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as u64);
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
+        
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
         let mut tx = self.db.begin_write()?;
         tx.set_durability(opts.into());
         let mut table = tx.open_table(table_definition)?;
+        
         table
             .insert(column_key.as_slice(), val)
             .map(|_| {
@@ -152,7 +155,6 @@ impl<E: EthSpec> Redb<E> {
         let mut tx = self.db.begin_write()?;
         let mut table = tx.open_table(table_definition)?;
 
-        let savepoint = tx.ephemeral_savepoint().unwrap();
         for op in ops_batch {
             match op {
                 KeyValueStoreOp::PutKeyValue(key, value) => {
@@ -184,7 +186,6 @@ impl<E: EthSpec> Redb<E> {
             TableDefinition::new(column.into());
         let tx = self.db.begin_read().unwrap();
         let table = tx.open_table(table_definition).unwrap();
-
         Box::new(
             table
                 .iter()
