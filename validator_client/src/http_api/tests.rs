@@ -1217,7 +1217,7 @@ async fn validator_builder_boost_factor_global_prefer_builder_proposals_true() {
 }
 
 #[tokio::test]
-async fn validator_builder_boost_factor_global_prefer_builder_proposals_true_overrides_builder_proposals() {
+async fn validator_builder_boost_factor_global_prefer_builder_proposals_true_override() {
     let config = Config {
         builder_proposals: false,
         prefer_builder_proposals: true,
