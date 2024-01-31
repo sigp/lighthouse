@@ -16,7 +16,12 @@ pub fn store_full_state<E: EthSpec>(
     metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as u64);
     metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
     let key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
-    ops.push(KeyValueStoreOp::PutKeyValue(key, bytes));
+    let column_name: &str = DBColumn::BeaconState.into();
+    ops.push(KeyValueStoreOp::PutKeyValue(
+        column_name.to_owned(),
+        state_root.as_bytes().to_vec(),
+        bytes,
+    ));
     Ok(())
 }
 

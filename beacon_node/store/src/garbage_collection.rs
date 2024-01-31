@@ -16,7 +16,9 @@ where
     }
 
     /// Delete the temporary states that were leftover by failed block imports.
+
     pub fn delete_temp_states(&self) -> Result<(), Error> {
+        /*
         let delete_ops =
             self.iter_temporary_state_roots()
                 .try_fold(vec![], |mut ops, state_root| {
@@ -34,7 +36,7 @@ where
             );
             self.do_atomically_with_block_and_blobs_cache(delete_ops)?;
         }
-
+        */
         Ok(())
     }
 }

@@ -16,7 +16,10 @@ pub fn upgrade_to_v19<T: BeaconChainTypes>(
     for res in db.hot_db.iter_column_keys::<Vec<u8>>(column) {
         let key = res?;
         let key_col = get_key_for_col(column.as_str(), &key);
-        hot_delete_ops.push(KeyValueStoreOp::DeleteKey(key_col));
+        hot_delete_ops.push(KeyValueStoreOp::DeleteKey(
+            column.as_str().to_owned(),
+            key_col,
+        ));
         blob_keys.push(key);
     }
 
@@ -30,7 +33,11 @@ pub fn upgrade_to_v19<T: BeaconChainTypes>(
         let next_blob = db.hot_db.get_bytes(column.as_str(), &key)?;
         if let Some(next_blob) = next_blob {
             let key_col = get_key_for_col(column.as_str(), &key);
-            batch.push(KeyValueStoreOp::PutKeyValue(key_col, next_blob));
+            batch.push(KeyValueStoreOp::PutKeyValue(
+                column.as_str().to_owned(),
+                key_col,
+                next_blob,
+            ));
 
             if batch.len() >= batch_size {
                 db.blobs_db.do_atomically(batch.clone())?;

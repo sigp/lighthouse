@@ -66,11 +66,11 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
         for op in batch {
             match op {
-                KeyValueStoreOp::PutKeyValue(key, value) => {
+                KeyValueStoreOp::PutKeyValue(_, key, value) => {
                     self.db.write().insert(BytesKey::from_vec(key), value);
                 }
 
-                KeyValueStoreOp::DeleteKey(key) => {
+                KeyValueStoreOp::DeleteKey(_, key) => {
                     self.db.write().remove(&BytesKey::from_vec(key));
                 }
             }

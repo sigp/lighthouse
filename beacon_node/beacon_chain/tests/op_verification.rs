@@ -9,7 +9,8 @@ use beacon_chain::test_utils::{
 use lazy_static::lazy_static;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
-use store::{LevelDB, StoreConfig};
+use store::database::interface::BeaconNodeBackend;
+use store::StoreConfig;
 use tempfile::{tempdir, TempDir};
 use types::*;
 
@@ -23,7 +24,7 @@ lazy_static! {
 
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
-type HotColdDB = store::HotColdDB<E, LevelDB<E>, LevelDB<E>>;
+type HotColdDB = store::HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
     let spec = test_spec::<E>();

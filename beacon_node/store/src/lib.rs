@@ -39,7 +39,7 @@ pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
 use parking_lot::MutexGuard;
 use std::sync::Arc;
-use strum::{EnumString, IntoStaticStr};
+use strum::{EnumIter, EnumString, IntoStaticStr};
 pub use types::*;
 
 pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
@@ -130,8 +130,8 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
 #[must_use]
 #[derive(Clone)]
 pub enum KeyValueStoreOp {
-    PutKeyValue(Vec<u8>, Vec<u8>),
-    DeleteKey(Vec<u8>),
+    PutKeyValue(String, Vec<u8>, Vec<u8>),
+    DeleteKey(String, Vec<u8>),
 }
 
 pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
@@ -198,7 +198,7 @@ pub enum StoreOp<'a, E: EthSpec> {
 }
 
 /// A unique column identifier.
-#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, EnumString, EnumIter)]
 pub enum DBColumn {
     /// For data related to the database itself.
     #[strum(serialize = "bma")]
@@ -313,7 +313,9 @@ pub trait StoreItem: Sized {
 
     fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
         let db_key = get_key_for_col(Self::db_column().into(), key.as_bytes());
-        KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes())
+
+        let column_name: &str = Self::db_column().into();
+        KeyValueStoreOp::PutKeyValue(column_name.to_owned(), key.as_bytes().to_vec(), self.as_store_bytes())
     }
 }
 
