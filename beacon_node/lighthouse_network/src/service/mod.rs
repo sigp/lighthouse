@@ -127,8 +127,6 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
     gossip_cache: GossipCache,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
-    /// Flag to disable warning logs for duplicate gossip messages and log at DEBUG level instead.
-    pub disable_duplicate_warn_logs: bool,
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
@@ -426,7 +424,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             update_gossipsub_scores,
             gossip_cache,
             local_peer_id,
-            disable_duplicate_warn_logs: config.disable_duplicate_warn_logs,
             log,
         };
 
@@ -745,21 +742,23 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     .gossipsub_mut()
                     .publish(Topic::from(topic.clone()), message_data.clone())
                 {
-                    if self.disable_duplicate_warn_logs && matches!(e, PublishError::Duplicate) {
-                        debug!(
-                            self.log,
-                            "Could not publish message";
-                            "error" => ?e,
-                            "kind" => %topic.kind(),
-                        );
-                    } else {
-                        warn!(
-                            self.log,
-                            "Could not publish message";
-                            "error" => ?e,
-                            "kind" => %topic.kind(),
-                        );
-                    };
+                    match e {
+                        PublishError::Duplicate => {
+                            debug!(
+                                self.log,
+                                "Attempted to publish duplicate message";
+                                "kind" => %topic.kind(),
+                            );
+                        }
+                        ref e => {
+                            warn!(
+                                self.log,
+                                "Could not publish message";
+                                "error" => ?e,
+                                "kind" => %topic.kind(),
+                            );
+                        }
+                    }
 
                     // add to metrics
                     match topic.kind() {
