@@ -399,12 +399,8 @@ pub struct ProposeBlindedBlockResponse {
 )]
 #[derive(Clone, Debug, PartialEq)]
 pub struct GetPayloadResponse<T: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload: ExecutionPayloadMerge<T>,
-    #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload: ExecutionPayloadCapella<T>,
-    #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload: ExecutionPayloadDeneb<T>,
+    #[superstruct(flatten)]
+    pub execution_payload: ExecutionPayload<T>,
     pub block_value: Uint256,
     #[superstruct(only(Deneb))]
     pub blobs_bundle: BlobsBundle<T>,
@@ -587,12 +583,8 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
 )]
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewPayloadRequest<E: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload: ExecutionPayloadMerge<E>,
-    #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload: ExecutionPayloadCapella<E>,
-    #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload: ExecutionPayloadDeneb<E>,
+    #[superstruct(flatten)]
+    pub execution_payload: ExecutionPayload<E>,
     #[superstruct(only(Deneb))]
     pub versioned_hashes: Vec<VersionedHash>,
     #[superstruct(only(Deneb))]

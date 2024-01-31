@@ -288,12 +288,8 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub struct JsonGetPayloadResponse<T: EthSpec> {
-    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]
-    pub execution_payload: JsonExecutionPayloadV1<T>,
-    #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
-    pub execution_payload: JsonExecutionPayloadV2<T>,
-    #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
-    pub execution_payload: JsonExecutionPayloadV3<T>,
+    #[superstruct(flatten)]
+    pub execution_payload: JsonExecutionPayload<T>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub block_value: Uint256,
     #[superstruct(only(V3))]

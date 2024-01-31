@@ -23,12 +23,8 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "E: EthSpec", deny_unknown_fields, untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BuilderBid<E: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "header_merge"))]
-    pub header: ExecutionPayloadHeaderMerge<E>,
-    #[superstruct(only(Capella), partial_getter(rename = "header_capella"))]
-    pub header: ExecutionPayloadHeaderCapella<E>,
-    #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
-    pub header: ExecutionPayloadHeaderDeneb<E>,
+    #[superstruct(flatten)]
+    pub header: ExecutionPayloadHeader<E>,
     #[superstruct(only(Deneb))]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[serde(with = "serde_utils::quoted_u256")]
