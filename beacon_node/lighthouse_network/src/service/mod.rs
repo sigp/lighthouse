@@ -4,6 +4,10 @@ use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
 };
+use crate::gossipsub::{
+    self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
+    TopicScoreParams,
+};
 use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
     ConnectionDirection, PeerManager, PeerManagerEvent,
@@ -24,10 +28,6 @@ use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
-use crate::gossipsub::{
-    self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
-    TopicScoreParams,
-};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::PeerId;
@@ -1161,9 +1161,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         // Remove the ENR from the cache to prevent continual re-dialing on disconnects
         for enr in peers_to_dial {
-            debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %enr.peer_id());
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
-            self.peer_manager_mut().dial_peer(enr);
+            let peer_id = enr.peer_id();
+            if self.peer_manager_mut().dial_peer(enr) {
+                debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
+            }
         }
     }
 

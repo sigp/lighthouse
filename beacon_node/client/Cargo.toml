@@ -25,6 +25,7 @@ serde = { workspace = true }
 error-chain = { workspace = true }
 slog = { workspace = true }
 tokio = { workspace = true }
+futures = { workspace = true }
 dirs = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }

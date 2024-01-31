@@ -1587,6 +1587,39 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_blob_sidecars(self, use_indices: bool) -> Self {
+        let block_id = BlockId(CoreBlockId::Finalized);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+        let num_blobs = block.num_expected_blobs();
+        let blob_indices = if use_indices {
+            Some(
+                (0..num_blobs.saturating_sub(1) as u64)
+                    .into_iter()
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            None
+        };
+        let result = match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), blob_indices.as_deref())
+            .await
+        {
+            Ok(result) => result.unwrap().data,
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        assert_eq!(
+            result.len(),
+            blob_indices.map_or(num_blobs, |indices| indices.len())
+        );
+        let expected = block.slot();
+        assert_eq!(result.get(0).unwrap().slot(), expected);
+
+        self
+    }
+
     pub async fn test_beacon_blocks_attestations(self) -> Self {
         for block_id in self.interesting_block_ids() {
             let result = self
@@ -1698,7 +1731,10 @@ impl ApiTester {
             Err(e) => panic!("query failed incorrectly: {e:?}"),
         };
 
-        let expected = self.chain.latest_seen_optimistic_update.lock().clone();
+        let expected = self
+            .chain
+            .light_client_server_cache
+            .get_latest_optimistic_update();
         assert_eq!(result, expected);
 
         self
@@ -1714,7 +1750,10 @@ impl ApiTester {
             Err(e) => panic!("query failed incorrectly: {e:?}"),
         };
 
-        let expected = self.chain.latest_seen_finality_update.lock().clone();
+        let expected = self
+            .chain
+            .light_client_server_cache
+            .get_latest_finality_update();
         assert_eq!(result, expected);
 
         self
@@ -2597,7 +2636,7 @@ impl ApiTester {
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_contents =
-                PublishBlockRequest::try_from(signed_block.clone()).unwrap();
+                PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
 
             self.client
                 .post_beacon_blocks(&signed_block_contents)
@@ -2670,8 +2709,8 @@ impl ApiTester {
                 .unwrap();
 
             assert_eq!(
-                self.chain.head_beacon_block().as_ref(),
-                signed_block_contents.signed_block()
+                self.chain.head_beacon_block(),
+                *signed_block_contents.signed_block()
             );
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
@@ -2763,8 +2802,8 @@ impl ApiTester {
                         .unwrap();
 
                     assert_eq!(
-                        self.chain.head_beacon_block().as_ref(),
-                        signed_block_contents.signed_block()
+                        self.chain.head_beacon_block(),
+                        *signed_block_contents.signed_block()
                     );
 
                     self.chain.slot_clock.set_slot(slot.as_u64() + 1);
@@ -2994,7 +3033,7 @@ impl ApiTester {
                 .data;
 
             let signed_block = signed_block_contents.signed_block();
-            assert_eq!(&head_block, signed_block);
+            assert_eq!(head_block, **signed_block);
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
@@ -5024,26 +5063,6 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_lighthouse_beacon_states_ssz(self) -> Self {
-        for state_id in self.interesting_state_ids() {
-            let result = self
-                .client
-                .get_lighthouse_beacon_states_ssz(&state_id.0, &self.chain.spec)
-                .await
-                .unwrap();
-
-            let mut expected = state_id
-                .state(&self.chain)
-                .ok()
-                .map(|(state, _execution_optimistic, _finalized)| state);
-            expected.as_mut().map(|state| state.drop_all_caches());
-
-            assert_eq!(result, expected, "{:?}", state_id);
-        }
-
-        self
-    }
-
     pub async fn test_get_lighthouse_staking(self) -> Self {
         let result = self.client.get_lighthouse_staking().await.unwrap();
 
@@ -6292,6 +6311,27 @@ async fn builder_works_post_deneb() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blob_sidecars() {
+    let mut config = ApiTesterConfig {
+        retain_historic_states: false,
+        spec: E::default_spec(),
+    };
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_post_beacon_blocks_valid()
+        .await
+        .test_get_blob_sidecars(false)
+        .await
+        .test_get_blob_sidecars(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_liveness_epoch() {
     ApiTester::new()
         .await
@@ -6318,8 +6358,6 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_eth1_block_cache()
         .await
         .test_get_lighthouse_eth1_deposit_cache()
-        .await
-        .test_get_lighthouse_beacon_states_ssz()
         .await
         .test_get_lighthouse_staking()
         .await
