@@ -78,6 +78,10 @@ pub struct Config {
     pub validator_registration_batch_size: usize,
     /// Enables block production via the block v3 endpoint. This configuration option can be removed post deneb.
     pub produce_block_v3: bool,
+    /// Specifies the boost factor, a percentage multiplier to apply to the builder's payload value.
+    pub builder_boost_factor: Option<u64>,
+    /// If true, Lighthouse will prefer builder proposals, if available.
+    pub prefer_builder_proposals: bool,
     pub web3_signer_keep_alive_timeout: Option<Duration>,
     pub web3_signer_max_idle_connections: Option<usize>,
 }
@@ -121,6 +125,8 @@ impl Default for Config {
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
             produce_block_v3: false,
+            builder_boost_factor: None,
+            prefer_builder_proposals: false,
             web3_signer_keep_alive_timeout: Some(Duration::from_secs(90)),
             web3_signer_max_idle_connections: None,
         }
@@ -367,6 +373,10 @@ impl Config {
             config.produce_block_v3 = true;
         }
 
+        if cli_args.is_present("prefer-builder-proposals") {
+            config.prefer_builder_proposals = true;
+        }
+
         config.gas_limit = cli_args
             .value_of("gas-limit")
             .map(|gas_limit| {
@@ -385,6 +395,8 @@ impl Config {
                     .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
             );
         }
+
+        config.builder_boost_factor = parse_optional(cli_args, "builder-boost-factor")?;
 
         config.enable_latency_measurement_service =
             parse_optional(cli_args, "latency-measurement-service")?.unwrap_or(true);

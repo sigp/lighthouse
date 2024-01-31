@@ -722,7 +722,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
                 Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
             })
             .transpose()?;
-        let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;
+        let gossip_verified_block = GossipVerifiedBlock::new(block, chain)?;
 
         Ok((gossip_verified_block, gossip_verified_blobs))
     }
