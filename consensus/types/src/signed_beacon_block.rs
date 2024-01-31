@@ -104,6 +104,16 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         Self::from_ssz_bytes_with(bytes, |bytes| BeaconBlock::from_ssz_bytes(bytes, spec))
     }
 
+    /// SSZ decode with explicit fork variant.
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        Self::from_ssz_bytes_with(bytes, |bytes| {
+            BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+        })
+    }
+
     /// SSZ decode which attempts to decode all variants (slow).
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
         Self::from_ssz_bytes_with(bytes, BeaconBlock::any_from_ssz_bytes)

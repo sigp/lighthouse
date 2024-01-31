@@ -1,5 +1,5 @@
 use crate::local_network::LocalNetwork;
-use node_test_rig::eth2::types::{BlockId, StateId};
+use node_test_rig::eth2::types::{BlockId, FinalityCheckpointsData, StateId};
 use std::time::Duration;
 use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, Slot, Unsigned};
 
@@ -242,4 +242,94 @@ pub async fn verify_transition_block_finalized<E: EthSpec>(
             block_hashes
         ))
     }
+}
+
+pub(crate) async fn verify_light_client_updates<E: EthSpec>(
+    network: LocalNetwork<E>,
+    start_slot: Slot,
+    end_slot: Slot,
+    slot_duration: Duration,
+) -> Result<(), String> {
+    slot_delay(start_slot, slot_duration).await;
+
+    // Tolerance of 2 slot allows for 1 single missed slot.
+    let light_client_update_slot_tolerance = Slot::new(2);
+    let remote_nodes = network.remote_nodes()?;
+    let client = remote_nodes.first().unwrap();
+    let mut have_seen_block = false;
+    let mut have_achieved_finality = false;
+
+    for slot in start_slot.as_u64()..=end_slot.as_u64() {
+        slot_delay(Slot::new(1), slot_duration).await;
+        let slot = Slot::new(slot);
+        let previous_slot = slot - 1;
+
+        let previous_slot_block = client
+            .get_beacon_blocks::<E>(BlockId::Slot(previous_slot))
+            .await
+            .map_err(|e| {
+                format!("Unable to get beacon block for previous slot {previous_slot:?}: {e:?}")
+            })?;
+        let previous_slot_has_block = previous_slot_block.is_some();
+
+        if !have_seen_block {
+            // Make sure we have seen the first block in Altair, to make sure we have sync aggregates available.
+            if previous_slot_has_block {
+                have_seen_block = true;
+            }
+            // Wait for another slot before we check the first update to avoid race condition.
+            continue;
+        }
+
+        // Make sure previous slot has a block, otherwise skip checking for the signature slot distance
+        if !previous_slot_has_block {
+            continue;
+        }
+
+        // Verify light client optimistic update. `signature_slot_distance` should be 1 in the ideal scenario.
+        let signature_slot = client
+            .get_beacon_light_client_optimistic_update::<E>()
+            .await
+            .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
+            .ok_or(format!("Light client optimistic update not found {slot:?}"))?
+            .data
+            .signature_slot;
+        let signature_slot_distance = slot - signature_slot;
+        if signature_slot_distance > light_client_update_slot_tolerance {
+            return Err(format!("Existing optimistic update too old: signature slot {signature_slot}, current slot {slot:?}"));
+        }
+
+        // Verify light client finality update. `signature_slot_distance` should be 1 in the ideal scenario.
+        // NOTE: Currently finality updates are produced as long as the finalized block is known, even if the finalized header
+        // sync committee period does not match the signature slot committee period.
+        // TODO: This complies with the current spec, but we should check if this is a bug.
+        if !have_achieved_finality {
+            let FinalityCheckpointsData { finalized, .. } = client
+                .get_beacon_states_finality_checkpoints(StateId::Head)
+                .await
+                .map_err(|e| format!("Unable to get beacon state finality checkpoint: {e:?}"))?
+                .ok_or("Unable to get head state".to_string())?
+                .data;
+            if !finalized.root.is_zero() {
+                // Wait for another slot before we check the first finality update to avoid race condition.
+                have_achieved_finality = true;
+            }
+            continue;
+        }
+        let signature_slot = client
+            .get_beacon_light_client_finality_update::<E>()
+            .await
+            .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
+            .ok_or(format!("Light client finality update not found {slot:?}"))?
+            .data
+            .signature_slot;
+        let signature_slot_distance = slot - signature_slot;
+        if signature_slot_distance > light_client_update_slot_tolerance {
+            return Err(format!(
+                "Existing finality update too old: signature slot {signature_slot}, current slot {slot:?}"
+            ));
+        }
+    }
+
+    Ok(())
 }

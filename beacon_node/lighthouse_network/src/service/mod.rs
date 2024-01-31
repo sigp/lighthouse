@@ -41,8 +41,7 @@ use std::{
 };
 use types::ForkName;
 use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, consts::deneb::BLOB_SIDECAR_SUBNET_COUNT,
-    EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
@@ -128,6 +127,8 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
     gossip_cache: GossipCache,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
+    /// Flag to disable warning logs for duplicate gossip messages and log at DEBUG level instead.
+    pub disable_duplicate_warn_logs: bool,
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
@@ -224,7 +225,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
             let max_topics = ctx.chain_spec.attestation_subnet_count as usize
                 + SYNC_COMMITTEE_SUBNET_COUNT as usize
-                + BLOB_SIDECAR_SUBNET_COUNT as usize
+                + ctx.chain_spec.blob_sidecar_subnet_count as usize
                 + BASE_CORE_TOPICS.len()
                 + ALTAIR_CORE_TOPICS.len()
                 + CAPELLA_CORE_TOPICS.len()
@@ -237,7 +238,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     possible_fork_digests,
                     ctx.chain_spec.attestation_subnet_count,
                     SYNC_COMMITTEE_SUBNET_COUNT,
-                    BLOB_SIDECAR_SUBNET_COUNT,
+                    ctx.chain_spec.blob_sidecar_subnet_count,
                 ),
                 // during a fork we subscribe to both the old and new topics
                 max_subscribed_topics: max_topics * 4,
@@ -425,6 +426,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             update_gossipsub_scores,
             gossip_cache,
             local_peer_id,
+            disable_duplicate_warn_logs: config.disable_duplicate_warn_logs,
             log,
         };
 
@@ -636,7 +638,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
 
         // Subscribe to core topics for the new fork
-        for kind in fork_core_topics::<TSpec>(&new_fork) {
+        for kind in fork_core_topics::<TSpec>(&new_fork, &self.fork_context.spec) {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
@@ -743,7 +745,21 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     .gossipsub_mut()
                     .publish(Topic::from(topic.clone()), message_data.clone())
                 {
-                    slog::warn!(self.log, "Could not publish message"; "error" => ?e);
+                    if self.disable_duplicate_warn_logs && matches!(e, PublishError::Duplicate) {
+                        debug!(
+                            self.log,
+                            "Could not publish message";
+                            "error" => ?e,
+                            "kind" => %topic.kind(),
+                        );
+                    } else {
+                        warn!(
+                            self.log,
+                            "Could not publish message";
+                            "error" => ?e,
+                            "kind" => %topic.kind(),
+                        );
+                    };
 
                     // add to metrics
                     match topic.kind() {
@@ -1145,9 +1161,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         // Remove the ENR from the cache to prevent continual re-dialing on disconnects
         for enr in peers_to_dial {
-            debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %enr.peer_id());
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
-            self.peer_manager_mut().dial_peer(enr);
+            let peer_id = enr.peer_id();
+            if self.peer_manager_mut().dial_peer(enr) {
+                debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
+            }
         }
     }
 
@@ -1247,6 +1265,32 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     Some(GoodbyeReason::Unknown),
                     "does_not_support_gossipsub",
                 );
+            }
+            gossipsub::Event::SlowPeer {
+                peer_id,
+                failed_messages,
+            } => {
+                debug!(self.log, "Slow gossipsub peer"; "peer_id" => %peer_id, "publish" => failed_messages.publish, "forward" => failed_messages.forward, "priority" => failed_messages.priority, "non_priority" => failed_messages.non_priority);
+                // Punish the peer if it cannot handle priority messages
+                if failed_messages.total_timeout() > 10 {
+                    debug!(self.log, "Slow gossipsub peer penalized for priority failure"; "peer_id" => %peer_id);
+                    self.peer_manager_mut().report_peer(
+                        &peer_id,
+                        PeerAction::HighToleranceError,
+                        ReportSource::Gossipsub,
+                        None,
+                        "publish_timeout_penalty",
+                    );
+                } else if failed_messages.total_queue_full() > 10 {
+                    debug!(self.log, "Slow gossipsub peer penalized for send queue full"; "peer_id" => %peer_id);
+                    self.peer_manager_mut().report_peer(
+                        &peer_id,
+                        PeerAction::HighToleranceError,
+                        ReportSource::Gossipsub,
+                        None,
+                        "queue_full_penalty",
+                    );
+                }
             }
         }
         None
@@ -1452,8 +1496,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 self.build_response(id, peer_id, response)
             }
             HandlerEvent::Close(_) => {
-                let _ = self.swarm.disconnect_peer_id(peer_id);
-                // NOTE: we wait for the swarm to report the connection as actually closed
+                // NOTE: This is handled in the RPC behaviour.
                 None
             }
         }

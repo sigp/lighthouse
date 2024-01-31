@@ -71,7 +71,7 @@ If an MDBX database is already found on disk, then Lighthouse will try to use it
 in a log at start-up:
 
 ```
-INFO Slasher backend overriden    reason: database exists, configured_backend: lmdb, overriden_backend: mdbx
+INFO Slasher backend overridden    reason: database exists, configured_backend: lmdb, overridden_backend: mdbx
 ```
 
 If the running Lighthouse binary doesn't have the MDBX backend enabled but an existing database is

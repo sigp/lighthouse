@@ -10,6 +10,20 @@ use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
 /// The maximum time to wait for the snapshot cache lock during a metrics scrape.
 const SNAPSHOT_CACHE_TIMEOUT: Duration = Duration::from_millis(100);
 
+// Attestation simulator metrics
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL: &str =
+    "validator_monitor_attestation_simulator_head_attester_hit_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL: &str =
+    "validator_monitor_attestation_simulator_head_attester_miss_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT_TOTAL: &str =
+    "validator_monitor_attestation_simulator_target_attester_hit_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS_TOTAL: &str =
+    "validator_monitor_attestation_simulator_target_attester_miss_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT_TOTAL: &str =
+    "validator_monitor_attestation_simulator_source_attester_hit_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL: &str =
+    "validator_monitor_attestation_simulator_source_attester_miss_total";
+
 lazy_static! {
     /*
      * Block Processing
@@ -39,6 +53,10 @@ lazy_static! {
     pub static ref BLOCK_PROCESSING_BLOCK_ROOT: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_block_root_seconds",
         "Time spent calculating the block root when processing a block."
+    );
+    pub static ref BLOCK_HEADER_PROCESSING_BLOCK_ROOT: Result<Histogram> = try_create_histogram(
+        "beacon_block_header_processing_block_root_seconds",
+        "Time spent calculating the block root for a beacon block header."
     );
     pub static ref BLOCK_PROCESSING_BLOB_ROOT: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_blob_root_seconds",
@@ -1041,6 +1059,48 @@ lazy_static! {
         "beacon_aggregated_attestation_subsets_total",
         "Count of new aggregated attestations that are subsets of already known aggregates"
     );
+    /*
+    * Attestation simulator metrics
+     */
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL,
+        "Incremented if a validator is flagged as a previous slot head attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL,
+        "Incremented if a validator is not flagged as a previous slot head attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT_TOTAL,
+        "Incremented if a validator is flagged as a previous slot target attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS_TOTAL,
+        "Incremented if a validator is not flagged as a previous slot target attester \
+        during per slot processing",
+    );
+        pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT_TOTAL,
+        "Incremented if a validator is flagged as a previous slot source attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL,
+        "Incremented if a validator is not flagged as a previous slot source attester \
+        during per slot processing",
+    );
+    /*
+     * Missed block metrics
+     */
     pub static ref VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "validator_monitor_missed_blocks_total",
         "Number of non-finalized blocks missed",
@@ -1067,6 +1127,22 @@ lazy_static! {
         "Duration between start of the slot and the time at which all components of the block are available.",
         // Create a custom bucket list for greater granularity in block delay
         Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
+    );
+
+    /*
+    * light_client server metrics
+    */
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_STATE_DATA_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_light_client_server_cache_state_data_seconds",
+        "Time taken to produce and cache state data",
+    );
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_RECOMPUTE_UPDATES_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_light_client_server_cache_recompute_updates_seconds",
+        "Time taken to recompute and cache updates",
+    );
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_PREV_BLOCK_CACHE_MISS: Result<IntCounter> = try_create_int_counter(
+        "beacon_light_client_server_cache_prev_block_cache_miss",
+        "Count of prev block cache misses",
     );
 }
 
