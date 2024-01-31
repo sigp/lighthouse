@@ -56,13 +56,14 @@ pub enum Error {
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
     TransitionConfigurationMismatch,
-    PayloadConversionLogicFlaw,
     SszError(ssz_types::Error),
     DeserializeWithdrawals(ssz_types::Error),
     BuilderApi(builder_client::Error),
     IncorrectStateVariant,
     RequiredMethodUnsupported(&'static str),
     UnsupportedForkVariant(String),
+    MethodNotSupported(String),
+    InvalidClientVersion(String),
     RlpDecoderError(rlp::DecoderError),
 }
 

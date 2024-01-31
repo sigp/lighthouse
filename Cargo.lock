@@ -3024,6 +3024,7 @@ dependencies = [
  "kzg",
  "lazy_static",
  "lighthouse_metrics",
+ "lighthouse_version",
  "lru",
  "parking_lot 0.12.1",
  "pretty_reqwest_error",

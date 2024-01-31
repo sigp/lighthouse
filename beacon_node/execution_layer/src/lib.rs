@@ -1523,6 +1523,26 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .map_err(Error::EngineError)
     }
 
+    /// Returns the execution engine version resulting from a call to
+    /// engine_clientVersionV1. If the version cache is not populated, or if it
+    /// is populated with a cached result of age >= `age_limit`, this method will
+    /// fetch the result from the execution engine and populate the cache before
+    /// returning it. Otherwise it will return the cached result from an earlier
+    /// call.
+    ///
+    /// Set `age_limit` to `None` to always return the cached result
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_version(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<ClientVersionV1, Error> {
+        self.engine()
+            .request(|engine| engine.get_engine_version(age_limit))
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
+    }
+
     /// Used during block production to determine if the merge has been triggered.
     ///
     /// ## Specification

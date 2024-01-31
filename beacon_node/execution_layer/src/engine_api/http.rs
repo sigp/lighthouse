@@ -3,6 +3,8 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
+use lazy_static::lazy_static;
+use lighthouse_version::{COMMIT_PREFIX, VERSION};
 use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
@@ -74,6 +76,19 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_CLIENT_VERSION_V1,
 ];
+
+lazy_static! {
+    /// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
+    /// for two reasons:
+    /// 1. This saves the overhead of converting into Json for every engine call
+    /// 2. The Json version lacks error checking so we can avoid calling `unwrap()`
+    pub static ref LIGHTHOUSE_JSON_CLIENT_VERSION: JsonClientVersionV1 = JsonClientVersionV1 {
+        code: ClientCode::Lighthouse.to_string(),
+        client_name: "Lighthouse".to_string(),
+        version: VERSION.replace("Lighthouse/", ""),
+        commit: COMMIT_PREFIX.to_string(),
+    };
+}
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
@@ -582,6 +597,7 @@ pub struct HttpJsonRpc {
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
     pub engine_capabilities_cache: Mutex<Option<CachedResponse<EngineCapabilities>>>,
+    pub engine_version_cache: Mutex<Option<CachedResponse<ClientVersionV1>>>,
     auth: Option<Auth>,
 }
 
@@ -595,6 +611,7 @@ impl HttpJsonRpc {
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
+            engine_version_cache: Mutex::new(None),
             auth: None,
         })
     }
@@ -609,6 +626,7 @@ impl HttpJsonRpc {
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
+            engine_version_cache: Mutex::new(None),
             auth: Some(auth),
         })
     }
@@ -1043,12 +1061,68 @@ impl HttpJsonRpc {
     ) -> Result<EngineCapabilities, Error> {
         let mut lock = self.engine_capabilities_cache.lock().await;
 
-        if let Some(lock) = lock.as_ref().filter(|entry| !entry.older_than(age_limit)) {
+        if let Some(lock) = lock
+            .as_ref()
+            .filter(|cached_response| !cached_response.older_than(age_limit))
+        {
             Ok(lock.data())
         } else {
             let engine_capabilities = self.exchange_capabilities().await?;
             *lock = Some(CachedResponse::new(engine_capabilities));
             Ok(engine_capabilities)
+        }
+    }
+
+    /// This method fetches the response from the engine without checking
+    /// any caches or storing the result in the cache. It is better to use
+    /// `get_engine_version(Some(Duration::ZERO))` if you want to force
+    /// fetching from the EE as this will cache the result.
+    pub async fn client_version_v1(&self) -> Result<ClientVersionV1, Error> {
+        let params = json!([*LIGHTHOUSE_JSON_CLIENT_VERSION]);
+
+        let response: JsonClientVersionV1 = self
+            .rpc_request(
+                ENGINE_CLIENT_VERSION_V1,
+                params,
+                ENGINE_CLIENT_VERSION_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        response.try_into().map_err(Error::InvalidClientVersion)
+    }
+
+    pub async fn clear_engine_version_cache(&self) {
+        *self.engine_version_cache.lock().await = None;
+    }
+
+    /// Returns the execution engine version resulting from a call to
+    /// engine_clientVersionV1. If the version cache is not populated, or if it
+    /// is populated with a cached result of age >= `age_limit`, this method will
+    /// fetch the result from the execution engine and populate the cache before
+    /// returning it. Otherwise it will return the cached result from an earlier
+    /// call.
+    ///
+    /// Set `age_limit` to `None` to always return the cached result
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_version(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<ClientVersionV1, Error> {
+        // check engine capabilities first (avoids holding two locks at once)
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        if !engine_capabilities.client_version_v1 {
+            return Err(Error::RequiredMethodUnsupported(ENGINE_CLIENT_VERSION_V1));
+        }
+        let mut lock = self.engine_version_cache.lock().await;
+        if let Some(lock) = lock
+            .as_ref()
+            .filter(|cached_response| !cached_response.older_than(age_limit))
+        {
+            Ok(lock.data())
+        } else {
+            let engine_version = self.client_version_v1().await?;
+            *lock = Some(CachedResponse::new(engine_version.clone()));
+            Ok(engine_version)
         }
     }
 
