@@ -62,6 +62,13 @@ pub fn get_config<E: EthSpec>(
             fs::remove_dir_all(freezer_db)
                 .map_err(|err| format!("Failed to remove freezer_db: {}", err))?;
         }
+
+        // Remove the blobs db.
+        let blobs_db = client_config.get_blobs_db_path();
+        if blobs_db.exists() {
+            fs::remove_dir_all(blobs_db)
+                .map_err(|err| format!("Failed to remove blobs_db: {}", err))?;
+        }
     }
 
     // Create `datadir` and any non-existing parent directories.
@@ -154,6 +161,10 @@ pub fn get_config<E: EthSpec>(
 
         client_config.http_api.enable_light_client_server =
             cli_args.is_present("light-client-server");
+    }
+
+    if cli_args.is_present("light-client-server") {
+        client_config.chain.enable_light_client_server = true;
     }
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {

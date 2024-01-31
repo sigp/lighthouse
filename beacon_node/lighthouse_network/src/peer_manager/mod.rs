@@ -330,8 +330,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             //    considered a priority. We have pre-allocated some extra priority slots for these
             //    peers as specified by PRIORITY_PEER_EXCESS. Therefore we dial these peers, even
             //    if we are already at our max_peer limit.
-            if min_ttl.is_some() && connected_or_dialing + to_dial_peers < self.max_priority_peers()
-                || connected_or_dialing + to_dial_peers < self.max_peers()
+            if !self.peers_to_dial.contains(&enr)
+                && ((min_ttl.is_some()
+                    && connected_or_dialing + to_dial_peers < self.max_priority_peers())
+                    || connected_or_dialing + to_dial_peers < self.max_peers())
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed
@@ -341,9 +343,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         .write()
                         .update_min_ttl(&enr.peer_id(), min_ttl);
                 }
-                debug!(self.log, "Dialing discovered peer"; "peer_id" => %enr.peer_id());
-                self.dial_peer(enr);
-                to_dial_peers += 1;
+                let peer_id = enr.peer_id();
+                if self.dial_peer(enr) {
+                    debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
+                    to_dial_peers += 1;
+                }
             }
         }
 
@@ -405,7 +409,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /* Notifications from the Swarm */
 
     /// A peer is being dialed.
-    pub fn dial_peer(&mut self, peer: Enr) {
+    /// Returns true, if this peer will be dialed.
+    pub fn dial_peer(&mut self, peer: Enr) -> bool {
         if self
             .network_globals
             .peers
@@ -413,6 +418,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .should_dial(&peer.peer_id())
         {
             self.peers_to_dial.push(peer);
+            true
+        } else {
+            false
         }
     }
 
@@ -920,7 +928,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             {
                 self.max_outbound_dialing_peers()
                     .saturating_sub(dialing_peers)
-                    - peer_count
+                    .saturating_sub(peer_count)
             } else {
                 0
             };

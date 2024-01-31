@@ -220,6 +220,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             fork,
             sync_aggregate,
             transition,
+            light_client_update,
         ) = futures::join!(
             // Check that the chain finalizes at the first given opportunity.
             checks::verify_first_finalization(network.clone(), slot_duration),
@@ -272,6 +273,13 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 Epoch::new(TERMINAL_BLOCK / MinimalEthSpec::slots_per_epoch()),
                 slot_duration,
                 post_merge_sim
+            ),
+            checks::verify_light_client_updates(
+                network.clone(),
+                // Sync aggregate available from slot 1 after Altair fork transition.
+                Epoch::new(ALTAIR_FORK_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()) + 1,
+                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
+                slot_duration
             )
         );
 
@@ -282,6 +290,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         fork?;
         sync_aggregate?;
         transition?;
+        light_client_update?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `continue_after_checks`.
@@ -380,6 +389,9 @@ async fn create_local_network<E: EthSpec>(
     beacon_config.network.target_peers = node_count + proposer_nodes - 1;
 
     beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
+    beacon_config.network.enable_light_client_server = true;
+    beacon_config.chain.enable_light_client_server = true;
+    beacon_config.http_api.enable_light_client_server = true;
 
     if post_merge_sim {
         let el_config = execution_layer::Config {
