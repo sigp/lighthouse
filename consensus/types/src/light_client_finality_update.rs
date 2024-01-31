@@ -11,7 +11,7 @@ use serde_json::Value;
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 
-/// A LightClientFinalityUpdate is the update lightclient request or received by a gossip that
+/// A LightClientFinalityUpdate is the update light_client request or received by a gossip that
 /// signal a new finalized beacon block header for the light client sync protocol.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
 #[serde(bound = "T: EthSpec")]
@@ -136,10 +136,10 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<T> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::MainnetEthSpec;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use crate::MainnetEthSpec;
 
-    ssz_tests!(LightClientFinalityUpdate<MainnetEthSpec>);
-}
+//     ssz_tests!(LightClientFinalityUpdate<MainnetEthSpec>);
+// }

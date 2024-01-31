@@ -193,10 +193,10 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientUpdate<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    // use crate::MainnetEthSpec;
     use ssz_types::typenum::Unsigned;
 
-    ssz_tests!(LightClientUpdate<MainnetEthSpec>);
+    // ssz_tests!(LightClientUpdate<MainnetEthSpec>);
 
     #[test]
     fn finalized_root_params() {

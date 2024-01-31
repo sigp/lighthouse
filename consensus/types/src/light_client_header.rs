@@ -32,11 +32,11 @@ use tree_hash::TreeHash;
         arbitrary(bound = "E: EthSpec"),
     )
 )]
-#[derive(Debug, Clone, Serialize, PartialEq, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
-#[arbitrary(bound = "E: EthSpec")]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary, PartialEq)]
 #[serde(untagged)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 #[ssz(enum_behaviour = "union")]
+#[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientHeader<E: EthSpec> {
     pub beacon: BeaconBlockHeader,
     #[superstruct(only(Capella, Deneb))]

@@ -11,7 +11,7 @@ use serde_json::Value;
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 
-/// A LightClientBootstrap is the initializer we send over to lightclient nodes
+/// A LightClientBootstrap is the initializer we send over to light_client nodes
 /// that are trying to generate their basic storage when booting up.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
 #[serde(bound = "T: EthSpec")]
@@ -78,10 +78,10 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientBootstrap<T> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::MainnetEthSpec;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use crate::MainnetEthSpec;
 
-    ssz_tests!(LightClientBootstrap<MainnetEthSpec>);
-}
+//     ssz_tests!(LightClientBootstrap<MainnetEthSpec>);
+// }

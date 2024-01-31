@@ -9,10 +9,8 @@ use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::{
-    observed_block_producers::Error as ObserveError,
-    validator_monitor::{get_block_delay_ms, get_slot_delay_ms},
-    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
-    ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
+    validator_monitor::get_slot_delay_ms, AvailabilityProcessingStatus, BeaconChainError,
+    BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
 };
 use beacon_processor::{
     work_reprocessing_queue::{QueuedRpcBlock, ReprocessQueueMessage},
@@ -20,10 +18,8 @@ use beacon_processor::{
 };
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
-use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
 use store::KzgCommitment;
 use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
@@ -141,73 +137,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             };
             return;
         };
-
-        // Returns `true` if the time now is after the 4s attestation deadline.
-        let block_is_late = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            // If we can't read the system time clock then indicate that the
-            // block is late (and therefore should *not* be requeued). This
-            // avoids infinite loops.
-            .map_or(true, |now| {
-                get_block_delay_ms(now, block.message(), &self.chain.slot_clock)
-                    > self.chain.slot_clock.unagg_attestation_production_delay()
-            });
-
-        // Checks if a block from this proposer is already known.
-        let block_equivocates = || {
-            match self
-                .chain
-                .observed_block_producers
-                .read()
-                .proposer_has_been_observed(block.message(), block.canonical_root())
-            {
-                Ok(seen_status) => seen_status.is_slashable(),
-                //Both of these blocks will be rejected, so reject them now rather
-                // than re-queuing them.
-                Err(ObserveError::FinalizedBlock { .. })
-                | Err(ObserveError::ValidatorIndexTooHigh { .. }) => false,
-            }
-        };
-
-        // If we've already seen a block from this proposer *and* the block
-        // arrived before the attestation deadline, requeue it to ensure it is
-        // imported late enough that it won't receive a proposer boost.
-        //
-        // Don't requeue blocks if they're already known to fork choice, just
-        // push them through to block processing so they can be handled through
-        // the normal channels.
-        if !block_is_late && block_equivocates() {
-            debug!(
-                self.log,
-                "Delaying processing of duplicate RPC block";
-                "block_root" => ?block_root,
-                "proposer" => block.message().proposer_index(),
-                "slot" => block.slot()
-            );
-
-            // Send message to work reprocess queue to retry the block
-            let (process_fn, ignore_fn) = self.clone().generate_rpc_beacon_block_fns(
-                block_root,
-                block,
-                seen_timestamp,
-                process_type,
-            );
-            let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
-                beacon_block_root: block_root,
-                process_fn,
-                ignore_fn,
-            });
-
-            if reprocess_tx.try_send(reprocess_msg).is_err() {
-                error!(
-                    self.log,
-                    "Failed to inform block import";
-                    "source" => "rpc",
-                    "block_root" => %block_root
-                );
-            }
-            return;
-        }
 
         let slot = block.slot();
         let parent_root = block.message().parent_root();

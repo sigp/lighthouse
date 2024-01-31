@@ -743,15 +743,17 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
         .await;
 
         // BlocksByRoot Request
-        let rpc_request =
-            Request::BlocksByRoot(BlocksByRootRequest::new(VariableList::from(vec![
+        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest::new(
+            vec![
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
-            ])));
+            ],
+            &spec,
+        ));
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
@@ -876,8 +878,8 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
         .await;
 
         // BlocksByRoot Request
-        let rpc_request =
-            Request::BlocksByRoot(BlocksByRootRequest::new(VariableList::from(vec![
+        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest::new(
+            vec![
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
@@ -888,7 +890,9 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
-            ])));
+            ],
+            &spec,
+        ));
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
@@ -1052,7 +1056,7 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
 fn tcp_test_goodbye_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
-    let enable_logging = true;
+    let enable_logging = false;
     goodbye_test(log_level, enable_logging, Protocol::Tcp);
 }
 
@@ -1062,6 +1066,6 @@ fn tcp_test_goodbye_rpc() {
 fn quic_test_goodbye_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
-    let enable_logging = true;
+    let enable_logging = false;
     goodbye_test(log_level, enable_logging, Protocol::Quic);
 }

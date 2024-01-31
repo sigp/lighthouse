@@ -5,9 +5,7 @@ use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use beacon_processor::SendOnDrop;
 use itertools::process_results;
-use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, MAX_REQUEST_BLOB_SIDECARS, MAX_REQUEST_BLOCKS_DENEB,
-};
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
@@ -222,12 +220,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request_id: PeerRequestId,
         request: BlobsByRootRequest,
     ) {
-        let Some(requested_root) = request.blob_ids.first().map(|id| id.block_root) else {
+        let Some(requested_root) = request.blob_ids.as_slice().first().map(|id| id.block_root)
+        else {
             // No blob ids requested.
             return;
         };
         let requested_indices = request
             .blob_ids
+            .as_slice()
             .iter()
             .map(|id| id.index)
             .collect::<Vec<_>>();
@@ -235,9 +235,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let send_response = true;
 
         let mut blob_list_results = HashMap::new();
-        for id in request.blob_ids.into_iter() {
+        for id in request.blob_ids.as_slice() {
             // First attempt to get the blobs from the RPC cache.
-            if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(&id) {
+            if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(id) {
                 self.send_response(peer_id, Response::BlobsByRoot(Some(blob)), request_id);
                 send_blob_count += 1;
             } else {
@@ -248,7 +248,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 let blob_list_result = match blob_list_results.entry(root) {
                     Entry::Vacant(entry) => {
-                        entry.insert(self.chain.get_blobs_checking_early_attester_cache(&root))
+                        entry.insert(self.chain.get_blobs_checking_early_attester_cache(root))
                     }
                     Entry::Occupied(entry) => entry.into_mut(),
                 };
@@ -256,7 +256,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 match blob_list_result.as_ref() {
                     Ok(blobs_sidecar_list) => {
                         'inner: for blob_sidecar in blobs_sidecar_list.iter() {
-                            if blob_sidecar.index == index {
+                            if blob_sidecar.index == *index {
                                 self.send_response(
                                     peer_id,
                                     Response::BlobsByRoot(Some(blob_sidecar.clone())),
@@ -346,14 +346,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request blocks
-        let max_request_size = self.chain.epoch().map_or(MAX_REQUEST_BLOCKS, |epoch| {
-            match self.chain.spec.fork_name_at_epoch(epoch) {
-                ForkName::Deneb => MAX_REQUEST_BLOCKS_DENEB,
-                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                    MAX_REQUEST_BLOCKS
-                }
-            }
-        });
+        let max_request_size =
+            self.chain
+                .epoch()
+                .map_or(self.chain.spec.max_request_blocks, |epoch| {
+                    match self.chain.spec.fork_name_at_epoch(epoch) {
+                        ForkName::Deneb => self.chain.spec.max_request_blocks_deneb,
+                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                            self.chain.spec.max_request_blocks
+                        }
+                    }
+                });
         if *req.count() > max_request_size {
             return self.send_error_response(
                 peer_id,
@@ -586,7 +589,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request blocks
-        if req.max_blobs_requested::<T::EthSpec>() > MAX_REQUEST_BLOB_SIDECARS {
+        if req.max_blobs_requested::<T::EthSpec>() > self.chain.spec.max_request_blob_sidecars {
             return self.send_error_response(
                 peer_id,
                 RPCResponseErrorCode::InvalidRequest,
