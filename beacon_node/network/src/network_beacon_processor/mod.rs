@@ -589,7 +589,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Create a new work event to process `LightClientBootstrap`s from the RPC network.
-    pub fn send_lightclient_bootstrap_request(
+    pub fn send_light_client_bootstrap_request(
         self: &Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,
