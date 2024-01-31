@@ -43,9 +43,9 @@ impl AttestationDelta {
 }
 
 #[derive(Debug)]
-pub enum RewardsCalculationType {
-    Consensus,
-    API(Vec<usize>),
+pub enum ProposerRewardCalculation {
+    Include,
+    Exclude,
 }
 
 /// Apply attester and proposer rewards.
@@ -65,10 +65,10 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
         return Err(Error::ValidatorStatusesInconsistent);
     }
 
-    let deltas = get_attestation_deltas(
+    let deltas = get_attestation_deltas_all(
         state,
         validator_statuses,
-        RewardsCalculationType::Consensus,
+        ProposerRewardCalculation::Include,
         spec,
     )?;
 
@@ -87,14 +87,10 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 pub fn get_attestation_deltas_all<T: EthSpec>(
     state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
+    proposer_reward: ProposerRewardCalculation,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
-    get_attestation_deltas(
-        state,
-        validator_statuses,
-        RewardsCalculationType::API(vec![]),
-        spec,
-    )
+    get_attestation_deltas(state, validator_statuses, proposer_reward, None, spec)
 }
 
 /// Apply rewards for participation in attestations during the previous epoch, and only compute
@@ -102,13 +98,15 @@ pub fn get_attestation_deltas_all<T: EthSpec>(
 pub fn get_attestation_deltas_subset<T: EthSpec>(
     state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
+    proposer_reward: ProposerRewardCalculation,
     validators_subset: &Vec<usize>,
     spec: &ChainSpec,
 ) -> Result<Vec<(usize, AttestationDelta)>, Error> {
     get_attestation_deltas(
         state,
         validator_statuses,
-        RewardsCalculationType::API(validators_subset.clone()),
+        proposer_reward,
+        Some(validators_subset),
         spec,
     )
     .map(|deltas| {
@@ -128,7 +126,8 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
 fn get_attestation_deltas<T: EthSpec>(
     state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
-    maybe_validators_subset: RewardsCalculationType,
+    proposer_reward: ProposerRewardCalculation,
+    maybe_validators_subset: Option<&Vec<usize>>,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
     let previous_epoch = state.previous_epoch();
@@ -141,15 +140,11 @@ fn get_attestation_deltas<T: EthSpec>(
 
     let total_balances = &validator_statuses.total_balances;
 
-    // Check if the calculation is for Consensus or Rewards API and Ignore validator if a subset is specified and validator is not in the subset
-    let include_validator_delta = |idx| match &maybe_validators_subset {
-        RewardsCalculationType::Consensus => true,
-        RewardsCalculationType::API(validator_subset)
-            if validator_subset.is_empty() || validator_subset.contains(&idx) =>
-        {
-            true
-        }
-        _ => false,
+    // Ignore validator if a subset is specified and validator is not in the subset
+    let include_validator_delta = |idx| match maybe_validators_subset.as_ref() {
+        None => true,
+        Some(validators_subset) if validators_subset.contains(&idx) => true,
+        Some(_) => false,
     };
 
     for (index, validator) in validator_statuses.statuses.iter().enumerate() {
@@ -188,17 +183,15 @@ fn get_attestation_deltas<T: EthSpec>(
                 .combine(inactivity_penalty_delta)?;
         }
 
-        if let Some((proposer_index, proposer_delta)) = proposer_delta {
-            match maybe_validators_subset {
-                RewardsCalculationType::Consensus => {
+        if let ProposerRewardCalculation::Include = proposer_reward {
+            if let Some((proposer_index, proposer_delta)) = proposer_delta {
+                if include_validator_delta(proposer_index) {
                     deltas
                         .get_mut(proposer_index)
                         .ok_or(Error::ValidatorStatusesInconsistent)?
                         .inclusion_delay_delta
                         .combine(proposer_delta)?;
                 }
-
-                _ => (),
             }
         }
     }
