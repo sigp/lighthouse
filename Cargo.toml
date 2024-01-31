@@ -153,7 +153,7 @@ smallvec = "1.11.2"
 snap = "1"
 ssz_types = "0.5"
 strum = { version = "0.24", features = ["derive"] }
-superstruct = {git = "https://github.com/realbigsean/superstruct", rev = "748e0a5dbb824db48beacb2471aec1c62eaa1311"}
+superstruct = {git = "https://github.com/realbigsean/superstruct", rev = "76b67a19fdea613b5f7050e43644544f115aa517"}
 syn = "1"
 sysinfo = "0.26"
 tempfile = "3"

@@ -7628,7 +7628,7 @@ checksum = "81cdd64d312baedb58e21336b31bc043b77e01cc99033ce76ef539f78e965ebc"
 [[package]]
 name = "superstruct"
 version = "0.7.0"
-source = "git+https://github.com/realbigsean/superstruct?rev=748e0a5dbb824db48beacb2471aec1c62eaa1311#748e0a5dbb824db48beacb2471aec1c62eaa1311"
+source = "git+https://github.com/realbigsean/superstruct?rev=76b67a19fdea613b5f7050e43644544f115aa517#76b67a19fdea613b5f7050e43644544f115aa517"
 dependencies = [
  "darling",
  "itertools",
