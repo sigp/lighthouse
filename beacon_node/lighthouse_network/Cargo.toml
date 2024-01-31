@@ -75,7 +75,6 @@ exit-future = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
 async-std = { version = "1.6.3", features = ["unstable"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
 libp2p-websocket = []
