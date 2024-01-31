@@ -328,6 +328,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let peer_manager = {
             let peer_manager_cfg = PeerManagerCfg {
                 discovery_enabled: !config.disable_discovery,
+                quic_enabled: !config.disable_quic_support,
                 metrics_enabled: config.metrics_enabled,
                 target_peer_count: config.target_peers,
                 ..Default::default()
