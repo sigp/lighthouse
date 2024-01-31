@@ -1,3 +1,4 @@
+use crate::gossipsub;
 use crate::listen_addr::{ListenAddr, ListenAddress};
 use crate::rpc::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use crate::types::GossipKind;
@@ -5,7 +6,6 @@ use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
-use libp2p::gossipsub;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -158,7 +158,7 @@ pub struct Config {
     /// Configuration for the inbound rate limiter (requests received by this node).
     pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
 
-    /// Whether to disable logging duplicate gossip messages as WARN. If set to true, duplicate  
+    /// Whether to disable logging duplicate gossip messages as WARN. If set to true, duplicate
     /// errors will be logged at DEBUG level.
     pub disable_duplicate_warn_logs: bool,
 }
