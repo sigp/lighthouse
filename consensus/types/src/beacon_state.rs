@@ -1866,6 +1866,7 @@ impl<T: EthSpec> BeaconState<T> {
         };
 
         // 2. Get all `BeaconState` leaves.
+        self.initialize_tree_hash_cache();
         let mut cache = self
             .tree_hash_cache_mut()
             .take()

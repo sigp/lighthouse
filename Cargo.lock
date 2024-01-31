@@ -1107,6 +1107,7 @@ dependencies = [
  "eth2",
  "eth2_config",
  "execution_layer",
+ "futures",
  "genesis",
  "http_api",
  "http_metrics",
