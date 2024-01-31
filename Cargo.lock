@@ -4917,7 +4917,6 @@ dependencies = [
  "tokio-io-timeout",
  "tokio-util 0.6.10",
  "tracing",
- "tracing-subscriber",
  "tree_hash",
  "tree_hash_derive",
  "types",
