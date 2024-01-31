@@ -492,6 +492,8 @@ fn validator_import_launchpad() {
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_boost_factor: None,
+        prefer_builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
@@ -614,6 +616,8 @@ fn validator_import_launchpad_no_password_then_add_password() {
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_boost_factor: None,
+        prefer_builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
@@ -640,6 +644,8 @@ fn validator_import_launchpad_no_password_then_add_password() {
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_boost_factor: None,
+        prefer_builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path: dst_keystore_dir.join(KEYSTORE_NAME),
@@ -742,6 +748,8 @@ fn validator_import_launchpad_password_file() {
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_boost_factor: None,
+        prefer_builder_proposals: None,
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
             voting_keystore_password_path: None,

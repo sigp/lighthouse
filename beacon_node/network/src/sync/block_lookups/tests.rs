@@ -1157,6 +1157,7 @@ mod deneb_only {
     use crate::sync::block_lookups::common::ResponseType;
     use beacon_chain::data_availability_checker::AvailabilityCheckError;
     use beacon_chain::test_utils::NumBlobs;
+    use ssz_types::VariableList;
     use std::ops::IndexMut;
     use std::str::FromStr;
 
@@ -1164,10 +1165,12 @@ mod deneb_only {
         bl: BlockLookups<T>,
         cx: SyncNetworkContext<T>,
         rig: TestRig,
-        block: Option<Arc<SignedBeaconBlock<E>>>,
+        block: Arc<SignedBeaconBlock<E>>,
         blobs: Vec<Arc<BlobSidecar<E>>>,
-        parent_block: Option<Arc<SignedBeaconBlock<E>>>,
-        parent_blobs: Vec<Arc<BlobSidecar<E>>>,
+        parent_block: VecDeque<Arc<SignedBeaconBlock<E>>>,
+        parent_blobs: VecDeque<Vec<Arc<BlobSidecar<E>>>>,
+        unknown_parent_block: Option<Arc<SignedBeaconBlock<E>>>,
+        unknown_parent_blobs: Option<Vec<Arc<BlobSidecar<E>>>>,
         peer_id: PeerId,
         block_req_id: Option<SingleLookupReqId>,
         parent_block_req_id: Option<SingleLookupReqId>,
@@ -1179,8 +1182,18 @@ mod deneb_only {
 
     enum RequestTrigger {
         AttestationUnknownBlock,
-        GossipUnknownParentBlock,
-        GossipUnknownParentBlob,
+        GossipUnknownParentBlock { num_parents: usize },
+        GossipUnknownParentBlob { num_parents: usize },
+    }
+
+    impl RequestTrigger {
+        fn num_parents(&self) -> usize {
+            match self {
+                RequestTrigger::AttestationUnknownBlock => 0,
+                RequestTrigger::GossipUnknownParentBlock { num_parents } => *num_parents,
+                RequestTrigger::GossipUnknownParentBlob { num_parents } => *num_parents,
+            }
+        }
     }
 
     impl DenebTester {
@@ -1194,14 +1207,33 @@ mod deneb_only {
                 E::slots_per_epoch() * rig.harness.spec.deneb_fork_epoch.unwrap().as_u64(),
             );
             let (block, blobs) = rig.rand_block_and_blobs(fork_name, NumBlobs::Random);
-            let block = Arc::new(block);
-            let slot = block.slot();
-            let mut block_root = block.canonical_root();
-            let mut block = Some(block);
+            let mut block = Arc::new(block);
             let mut blobs = blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
+            let slot = block.slot();
 
-            let mut parent_block = None;
-            let mut parent_blobs = vec![];
+            let num_parents = request_trigger.num_parents();
+            let mut parent_block_chain = VecDeque::with_capacity(num_parents);
+            let mut parent_blobs_chain = VecDeque::with_capacity(num_parents);
+            for _ in 0..num_parents {
+                // Set the current  block as the parent.
+                let parent_root = block.canonical_root();
+                let parent_block = block.clone();
+                let parent_blobs = blobs.clone();
+                parent_block_chain.push_front(parent_block);
+                parent_blobs_chain.push_front(parent_blobs);
+
+                // Create the next block.
+                let (child_block, child_blobs) =
+                    rig.block_with_parent_and_blobs(parent_root, get_fork_name(), NumBlobs::Random);
+                let mut child_block = Arc::new(child_block);
+                let mut child_blobs = child_blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
+
+                // Update the new block to the current block.
+                std::mem::swap(&mut child_block, &mut block);
+                std::mem::swap(&mut child_blobs, &mut blobs);
+            }
+            let block_root = block.canonical_root();
+            let parent_root = block.parent_root();
 
             let peer_id = PeerId::random();
 
@@ -1214,31 +1246,17 @@ mod deneb_only {
                         let blob_req_id = rig.expect_lookup_request(ResponseType::Blob);
                         (Some(block_req_id), Some(blob_req_id), None, None)
                     }
-                    RequestTrigger::GossipUnknownParentBlock => {
-                        let (child_block, child_blobs) = rig.block_with_parent_and_blobs(
-                            block_root,
-                            get_fork_name(),
-                            NumBlobs::Random,
-                        );
-                        parent_block = Some(Arc::new(child_block));
-                        parent_blobs = child_blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
-                        std::mem::swap(&mut parent_block, &mut block);
-                        std::mem::swap(&mut parent_blobs, &mut blobs);
-
-                        let child_block = block.as_ref().expect("block").clone();
-                        let child_root = child_block.canonical_root();
-                        let parent_root = block_root;
-                        block_root = child_root;
+                    RequestTrigger::GossipUnknownParentBlock { .. } => {
                         bl.search_child_block(
-                            child_root,
-                            ChildComponents::new(child_root, Some(child_block), None),
+                            block_root,
+                            ChildComponents::new(block_root, Some(block.clone()), None),
                             &[peer_id],
                             &mut cx,
                         );
 
                         let blob_req_id = rig.expect_lookup_request(ResponseType::Blob);
                         rig.expect_empty_network(); // expect no block request
-                        bl.search_parent(slot, child_root, parent_root, peer_id, &mut cx);
+                        bl.search_parent(slot, block_root, parent_root, peer_id, &mut cx);
                         let parent_block_req_id = rig.expect_parent_request(ResponseType::Block);
                         let parent_blob_req_id = rig.expect_parent_request(ResponseType::Blob);
                         (
@@ -1248,28 +1266,15 @@ mod deneb_only {
                             Some(parent_blob_req_id),
                         )
                     }
-                    RequestTrigger::GossipUnknownParentBlob => {
-                        let (child_block, child_blobs) = rig.block_with_parent_and_blobs(
-                            block_root,
-                            get_fork_name(),
-                            NumBlobs::Random,
-                        );
+                    RequestTrigger::GossipUnknownParentBlob { .. } => {
+                        let single_blob = blobs.first().cloned().unwrap();
+                        let child_root = single_blob.block_root();
 
-                        parent_block = Some(Arc::new(child_block));
-                        parent_blobs = child_blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
-                        std::mem::swap(&mut parent_block, &mut block);
-                        std::mem::swap(&mut parent_blobs, &mut blobs);
-
-                        let child_blob = blobs.first().cloned().unwrap();
-                        let parent_root = block_root;
-                        let child_root = child_blob.block_root();
-                        block_root = child_root;
-
-                        let mut blobs = FixedBlobSidecarList::default();
-                        *blobs.index_mut(0) = Some(child_blob);
+                        let mut lookup_blobs = FixedBlobSidecarList::default();
+                        *lookup_blobs.index_mut(0) = Some(single_blob);
                         bl.search_child_block(
                             child_root,
-                            ChildComponents::new(child_root, None, Some(blobs)),
+                            ChildComponents::new(child_root, None, Some(lookup_blobs)),
                             &[peer_id],
                             &mut cx,
                         );
@@ -1295,8 +1300,10 @@ mod deneb_only {
                 rig,
                 block,
                 blobs,
-                parent_block,
-                parent_blobs,
+                parent_block: parent_block_chain,
+                parent_blobs: parent_blobs_chain,
+                unknown_parent_block: None,
+                unknown_parent_blobs: None,
                 peer_id,
                 block_req_id,
                 parent_block_req_id,
@@ -1309,10 +1316,12 @@ mod deneb_only {
 
         fn parent_block_response(mut self) -> Self {
             self.rig.expect_empty_network();
+            let block = self.parent_block.pop_front().unwrap().clone();
+            let _ = self.unknown_parent_block.insert(block.clone());
             self.bl.parent_lookup_response::<BlockRequestState<Parent>>(
                 self.parent_block_req_id.expect("parent request id"),
                 self.peer_id,
-                self.parent_block.clone(),
+                Some(block),
                 D,
                 &self.cx,
             );
@@ -1322,7 +1331,9 @@ mod deneb_only {
         }
 
         fn parent_blob_response(mut self) -> Self {
-            for blob in &self.parent_blobs {
+            let blobs = self.parent_blobs.pop_front().unwrap();
+            let _ = self.unknown_parent_blobs.insert(blobs.clone());
+            for blob in &blobs {
                 self.bl
                     .parent_lookup_response::<BlobRequestState<Parent, E>>(
                         self.parent_blob_req_id.expect("parent blob request id"),
@@ -1361,7 +1372,7 @@ mod deneb_only {
                 .single_lookup_response::<BlockRequestState<Current>>(
                     self.block_req_id.expect("block request id"),
                     self.peer_id,
-                    self.block.clone(),
+                    Some(self.block.clone()),
                     D,
                     &self.cx,
                 );
@@ -1483,12 +1494,16 @@ mod deneb_only {
         }
 
         fn parent_block_unknown_parent(mut self) -> Self {
+            let block = self.unknown_parent_block.take().unwrap();
+            let block = RpcBlock::new(
+                Some(block.canonical_root()),
+                block,
+                self.unknown_parent_blobs.take().map(VariableList::from),
+            )
+            .unwrap();
             self.bl.parent_block_processed(
                 self.block_root,
-                BlockProcessingResult::Err(BlockError::ParentUnknown(RpcBlock::new_without_blobs(
-                    Some(self.block_root),
-                    self.parent_block.clone().expect("parent block"),
-                ))),
+                BlockProcessingResult::Err(BlockError::ParentUnknown(block)),
                 &mut self.cx,
             );
             assert_eq!(self.bl.parent_lookups.len(), 1);
@@ -1805,7 +1820,9 @@ mod deneb_only {
 
     #[test]
     fn parent_block_unknown_parent() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlock { num_parents: 1 })
+        else {
             return;
         };
 
@@ -1823,7 +1840,9 @@ mod deneb_only {
 
     #[test]
     fn parent_block_invalid_parent() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlock { num_parents: 1 })
+        else {
             return;
         };
 
@@ -1842,7 +1861,9 @@ mod deneb_only {
 
     #[test]
     fn parent_block_and_blob_lookup_parent_returned_first() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlock { num_parents: 1 })
+        else {
             return;
         };
 
@@ -1857,7 +1878,9 @@ mod deneb_only {
 
     #[test]
     fn parent_block_and_blob_lookup_child_returned_first() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlock { num_parents: 1 })
+        else {
             return;
         };
 
@@ -1875,7 +1898,9 @@ mod deneb_only {
 
     #[test]
     fn empty_parent_block_then_parent_blob() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlock { num_parents: 1 })
+        else {
             return;
         };
 
@@ -1895,7 +1920,9 @@ mod deneb_only {
 
     #[test]
     fn empty_parent_blobs_then_parent_block() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlock { num_parents: 1 })
+        else {
             return;
         };
 
@@ -1916,7 +1943,9 @@ mod deneb_only {
 
     #[test]
     fn parent_blob_unknown_parent() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlob { num_parents: 1 })
+        else {
             return;
         };
 
@@ -1934,7 +1963,9 @@ mod deneb_only {
 
     #[test]
     fn parent_blob_invalid_parent() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlob { num_parents: 1 })
+        else {
             return;
         };
 
@@ -1953,7 +1984,9 @@ mod deneb_only {
 
     #[test]
     fn parent_block_and_blob_lookup_parent_returned_first_blob_trigger() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlob { num_parents: 1 })
+        else {
             return;
         };
 
@@ -1968,7 +2001,9 @@ mod deneb_only {
 
     #[test]
     fn parent_block_and_blob_lookup_child_returned_first_blob_trigger() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlob { num_parents: 1 })
+        else {
             return;
         };
 
@@ -1986,7 +2021,9 @@ mod deneb_only {
 
     #[test]
     fn empty_parent_block_then_parent_blob_blob_trigger() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlob { num_parents: 1 })
+        else {
             return;
         };
 
@@ -2006,7 +2043,9 @@ mod deneb_only {
 
     #[test]
     fn empty_parent_blobs_then_parent_block_blob_trigger() {
-        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlob { num_parents: 1 })
+        else {
             return;
         };
 
@@ -2023,5 +2062,30 @@ mod deneb_only {
             .expect_block_process()
             .parent_block_imported()
             .expect_parent_chain_process();
+    }
+
+    #[test]
+    fn parent_blob_unknown_parent_chain() {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlob { num_parents: 2 })
+        else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .expect_empty_beacon_processor()
+            .parent_block_response()
+            .parent_blob_response()
+            .expect_no_penalty()
+            .expect_block_process()
+            .parent_block_unknown_parent()
+            .expect_parent_block_request()
+            .expect_parent_blobs_request()
+            .expect_empty_beacon_processor()
+            .parent_block_response()
+            .parent_blob_response()
+            .expect_no_penalty()
+            .expect_block_process();
     }
 }

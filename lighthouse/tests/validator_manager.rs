@@ -122,6 +122,8 @@ pub fn validator_create_defaults() {
                 specify_voting_keystore_password: false,
                 eth1_withdrawal_address: None,
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 bn_url: None,
@@ -143,6 +145,8 @@ pub fn validator_create_misc_flags() {
         .flag("--specify-voting-keystore-password", None)
         .flag("--eth1-withdrawal-address", Some(EXAMPLE_ETH1_ADDRESS))
         .flag("--builder-proposals", Some("true"))
+        .flag("--prefer-builder-proposals", Some("true"))
+        .flag("--builder-boost-factor", Some("150"))
         .flag("--suggested-fee-recipient", Some(EXAMPLE_ETH1_ADDRESS))
         .flag("--gas-limit", Some("1337"))
         .flag("--beacon-node", Some("http://localhost:1001"))
@@ -159,6 +163,8 @@ pub fn validator_create_misc_flags() {
                 specify_voting_keystore_password: true,
                 eth1_withdrawal_address: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
                 builder_proposals: Some(true),
+                builder_boost_factor: Some(150),
+                prefer_builder_proposals: Some(true),
                 fee_recipient: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
                 gas_limit: Some(1337),
                 bn_url: Some(SensitiveUrl::parse("http://localhost:1001").unwrap()),
@@ -244,6 +250,8 @@ pub fn validator_move_defaults() {
                 dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::All,
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
@@ -280,6 +288,8 @@ pub fn validator_move_misc_flags_0() {
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
                 ]),
                 builder_proposals: Some(true),
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 fee_recipient: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
                 gas_limit: Some(1337),
                 password_source: PasswordSource::Interactive { stdin_inputs: true },
@@ -297,6 +307,7 @@ pub fn validator_move_misc_flags_1() {
         .flag("--dest-vc-token", Some("./2.json"))
         .flag("--validators", Some(&format!("{}", EXAMPLE_PUBKEY_0)))
         .flag("--builder-proposals", Some("false"))
+        .flag("--prefer-builder-proposals", Some("false"))
         .assert_success(|config| {
             let expected = MoveConfig {
                 src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
@@ -307,6 +318,40 @@ pub fn validator_move_misc_flags_1() {
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
                 ]),
                 builder_proposals: Some(false),
+                builder_boost_factor: None,
+                prefer_builder_proposals: Some(false),
+                fee_recipient: None,
+                gas_limit: None,
+                password_source: PasswordSource::Interactive {
+                    stdin_inputs: cfg!(windows) || false,
+                },
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_move_misc_flags_2() {
+    CommandLineTest::validators_move()
+        .flag("--src-vc-url", Some("http://localhost:1"))
+        .flag("--src-vc-token", Some("./1.json"))
+        .flag("--dest-vc-url", Some("http://localhost:2"))
+        .flag("--dest-vc-token", Some("./2.json"))
+        .flag("--validators", Some(&format!("{}", EXAMPLE_PUBKEY_0)))
+        .flag("--builder-proposals", Some("false"))
+        .flag("--builder-boost-factor", Some("100"))
+        .assert_success(|config| {
+            let expected = MoveConfig {
+                src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
+                src_vc_token_path: PathBuf::from("./1.json"),
+                dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
+                dest_vc_token_path: PathBuf::from("./2.json"),
+                validators: Validators::Specific(vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
+                ]),
+                builder_proposals: Some(false),
+                builder_boost_factor: Some(100),
+                prefer_builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
@@ -333,6 +378,8 @@ pub fn validator_move_count() {
                 dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::Count(42),
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
