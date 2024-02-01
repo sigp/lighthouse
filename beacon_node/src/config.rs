@@ -263,9 +263,7 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.cache_follow_distance = Some(follow_distance);
     }
 
-    let endpoints = cli_args
-        .value_of("execution-endpoint")
-        .expect("safe since execution-endpoint is now mandatory");
+    let endpoints: String = clap_utils::parse_required(cli_args, "execution-endpoint")?;
     let mut el_config = execution_layer::Config::default();
 
     // Always follow the deposit contract when there is an execution endpoint.
@@ -280,8 +278,12 @@ pub fn get_config<E: EthSpec>(
     client_config.sync_eth1_chain = true;
 
     // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
-    let execution_endpoint =
-        parse_only_one_value(endpoints, SensitiveUrl::parse, "--execution-endpoint", log)?;
+    let execution_endpoint = parse_only_one_value(
+        endpoints.as_str(),
+        SensitiveUrl::parse,
+        "--execution-endpoint",
+        log,
+    )?;
 
     // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
     // file_path or directly as string.
