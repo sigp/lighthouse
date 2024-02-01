@@ -26,7 +26,7 @@ use tree_hash::TreeHash;
             Encode,
             Decode,
             TestRandom,
-            arbitrary::Arbitrary
+            arbitrary::Arbitrary,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),

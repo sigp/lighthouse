@@ -12,6 +12,7 @@ use types::non_zero_usize::new_non_zero_usize;
 use types::{
     BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientFinalityUpdate,
     LightClientHeader, LightClientOptimisticUpdate, SignedBeaconBlock, Slot, SyncAggregate,
+    light_client_update::Error as LightClientError
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
@@ -259,8 +260,8 @@ fn block_to_light_client_header<T: EthSpec>(
     block: SignedBeaconBlock<T>,
 ) -> Result<LightClientHeader<T>, BeaconChainError> {
     let light_client_header = match fork_name {
-        ForkName::Base => todo!(),
-        ForkName::Merge => todo!(),
+        ForkName::Base => return Err(LightClientError::AltairForkNotActive.into()),
+        ForkName::Merge => return Err(LightClientError::AltairForkNotActive.into()),
         ForkName::Altair => LightClientHeaderAltair::block_to_light_client_header(block)?.into(),
         ForkName::Capella => LightClientHeaderCapella::block_to_light_client_header(block)?.into(),
         ForkName::Deneb => LightClientHeaderDeneb::block_to_light_client_header(block)?.into(),
