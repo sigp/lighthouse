@@ -10,9 +10,9 @@ use types::light_client_header::{
 use types::light_client_update::{FinalizedRootProofLen, FINALIZED_ROOT_INDEX};
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientFinalityUpdate,
-    LightClientHeader, LightClientOptimisticUpdate, SignedBeaconBlock, Slot, SyncAggregate,
-    light_client_update::Error as LightClientError
+    light_client_update::Error as LightClientError, BeaconBlockRef, BeaconState, ChainSpec,
+    EthSpec, ForkName, Hash256, LightClientFinalityUpdate, LightClientHeader,
+    LightClientOptimisticUpdate, SignedBeaconBlock, Slot, SyncAggregate,
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
