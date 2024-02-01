@@ -4,16 +4,16 @@ use crate::{
     metrics, ColumnIter, ColumnKeyIter, Key,
 };
 use crate::{DBColumn, Error, KeyValueStoreOp};
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::{Mutex, MutexGuard, RwLock};
 use redb::{ReadableTable, TableDefinition};
-use std::{f64::consts::E, marker::PhantomData, path::Path};
+use std::{borrow::BorrowMut, cell::RefCell, f64::consts::E, marker::PhantomData, path::Path};
 use strum::IntoEnumIterator;
 use types::{EthSpec, Hash256};
 
 use super::interface::WriteOptions;
 
 pub struct Redb<E: EthSpec> {
-    db: redb::Database,
+    db: RwLock<redb::Database>,
     transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
 }
@@ -38,7 +38,7 @@ impl<E: EthSpec> Redb<E> {
         }
 
         Ok(Self {
-            db,
+            db: db.into(),
             transaction_mutex,
             _phantom: PhantomData,
         })
@@ -81,7 +81,8 @@ impl<E: EthSpec> Redb<E> {
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
-        let mut tx = self.db.begin_write()?;
+        let open_db = self.db.read();
+        let mut tx = open_db.begin_write()?;
         tx.set_durability(opts.into());
         let mut table = tx.open_table(table_definition)?;
 
@@ -112,7 +113,8 @@ impl<E: EthSpec> Redb<E> {
         let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
-        let tx = self.db.begin_read()?;
+        let open_db = self.db.read();
+        let tx = open_db.begin_read()?;
         let table = tx.open_table(table_definition)?;
 
         let result = table.get(key)?;
@@ -141,7 +143,8 @@ impl<E: EthSpec> Redb<E> {
         metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
-        let tx = self.db.begin_read()?;
+        let open_db = self.db.read();
+        let tx = open_db.begin_read()?;
         let table = tx.open_table(table_definition)?;
 
         table
@@ -153,7 +156,8 @@ impl<E: EthSpec> Redb<E> {
     /// Removes `key` from `column`.
     pub fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
-        let tx = self.db.begin_write()?;
+        let open_db = self.db.read();
+        let tx = open_db.begin_write()?;
         let mut table = tx.open_table(table_definition)?;
 
         metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
@@ -171,7 +175,8 @@ impl<E: EthSpec> Redb<E> {
                 KeyValueStoreOp::PutKeyValue(column, key, value) => {
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                         TableDefinition::new(&column);
-                    let tx = self.db.begin_write()?;
+                    let open_db = self.db.read();
+                    let tx = open_db.begin_write()?;
                     let mut table = tx.open_table(table_definition)?;
                     table.insert(key.as_slice(), value.as_slice())?;
                     println!("{}", column);
@@ -183,7 +188,8 @@ impl<E: EthSpec> Redb<E> {
                 KeyValueStoreOp::DeleteKey(column, key) => {
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                         TableDefinition::new(&column);
-                    let tx = self.db.begin_write()?;
+                    let open_db = self.db.read();
+                    let tx = open_db.begin_write()?;
                     let mut table = tx.open_table(table_definition)?;
                     table.remove(key.as_slice())?;
                     drop(table);
@@ -196,7 +202,9 @@ impl<E: EthSpec> Redb<E> {
 
     /// Compact all values in the states and states flag columns.
     pub fn compact(&self) -> Result<(), Error> {
-        Ok(()) // self.db.compact().map_err(Into::into).map(|_| ())
+        let mut open_db = self.db.write();
+        let mut_db = open_db.borrow_mut();
+        mut_db.compact().map_err(Into::into).map(|_| ())
     }
 
     /// TODO resolve unwraps and clean this up
@@ -204,7 +212,8 @@ impl<E: EthSpec> Redb<E> {
     pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
-        let tx = self.db.begin_read().unwrap();
+        let open_db = self.db.read();
+        let tx = open_db.begin_read().unwrap();
         let table = tx.open_table(table_definition).unwrap();
         let start = Hash256::zero();
 
@@ -221,7 +230,8 @@ impl<E: EthSpec> Redb<E> {
     pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
-        let tx = self.db.begin_read().unwrap();
+        let open_db = self.db.read();
+        let tx = open_db.begin_read().unwrap();
         let table = tx.open_table(table_definition).unwrap();
 
         let mut res = vec![];

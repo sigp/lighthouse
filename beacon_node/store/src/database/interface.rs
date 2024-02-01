@@ -176,7 +176,9 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
                 leveldb_impl::LevelDB::put_bytes_with_options(txn, col, key, val, opts)
             }
             #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::put_bytes_sync(txn, col, key, val),
+            BeaconNodeBackend::Redb(txn) => {
+                redb_impl::Redb::put_bytes_with_options(txn, col, key, val, opts)
+            }
         }
     }
 
