@@ -61,18 +61,12 @@ impl BeaconNodeSyncDistanceTiers {
 
     /// Takes a given sync distance and determines its tier based on the `sync_tolerance` defined by
     /// the CLI.
-    pub fn distance_tier(&self, distance: SyncDistance) -> SyncDistanceTier {
-        let distance = distance.as_u64();
-        // Add 1 since we are using exclusive ranges.
-        let synced = self.synced.as_u64() + 1;
-        let small = self.small.as_u64() + 1;
-        let medium = self.medium.as_u64() + 1;
-
-        if (0..synced).contains(&distance) {
+    pub fn compute_distance_tier(&self, distance: SyncDistance) -> SyncDistanceTier {
+        if distance.as_u64() <= self.synced.as_u64() {
             SyncDistanceTier::Synced
-        } else if (synced..small).contains(&distance) {
+        } else if distance <= self.small.as_u64() {
             SyncDistanceTier::Small
-        } else if (small..medium).contains(&distance) {
+        } else if distance <= self.medium.as_u64() {
             SyncDistanceTier::Medium
         } else {
             SyncDistanceTier::Large
@@ -232,7 +226,7 @@ impl BeaconNodeHealth {
         execution_status: ExecutionEngineHealth,
         sync_distance_tiers: &BeaconNodeSyncDistanceTiers,
     ) -> BeaconNodeHealthTier {
-        let sync_distance_tier = sync_distance_tiers.distance_tier(sync_distance);
+        let sync_distance_tier = sync_distance_tiers.compute_distance_tier(sync_distance);
         let health = (sync_distance_tier, optimistic_status, execution_status);
 
         match health {
@@ -326,7 +320,7 @@ mod tests {
             let tier = health_tier.tier;
             let distance = health_tier.sync_distance;
 
-            let distance_tier = beacon_node_sync_distance_tiers.distance_tier(distance);
+            let distance_tier = beacon_node_sync_distance_tiers.compute_distance_tier(distance);
 
             // Check sync distance.
             if [1, 3, 5, 6].contains(&tier) {

@@ -39,18 +39,18 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
     log: &Logger,
 ) {
-    let candidate_info = duties_service.beacon_nodes.get_all_candidate_info().await;
-    let num_available = duties_service.beacon_nodes.num_available().await;
+    let (candidate_info, num_available, num_synced) = duties_service.beacon_nodes.get_notifier_info().await;
+    let num_total = candidate_info.len();
+    let num_synced_fallback = num_synced.saturating_sub(1);
+
     set_gauge(
         &http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT,
         num_available as i64,
     );
-    let num_synced = duties_service.beacon_nodes.num_synced().await;
     set_gauge(
         &http_metrics::metrics::SYNCED_BEACON_NODES_COUNT,
         num_synced as i64,
     );
-    let num_total = duties_service.beacon_nodes.num_total().await;
     set_gauge(
         &http_metrics::metrics::TOTAL_BEACON_NODES_COUNT,
         num_total as i64,
@@ -77,7 +77,6 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
             "synced" => num_synced,
         )
     }
-    let num_synced_fallback = duties_service.beacon_nodes.num_synced_fallback().await;
     if num_synced_fallback > 0 {
         set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 1);
     } else {

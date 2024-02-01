@@ -383,40 +383,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         self.candidates.read().await.len()
     }
 
-    /// The count of synced and ready candidates.
-    pub async fn num_synced(&self) -> usize {
-        let mut n = 0;
-        for candidate in self.candidates.read().await.iter() {
-            if let Ok(cand) = candidate.health().as_ref() {
-                if self
-                    .distance_tiers
-                    .distance_tier(cand.health_tier.sync_distance)
-                    == SyncDistanceTier::Synced
-                {
-                    n += 1
-                }
-            }
-        }
-        n
-    }
-
-    /// The count of synced and ready fallbacks excluding the primary beacon node candidate.
-    pub async fn num_synced_fallback(&self) -> usize {
-        let mut n = 0;
-        for candidate in self.candidates.read().await.iter().skip(1) {
-            if let Ok(cand) = candidate.health().as_ref() {
-                if self
-                    .distance_tiers
-                    .distance_tier(cand.health_tier.sync_distance)
-                    == SyncDistanceTier::Synced
-                {
-                    n += 1
-                }
-            }
-        }
-        n
-    }
-
     /// The count of candidates that are online and compatible, but not necessarily synced.
     pub async fn num_available(&self) -> usize {
         let mut n = 0;
@@ -429,17 +395,32 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         n
     }
 
-    pub async fn get_all_candidate_info(&self) -> Vec<CandidateInfo> {
+    // Returns all data required by the VC notifier.
+    pub async fn get_notifier_info(&self) -> (Vec<CandidateInfo>, usize, usize) {
         let candidates = self.candidates.read().await;
-        let mut results = Vec::with_capacity(candidates.len());
+
+        let mut candidate_info = Vec::with_capacity(candidates.len());
+        let mut num_available = 0;
+        let mut num_synced = 0;
+
         for candidate in candidates.iter() {
-            let id = candidate.id;
-            let node = candidate.beacon_node.to_string();
-            let health = candidate.health().ok();
-            let info = CandidateInfo { id, node, health };
-            results.push(info);
+            let health = candidate.health();
+
+            match candidate.health() {
+                Ok(health) => {
+                    if self.distance_tiers.compute_distance_tier(health.health_tier.sync_distance) == SyncDistanceTier::Synced {
+                        num_synced += 1;
+                    }
+                    num_available += 1;
+                }
+                Err(CandidateError::Uninitialized) => num_available += 1,
+                Err(_) => continue,
+            }
+
+            candidate_info.push(CandidateInfo { id: candidate.id, node: candidate.beacon_node.to_string(), health: health.ok() });
         }
-        results
+
+        (candidate_info, num_available, num_synced)
     }
 
     /// Loop through ALL candidates in `self.candidates` and update their sync status.
