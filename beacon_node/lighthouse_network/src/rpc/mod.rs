@@ -24,19 +24,16 @@ pub(crate) use handler::{HandlerErr, HandlerEvent};
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
 pub(crate) use protocol::InboundRequest;
 
-pub use codec::{BaseOutboundCodec, OutboundCodec, SSZSnappyOutboundCodec};
-pub use handler::{HandlerState, OutboundInfo, OutboundSubstreamState, SubstreamId};
+pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
     RPCResponseErrorCode, ResponseTermination, StatusMessage,
 };
-pub use outbound::OutboundFramed;
-pub use outbound::OutboundRequest;
-pub use protocol::{
-    max_rpc_size, Encoding, Protocol, ProtocolId, RPCError, RPCProtocol, SupportedProtocol,
-};
+pub(crate) use outbound::OutboundRequest;
+pub use protocol::{max_rpc_size, Protocol, RPCError};
 
 use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
+use self::protocol::RPCProtocol;
 use self::self_limiter::SelfRateLimiter;
 
 pub(crate) mod codec;

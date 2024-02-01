@@ -39,7 +39,7 @@ const MAX_INBOUND_SUBSTREAMS: usize = 32;
 
 /// Identifier of inbound and outbound substreams from the handler's perspective.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
-pub struct SubstreamId(pub usize);
+pub struct SubstreamId(usize);
 
 impl SubstreamId {
     pub fn new(id: usize) -> Self {
@@ -141,7 +141,7 @@ where
     resp_timeout: Duration,
 }
 
-pub enum HandlerState {
+enum HandlerState {
     /// The handler is active. All messages are sent and received.
     Active,
     /// The handler is shutting_down.
@@ -172,17 +172,17 @@ struct InboundInfo<TSpec: EthSpec> {
 }
 
 /// Contains the information the handler keeps on established outbound substreams.
-pub struct OutboundInfo<Id, TSpec: EthSpec> {
+struct OutboundInfo<Id, TSpec: EthSpec> {
     /// State of the substream.
-    pub state: OutboundSubstreamState<TSpec>,
+    state: OutboundSubstreamState<TSpec>,
     /// Key to keep track of the substream's timeout via `self.outbound_substreams_delay`.
-    pub delay_key: delay_queue::Key,
+    delay_key: delay_queue::Key,
     /// Info over the protocol this substream is handling.
-    pub proto: Protocol,
+    proto: Protocol,
     /// Number of chunks to be seen from the peer's response.
-    pub remaining_chunks: Option<u64>,
+    remaining_chunks: Option<u64>,
     /// `Id` as given by the application that sent the request.
-    pub req_id: Id,
+    req_id: Id,
 }
 
 /// State of an inbound substream connection.
