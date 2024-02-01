@@ -112,7 +112,7 @@ pub fn downgrade_from_v18<T: BeaconChainTypes>(
     let column_name: &str = DBColumn::BeaconMeta.into();
     let ops = vec![KeyValueStoreOp::DeleteKey(
         column_name.to_owned(),
-        get_key_for_col(DBColumn::BeaconMeta.into(), BLOB_INFO_KEY.as_bytes()),
+        BLOB_INFO_KEY.as_bytes().to_vec(),
     )];
 
     Ok(ops)

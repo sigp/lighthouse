@@ -120,7 +120,9 @@ impl<E: EthSpec> Redb<E> {
         // TODO: clean this up
         if let Some(access_guard) = result {
             let value = access_guard.value().to_vec();
-            println!("{:?}", value);
+            println!("{}", col);
+            println!("{:?}", key);
+            println!("get_bytes found");
             metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, value.len() as u64);
             metrics::stop_timer(timer);
             Ok(Some(value))

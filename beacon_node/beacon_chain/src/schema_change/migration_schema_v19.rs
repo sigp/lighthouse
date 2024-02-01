@@ -18,7 +18,7 @@ pub fn upgrade_to_v19<T: BeaconChainTypes>(
         let key_col = get_key_for_col(column.as_str(), &key);
         hot_delete_ops.push(KeyValueStoreOp::DeleteKey(
             column.as_str().to_owned(),
-            key_col,
+            key.to_vec(),
         ));
         blob_keys.push(key);
     }
@@ -35,7 +35,7 @@ pub fn upgrade_to_v19<T: BeaconChainTypes>(
             let key_col = get_key_for_col(column.as_str(), &key);
             batch.push(KeyValueStoreOp::PutKeyValue(
                 column.as_str().to_owned(),
-                key_col,
+                key.to_vec(),
                 next_blob,
             ));
 

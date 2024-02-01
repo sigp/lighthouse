@@ -392,7 +392,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let column_name: &str = DBColumn::BeaconBlock.into();
         ops.push(KeyValueStoreOp::PutKeyValue(
             column_name.to_owned(),
-            db_key,
+            key.as_bytes().into(),
             blinded_block.as_ssz_bytes(),
         ));
     }
