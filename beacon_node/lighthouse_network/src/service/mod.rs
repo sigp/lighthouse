@@ -4,7 +4,10 @@ use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
 };
-use crate::metrics::AggregatedBandwidthSinks;
+use crate::gossipsub::{
+    self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
+    TopicScoreParams,
+};
 use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
     ConnectionDirection, PeerManager, PeerManagerEvent,
@@ -25,10 +28,6 @@ use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
-use libp2p::gossipsub::{
-    self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
-    TopicScoreParams,
-};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::PeerId;
@@ -42,8 +41,7 @@ use std::{
 };
 use types::ForkName;
 use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, consts::deneb::BLOB_SIDECAR_SUBNET_COUNT,
-    EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
@@ -127,10 +125,10 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
     /// The interval for updating gossipsub scores
     update_gossipsub_scores: tokio::time::Interval,
     gossip_cache: GossipCache,
-    /// The bandwidth logger for the underlying libp2p transport.
-    pub bandwidth: AggregatedBandwidthSinks,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
+    /// Flag to disable warning logs for duplicate gossip messages and log at DEBUG level instead.
+    pub disable_duplicate_warn_logs: bool,
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
@@ -139,10 +137,11 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
 impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
-        ctx: ServiceContext<'_>,
+        mut ctx: ServiceContext<'_>,
         log: &slog::Logger,
     ) -> error::Result<(Self, Arc<NetworkGlobals<TSpec>>)> {
         let log = log.new(o!("service"=> "libp2p"));
+
         let mut config = ctx.config.clone();
         trace!(log, "Libp2p Service starting");
         // initialise the node's ID
@@ -226,7 +225,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
             let max_topics = ctx.chain_spec.attestation_subnet_count as usize
                 + SYNC_COMMITTEE_SUBNET_COUNT as usize
-                + BLOB_SIDECAR_SUBNET_COUNT as usize
+                + ctx.chain_spec.blob_sidecar_subnet_count as usize
                 + BASE_CORE_TOPICS.len()
                 + ALTAIR_CORE_TOPICS.len()
                 + CAPELLA_CORE_TOPICS.len()
@@ -239,7 +238,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     possible_fork_digests,
                     ctx.chain_spec.attestation_subnet_count,
                     SYNC_COMMITTEE_SUBNET_COUNT,
-                    BLOB_SIDECAR_SUBNET_COUNT,
+                    ctx.chain_spec.blob_sidecar_subnet_count,
                 ),
                 // during a fork we subscribe to both the old and new topics
                 max_subscribed_topics: max_topics * 4,
@@ -257,10 +256,13 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 gossipsub_config_params,
             );
 
-            // If metrics are enabled for gossipsub build the configuration
-            let gossipsub_metrics = ctx
-                .gossipsub_registry
-                .map(|registry| (registry, Default::default()));
+            // If metrics are enabled for libp2p build the configuration
+            let gossipsub_metrics = ctx.libp2p_registry.as_mut().map(|registry| {
+                (
+                    registry.sub_registry_with_prefix("gossipsub"),
+                    Default::default(),
+                )
+            });
 
             let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
             let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
@@ -326,6 +328,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let peer_manager = {
             let peer_manager_cfg = PeerManagerCfg {
                 discovery_enabled: !config.disable_discovery,
+                quic_enabled: !config.disable_quic_support,
                 metrics_enabled: config.metrics_enabled,
                 target_peer_count: config.target_peers,
                 ..Default::default()
@@ -366,9 +369,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         };
 
         // Set up the transport - tcp/quic with noise and mplex
-        let (transport, bandwidth) =
-            build_transport(local_keypair.clone(), !config.disable_quic_support)
-                .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+        let transport = build_transport(local_keypair.clone(), !config.disable_quic_support)
+            .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
         // use the executor for libp2p
         struct Executor(task_executor::TaskExecutor);
@@ -379,20 +381,41 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
 
         // sets up the libp2p swarm.
-        let swarm = SwarmBuilder::with_existing_identity(local_keypair)
-            .with_tokio()
-            .with_other_transport(|_key| transport)
-            .expect("infalible")
-            .with_behaviour(|_| behaviour)
-            .expect("infalible")
-            .with_swarm_config(|_| {
-                libp2p::swarm::Config::with_executor(Executor(executor))
-                    .with_notify_handler_buffer_size(
-                        std::num::NonZeroUsize::new(7).expect("Not zero"),
-                    )
-                    .with_per_connection_event_buffer_size(4)
-            })
-            .build();
+
+        let swarm = {
+            let builder = SwarmBuilder::with_existing_identity(local_keypair)
+                .with_tokio()
+                .with_other_transport(|_key| transport)
+                .expect("infalible");
+
+            // NOTE: adding bandwidth metrics changes the generics of the swarm, so types diverge
+            if let Some(libp2p_registry) = ctx.libp2p_registry {
+                builder
+                    .with_bandwidth_metrics(libp2p_registry)
+                    .with_behaviour(|_| behaviour)
+                    .expect("infalible")
+                    .with_swarm_config(|_| {
+                        libp2p::swarm::Config::with_executor(Executor(executor))
+                            .with_notify_handler_buffer_size(
+                                std::num::NonZeroUsize::new(7).expect("Not zero"),
+                            )
+                            .with_per_connection_event_buffer_size(4)
+                    })
+                    .build()
+            } else {
+                builder
+                    .with_behaviour(|_| behaviour)
+                    .expect("infalible")
+                    .with_swarm_config(|_| {
+                        libp2p::swarm::Config::with_executor(Executor(executor))
+                            .with_notify_handler_buffer_size(
+                                std::num::NonZeroUsize::new(7).expect("Not zero"),
+                            )
+                            .with_per_connection_event_buffer_size(4)
+                    })
+                    .build()
+            }
+        };
 
         let mut network = Network {
             swarm,
@@ -403,8 +426,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             score_settings,
             update_gossipsub_scores,
             gossip_cache,
-            bandwidth,
             local_peer_id,
+            disable_duplicate_warn_logs: config.disable_duplicate_warn_logs,
             log,
         };
 
@@ -616,7 +639,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
 
         // Subscribe to core topics for the new fork
-        for kind in fork_core_topics::<TSpec>(&new_fork) {
+        for kind in fork_core_topics::<TSpec>(&new_fork, &self.fork_context.spec) {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
@@ -723,7 +746,21 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     .gossipsub_mut()
                     .publish(Topic::from(topic.clone()), message_data.clone())
                 {
-                    slog::warn!(self.log, "Could not publish message"; "error" => ?e);
+                    if self.disable_duplicate_warn_logs && matches!(e, PublishError::Duplicate) {
+                        debug!(
+                            self.log,
+                            "Could not publish message";
+                            "error" => ?e,
+                            "kind" => %topic.kind(),
+                        );
+                    } else {
+                        warn!(
+                            self.log,
+                            "Could not publish message";
+                            "error" => ?e,
+                            "kind" => %topic.kind(),
+                        );
+                    };
 
                     // add to metrics
                     match topic.kind() {
@@ -1125,9 +1162,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         // Remove the ENR from the cache to prevent continual re-dialing on disconnects
         for enr in peers_to_dial {
-            debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %enr.peer_id());
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
-            self.peer_manager_mut().dial_peer(enr);
+            let peer_id = enr.peer_id();
+            if self.peer_manager_mut().dial_peer(enr) {
+                debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
+            }
         }
     }
 
@@ -1228,6 +1267,32 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     "does_not_support_gossipsub",
                 );
             }
+            gossipsub::Event::SlowPeer {
+                peer_id,
+                failed_messages,
+            } => {
+                debug!(self.log, "Slow gossipsub peer"; "peer_id" => %peer_id, "publish" => failed_messages.publish, "forward" => failed_messages.forward, "priority" => failed_messages.priority, "non_priority" => failed_messages.non_priority);
+                // Punish the peer if it cannot handle priority messages
+                if failed_messages.total_timeout() > 10 {
+                    debug!(self.log, "Slow gossipsub peer penalized for priority failure"; "peer_id" => %peer_id);
+                    self.peer_manager_mut().report_peer(
+                        &peer_id,
+                        PeerAction::HighToleranceError,
+                        ReportSource::Gossipsub,
+                        None,
+                        "publish_timeout_penalty",
+                    );
+                } else if failed_messages.total_queue_full() > 10 {
+                    debug!(self.log, "Slow gossipsub peer penalized for send queue full"; "peer_id" => %peer_id);
+                    self.peer_manager_mut().report_peer(
+                        &peer_id,
+                        PeerAction::HighToleranceError,
+                        ReportSource::Gossipsub,
+                        None,
+                        "queue_full_penalty",
+                    );
+                }
+            }
         }
         None
     }
@@ -1251,7 +1316,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let handler_id = event.conn_id;
         // The METADATA and PING RPC responses are handled within the behaviour and not propagated
         match event.event {
-            Err(handler_err) => {
+            HandlerEvent::Err(handler_err) => {
                 match handler_err {
                     HandlerErr::Inbound {
                         id: _,
@@ -1286,7 +1351,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                 }
             }
-            Ok(RPCReceived::Request(id, request)) => {
+            HandlerEvent::Ok(RPCReceived::Request(id, request)) => {
                 let peer_request_id = (handler_id, id);
                 match request {
                     /* Behaviour managed protocols: Ping and Metadata */
@@ -1385,7 +1450,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                 }
             }
-            Ok(RPCReceived::Response(id, resp)) => {
+            HandlerEvent::Ok(RPCReceived::Response(id, resp)) => {
                 match resp {
                     /* Behaviour managed protocols */
                     RPCResponse::Pong(ping) => {
@@ -1422,7 +1487,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                 }
             }
-            Ok(RPCReceived::EndOfStream(id, termination)) => {
+            HandlerEvent::Ok(RPCReceived::EndOfStream(id, termination)) => {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
@@ -1430,6 +1495,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                 };
                 self.build_response(id, peer_id, response)
+            }
+            HandlerEvent::Close(_) => {
+                // NOTE: This is handled in the RPC behaviour.
+                None
             }
         }
     }
@@ -1624,7 +1693,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         None
                     }
                 }
-                SwarmEvent::Dialing { .. } => None,
+                _ => {
+                    // NOTE: SwarmEvent is a non exhaustive enum so updates should be based on
+                    // release notes more than compiler feedback
+                    None
+                }
             };
 
             if let Some(ev) = maybe_event {

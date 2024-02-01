@@ -17,8 +17,7 @@ use ssz_types::VariableList;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconStateError, BlobSidecar, BlobSidecarList, CloneConfig, EthSpec, Hash256,
-    SignedBeaconBlockHeader, Slot,
+    BeaconStateError, BlobSidecar, CloneConfig, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip blob.
@@ -276,6 +275,9 @@ impl<T: EthSpec> Ord for KzgVerifiedBlob<T> {
 }
 
 impl<T: EthSpec> KzgVerifiedBlob<T> {
+    pub fn new(blob: Arc<BlobSidecar<T>>, kzg: &Kzg) -> Result<Self, KzgError> {
+        verify_kzg_for_blob(blob, kzg)
+    }
     pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
         self.blob
     }
@@ -289,14 +291,12 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
     pub fn blob_index(&self) -> u64 {
         self.blob.index
     }
-}
-
-#[cfg(test)]
-impl<T: EthSpec> KzgVerifiedBlob<T> {
-    pub fn new(blob: BlobSidecar<T>) -> Self {
-        Self {
-            blob: Arc::new(blob),
-        }
+    /// Construct a `KzgVerifiedBlob` that is assumed to be valid.
+    ///
+    /// This should ONLY be used for testing.
+    #[cfg(test)]
+    pub fn __assumed_valid(blob: Arc<BlobSidecar<T>>) -> Self {
+        Self { blob }
     }
 }
 
@@ -308,8 +308,36 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
     kzg: &Kzg,
 ) -> Result<KzgVerifiedBlob<T>, KzgError> {
     validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)?;
-
     Ok(KzgVerifiedBlob { blob })
+}
+
+pub struct KzgVerifiedBlobList<E: EthSpec> {
+    verified_blobs: Vec<KzgVerifiedBlob<E>>,
+}
+
+impl<E: EthSpec> KzgVerifiedBlobList<E> {
+    pub fn new<I: IntoIterator<Item = Arc<BlobSidecar<E>>>>(
+        blob_list: I,
+        kzg: &Kzg,
+    ) -> Result<Self, KzgError> {
+        let blobs = blob_list.into_iter().collect::<Vec<_>>();
+        verify_kzg_for_blob_list(blobs.iter(), kzg)?;
+        Ok(Self {
+            verified_blobs: blobs
+                .into_iter()
+                .map(|blob| KzgVerifiedBlob { blob })
+                .collect(),
+        })
+    }
+}
+
+impl<E: EthSpec> IntoIterator for KzgVerifiedBlobList<E> {
+    type Item = KzgVerifiedBlob<E>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.verified_blobs.into_iter()
+    }
 }
 
 /// Complete kzg verification for a list of `BlobSidecar`s.
@@ -317,12 +345,14 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_blob`
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
-pub fn verify_kzg_for_blob_list<T: EthSpec>(
-    blob_list: &BlobSidecarList<T>,
-    kzg: &Kzg,
-) -> Result<(), KzgError> {
-    let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
-        .iter()
+pub fn verify_kzg_for_blob_list<'a, T: EthSpec, I>(
+    blob_iter: I,
+    kzg: &'a Kzg,
+) -> Result<(), KzgError>
+where
+    I: Iterator<Item = &'a Arc<BlobSidecar<T>>>,
+{
+    let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_iter
         .map(|blob| (&blob.blob, (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
     validate_blobs::<T>(kzg, commitments.as_slice(), blobs, proofs.as_slice())
@@ -390,7 +420,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     if chain
         .observed_blob_sidecars
         .read()
-        .is_known(&blob_sidecar)
+        .proposer_is_known(&blob_sidecar)
         .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
     {
         return Err(GossipBlobError::RepeatBlob {
@@ -569,6 +599,16 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
+    chain
+        .observed_slashable
+        .write()
+        .observe_slashable(
+            blob_sidecar.slot(),
+            blob_sidecar.block_proposer_index(),
+            block_root,
+        )
+        .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?;
+
     // Now the signature is valid, store the proposal so we don't accept another blob sidecar
     // with the same `BlobIdentifier`.
     // It's important to double-check that the proposer still hasn't been observed so we don't
@@ -599,7 +639,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(GossipBlobError::KzgNotInitialized)?;
     let kzg_verified_blob =
-        verify_kzg_for_blob(blob_sidecar, kzg).map_err(GossipBlobError::KzgError)?;
+        KzgVerifiedBlob::new(blob_sidecar, kzg).map_err(GossipBlobError::KzgError)?;
 
     Ok(GossipVerifiedBlob {
         block_root,

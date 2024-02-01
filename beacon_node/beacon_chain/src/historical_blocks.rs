@@ -101,8 +101,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ChunkWriter::<BlockRoots, _, _>::new(&self.store.cold_db, prev_block_slot.as_usize())?;
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
 
+        let mut blob_batch = Vec::with_capacity(n_blobs_lists_to_import);
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
-        let mut hot_batch = Vec::with_capacity(blocks_to_import.len() + n_blobs_lists_to_import);
+        let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
         for available_block in blocks_to_import.into_iter().rev() {
@@ -124,7 +125,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if let Some(blobs) = maybe_blobs {
                 new_oldest_blob_slot = Some(block.slot());
                 self.store
-                    .blobs_as_kv_store_ops(&block_root, blobs, &mut hot_batch);
+                    .blobs_as_kv_store_ops(&block_root, blobs, &mut blob_batch);
             }
 
             // Store block roots, including at all skip slots in the freezer DB.
@@ -134,20 +135,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             prev_block_slot = block.slot();
             expected_block_root = block.message().parent_root();
+            signed_blocks.push(block);
 
             // If we've reached genesis, add the genesis block root to the batch for all slots
             // between 0 and the first block slot, and set the anchor slot to 0 to indicate
             // completion.
             if expected_block_root == self.genesis_block_root {
                 let genesis_slot = self.spec.genesis_slot;
-                for slot in genesis_slot.as_usize()..block.slot().as_usize() {
+                for slot in genesis_slot.as_usize()..prev_block_slot.as_usize() {
                     chunk_writer.set(slot, self.genesis_block_root, &mut cold_batch)?;
                 }
                 prev_block_slot = genesis_slot;
                 expected_block_root = Hash256::zero();
                 break;
             }
-            signed_blocks.push(block);
         }
         chunk_writer.write(&mut cold_batch)?;
         // these were pushed in reverse order so we reverse again
@@ -199,6 +200,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Write the I/O batches to disk, writing the blocks themselves first, as it's better
         // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
         // do not exist.
+        self.store.blobs_db.do_atomically(blob_batch)?;
         self.store.hot_db.do_atomically(hot_batch)?;
         self.store.cold_db.do_atomically(cold_batch)?;
 

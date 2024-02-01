@@ -1,5 +1,5 @@
 #![cfg(test)]
-use libp2p::gossipsub;
+use lighthouse_network::gossipsub;
 use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
@@ -113,7 +113,7 @@ pub async fn build_libp2p_instance(
         enr_fork_id: EnrForkId::default(),
         fork_context: Arc::new(fork_context(fork_name)),
         chain_spec: spec,
-        gossipsub_registry: None,
+        libp2p_registry: None,
     };
     Libp2pInstance(
         LibP2PService::new(executor, libp2p_context, &log)
