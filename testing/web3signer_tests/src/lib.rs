@@ -391,6 +391,8 @@ mod tests {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path: signer_rig.keystore_path.clone(),
@@ -409,6 +411,8 @@ mod tests {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::Web3Signer(Web3SignerDefinition {
                         url: signer_rig.url.to_string(),

@@ -11,9 +11,8 @@ use axum::{
 };
 use eth2::types::ErrorMessage;
 use log::info;
-use std::future::Future;
-use std::net::SocketAddr;
-use tokio::sync::oneshot;
+use std::future::{Future, IntoFuture};
+use std::net::{SocketAddr, TcpListener};
 
 pub use config::Config;
 pub use error::Error;
@@ -22,7 +21,7 @@ mod config;
 mod error;
 mod handler;
 
-pub async fn serve(config: FullConfig, shutdown: oneshot::Receiver<()>) -> Result<(), Error> {
+pub async fn serve(config: FullConfig) -> Result<(), Error> {
     let db = database::build_connection_pool(&config.database)?;
     let (_, slots_per_epoch) = database::get_active_config(&mut database::get_connection(&db)?)?
         .ok_or_else(|| {
@@ -32,9 +31,7 @@ pub async fn serve(config: FullConfig, shutdown: oneshot::Receiver<()>) -> Resul
             )
         })?;
 
-    let server = start_server(&config, slots_per_epoch as u64, db, async {
-        let _ = shutdown.await;
-    })?;
+    let server = start_server(&config, slots_per_epoch as u64, db)?;
 
     server.await?;
 
@@ -61,8 +58,7 @@ pub fn start_server(
     config: &FullConfig,
     slots_per_epoch: u64,
     pool: PgPool,
-    shutdown: impl Future<Output = ()> + Send + Sync + 'static,
-) -> Result<impl Future<Output = Result<(), hyper::Error>> + 'static, Error> {
+) -> Result<impl Future<Output = Result<(), std::io::Error>> + 'static, Error> {
     let mut routes = Router::new()
         .route("/v1/slots", get(handler::get_slots_by_range))
         .route("/v1/slots/:slot", get(handler::get_slot))
@@ -108,16 +104,13 @@ pub fn start_server(
         .layer(Extension(slots_per_epoch));
 
     let addr = SocketAddr::new(config.server.listen_addr, config.server.listen_port);
-
-    let server = axum::Server::try_bind(&addr)?.serve(app.into_make_service());
-
-    let server = server.with_graceful_shutdown(async {
-        shutdown.await;
-    });
+    let listener = TcpListener::bind(addr)?;
+    listener.set_nonblocking(true)?;
+    let serve = axum::serve(tokio::net::TcpListener::from_std(listener)?, app);
 
     info!("HTTP server listening on {}", addr);
 
-    Ok(server)
+    Ok(serve.into_future())
 }
 
 // The default route indicating that no available routes matched the request.

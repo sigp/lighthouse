@@ -626,6 +626,25 @@ impl<T: EthSpec> BeaconState<T> {
         cache.get_all_beacon_committees()
     }
 
+    /// Returns the block root which decided the proposer shuffling for the epoch passed in parameter. This root
+    /// can be used to key this proposer shuffling.
+    ///
+    /// ## Notes
+    ///
+    /// The `block_root` must be equal to the latest block applied to `self`.
+    pub fn proposer_shuffling_decision_root_at_epoch(
+        &self,
+        epoch: Epoch,
+        block_root: Hash256,
+    ) -> Result<Hash256, Error> {
+        let decision_slot = self.proposer_shuffling_decision_slot(epoch);
+        if self.slot() <= decision_slot {
+            Ok(block_root)
+        } else {
+            self.get_block_root(decision_slot).map(|root| *root)
+        }
+    }
+
     /// Returns the block root which decided the proposer shuffling for the current epoch. This root
     /// can be used to key this proposer shuffling.
     ///
@@ -634,7 +653,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// The `block_root` covers the one-off scenario where the genesis block decides its own
     /// shuffling. It should be set to the latest block applied to `self` or the genesis block root.
     pub fn proposer_shuffling_decision_root(&self, block_root: Hash256) -> Result<Hash256, Error> {
-        let decision_slot = self.proposer_shuffling_decision_slot();
+        let decision_slot = self.proposer_shuffling_decision_slot(self.current_epoch());
         if self.slot() == decision_slot {
             Ok(block_root)
         } else {
@@ -643,11 +662,9 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Returns the slot at which the proposer shuffling was decided. The block root at this slot
-    /// can be used to key the proposer shuffling for the current epoch.
-    fn proposer_shuffling_decision_slot(&self) -> Slot {
-        self.current_epoch()
-            .start_slot(T::slots_per_epoch())
-            .saturating_sub(1_u64)
+    /// can be used to key the proposer shuffling for the given epoch.
+    fn proposer_shuffling_decision_slot(&self, epoch: Epoch) -> Slot {
+        epoch.start_slot(T::slots_per_epoch()).saturating_sub(1_u64)
     }
 
     /// Returns the block root which decided the attester shuffling for the given `relative_epoch`.
@@ -1849,6 +1866,7 @@ impl<T: EthSpec> BeaconState<T> {
         };
 
         // 2. Get all `BeaconState` leaves.
+        self.initialize_tree_hash_cache();
         let mut cache = self
             .tree_hash_cache_mut()
             .take()

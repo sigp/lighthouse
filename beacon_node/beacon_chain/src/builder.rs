@@ -1,16 +1,20 @@
-use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
+use crate::beacon_chain::{
+    CanonicalHead, LightClientProducerEvent, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY,
+};
+use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::head_tracker::HeadTracker;
+use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
-use crate::validator_monitor::ValidatorMonitor;
+use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
@@ -23,10 +27,10 @@ use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::{Kzg, TrustedSetup};
 use operation_pool::{OperationPool, PersistedOperationPool};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
-use slog::{crit, debug, error, info, Logger};
+use slog::{crit, debug, error, info, o, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_slot_processing;
 use std::marker::PhantomData;
@@ -35,8 +39,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256,
-    PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256, Signature,
+    SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -86,6 +90,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
+    light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
     head_tracker: Option<HeadTracker>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
@@ -93,12 +98,12 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     log: Option<Logger>,
     graffiti: Graffiti,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
-    validator_monitor: Option<ValidatorMonitor<T::EthSpec>>,
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
     trusted_setup: Option<TrustedSetup>,
     task_executor: Option<TaskExecutor>,
+    validator_monitor_config: Option<ValidatorMonitorConfig>,
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
@@ -128,6 +133,7 @@ where
             event_handler: None,
             slot_clock: None,
             shutdown_sender: None,
+            light_client_server_tx: None,
             head_tracker: None,
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
@@ -135,10 +141,10 @@ where
             log: None,
             graffiti: Graffiti::default(),
             slasher: None,
-            validator_monitor: None,
             pending_io_batch: vec![],
             trusted_setup: None,
             task_executor: None,
+            validator_monitor_config: None,
         }
     }
 
@@ -602,6 +608,15 @@ where
         self
     }
 
+    /// Sets a `Sender` to allow the beacon chain to trigger light_client update production.
+    pub fn light_client_server_tx(
+        mut self,
+        sender: Sender<LightClientProducerEvent<TEthSpec>>,
+    ) -> Self {
+        self.light_client_server_tx = Some(sender);
+        self
+    }
+
     /// Creates a new, empty operation pool.
     fn empty_op_pool(mut self) -> Self {
         self.op_pool = Some(OperationPool::new());
@@ -623,19 +638,8 @@ where
     /// Register some validators for additional monitoring.
     ///
     /// `validators` is a comma-separated string of 0x-formatted BLS pubkeys.
-    pub fn monitor_validators(
-        mut self,
-        auto_register: bool,
-        validators: Vec<PublicKeyBytes>,
-        individual_metrics_threshold: usize,
-        log: Logger,
-    ) -> Self {
-        self.validator_monitor = Some(ValidatorMonitor::new(
-            validators,
-            auto_register,
-            individual_metrics_threshold,
-            log.clone(),
-        ));
+    pub fn validator_monitor_config(mut self, config: ValidatorMonitorConfig) -> Self {
+        self.validator_monitor_config = Some(config);
         self
     }
 
@@ -671,10 +675,15 @@ where
         let genesis_state_root = self
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
-        let mut validator_monitor = self
-            .validator_monitor
-            .ok_or("Cannot build without a validator monitor")?;
+        let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
         let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
+
+        let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
+        let mut validator_monitor = ValidatorMonitor::new(
+            validator_monitor_config,
+            beacon_proposer_cache.clone(),
+            log.new(o!("service" => "val_mon")),
+        );
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
@@ -791,6 +800,7 @@ where
             validator_monitor.process_valid_state(
                 slot.epoch(TEthSpec::slots_per_epoch()),
                 &head_snapshot.beacon_state,
+                &self.spec,
             );
         }
 
@@ -809,10 +819,11 @@ where
         //
         // This *must* be stored before constructing the `BeaconChain`, so that its `Drop` instance
         // doesn't write a `PersistedBeaconChain` without the rest of the batch.
+        let head_tracker_reader = head_tracker.0.read();
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
         >::persist_head_in_batch_standalone(
-            genesis_block_root, &head_tracker
+            genesis_block_root, &head_tracker_reader
         ));
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
@@ -823,6 +834,7 @@ where
             .hot_db
             .do_atomically(self.pending_io_batch)
             .map_err(|e| format!("Error writing chain & metadata to disk: {:?}", e))?;
+        drop(head_tracker_reader);
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
@@ -834,10 +846,14 @@ where
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
             Slot::new(0)
         } else {
-            let backfill_epoch_range = (self.spec.min_validator_withdrawability_delay
-                + self.spec.churn_limit_quotient)
-                .as_u64()
-                / 2;
+            let backfill_epoch_range = if cfg!(feature = "test_backfill") {
+                3
+            } else {
+                (self.spec.min_validator_withdrawability_delay + self.spec.churn_limit_quotient)
+                    .as_u64()
+                    / 2
+            };
+
             match slot_clock.now() {
                 Some(current_slot) => {
                     let genesis_backfill_epoch = current_slot
@@ -884,12 +900,11 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             observed_blob_sidecars: <_>::default(),
+            observed_slashable: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
             observed_bls_to_execution_changes: <_>::default(),
-            latest_seen_finality_update: <_>::default(),
-            latest_seen_optimistic_update: <_>::default(),
             eth1_chain: self.eth1_chain,
             execution_layer: self.execution_layer,
             genesis_validators_root,
@@ -911,12 +926,14 @@ where
                 log.clone(),
             )),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
-            beacon_proposer_cache: <_>::default(),
+            beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
+            light_client_server_cache: LightClientServerCache::new(),
+            light_client_server_tx: self.light_client_server_tx,
             shutdown_sender: self
                 .shutdown_sender
                 .ok_or("Cannot build without a shutdown sender.")?,
@@ -930,6 +947,7 @@ where
                     .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
             ),
             kzg,
+            block_production_state: Arc::new(Mutex::new(None)),
         };
 
         let head = beacon_chain.head_snapshot();
@@ -1097,7 +1115,6 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 mod test {
     use super::*;
     use crate::test_utils::EphemeralHarnessType;
-    use crate::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
     use ethereum_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
@@ -1155,12 +1172,6 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
-            .monitor_validators(
-                true,
-                vec![],
-                DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
-                log.clone(),
-            )
             .build()
             .expect("should build");
 

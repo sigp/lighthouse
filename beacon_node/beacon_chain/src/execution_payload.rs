@@ -405,6 +405,7 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     parent_block_root: Hash256,
     proposer_index: u64,
     builder_params: BuilderParams,
+    builder_boost_factor: Option<u64>,
     block_production_version: BlockProductionVersion,
 ) -> Result<PreparePayloadHandle<T::EthSpec>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
@@ -449,6 +450,7 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
                     builder_params,
                     withdrawals,
                     parent_beacon_block_root,
+                    builder_boost_factor,
                     block_production_version,
                 )
                 .await
@@ -485,6 +487,7 @@ pub async fn prepare_execution_payload<T>(
     builder_params: BuilderParams,
     withdrawals: Option<Vec<Withdrawal>>,
     parent_beacon_block_root: Option<Hash256>,
+    builder_boost_factor: Option<u64>,
     block_production_version: BlockProductionVersion,
 ) -> Result<BlockProposalContentsType<T::EthSpec>, BlockProductionError>
 where
@@ -575,6 +578,7 @@ where
             builder_params,
             fork,
             &chain.spec,
+            builder_boost_factor,
             block_production_version,
         )
         .await

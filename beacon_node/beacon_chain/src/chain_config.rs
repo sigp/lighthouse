@@ -83,6 +83,8 @@ pub struct ChainConfig {
     pub progressive_balances_mode: ProgressiveBalancesMode,
     /// Number of epochs between each migration of data from the hot database to the freezer.
     pub epochs_per_migration: u64,
+    /// When set to true Light client server computes and caches state proofs for serving updates
+    pub enable_light_client_server: bool,
 }
 
 impl Default for ChainConfig {
@@ -112,8 +114,9 @@ impl Default for ChainConfig {
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
             always_prepare_payload: false,
-            progressive_balances_mode: ProgressiveBalancesMode::Checked,
+            progressive_balances_mode: ProgressiveBalancesMode::Fast,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
+            enable_light_client_server: false,
         }
     }
 }
