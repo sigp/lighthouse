@@ -192,6 +192,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.validator_dir.clone(),
+            config.clone(),
             log.clone(),
         )
         .await
