@@ -149,7 +149,10 @@ async fn heal_freezer_block_roots_at_split() {
     let key_chunk = get_key_for_col(DBColumn::BeaconBlockRoots.as_str(), &chunk_key(chunk_index));
     store
         .cold_db
-        .do_atomically(vec![KeyValueStoreOp::DeleteKey(DBColumn::BeaconBlockRoots.as_str().to_owned(), chunk_key(chunk_index).to_vec())])
+        .do_atomically(vec![KeyValueStoreOp::DeleteKey(
+            DBColumn::BeaconBlockRoots.as_str().to_owned(),
+            chunk_key(chunk_index).to_vec(),
+        )])
         .unwrap();
 
     let block_root_err = store
@@ -228,7 +231,10 @@ async fn heal_freezer_block_roots_with_skip_slots() {
     let key_chunk = get_key_for_col(DBColumn::BeaconBlockRoots.as_str(), &chunk_key(chunk_index));
     store
         .cold_db
-        .do_atomically(vec![KeyValueStoreOp::DeleteKey(DBColumn::BeaconBlockRoots.as_str().to_owned(), chunk_key(chunk_index).to_vec())])
+        .do_atomically(vec![KeyValueStoreOp::DeleteKey(
+            DBColumn::BeaconBlockRoots.as_str().to_owned(),
+            chunk_key(chunk_index).to_vec(),
+        )])
         .unwrap();
 
     let block_root_err = store

@@ -904,22 +904,30 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         get_key_for_col(TemporaryFlag::db_column().into(), state_root.as_bytes());
 
                     let column_name: &str = TemporaryFlag::db_column().into();
-                    key_value_batch
-                        .push(KeyValueStoreOp::DeleteKey(column_name.to_owned(), state_root.as_bytes().to_vec()));
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        column_name.to_owned(),
+                        state_root.as_bytes().to_vec(),
+                    ));
                 }
 
                 StoreOp::DeleteBlock(block_root) => {
                     let key = get_key_for_col(DBColumn::BeaconBlock.into(), block_root.as_bytes());
 
                     let column_name: &str = DBColumn::BeaconBlock.into();
-                    key_value_batch.push(KeyValueStoreOp::DeleteKey(column_name.to_owned(), block_root.as_bytes().to_vec()));
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        column_name.to_owned(),
+                        block_root.as_bytes().to_vec(),
+                    ));
                 }
 
                 StoreOp::DeleteBlobs(block_root) => {
                     let key = get_key_for_col(DBColumn::BeaconBlob.into(), block_root.as_bytes());
 
                     let column_name: &str = DBColumn::BeaconBlob.into();
-                    key_value_batch.push(KeyValueStoreOp::DeleteKey(column_name.to_owned(), block_root.as_bytes().to_vec()));
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        column_name.to_owned(),
+                        block_root.as_bytes().to_vec(),
+                    ));
                 }
 
                 StoreOp::DeleteState(state_root, slot) => {
@@ -948,7 +956,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     let key = get_key_for_col(DBColumn::ExecPayload.into(), block_root.as_bytes());
 
                     let column_name: &str = DBColumn::ExecPayload.into();
-                    key_value_batch.push(KeyValueStoreOp::DeleteKey(column_name.to_owned(), block_root.as_bytes().to_vec()));
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        column_name.to_owned(),
+                        block_root.as_bytes().to_vec(),
+                    ));
                 }
 
                 StoreOp::KeyValueOp(kv_op) => {
@@ -1137,7 +1148,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             // Optimization to avoid even *thinking* about replaying blocks if we're already
             // on an epoch boundary.
             let state = if slot % E::slots_per_epoch() == 0 {
-            
                 boundary_state
             } else {
                 let blocks =
@@ -1630,10 +1640,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             anchor_info.as_kv_store_op(ANCHOR_INFO_KEY)
         } else {
             let column_name: &str = DBColumn::BeaconMeta.into();
-            KeyValueStoreOp::DeleteKey(
-                column_name.to_owned(),
-                ANCHOR_INFO_KEY.as_bytes().to_vec(),
-            )
+            KeyValueStoreOp::DeleteKey(column_name.to_owned(), ANCHOR_INFO_KEY.as_bytes().to_vec())
         }
     }
 
@@ -2366,10 +2373,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for column in columns {
             for res in self.cold_db.iter_column_keys::<Vec<u8>>(column) {
                 let key = res?;
-                cold_ops.push(KeyValueStoreOp::DeleteKey(
-                    column.as_str().to_owned(),
-                    key,
-                ));
+                cold_ops.push(KeyValueStoreOp::DeleteKey(column.as_str().to_owned(), key));
             }
         }
 

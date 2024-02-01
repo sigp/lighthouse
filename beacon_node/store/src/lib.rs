@@ -315,7 +315,11 @@ pub trait StoreItem: Sized {
         let db_key = get_key_for_col(Self::db_column().into(), key.as_bytes());
 
         let column_name: &str = Self::db_column().into();
-        KeyValueStoreOp::PutKeyValue(column_name.to_owned(), key.as_bytes().to_vec(), self.as_store_bytes())
+        KeyValueStoreOp::PutKeyValue(
+            column_name.to_owned(),
+            key.as_bytes().to_vec(),
+            self.as_store_bytes(),
+        )
     }
 }
 

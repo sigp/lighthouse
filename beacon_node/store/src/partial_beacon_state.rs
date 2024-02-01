@@ -274,7 +274,11 @@ impl<T: EthSpec> PartialBeaconState<T> {
         let db_key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
 
         let column_name: &str = DBColumn::BeaconState.into();
-        KeyValueStoreOp::PutKeyValue(column_name.to_owned(), state_root.as_bytes().to_vec(), self.as_ssz_bytes())
+        KeyValueStoreOp::PutKeyValue(
+            column_name.to_owned(),
+            state_root.as_bytes().to_vec(),
+            self.as_ssz_bytes(),
+        )
     }
 
     pub fn load_block_roots<S: KeyValueStore<T>>(

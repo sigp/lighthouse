@@ -146,7 +146,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 leveldb_impl::LevelDB::iter_column_from(txn, column, from)
             }
             #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => todo!(),
+            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_from(txn, column, from),
         }
     }
 }
@@ -221,7 +221,7 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::iter_column(txn, column),
             #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => todo!(),
+            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column(txn, column),
         }
     }
     /*
