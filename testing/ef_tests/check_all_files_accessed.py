@@ -41,8 +41,6 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/LightClientFinalityUpdate",
     # LightClientHeader
     "tests/.*/.*/ssz_static/LightClientHeader",
-    # Deneb (previously known as eip4844) tests are disabled for now.
-    "tests/.*/deneb",
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\.DS_Store.*",
     # More Mac weirdness.
@@ -52,7 +50,8 @@ excluded_paths = [
     # some bls tests are not included now
     "bls12-381-tests/deserialization_G1",
     "bls12-381-tests/deserialization_G2",
-    "bls12-381-tests/hash_to_G2"
+    "bls12-381-tests/hash_to_G2",
+    "tests/.*/eip6110"
 ]
 
 

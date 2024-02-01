@@ -10,11 +10,8 @@ pub mod enr_ext;
 use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use crate::{metrics, ClearDialError};
-use discv5::{enr::NodeId, Discv5, Discv5Event};
-pub use enr::{
-    build_enr, create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, CombinedKey,
-    Eth2Enr,
-};
+use discv5::{enr::NodeId, Discv5};
+pub use enr::{build_enr, load_enr_from_disk, use_or_load_enr, CombinedKey, Eth2Enr};
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::identity::{Keypair, PublicKey};
 
@@ -25,16 +22,17 @@ use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 use libp2p::swarm::THandlerInEvent;
 pub use libp2p::{
-    core::{ConnectedPoint, Multiaddr},
+    core::{transport::ListenerId, ConnectedPoint, Multiaddr},
     identity::PeerId,
     swarm::{
         dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour, NotifyHandler,
-        PollParameters, SubstreamProtocol, ToSwarm,
+        SubstreamProtocol, ToSwarm,
     },
 };
 use lru::LruCache;
 use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
+use std::num::NonZeroUsize;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -49,6 +47,7 @@ use types::{EnrForkId, EthSpec};
 
 mod subnet_predicate;
 pub use subnet_predicate::subnet_predicate;
+use types::non_zero_usize::new_non_zero_usize;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
@@ -70,12 +69,27 @@ const MAX_SUBNETS_IN_QUERY: usize = 3;
 pub const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 /// The threshold for updating `min_ttl` on a connected peer.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
+/// The capacity of the Discovery ENR cache.
+const ENR_CACHE_CAPACITY: NonZeroUsize = new_non_zero_usize(50);
 
 /// A query has completed. This result contains a mapping of discovered peer IDs to the `min_ttl`
 /// of the peer if it is specified.
 #[derive(Debug)]
 pub struct DiscoveredPeers {
-    pub peers: HashMap<PeerId, Option<Instant>>,
+    pub peers: HashMap<Enr, Option<Instant>>,
+}
+
+/// Specifies which port numbers should be modified after start of the discovery service
+#[derive(Debug)]
+pub struct UpdatePorts {
+    /// TCP port associated wih IPv4 address (if present)
+    pub tcp4: bool,
+    /// TCP port associated wih IPv6 address (if present)
+    pub tcp6: bool,
+    /// QUIC port associated wih IPv4 address (if present)
+    pub quic4: bool,
+    /// QUIC port associated wih IPv6 address (if present)
+    pub quic6: bool,
 }
 
 #[derive(Clone, PartialEq)]
@@ -130,15 +144,10 @@ enum EventStream {
     /// Awaiting an event stream to be generated. This is required due to the poll nature of
     /// `Discovery`
     Awaiting(
-        Pin<
-            Box<
-                dyn Future<Output = Result<mpsc::Receiver<Discv5Event>, discv5::Discv5Error>>
-                    + Send,
-            >,
-        >,
+        Pin<Box<dyn Future<Output = Result<mpsc::Receiver<discv5::Event>, discv5::Error>> + Send>>,
     ),
     /// The future has completed.
-    Present(mpsc::Receiver<Discv5Event>),
+    Present(mpsc::Receiver<discv5::Event>),
     // The future has failed or discv5 has been disabled. There are no events from discv5.
     InActive,
 }
@@ -178,12 +187,8 @@ pub struct Discovery<TSpec: EthSpec> {
     /// always false.
     pub started: bool,
 
-    /// This keeps track of whether an external UDP port change should also indicate an internal
-    /// TCP port change. As we cannot detect our external TCP port, we assume that the external UDP
-    /// port is also our external TCP port. This assumption only holds if the user has not
-    /// explicitly set their ENR TCP port via the CLI config. The first indicates tcp4 and the
-    /// second indicates tcp6.
-    update_tcp_port: (bool, bool),
+    /// Specifies whether various port numbers should be updated after the discovery service has been started
+    update_ports: UpdatePorts,
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
@@ -208,7 +213,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let local_node_id = local_enr.node_id();
 
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
-              "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6()
+              "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6(),
+              "quic4" => ?local_enr.quic4(), "quic6" => ?local_enr.quic6()
         );
 
         // convert the keypair into an ENR key
@@ -230,7 +236,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 "peer_id" => %bootnode_enr.peer_id(),
                 "ip" => ?bootnode_enr.ip4(),
                 "udp" => ?bootnode_enr.udp4(),
-                "tcp" => ?bootnode_enr.tcp4()
+                "tcp" => ?bootnode_enr.tcp4(),
+                "quic" => ?bootnode_enr.quic4()
             );
             let repr = bootnode_enr.to_string();
             let _ = discv5.add_enr(bootnode_enr).map_err(|e| {
@@ -281,7 +288,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         "peer_id" => %enr.peer_id(),
                         "ip" => ?enr.ip4(),
                         "udp" => ?enr.udp4(),
-                        "tcp" => ?enr.tcp4()
+                        "tcp" => ?enr.tcp4(),
+                        "quic" => ?enr.quic4()
                     );
                     let _ = discv5.add_enr(enr).map_err(|e| {
                         error!(
@@ -298,13 +306,15 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
         }
 
-        let update_tcp_port = (
-            config.enr_tcp4_port.is_none(),
-            config.enr_tcp6_port.is_none(),
-        );
+        let update_ports = UpdatePorts {
+            tcp4: config.enr_tcp4_port.is_none(),
+            tcp6: config.enr_tcp6_port.is_none(),
+            quic4: config.enr_quic4_port.is_none(),
+            quic6: config.enr_quic6_port.is_none(),
+        };
 
         Ok(Self {
-            cached_enrs: LruCache::new(50),
+            cached_enrs: LruCache::new(ENR_CACHE_CAPACITY),
             network_globals,
             find_peer_active: false,
             queued_queries: VecDeque::with_capacity(10),
@@ -312,7 +322,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             discv5,
             event_stream,
             started: !config.disable_discovery,
-            update_tcp_port,
+            update_ports,
             log,
             enr_dir,
         })
@@ -383,20 +393,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         self.discv5.table_entries_enr()
     }
 
-    /// Returns the ENR of a known peer if it exists.
-    pub fn enr_of_peer(&mut self, peer_id: &PeerId) -> Option<Enr> {
-        // first search the local cache
-        if let Some(enr) = self.cached_enrs.get(peer_id) {
-            return Some(enr.clone());
-        }
-        // not in the local cache, look in the routing table
-        if let Ok(node_id) = enr_ext::peer_id_to_node_id(peer_id) {
-            self.discv5.find_enr(&node_id)
-        } else {
-            None
-        }
-    }
-
     /// Updates the local ENR TCP port.
     /// There currently isn't a case to update the address here. We opt for discovery to
     /// automatically update the external address.
@@ -405,6 +401,23 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
         self.discv5
             .enr_insert("tcp", &port)
+            .map_err(|e| format!("{:?}", e))?;
+
+        // replace the global version
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        // persist modified enr to disk
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+        Ok(())
+    }
+
+    // TODO: Group these functions here once the ENR is shared across discv5 and lighthouse and
+    // Lighthouse can modify the ENR directly.
+    // This currently doesn't support ipv6. All of these functions should be removed and
+    // addressed properly in the following issue.
+    // https://github.com/sigp/lighthouse/issues/4706
+    pub fn update_enr_quic_port(&mut self, port: u16) -> Result<(), String> {
+        self.discv5
+            .enr_insert("quic", &port)
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
@@ -550,8 +563,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
             // If we could convert this peer id, remove it from the DHT and ban it from discovery.
             self.discv5.ban_node(&node_id, None);
-            // Remove the node from the routing table.
-            self.discv5.remove_node(&node_id);
         }
 
         for ip_address in ip_addresses {
@@ -733,23 +744,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         target_peers: usize,
         additional_predicate: impl Fn(&Enr) -> bool + Send + 'static,
     ) {
-        // Make sure there are subnet queries included
-        let contains_queries = match &query {
-            QueryType::Subnet(queries) => !queries.is_empty(),
-            QueryType::FindPeers => true,
-        };
-
-        if !contains_queries {
-            debug!(
-                self.log,
-                "No subnets included in this request. Skipping discovery request."
-            );
-            return;
-        }
-
-        // Generate a random target node id.
-        let random_node = NodeId::random();
-
         let enr_fork_id = match self.local_enr().eth2() {
             Ok(v) => v,
             Err(e) => {
@@ -773,7 +767,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // Build the future
         let query_future = self
             .discv5
-            .find_node_predicate(random_node, predicate, target_peers)
+            // Generate a random target node id.
+            .find_node_predicate(NodeId::random(), predicate, target_peers)
             .map(|v| QueryResult {
                 query_type: query,
                 result: v,
@@ -787,7 +782,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     fn process_completed_queries(
         &mut self,
         query: QueryResult,
-    ) -> Option<HashMap<PeerId, Option<Instant>>> {
+    ) -> Option<HashMap<Enr, Option<Instant>>> {
         match query.query_type {
             QueryType::FindPeers => {
                 self.find_peer_active = false;
@@ -797,12 +792,14 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     }
                     Ok(r) => {
                         debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
-                        let mut results: HashMap<_, Option<Instant>> = HashMap::new();
-                        r.iter().for_each(|enr| {
-                            // cache the found ENR's
-                            self.cached_enrs.put(enr.peer_id(), enr.clone());
-                            results.insert(enr.peer_id(), None);
-                        });
+                        let results = r
+                            .into_iter()
+                            .map(|enr| {
+                                // cache the found ENR's
+                                self.cached_enrs.put(enr.peer_id(), enr.clone());
+                                (enr, None)
+                            })
+                            .collect();
                         return Some(results);
                     }
                     Err(e) => {
@@ -850,17 +847,17 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             let subnet_predicate =
                                 subnet_predicate::<TSpec>(vec![query.subnet], &self.log);
 
-                            r.iter()
+                            r.clone()
+                                .into_iter()
                                 .filter(|enr| subnet_predicate(enr))
-                                .map(|enr| enr.peer_id())
-                                .for_each(|peer_id| {
+                                .for_each(|enr| {
                                     if let Some(v) = metrics::get_int_counter(
                                         &metrics::SUBNET_PEERS_FOUND,
                                         &[query_str],
                                     ) {
                                         v.inc();
                                     }
-                                    let other_min_ttl = mapped_results.get_mut(&peer_id);
+                                    let other_min_ttl = mapped_results.get_mut(&enr);
 
                                     // map peer IDs to the min_ttl furthest in the future
                                     match (query.min_ttl, other_min_ttl) {
@@ -878,15 +875,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                                         }
                                         // update the mapping if we have a specified min_ttl
                                         (Some(min_ttl), Some(None)) => {
-                                            mapped_results.insert(peer_id, Some(min_ttl));
+                                            mapped_results.insert(enr, Some(min_ttl));
                                         }
                                         // first seen min_ttl for this enr
-                                        (Some(min_ttl), None) => {
-                                            mapped_results.insert(peer_id, Some(min_ttl));
-                                        }
-                                        // first seen min_ttl for this enr
-                                        (None, None) => {
-                                            mapped_results.insert(peer_id, None);
+                                        (min_ttl, None) => {
+                                            mapped_results.insert(enr, min_ttl);
                                         }
                                         (None, Some(Some(_))) => {} // Don't replace the existing specific min_ttl
                                         (None, Some(None)) => {} // No-op because this is a duplicate
@@ -910,7 +903,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Drives the queries returning any results from completed queries.
-    fn poll_queries(&mut self, cx: &mut Context) -> Option<HashMap<PeerId, Option<Instant>>> {
+    fn poll_queries(&mut self, cx: &mut Context) -> Option<HashMap<Enr, Option<Instant>>> {
         while let Poll::Ready(Some(query_result)) = self.active_queries.poll_next_unpin(cx) {
             let result = self.process_completed_queries(query_result);
             if result.is_some() {
@@ -957,29 +950,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     ) {
     }
 
-    fn handle_pending_outbound_connection(
-        &mut self,
-        _connection_id: ConnectionId,
-        maybe_peer: Option<PeerId>,
-        _addresses: &[Multiaddr],
-        _effective_role: libp2p::core::Endpoint,
-    ) -> Result<Vec<Multiaddr>, libp2p::swarm::ConnectionDenied> {
-        if let Some(enr) = maybe_peer.and_then(|peer_id| self.enr_of_peer(&peer_id)) {
-            // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
-            // port is removed, which is assumed to be associated with the discv5 protocol (and
-            // therefore irrelevant for other libp2p components).
-            Ok(enr.multiaddr_tcp())
-        } else {
-            Ok(vec![])
-        }
-    }
-
     // Main execution loop to drive the behaviour
-    fn poll(
-        &mut self,
-        cx: &mut Context,
-        _: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if !self.started {
             return Poll::Pending;
         }
@@ -1016,7 +988,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     match event {
                         // We filter out unwanted discv5 events here and only propagate useful results to
                         // the peer manager.
-                        Discv5Event::Discovered(_enr) => {
+                        discv5::Event::Discovered(_enr) => {
                             // Peers that get discovered during a query but are not contactable or
                             // don't match a predicate can end up here. For debugging purposes we
                             // log these to see if we are unnecessarily dropping discovered peers
@@ -1029,15 +1001,15 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             }
                             */
                         }
-                        Discv5Event::SocketUpdated(socket_addr) => {
+                        discv5::Event::SocketUpdated(socket_addr) => {
                             info!(self.log, "Address updated"; "ip" => %socket_addr.ip(), "udp_port" => %socket_addr.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             metrics::check_nat();
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
 
-                            if (self.update_tcp_port.0 && socket_addr.is_ipv4())
-                                || (self.update_tcp_port.1 && socket_addr.is_ipv6())
+                            if (self.update_ports.tcp4 && socket_addr.is_ipv4())
+                                || (self.update_ports.tcp6 && socket_addr.is_ipv6())
                             {
                                 // Update the TCP port in the ENR
                                 self.discv5.update_local_enr_socket(socket_addr, true);
@@ -1047,30 +1019,13 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             // update  network globals
                             *self.network_globals.local_enr.write() = enr;
                             // A new UDP socket has been detected.
-                            // Build a multiaddr to report to libp2p
-                            let addr = match socket_addr.ip() {
-                                IpAddr::V4(v4_addr) => {
-                                    self.network_globals.listen_port_tcp4().map(|tcp4_port| {
-                                        Multiaddr::from(v4_addr).with(Protocol::Tcp(tcp4_port))
-                                    })
-                                }
-                                IpAddr::V6(v6_addr) => {
-                                    self.network_globals.listen_port_tcp6().map(|tcp6_port| {
-                                        Multiaddr::from(v6_addr).with(Protocol::Tcp(tcp6_port))
-                                    })
-                                }
-                            };
-
-                            if let Some(address) = addr {
-                                // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
-                                // should handle this.
-                                return Poll::Ready(ToSwarm::NewExternalAddrCandidate(address));
-                            }
+                            // NOTE: We assume libp2p itself can keep track of IP changes and we do
+                            // not inform it about IP changes found via discovery.
                         }
-                        Discv5Event::EnrAdded { .. }
-                        | Discv5Event::TalkRequest(_)
-                        | Discv5Event::NodeInserted { .. }
-                        | Discv5Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
+                        discv5::Event::EnrAdded { .. }
+                        | discv5::Event::TalkRequest(_)
+                        | discv5::Event::NodeInserted { .. }
+                        | discv5::Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
                     }
                 }
             }
@@ -1078,23 +1033,80 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         Poll::Pending
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         match event {
             FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
                 self.on_dial_failure(peer_id, error)
             }
-            FromSwarm::ConnectionEstablished(_)
-            | FromSwarm::ConnectionClosed(_)
-            | FromSwarm::AddressChange(_)
-            | FromSwarm::ListenFailure(_)
-            | FromSwarm::NewListener(_)
-            | FromSwarm::NewListenAddr(_)
-            | FromSwarm::ExpiredListenAddr(_)
-            | FromSwarm::ListenerError(_)
-            | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddrCandidate(_)
-            | FromSwarm::ExternalAddrExpired(_)
-            | FromSwarm::ExternalAddrConfirmed(_) => {
+            FromSwarm::NewListenAddr(ev) => {
+                let addr = ev.addr;
+                let listener_id = ev.listener_id;
+
+                trace!(self.log, "Received NewListenAddr event from swarm"; "listener_id" => ?listener_id, "addr" => ?addr);
+
+                let mut addr_iter = addr.iter();
+
+                let attempt_enr_update = match addr_iter.next() {
+                    Some(Protocol::Ip4(_)) => match (addr_iter.next(), addr_iter.next()) {
+                        (Some(Protocol::Tcp(port)), None) => {
+                            if !self.update_ports.tcp4 {
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                return;
+                            }
+
+                            self.update_enr_tcp_port(port)
+                        }
+                        (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
+                            if !self.update_ports.quic4 {
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                return;
+                            }
+
+                            self.update_enr_quic_port(port)
+                        }
+                        _ => {
+                            debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
+                            return;
+                        }
+                    },
+                    Some(Protocol::Ip6(_)) => match (addr_iter.next(), addr_iter.next()) {
+                        (Some(Protocol::Tcp(port)), None) => {
+                            if !self.update_ports.tcp6 {
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                return;
+                            }
+
+                            self.update_enr_tcp_port(port)
+                        }
+                        (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
+                            if !self.update_ports.quic6 {
+                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                return;
+                            }
+
+                            self.update_enr_quic_port(port)
+                        }
+                        _ => {
+                            debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
+                            return;
+                        }
+                    },
+                    _ => {
+                        debug!(self.log, "Encountered unacceptable multiaddr for listening (no IP)"; "addr" => ?addr);
+                        return;
+                    }
+                };
+
+                let local_enr: Enr = self.discv5.local_enr();
+
+                match attempt_enr_update {
+                    Ok(_) => {
+                        info!(self.log, "Updated local ENR"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(), "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6())
+                    }
+                    Err(e) => warn!(self.log, "Failed to update ENR"; "error" => ?e),
+                }
+            }
+            _ => {
                 // Ignore events not relevant to discovery
             }
         }
@@ -1124,7 +1136,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 mod tests {
     use super::*;
     use crate::rpc::methods::{MetaData, MetaDataV2};
-    use enr::EnrBuilder;
     use libp2p::identity::secp256k1;
     use slog::{o, Drain};
     use types::{BitVector, MinimalEthSpec, SubnetId};
@@ -1152,8 +1163,6 @@ mod tests {
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,
-            Some(9000),
-            None,
             MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
@@ -1209,7 +1218,7 @@ mod tests {
     }
 
     fn make_enr(subnet_ids: Vec<usize>) -> Enr {
-        let mut builder = EnrBuilder::new("v4");
+        let mut builder = Enr::builder();
         let keypair = secp256k1::Keypair::generate();
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
 
@@ -1261,6 +1270,6 @@ mod tests {
         assert_eq!(results.len(), 2);
 
         // when a peer belongs to multiple subnet ids, we use the highest ttl.
-        assert_eq!(results.get(&enr1.peer_id()).unwrap(), &instant1);
+        assert_eq!(results.get(&enr1).unwrap(), &instant1);
     }
 }

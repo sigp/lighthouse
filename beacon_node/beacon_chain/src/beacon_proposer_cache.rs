@@ -14,18 +14,20 @@ use lru::LruCache;
 use smallvec::SmallVec;
 use state_processing::state_advance::partial_state_advance;
 use std::cmp::Ordering;
+use std::num::NonZeroUsize;
+use types::non_zero_usize::new_non_zero_usize;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Fork, Hash256, Slot,
     Unsigned,
 };
 
 /// The number of sets of proposer indices that should be cached.
-const CACHE_SIZE: usize = 16;
+const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);
 
 /// This value is fairly unimportant, it's used to avoid heap allocations. The result of it being
 /// incorrect is non-substantial from a consensus perspective (and probably also from a
 /// performance perspective).
-const TYPICAL_SLOTS_PER_EPOCH: usize = 32;
+pub const TYPICAL_SLOTS_PER_EPOCH: usize = 32;
 
 /// For some given slot, this contains the proposer index (`index`) and the `fork` that should be
 /// used to verify their signature.

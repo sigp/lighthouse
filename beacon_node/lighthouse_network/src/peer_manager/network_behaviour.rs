@@ -1,23 +1,25 @@
 //! Implementation of [`NetworkBehaviour`] for the [`PeerManager`].
 
+use std::net::IpAddr;
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
-use libp2p::core::ConnectedPoint;
+use libp2p::core::{multiaddr, ConnectedPoint};
 use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
-use libp2p::swarm::{ConnectionId, NetworkBehaviour, PollParameters, ToSwarm};
-use slog::{debug, error};
+use libp2p::swarm::{ConnectionDenied, ConnectionId, NetworkBehaviour, ToSwarm};
+use slog::{debug, error, trace};
 use types::EthSpec;
 
+use crate::discovery::enr_ext::EnrExt;
+use crate::peer_manager::peerdb::BanResult;
 use crate::rpc::GoodbyeReason;
 use crate::types::SyncState;
 use crate::{metrics, ClearDialError};
 
-use super::peerdb::BanResult;
-use super::{ConnectingType, PeerManager, PeerManagerEvent, ReportSource};
+use super::{ConnectingType, PeerManager, PeerManagerEvent};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     type ConnectionHandler = ConnectionHandler;
@@ -34,11 +36,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         // no events from the dummy handler
     }
 
-    fn poll(
-        &mut self,
-        cx: &mut Context<'_>,
-        _params: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::ToSwarm, void::Void>> {
+    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ToSwarm<Self::ToSwarm, void::Void>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
@@ -95,11 +93,29 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             self.events.shrink_to_fit();
         }
 
-        if let Some((peer_id, maybe_enr)) = self.peers_to_dial.pop_first() {
-            self.inject_peer_connection(&peer_id, ConnectingType::Dialing, maybe_enr);
+        if let Some(enr) = self.peers_to_dial.pop() {
+            let peer_id = enr.peer_id();
+            self.inject_peer_connection(&peer_id, ConnectingType::Dialing, Some(enr.clone()));
+
+            let quic_multiaddrs = if self.quic_enabled {
+                let quic_multiaddrs = enr.multiaddr_quic();
+                if !quic_multiaddrs.is_empty() {
+                    debug!(self.log, "Dialing QUIC supported peer"; "peer_id"=> %peer_id, "quic_multiaddrs" => ?quic_multiaddrs);
+                }
+                quic_multiaddrs
+            } else {
+                Vec::new()
+            };
+
+            // Prioritize Quic connections over Tcp ones.
+            let multiaddrs = quic_multiaddrs
+                .into_iter()
+                .chain(enr.multiaddr_tcp())
+                .collect();
             return Poll::Ready(ToSwarm::Dial {
                 opts: DialOpts::peer_id(peer_id)
                     .condition(PeerCondition::Disconnected)
+                    .addresses(multiaddrs)
                     .build(),
             });
         }
@@ -107,7 +123,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         Poll::Pending
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         match event {
             FromSwarm::ConnectionEstablished(ConnectionEstablished {
                 peer_id,
@@ -124,9 +140,11 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             }
             FromSwarm::ConnectionClosed(ConnectionClosed {
                 peer_id,
+                endpoint,
+
                 remaining_established,
                 ..
-            }) => self.on_connection_closed(peer_id, remaining_established),
+            }) => self.on_connection_closed(peer_id, endpoint, remaining_established),
             FromSwarm::DialFailure(DialFailure {
                 peer_id,
                 error,
@@ -139,41 +157,73 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 // TODO: we likely want to check this against our assumed external tcp
                 // address
             }
-            FromSwarm::AddressChange(_)
-            | FromSwarm::ListenFailure(_)
-            | FromSwarm::NewListener(_)
-            | FromSwarm::NewListenAddr(_)
-            | FromSwarm::ExpiredListenAddr(_)
-            | FromSwarm::ListenerError(_)
-            | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddrCandidate(_)
-            | FromSwarm::ExternalAddrExpired(_) => {
+            _ => {
+                // NOTE: FromSwarm is a non exhaustive enum so updates should be based on release
+                // notes more than compiler feedback
                 // The rest of the events we ignore since they are handled in their associated
                 // `SwarmEvent`
             }
         }
     }
 
+    fn handle_pending_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _local_addr: &libp2p::Multiaddr,
+        remote_addr: &libp2p::Multiaddr,
+    ) -> Result<(), ConnectionDenied> {
+        // get the IP address to verify it's not banned.
+        let ip = match remote_addr.iter().next() {
+            Some(libp2p::multiaddr::Protocol::Ip6(ip)) => IpAddr::V6(ip),
+            Some(libp2p::multiaddr::Protocol::Ip4(ip)) => IpAddr::V4(ip),
+            _ => {
+                return Err(ConnectionDenied::new(format!(
+                    "Connection to peer rejected: invalid multiaddr: {remote_addr}"
+                )))
+            }
+        };
+
+        if self.network_globals.peers.read().is_ip_banned(&ip) {
+            return Err(ConnectionDenied::new(format!(
+                "Connection to peer rejected: peer {ip} is banned"
+            )));
+        }
+
+        Ok(())
+    }
+
     fn handle_established_inbound_connection(
         &mut self,
         _connection_id: ConnectionId,
-        _peer: PeerId,
+        peer_id: PeerId,
         _local_addr: &libp2p::Multiaddr,
-        _remote_addr: &libp2p::Multiaddr,
-    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        // TODO: we might want to check if we accept this peer or not in the future.
+        remote_addr: &libp2p::Multiaddr,
+    ) -> Result<libp2p::swarm::THandler<Self>, ConnectionDenied> {
+        trace!(self.log, "Inbound connection"; "peer_id" => %peer_id, "multiaddr" => %remote_addr);
+        // We already checked if the peer was banned on `handle_pending_inbound_connection`.
+        if let Some(BanResult::BadScore) = self.ban_status(&peer_id) {
+            return Err(ConnectionDenied::new(
+                "Connection to peer rejected: peer has a bad score",
+            ));
+        }
         Ok(ConnectionHandler)
     }
 
     fn handle_established_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,
-        _peer: PeerId,
-        _addr: &libp2p::Multiaddr,
+        peer_id: PeerId,
+        addr: &libp2p::Multiaddr,
         _role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        // TODO: we might want to check if we accept this peer or not in the future.
-        Ok(ConnectionHandler)
+        trace!(self.log, "Outbound connection"; "peer_id" => %peer_id, "multiaddr" => %addr);
+        match self.ban_status(&peer_id) {
+            Some(cause) => {
+                error!(self.log, "Connected a banned peer. Rejecting connection"; "peer_id" => %peer_id);
+                Err(ConnectionDenied::new(cause))
+            }
+            None => Ok(ConnectionHandler),
+        }
     }
 }
 
@@ -184,7 +234,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         endpoint: &ConnectedPoint,
         other_established: usize,
     ) {
-        debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => ?endpoint.to_endpoint());
+        debug!(self.log, "Connection established"; "peer_id" => %peer_id,
+            "multiaddr" => %endpoint.get_remote_address(),
+            "connection" => ?endpoint.to_endpoint()
+        );
+
         if other_established == 0 {
             self.events.push(PeerManagerEvent::MetaData(peer_id));
         }
@@ -194,26 +248,29 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             metrics::check_nat();
         }
 
-        // Check to make sure the peer is not supposed to be banned
-        match self.ban_status(&peer_id) {
-            // TODO: directly emit the ban event?
-            BanResult::BadScore => {
-                // This is a faulty state
-                error!(self.log, "Connected to a banned peer. Re-banning"; "peer_id" => %peer_id);
-                // Disconnect the peer.
-                self.goodbye_peer(&peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
-                // Re-ban the peer to prevent repeated errors.
-                self.events.push(PeerManagerEvent::Banned(peer_id, vec![]));
-                return;
-            }
-            BanResult::BannedIp(ip_addr) => {
-                // A good peer has connected to us via a banned IP address. We ban the peer and
-                // prevent future connections.
-                debug!(self.log, "Peer connected via banned IP. Banning"; "peer_id" => %peer_id, "banned_ip" => %ip_addr);
-                self.goodbye_peer(&peer_id, GoodbyeReason::BannedIP, ReportSource::PeerManager);
-                return;
-            }
-            BanResult::NotBanned => {}
+        // increment prometheus metrics
+        if self.metrics_enabled {
+            let remote_addr = endpoint.get_remote_address();
+            match remote_addr.iter().find(|proto| {
+                matches!(
+                    proto,
+                    multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
+                )
+            }) {
+                Some(multiaddr::Protocol::QuicV1) => {
+                    metrics::inc_gauge(&metrics::QUIC_PEERS_CONNECTED);
+                }
+                Some(multiaddr::Protocol::Tcp(_)) => {
+                    metrics::inc_gauge(&metrics::TCP_PEERS_CONNECTED);
+                }
+                Some(_) => unreachable!(),
+                None => {
+                    error!(self.log, "Connection established via unknown transport"; "addr" => %remote_addr)
+                }
+            };
+
+            self.update_connected_peer_metrics();
+            metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
         }
 
         // Count dialing peers in the limit if the peer dialed us.
@@ -245,14 +302,15 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 self.events
                     .push(PeerManagerEvent::PeerConnectedOutgoing(peer_id));
             }
-        }
-
-        // increment prometheus metrics
-        self.update_connected_peer_metrics();
-        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+        };
     }
 
-    fn on_connection_closed(&mut self, peer_id: PeerId, remaining_established: usize) {
+    fn on_connection_closed(
+        &mut self,
+        peer_id: PeerId,
+        endpoint: &ConnectedPoint,
+        remaining_established: usize,
+    ) {
         if remaining_established > 0 {
             return;
         }
@@ -278,9 +336,27 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // reference so that peer manager can track this peer.
         self.inject_disconnect(&peer_id);
 
+        let remote_addr = endpoint.get_remote_address();
         // Update the prometheus metrics
-        self.update_connected_peer_metrics();
-        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+        if self.metrics_enabled {
+            match remote_addr.iter().find(|proto| {
+                matches!(
+                    proto,
+                    multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
+                )
+            }) {
+                Some(multiaddr::Protocol::QuicV1) => {
+                    metrics::dec_gauge(&metrics::QUIC_PEERS_CONNECTED);
+                }
+                Some(multiaddr::Protocol::Tcp(_)) => {
+                    metrics::dec_gauge(&metrics::TCP_PEERS_CONNECTED);
+                }
+                // If it's an unknown protocol we already logged when connection was established.
+                _ => {}
+            };
+            self.update_connected_peer_metrics();
+            metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+        }
     }
 
     /// A dial attempt has failed.

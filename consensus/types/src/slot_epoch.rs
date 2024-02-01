@@ -15,7 +15,7 @@ use crate::{ChainSpec, SignedRoot};
 
 use rand::RngCore;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 use std::hash::Hash;
@@ -76,8 +76,8 @@ impl Slot {
 }
 
 impl Epoch {
-    pub const fn new(slot: u64) -> Epoch {
-        Epoch(slot)
+    pub const fn new(epoch: u64) -> Epoch {
+        Epoch(epoch)
     }
 
     pub fn max_value() -> Epoch {

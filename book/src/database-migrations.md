@@ -16,27 +16,26 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
-| v2.0.0             | Oct 2021     | v5             | no                   |
-| v2.1.0             | Jan 2022     | v8             | no                   |
-| v2.2.0             | Apr 2022     | v8             | no                   |
-| v2.3.0             | May 2022     | v9             | yes from <= v3.3.0   |
-| v2.4.0             | Jul 2022     | v9             | yes from <= v3.3.0   |
-| v2.5.0             | Aug 2022     | v11            | yes                  |
-| v3.0.0             | Aug 2022     | v11            | yes                  |
-| v3.1.0             | Sep 2022     | v12            | yes                  |
-| v3.2.0             | Oct 2022     | v12            | yes                  |
-| v3.3.0             | Nov 2022     | v13            | yes                  |
-| v3.4.0             | Jan 2023     | v13            | yes                  |
-| v3.5.0             | Feb 2023     | v15            | yes before Capella   |
-| v4.0.1             | Mar 2023     | v16            | yes before Capella   |
-| v4.2.0             | May 2023     | v17            | yes                  |
 
-> **Note**: All point releases (e.g. v2.3.1) are schema-compatible with the prior minor release
-> (e.g. v2.3.0).
+| v4.6.0             | Dec 2023     | v19            | yes before Deneb     |
+| v4.6.0-rc.0        | Dec 2023     | v18            | yes before Deneb     |
+| v4.5.0             | Sep 2023     | v17            | yes                  |
+| v4.4.0             | Aug 2023     | v17            | yes                  |
+| v4.3.0             | Jul 2023     | v17            | yes                  |
+| v4.2.0             | May 2023     | v17            | yes                  |
+| v4.1.0             | Apr 2023     | v16            | no                   |
+| v4.0.1             | Mar 2023     | v16            | no                   |
+
+> **Note**: All point releases (e.g. v4.4.1) are schema-compatible with the prior minor release
+> (e.g. v4.4.0).
 
 > **Note**: Support for old schemas is gradually removed from newer versions of Lighthouse. We
-usually do this after a major version has been out for a while and everyone has upgraded. In this
-case the above table will continue to record the deprecated schema changes for reference.
+usually do this after a major version has been out for a while and everyone has upgraded. Deprecated
+schema versions for previous releases are archived under
+[Full list of schema versions](#full-list-of-schema-versions). If you get stuck and are unable
+to upgrade a **testnet** node to the latest version, sometimes it is possible to upgrade via an
+intermediate version (e.g. upgrade from v3.5.0 to v4.6.0 via v4.0.1). This is never necessary
+on mainnet.
 
 ## How to apply a database downgrade
 
@@ -44,9 +43,7 @@ To apply a downgrade you need to use the `lighthouse db migrate` command with th
 
 1. Make sure you have a copy of the latest version of Lighthouse. This will be the version that
    knows about the latest schema change, and has the ability to revert it.
-2. Work out the schema version you would like to downgrade to by checking the table above, or the
-   Lighthouse release notes. E.g. if you want to downgrade from v2.3.0, which upgraded the version
-   from v8 to v9, then you'll want to _downgrade_ to v8 in order to run v2.2.x or earlier.
+2. Work out the schema version you would like to downgrade to by checking the table above, or the [Full list of schema versions](#full-list-of-schema-versions) below. E.g. if you want to downgrade from v4.2.0, which upgraded the version from v16 to v17, then you'll want to downgrade to v16 in order to run v4.0.1.
 3. **Ensure that downgrading is feasible**. Not all schema upgrades can be reverted, and some of
    them are time-sensitive. The release notes will state whether a downgrade is available and
    whether any caveats apply to it.
@@ -59,14 +56,13 @@ To apply a downgrade you need to use the `lighthouse db migrate` command with th
 sudo -u "$LH_USER" lighthouse db migrate --to "$VERSION" --datadir "$LH_DATADIR" --network "$NET"
 ```
 
-For example if you want to downgrade to Lighthouse v2.1 or v2.2 from v2.3 and you followed Somer
-Esat's guide, you would run:
+For example if you want to downgrade to Lighthouse v4.0.1 from v4.2.0 and you followed Somer Esat's guide, you would run:
 
 ```
-sudo -u lighthousebeacon lighthouse db migrate --to 8 --datadir /var/lib/lighthouse --network mainnet
+sudo -u lighthousebeacon lighthouse db migrate --to 16 --datadir /var/lib/lighthouse --network mainnet
 ```
 
-Where `lighthouse` is Lighthouse v2.3.0+. After the downgrade succeeds you can then replace your
+Where `lighthouse` is Lighthouse v4.2.0+. After the downgrade succeeds you can then replace your
 global `lighthouse` binary with the older version and start your node again.
 
 ## How to apply a database upgrade
@@ -158,3 +154,75 @@ lighthouse db version --network mainnet
 ```
 
 [run-correctly]: #how-to-run-lighthouse-db-correctly
+
+## How to prune historic states
+
+Pruning historic states helps in managing the disk space used by the Lighthouse beacon node by removing old beacon
+states from the freezer database. This can be especially useful when the database has accumulated a significant amount
+of historic data. This command is intended for nodes synced before 4.4.1, as newly synced nodes no longer store historic states by default.
+
+Here are the steps to prune historic states:
+
+1. Before running the prune command, make sure that the Lighthouse beacon node is not running. If you are using systemd, you might stop the Lighthouse beacon node with a command like:
+
+   ```bash
+    sudo systemctl stop lighthousebeacon
+    ```
+
+2. Use the `prune-states` command to prune the historic states. You can do a test run without the `--confirm` flag to check that the database can be pruned:
+
+   ```bash
+    sudo -u "$LH_USER" lighthouse db prune-states --datadir "$LH_DATADIR" --network "$NET"
+    ```
+
+   If pruning is available, Lighthouse will log:
+
+   ```
+   INFO Ready to prune states
+   WARN Pruning states is irreversible
+   WARN Re-run this command with --confirm to commit to state deletion
+   INFO Nothing has been pruned on this run
+   ```
+
+3. If you are ready to prune the states irreversibly, add the `--confirm` flag to commit the changes:
+
+   ```bash
+    sudo -u "$LH_USER" lighthouse db prune-states --confirm --datadir "$LH_DATADIR" --network "$NET"
+    ```
+
+   The `--confirm` flag ensures that you are aware the action is irreversible, and historic states will be permanently removed. Lighthouse will log:
+
+   ```
+   INFO Historic states pruned successfully
+   ```
+   
+4. After successfully pruning the historic states, you can restart the Lighthouse beacon node:
+
+   ```bash
+    sudo systemctl start lighthousebeacon
+    ```
+
+## Full list of schema versions
+
+| Lighthouse version | Release date | Schema version | Downgrade available?                |
+|--------------------|--------------|----------------|-------------------------------------|
+| v4.6.0             | Dec 2023     | v19            | yes before Deneb                    |
+| v4.6.0-rc.0        | Dec 2023     | v18            | yes before Deneb                    |
+| v4.5.0             | Sep 2023     | v17            | yes                                 |
+| v4.4.0             | Aug 2023     | v17            | yes                                 |
+| v4.3.0             | Jul 2023     | v17            | yes                                 |
+| v4.2.0             | May 2023     | v17            | yes                                 |
+| v4.1.0             | Apr 2023     | v16            | yes before Capella using <= v4.5.0  |
+| v4.0.1             | Mar 2023     | v16            | yes before Capella using <= v4.5.0  |
+| v3.5.0             | Feb 2023     | v15            | yes before Capella using <= v4.5.0  |
+| v3.4.0             | Jan 2023     | v13            | yes using <= 4.5.0                  |
+| v3.3.0             | Nov 2022     | v13            | yes using <= 4.5.0                  |
+| v3.2.0             | Oct 2022     | v12            | yes using <= 4.5.0                  |
+| v3.1.0             | Sep 2022     | v12            | yes using <= 4.5.0                  |
+| v3.0.0             | Aug 2022     | v11            | yes using <= 4.5.0                  |
+| v2.5.0             | Aug 2022     | v11            | yes using <= 4.5.0                  |
+| v2.4.0             | Jul 2022     | v9             | yes using <= v3.3.0                 |
+| v2.3.0             | May 2022     | v9             | yes using <= v3.3.0                 |
+| v2.2.0             | Apr 2022     | v8             | no                                  |
+| v2.1.0             | Jan 2022     | v8             | no                                  |
+| v2.0.0             | Oct 2021     | v5             | no                                  |

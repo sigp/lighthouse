@@ -1,7 +1,7 @@
 //! Identifies each shard by an integer identifier.
 use crate::{AttestationData, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 use swap_or_not_shuffle::compute_shuffled_index;
 
@@ -72,36 +72,43 @@ impl SubnetId {
             .into())
     }
 
-    #[allow(clippy::arithmetic_side_effects)]
     /// Computes the set of subnets the node should be subscribed to during the current epoch,
     /// along with the first epoch in which these subscriptions are no longer valid.
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn compute_subnets_for_epoch<T: EthSpec>(
         node_id: ethereum_types::U256,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(impl Iterator<Item = SubnetId>, Epoch), &'static str> {
-        // Simplify the variable name
+        // simplify variable naming
         let subscription_duration = spec.epochs_per_subnet_subscription;
+        let prefix_bits = spec.attestation_subnet_prefix_bits as u64;
+        let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u64;
 
-        let node_id_prefix =
-            (node_id >> (256 - spec.attestation_subnet_prefix_bits as usize)).as_usize();
+        // calculate the prefixes used to compute the subnet and shuffling
+        let node_id_prefix = (node_id >> (256 - prefix_bits)).as_u64();
+        let shuffling_prefix = (node_id >> (256 - (prefix_bits + shuffling_prefix_bits))).as_u64();
 
-        // NOTE: The as_u64() panics if the number is larger than u64::max_value(). This cannot be
-        // true as spec.epochs_per_subnet_subscription is a u64.
-        let node_offset = (node_id % ethereum_types::U256::from(subscription_duration)).as_u64();
+        // number of groups the shuffling creates
+        let shuffling_groups = 1 << shuffling_prefix_bits;
+        // shuffling group for this node
+        let shuffling_bits = shuffling_prefix % shuffling_groups;
+        let epoch_transition = (node_id_prefix
+            + (shuffling_bits * (subscription_duration >> shuffling_prefix_bits)))
+            % subscription_duration;
 
         // Calculate at which epoch this node needs to re-evaluate
         let valid_until_epoch = epoch.as_u64()
             + subscription_duration
-                .saturating_sub((epoch.as_u64() + node_offset) % subscription_duration);
+                .saturating_sub((epoch.as_u64() + epoch_transition) % subscription_duration);
 
-        let subscription_event_idx = (epoch.as_u64() + node_offset) / subscription_duration;
+        let subscription_event_idx = (epoch.as_u64() + epoch_transition) / subscription_duration;
         let permutation_seed =
             ethereum_hashing::hash(&int_to_bytes::int_to_bytes8(subscription_event_idx));
 
         let num_subnets = 1 << spec.attestation_subnet_prefix_bits;
         let permutated_prefix = compute_shuffled_index(
-            node_id_prefix,
+            node_id_prefix as usize,
             num_subnets,
             &permutation_seed,
             spec.shuffle_round_count,
@@ -180,38 +187,33 @@ mod tests {
             "60930578857433095740782970114409273483106482059893286066493409689627770333527",
             "103822458477361691467064888613019442068586830412598673713899771287914656699997",
         ]
-        .into_iter()
-        .map(|v| ethereum_types::U256::from_dec_str(v).unwrap())
-        .collect::<Vec<_>>();
+        .map(|v| ethereum_types::U256::from_dec_str(v).unwrap());
 
         let epochs = [
             54321u64, 1017090249, 1827566880, 846255942, 766597383, 1204990115, 1616209495,
             1774367616, 1484598751, 3525502229,
         ]
-        .into_iter()
-        .map(Epoch::from)
-        .collect::<Vec<_>>();
+        .map(Epoch::from);
 
         // Test mainnet
         let spec = ChainSpec::mainnet();
 
         // Calculated by hand
-        let expected_valid_time: Vec<u64> = [
-            54528, 1017090371, 1827567108, 846256076, 766597570, 1204990135, 1616209582,
-            1774367723, 1484598953, 3525502371,
-        ]
-        .into();
+        let expected_valid_time = [
+            54528u64, 1017090255, 1827567030, 846256049, 766597387, 1204990287, 1616209536,
+            1774367857, 1484598847, 3525502311,
+        ];
 
         // Calculated from pyspec
-        let expected_subnets = vec![
+        let expected_subnets = [
             vec![4u64, 5u64],
-            vec![61, 62],
-            vec![23, 24],
+            vec![31, 32],
+            vec![39, 40],
             vec![38, 39],
             vec![53, 54],
-            vec![39, 40],
+            vec![57, 58],
             vec![48, 49],
-            vec![39, 40],
+            vec![1, 2],
             vec![34, 35],
             vec![37, 38],
         ];
@@ -228,11 +230,11 @@ mod tests {
             >(node_ids[x], epochs[x], &spec)
             .unwrap();
 
-            assert_eq!(Epoch::from(expected_valid_time[x]), valid_time);
             assert_eq!(
                 expected_subnets[x],
                 computed_subnets.map(SubnetId::into).collect::<Vec<u64>>()
             );
+            assert_eq!(Epoch::from(expected_valid_time[x]), valid_time);
         }
     }
 }

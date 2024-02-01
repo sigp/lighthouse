@@ -57,7 +57,7 @@ impl ExitTest {
                 block_modifier(&harness, block);
             })
             .await;
-        (signed_block, state)
+        ((*signed_block.0).clone(), state)
     }
 
     fn process(
@@ -127,7 +127,7 @@ vectors_and_tests!(
     ExitTest {
         block_modifier: Box::new(|_, block| {
             // Duplicate the exit
-            let exit = block.body().voluntary_exits().get(0).unwrap().clone();
+            let exit = block.body().voluntary_exits().first().unwrap().clone();
             block.body_mut().voluntary_exits_mut().push(exit).unwrap();
         }),
         expected: Err(BlockProcessingError::ExitInvalid {

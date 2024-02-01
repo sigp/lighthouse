@@ -1,12 +1,11 @@
 //! Helper functions and an extension trait for Ethereum 2 ENRs.
 
-pub use discv5::enr::{self, CombinedKey, EnrBuilder};
+pub use discv5::enr::CombinedKey;
 
 use super::enr_ext::CombinedKeyExt;
 use super::ENR_FILENAME;
 use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
-use discv5::enr::EnrKey;
 use libp2p::identity::Keypair;
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
@@ -16,6 +15,8 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::str::FromStr;
 use types::{EnrForkId, EthSpec};
+
+use super::enr_ext::{EnrExt, QUIC6_ENR_KEY, QUIC_ENR_KEY};
 
 /// The ENR field specifying the fork id.
 pub const ETH2_ENR_KEY: &str = "eth2";
@@ -140,11 +141,13 @@ pub fn build_or_load_enr<T: EthSpec>(
     Ok(local_enr)
 }
 
-pub fn create_enr_builder_from_config<T: EnrKey>(
+/// Builds a lighthouse ENR given a `NetworkConfig`.
+pub fn build_enr<T: EthSpec>(
+    enr_key: &CombinedKey,
     config: &NetworkConfig,
-    enable_tcp: bool,
-) -> EnrBuilder<T> {
-    let mut builder = EnrBuilder::new("v4");
+    enr_fork_id: &EnrForkId,
+) -> Result<Enr, String> {
+    let mut builder = discv5::enr::Enr::builder();
     let (maybe_ipv4_address, maybe_ipv6_address) = &config.enr_address;
 
     if let Some(ip) = maybe_ipv4_address {
@@ -156,39 +159,58 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
     }
 
     if let Some(udp4_port) = config.enr_udp4_port {
-        builder.udp4(udp4_port);
+        builder.udp4(udp4_port.get());
     }
 
     if let Some(udp6_port) = config.enr_udp6_port {
-        builder.udp6(udp6_port);
+        builder.udp6(udp6_port.get());
     }
 
-    if enable_tcp {
-        // If the ENR port is not set, and we are listening over that ip version, use the listening port instead.
-        let tcp4_port = config
-            .enr_tcp4_port
-            .or_else(|| config.listen_addrs().v4().map(|v4_addr| v4_addr.tcp_port));
-        if let Some(tcp4_port) = tcp4_port {
-            builder.tcp4(tcp4_port);
+    // Add QUIC fields to the ENR.
+    // Since QUIC is used as an alternative transport for the libp2p protocols,
+    // the related fields should only be added when both QUIC and libp2p are enabled
+    if !config.disable_quic_support {
+        // If we are listening on ipv4, add the quic ipv4 port.
+        if let Some(quic4_port) = config.enr_quic4_port.or_else(|| {
+            config
+                .listen_addrs()
+                .v4()
+                .and_then(|v4_addr| v4_addr.quic_port.try_into().ok())
+        }) {
+            builder.add_value(QUIC_ENR_KEY, &quic4_port.get());
         }
 
-        let tcp6_port = config
-            .enr_tcp6_port
-            .or_else(|| config.listen_addrs().v6().map(|v6_addr| v6_addr.tcp_port));
-        if let Some(tcp6_port) = tcp6_port {
-            builder.tcp6(tcp6_port);
+        // If we are listening on ipv6, add the quic ipv6 port.
+        if let Some(quic6_port) = config.enr_quic6_port.or_else(|| {
+            config
+                .listen_addrs()
+                .v6()
+                .and_then(|v6_addr| v6_addr.quic_port.try_into().ok())
+        }) {
+            builder.add_value(QUIC6_ENR_KEY, &quic6_port.get());
         }
     }
-    builder
-}
 
-/// Builds a lighthouse ENR given a `NetworkConfig`.
-pub fn build_enr<T: EthSpec>(
-    enr_key: &CombinedKey,
-    config: &NetworkConfig,
-    enr_fork_id: &EnrForkId,
-) -> Result<Enr, String> {
-    let mut builder = create_enr_builder_from_config(config, true);
+    // If the ENR port is not set, and we are listening over that ip version, use the listening port instead.
+    let tcp4_port = config.enr_tcp4_port.or_else(|| {
+        config
+            .listen_addrs()
+            .v4()
+            .and_then(|v4_addr| v4_addr.tcp_port.try_into().ok())
+    });
+    if let Some(tcp4_port) = tcp4_port {
+        builder.tcp4(tcp4_port.get());
+    }
+
+    let tcp6_port = config.enr_tcp6_port.or_else(|| {
+        config
+            .listen_addrs()
+            .v6()
+            .and_then(|v6_addr| v6_addr.tcp_port.try_into().ok())
+    });
+    if let Some(tcp6_port) = tcp6_port {
+        builder.tcp6(tcp6_port.get());
+    }
 
     // set the `eth2` field on our ENR
     builder.add_value(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes());
@@ -218,6 +240,9 @@ fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
         // tcp ports must match
         && local_enr.tcp4() == disk_enr.tcp4()
         && local_enr.tcp6() == disk_enr.tcp6()
+        // quic ports must match
+        && local_enr.quic4() == disk_enr.quic4()
+        && local_enr.quic6() == disk_enr.quic6()
         // must match on the same fork
         && local_enr.get(ETH2_ENR_KEY) == disk_enr.get(ETH2_ENR_KEY)
         // take preference over disk udp port if one is not specified

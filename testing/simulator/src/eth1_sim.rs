@@ -10,7 +10,8 @@ use futures::prelude::*;
 use node_test_rig::environment::RuntimeContext;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_client_config, testing_validator_config, ClientConfig, ClientGenesis, ValidatorFiles,
+    testing_client_config, testing_validator_config, ApiTopic, ClientConfig, ClientGenesis,
+    ValidatorFiles,
 };
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
@@ -159,10 +160,25 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                         validator_config.fee_recipient = Some(SUGGESTED_FEE_RECIPIENT.into());
                     }
                     println!("Adding validator client {}", i);
-                    network_1
-                        .add_validator_client(validator_config, i, files, i % 2 == 0)
-                        .await
-                        .expect("should add validator");
+
+                    // Enable broadcast on every 4th node.
+                    if i % 4 == 0 {
+                        validator_config.broadcast_topics = ApiTopic::all();
+                        let beacon_nodes = vec![i, (i + 1) % node_count];
+                        network_1
+                            .add_validator_client_with_fallbacks(
+                                validator_config,
+                                i,
+                                beacon_nodes,
+                                files,
+                            )
+                            .await
+                    } else {
+                        network_1
+                            .add_validator_client(validator_config, i, files, i % 2 == 0)
+                            .await
+                    }
+                    .expect("should add validator");
                 },
                 "vc",
             );
@@ -204,6 +220,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             fork,
             sync_aggregate,
             transition,
+            light_client_update,
         ) = futures::join!(
             // Check that the chain finalizes at the first given opportunity.
             checks::verify_first_finalization(network.clone(), slot_duration),
@@ -256,6 +273,13 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 Epoch::new(TERMINAL_BLOCK / MinimalEthSpec::slots_per_epoch()),
                 slot_duration,
                 post_merge_sim
+            ),
+            checks::verify_light_client_updates(
+                network.clone(),
+                // Sync aggregate available from slot 1 after Altair fork transition.
+                Epoch::new(ALTAIR_FORK_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()) + 1,
+                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
+                slot_duration
             )
         );
 
@@ -266,6 +290,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         fork?;
         sync_aggregate?;
         transition?;
+        light_client_update?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `continue_after_checks`.
@@ -364,6 +389,9 @@ async fn create_local_network<E: EthSpec>(
     beacon_config.network.target_peers = node_count + proposer_nodes - 1;
 
     beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
+    beacon_config.network.enable_light_client_server = true;
+    beacon_config.chain.enable_light_client_server = true;
+    beacon_config.http_api.enable_light_client_server = true;
 
     if post_merge_sim {
         let el_config = execution_layer::Config {

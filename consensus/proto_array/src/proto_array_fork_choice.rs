@@ -7,7 +7,7 @@ use crate::{
     ssz_container::SszContainer,
     JustifiedBalances,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::{
@@ -188,7 +188,7 @@ where
 }
 
 /// Information about the proposer head used for opportunistic re-orgs.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ProposerHeadInfo {
     /// Information about the *current* head block, which may be re-orged.
     pub head_node: ProtoNode,
@@ -206,7 +206,7 @@ pub struct ProposerHeadInfo {
 ///
 /// This type intentionally does not implement `Debug` so that callers are forced to handle the
 /// enum.
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ProposerHeadError<E> {
     DoNotReOrg(DoNotReOrg),
     Error(E),
@@ -243,7 +243,7 @@ impl<E1> ProposerHeadError<E1> {
 /// Reasons why a re-org should not be attempted.
 ///
 /// This type intentionally does not implement `Debug` so that the `Display` impl must be used.
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DoNotReOrg {
     MissingHeadOrParentNode,
     MissingHeadFinalizedCheckpoint,

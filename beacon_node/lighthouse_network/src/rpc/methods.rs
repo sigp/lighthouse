@@ -5,22 +5,17 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{
-    typenum::{U1024, U256},
-    VariableList,
-};
+use ssz_types::{typenum::U256, VariableList};
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
+use types::blob_sidecar::BlobIdentifier;
 use types::{
-    light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    blob_sidecar::BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    RuntimeVariableList, SignedBeaconBlock, Slot,
 };
-
-/// Maximum number of blocks in a single request.
-pub type MaxRequestBlocks = U1024;
-pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
@@ -278,6 +273,22 @@ impl BlocksByRangeRequest {
     }
 }
 
+/// Request a number of beacon blobs from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct BlobsByRangeRequest {
+    /// The starting slot to request blobs.
+    pub start_slot: u64,
+
+    /// The number of slots from the start slot.
+    pub count: u64,
+}
+
+impl BlobsByRangeRequest {
+    pub fn max_blobs_requested<E: EthSpec>(&self) -> u64 {
+        self.count.saturating_mul(E::max_blobs_per_block() as u64)
+    }
+}
+
 /// Request a number of beacon block roots from a peer.
 #[superstruct(
     variants(V1, V2),
@@ -323,16 +334,35 @@ impl OldBlocksByRangeRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
-    pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
+    pub block_roots: RuntimeVariableList<Hash256>,
 }
 
 impl BlocksByRootRequest {
-    pub fn new(block_roots: VariableList<Hash256, MaxRequestBlocks>) -> Self {
+    pub fn new(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
+        let block_roots =
+            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
         Self::V2(BlocksByRootRequestV2 { block_roots })
     }
 
-    pub fn new_v1(block_roots: VariableList<Hash256, MaxRequestBlocks>) -> Self {
+    pub fn new_v1(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
+        let block_roots =
+            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
         Self::V1(BlocksByRootRequestV1 { block_roots })
+    }
+}
+
+/// Request a number of beacon blocks and blobs from a peer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BlobsByRootRequest {
+    /// The list of beacon block roots being requested.
+    pub blob_ids: RuntimeVariableList<BlobIdentifier>,
+}
+
+impl BlobsByRootRequest {
+    pub fn new(blob_ids: Vec<BlobIdentifier>, spec: &ChainSpec) -> Self {
+        let blob_ids =
+            RuntimeVariableList::from_vec(blob_ids, spec.max_request_blob_sidecars as usize);
+        Self { blob_ids }
     }
 }
 
@@ -351,8 +381,14 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Arc<SignedBeaconBlock<T>>),
 
-    /// A response to a get LIGHTCLIENT_BOOTSTRAP request.
+    /// A response to a get BLOBS_BY_RANGE request
+    BlobsByRange(Arc<BlobSidecar<T>>),
+
+    /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
     LightClientBootstrap(LightClientBootstrap<T>),
+
+    /// A response to a get BLOBS_BY_ROOT request.
+    BlobsByRoot(Arc<BlobSidecar<T>>),
 
     /// A PONG response to a PING request.
     Pong(Ping),
@@ -369,6 +405,12 @@ pub enum ResponseTermination {
 
     /// Blocks by root stream termination.
     BlocksByRoot,
+
+    /// Blobs by range stream termination.
+    BlobsByRange,
+
+    /// Blobs by root stream termination.
+    BlobsByRoot,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -384,7 +426,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
     StreamTermination(ResponseTermination),
 }
 
-/// Request a light_client_bootstrap for lightclients peers.
+/// Request a light_client_bootstrap for light_clients peers.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct LightClientBootstrapRequest {
     pub root: Hash256,
@@ -395,6 +437,7 @@ pub struct LightClientBootstrapRequest {
 #[strum(serialize_all = "snake_case")]
 pub enum RPCResponseErrorCode {
     RateLimited,
+    BlobsNotFoundForBlock,
     InvalidRequest,
     ServerError,
     /// Error spec'd to indicate that a peer does not have blocks on a requested range.
@@ -424,6 +467,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
             2 => RPCResponseErrorCode::ServerError,
             3 => RPCResponseErrorCode::ResourceUnavailable,
             139 => RPCResponseErrorCode::RateLimited,
+            140 => RPCResponseErrorCode::BlobsNotFoundForBlock,
             _ => RPCResponseErrorCode::Unknown,
         };
         RPCCodedResponse::Error(code, err)
@@ -436,6 +480,8 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::Status(_) => false,
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
+                RPCResponse::BlobsByRange(_) => true,
+                RPCResponse::BlobsByRoot(_) => true,
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
                 RPCResponse::LightClientBootstrap(_) => false,
@@ -460,6 +506,7 @@ impl RPCResponseErrorCode {
             RPCResponseErrorCode::ResourceUnavailable => 3,
             RPCResponseErrorCode::Unknown => 255,
             RPCResponseErrorCode::RateLimited => 139,
+            RPCResponseErrorCode::BlobsNotFoundForBlock => 140,
         }
     }
 }
@@ -471,6 +518,8 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::Status(_) => Protocol::Status,
             RPCResponse::BlocksByRange(_) => Protocol::BlocksByRange,
             RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
+            RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
+            RPCResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -486,6 +535,7 @@ impl std::fmt::Display for RPCResponseErrorCode {
             RPCResponseErrorCode::ServerError => "Server error occurred",
             RPCResponseErrorCode::Unknown => "Unknown error occurred",
             RPCResponseErrorCode::RateLimited => "Rate limited",
+            RPCResponseErrorCode::BlobsNotFoundForBlock => "No blobs for the given root",
         };
         f.write_str(repr)
     }
@@ -507,10 +557,20 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::BlocksByRoot(block) => {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
+            RPCResponse::BlobsByRange(blob) => {
+                write!(f, "BlobsByRange: Blob slot: {}", blob.slot())
+            }
+            RPCResponse::BlobsByRoot(sidecar) => {
+                write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot())
+            }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
             RPCResponse::LightClientBootstrap(bootstrap) => {
-                write!(f, "LightClientBootstrap Slot: {}", bootstrap.header.slot)
+                write!(
+                    f,
+                    "LightClientBootstrap Slot: {}",
+                    bootstrap.header.beacon.slot
+                )
             }
         }
     }
@@ -561,6 +621,26 @@ impl std::fmt::Display for OldBlocksByRangeRequest {
             self.start_slot(),
             self.count(),
             self.step()
+        )
+    }
+}
+
+impl std::fmt::Display for BlobsByRootRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Request: BlobsByRoot: Number of Requested Roots: {}",
+            self.blob_ids.len()
+        )
+    }
+}
+
+impl std::fmt::Display for BlobsByRangeRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Request: BlobsByRange: Start Slot: {}, Count: {}",
+            self.start_slot, self.count
         )
     }
 }
