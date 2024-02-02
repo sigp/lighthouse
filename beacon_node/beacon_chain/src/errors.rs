@@ -220,7 +220,7 @@ pub enum BeaconChainError {
     InconsistentFork(InconsistentFork),
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
     UnableToPublish,
-    UnableToBuildBlobColumnSidecar(String),
+    UnableToBuildDataColumnSidecar(String),
     AvailabilityCheckError(AvailabilityCheckError),
     LightClientError(LightClientError),
     UnsupportedFork,

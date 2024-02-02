@@ -1,18 +1,18 @@
-//! Identifies each blob column subnet by an integer identifier.
+//! Identifies each data column subnet by an integer identifier.
 use crate::{ChainSpec, EthSpec};
 use ethereum_types::U256;
-use safe_arith::{ArithError, SafeArith};
+use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
 
-const BLOB_COLUMN_SUBNET_COUNT: u64 = 64;
+const DATA_COLUMN_SUBNET_COUNT: u64 = 64;
 
 lazy_static! {
-    static ref BLOB_COLUMN_SUBNET_ID_TO_STRING: Vec<String> = {
-        let mut v = Vec::with_capacity(BLOB_COLUMN_SUBNET_COUNT as usize);
+    static ref DATA_COLUMN_SUBNET_ID_TO_STRING: Vec<String> = {
+        let mut v = Vec::with_capacity(DATA_COLUMN_SUBNET_COUNT as usize);
 
-        for i in 0..BLOB_COLUMN_SUBNET_COUNT {
+        for i in 0..DATA_COLUMN_SUBNET_COUNT {
             v.push(i.to_string());
         }
         v
@@ -21,58 +21,52 @@ lazy_static! {
 
 #[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct BlobColumnSubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
+pub struct DataColumnSubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
 
-pub fn blob_column_subnet_id_to_string(i: u64) -> &'static str {
-    if i < BLOB_COLUMN_SUBNET_COUNT {
-        BLOB_COLUMN_SUBNET_ID_TO_STRING
+pub fn data_column_subnet_id_to_string(i: u64) -> &'static str {
+    if i < DATA_COLUMN_SUBNET_COUNT {
+        DATA_COLUMN_SUBNET_ID_TO_STRING
             .get(i as usize)
-            .expect("index below BLOB_COLUMN_SUBNET_COUNT")
+            .expect("index below DATA_COLUMN_SUBNET_COUNT")
     } else {
-        "blob column subnet id out of range"
+        "data column subnet id out of range"
     }
 }
 
-impl BlobColumnSubnetId {
+impl DataColumnSubnetId {
     pub fn new(id: u64) -> Self {
         id.into()
     }
 
-    pub fn try_from_column_index<T: EthSpec>(column_index: usize) -> Result<Self, Error> {
-        let cols_per_subnet = T::blob_column_count().safe_div(T::blob_column_subnet_count())?;
-        let subnet_id = column_index.safe_div(cols_per_subnet)?;
-        if subnet_id < T::blob_column_subnet_count() {
-            Ok((subnet_id as u64).into())
-        } else {
-            Err(Error::InvalidColumn(column_index))
-        }
+    pub fn from_column_index<T: EthSpec>(column_index: usize) -> Self {
+        DataColumnSubnetId((column_index % T::data_column_subnet_count()) as u64)
     }
 
     #[allow(clippy::arithmetic_side_effects)]
     /// Compute required subnets to subscribe to given the node id.
     /// TODO(das): Add epoch param
     /// TODO(das): Add num of subnets (from ENR)
-    pub fn compute_subnets_for_blob_column<T: EthSpec>(
+    pub fn compute_subnets_for_data_column<T: EthSpec>(
         node_id: U256,
         spec: &ChainSpec,
-    ) -> impl Iterator<Item = BlobColumnSubnetId> {
-        let num_of_column_subnets = T::blob_column_subnet_count() as u64;
-        (0..spec.blob_custody_requirement)
+    ) -> impl Iterator<Item = DataColumnSubnetId> {
+        let num_of_column_subnets = T::data_column_subnet_count() as u64;
+        (0..spec.custody_requirement)
             .map(move |i| {
                 let node_offset = (node_id % U256::from(num_of_column_subnets)).as_u64();
                 node_offset.saturating_add(i) % num_of_column_subnets
             })
-            .map(BlobColumnSubnetId::new)
+            .map(DataColumnSubnetId::new)
     }
 }
 
-impl Display for BlobColumnSubnetId {
+impl Display for DataColumnSubnetId {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{}", self.0)
     }
 }
 
-impl Deref for BlobColumnSubnetId {
+impl Deref for DataColumnSubnetId {
     type Target = u64;
 
     fn deref(&self) -> &Self::Target {
@@ -80,40 +74,39 @@ impl Deref for BlobColumnSubnetId {
     }
 }
 
-impl DerefMut for BlobColumnSubnetId {
+impl DerefMut for DataColumnSubnetId {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl From<u64> for BlobColumnSubnetId {
+impl From<u64> for DataColumnSubnetId {
     fn from(x: u64) -> Self {
         Self(x)
     }
 }
 
-impl Into<u64> for BlobColumnSubnetId {
+impl Into<u64> for DataColumnSubnetId {
     fn into(self) -> u64 {
         self.0
     }
 }
 
-impl Into<u64> for &BlobColumnSubnetId {
+impl Into<u64> for &DataColumnSubnetId {
     fn into(self) -> u64 {
         self.0
     }
 }
 
-impl AsRef<str> for BlobColumnSubnetId {
+impl AsRef<str> for DataColumnSubnetId {
     fn as_ref(&self) -> &str {
-        blob_column_subnet_id_to_string(self.0)
+        data_column_subnet_id_to_string(self.0)
     }
 }
 
 #[derive(Debug)]
 pub enum Error {
     ArithError(ArithError),
-    InvalidColumn(usize),
 }
 
 impl From<ArithError> for Error {
@@ -124,11 +117,11 @@ impl From<ArithError> for Error {
 
 #[cfg(test)]
 mod test {
-    use crate::blob_column_subnet_id::BlobColumnSubnetId;
+    use crate::data_column_subnet_id::DataColumnSubnetId;
     use crate::ChainSpec;
 
     #[test]
-    fn test_compute_subnets_for_blob_column() {
+    fn test_compute_subnets_for_data_column() {
         let node_ids = [
             "0",
             "88752428858350697756262172400162263450541348766581994718383409852729519486397",
@@ -161,14 +154,14 @@ mod test {
         let spec = ChainSpec::mainnet();
 
         for x in 0..node_ids.len() {
-            let computed_subnets = BlobColumnSubnetId::compute_subnets_for_blob_column::<
+            let computed_subnets = DataColumnSubnetId::compute_subnets_for_data_column::<
                 crate::MainnetEthSpec,
             >(node_ids[x], &spec);
 
             assert_eq!(
                 expected_subnets[x],
                 computed_subnets
-                    .map(BlobColumnSubnetId::into)
+                    .map(DataColumnSubnetId::into)
                     .collect::<Vec<u64>>()
             );
         }

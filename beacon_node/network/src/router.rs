@@ -308,11 +308,11 @@ impl<T: BeaconChainTypes> Router<T> {
                     ),
                 )
             }
-            PubsubMessage::BlobColumnSidecar(data) => {
+            PubsubMessage::DataColumnSidecar(data) => {
                 let (subnet_id, column_sidecar) = *data;
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor
-                        .send_gossip_blob_column_sidecar(
+                        .send_gossip_data_column_sidecar(
                             message_id,
                             peer_id,
                             self.network_globals.client(&peer_id),

@@ -1065,10 +1065,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                                 .or_default()
                                 .insert(id);
                         }
-                        // TODO(das) to be implemented. We're not pruning blob column peers yet
-                        // because blob column topics are subscribed as core topics until we
-                        // implement recomputing blob column subnets.
-                        Subnet::BlobColumn(_) => {}
+                        // TODO(das) to be implemented. We're not pruning data column peers yet
+                        // because data column topics are subscribed as core topics until we
+                        // implement recomputing data column subnets.
+                        Subnet::DataColumn(_) => {}
                     }
                 }
             }

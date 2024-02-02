@@ -1016,23 +1016,23 @@ lazy_static! {
     );
     pub static ref BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
         "beacon_blobs_column_sidecar_processing_requests_total",
-        "Count of all blob column sidecars submitted for processing"
+        "Count of all data column sidecars submitted for processing"
     );
     pub static ref BLOBS_SIDECAR_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
         "beacon_blobs_sidecar_processing_successes_total",
         "Number of blob sidecars verified for gossip"
     );
-    pub static ref BLOB_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+    pub static ref DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
         "beacon_blobs_column_sidecar_processing_successes_total",
-        "Number of blob column sidecars verified for gossip"
+        "Number of data column sidecars verified for gossip"
     );
     pub static ref BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_blobs_sidecar_gossip_verification_seconds",
         "Full runtime of blob sidecars gossip verification"
     );
-    pub static ref BLOBS_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+    pub static ref DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_blobs_column_sidecar_gossip_verification_seconds",
-        "Full runtime of blob column sidecars gossip verification"
+        "Full runtime of data column sidecars gossip verification"
     );
     pub static ref BLOB_SIDECAR_INCLUSION_PROOF_VERIFICATION: Result<Histogram> = try_create_histogram(
         "blob_sidecar_inclusion_proof_verification_seconds",

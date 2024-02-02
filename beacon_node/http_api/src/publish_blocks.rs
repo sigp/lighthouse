@@ -19,7 +19,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobColumnSidecar, BlobColumnSubnetId, BlobSidecarList,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, DataColumnSidecar, DataColumnSubnetId,
     EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256,
     SignedBeaconBlock, SignedBlindedBeaconBlock, VariableList,
 };
@@ -89,22 +89,22 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                 let mut pubsub_messages = vec![PubsubMessage::BeaconBlock(block.clone())];
                 if let Some(blob_sidecars) = blobs_opt {
                     // Build and publish column sidecars
-                    let col_sidecars = BlobColumnSidecar::random_from_blob_sidecars(&blob_sidecars)
+                    let col_sidecars = DataColumnSidecar::random_from_blob_sidecars(&blob_sidecars)
                         .map_err(|e| {
                             BlockError::BeaconChainError(
-                                BeaconChainError::UnableToBuildBlobColumnSidecar(format!("{e:?}")),
+                                BeaconChainError::UnableToBuildDataColumnSidecar(format!("{e:?}")),
                             )
                         })?;
                     for (col_index, col_sidecar) in col_sidecars.into_iter().enumerate() {
-                        pubsub_messages.push(PubsubMessage::BlobColumnSidecar(Box::new((
-                            BlobColumnSubnetId::try_from_column_index::<T::EthSpec>(col_index)
-                                .map_err(|e| {
-                                    BlockError::BeaconChainError(
-                                        BeaconChainError::UnableToBuildBlobColumnSidecar(format!(
-                                            "{e:?}"
-                                        )),
-                                    )
-                                })?,
+                        pubsub_messages.push(PubsubMessage::DataColumnSidecar(Box::new((
+                            DataColumnSubnetId::from_column_index::<T::EthSpec>(col_index),
+                            // .map_err(|e| {
+                            //     BlockError::BeaconChainError(
+                            //         BeaconChainError::UnableToBuildDataColumnSidecar(format!(
+                            //             "{e:?}"
+                            //         )),
+                            //     )
+                            // })?,
                             Arc::new(col_sidecar),
                         ))));
                     }

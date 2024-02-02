@@ -34,7 +34,7 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    BlobColumnSubnetId, ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
+    ChainSpec, DataColumnSubnetId, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
     SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
@@ -755,13 +755,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
                 if !self.subscribe_all_subnets {
                     for column_subnet in
-                        BlobColumnSubnetId::compute_subnets_for_blob_column::<T::EthSpec>(
+                        DataColumnSubnetId::compute_subnets_for_data_column::<T::EthSpec>(
                             self.network_globals.local_enr().node_id().raw().into(),
                             &self.beacon_chain.spec,
                         )
                     {
                         for fork_digest in self.required_gossip_fork_digests() {
-                            let gossip_kind = Subnet::BlobColumn(column_subnet).into();
+                            let gossip_kind = Subnet::DataColumn(column_subnet).into();
                             let topic = GossipTopic::new(
                                 gossip_kind,
                                 GossipEncoding::default(),
@@ -809,11 +809,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                             }
                         }
                     }
-                    // Subscribe to all blob column subnets
-                    for column_subnet in 0..T::EthSpec::blob_column_subnet_count() as u64 {
+                    // Subscribe to all data column subnets
+                    for column_subnet in 0..T::EthSpec::data_column_subnet_count() as u64 {
                         for fork_digest in self.required_gossip_fork_digests() {
                             let gossip_kind =
-                                Subnet::BlobColumn(BlobColumnSubnetId::new(column_subnet)).into();
+                                Subnet::DataColumn(DataColumnSubnetId::new(column_subnet)).into();
                             let topic = GossipTopic::new(
                                 gossip_kind,
                                 GossipEncoding::default(),

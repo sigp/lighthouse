@@ -5,7 +5,7 @@ use crate::{
     sync::SyncMessage,
 };
 use beacon_chain::blob_verification::{
-    GossipBlobError, GossipVerifiedBlob, GossipVerifiedBlobColumnSidecar,
+    GossipBlobError, GossipVerifiedBlob, GossipVerifiedDataColumnSidecar,
 };
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::store::Error;
@@ -33,7 +33,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobColumnSidecar, BlobColumnSubnetId, BlobSidecar, EthSpec,
+    Attestation, AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec,
     Hash256, IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate,
     ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
@@ -601,13 +601,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    pub async fn process_gossip_blob_column_sidecar(
+    pub async fn process_gossip_data_column_sidecar(
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         _peer_client: Client,
-        subnet_id: BlobColumnSubnetId,
-        column_sidecar: Arc<BlobColumnSidecar<T::EthSpec>>,
+        subnet_id: DataColumnSubnetId,
+        column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_duration: Duration,
     ) {
         let slot = column_sidecar.slot();
@@ -616,25 +616,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
-            &metrics::BEACON_BLOB_COLUMN_GOSSIP_SLOT_START_DELAY_TIME,
+            &metrics::BEACON_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME,
             delay,
         );
         metrics::set_gauge(
-            &metrics::BEACON_BLOB_COLUMN_LAST_DELAY,
+            &metrics::BEACON_DATA_COLUMN_LAST_DELAY,
             delay.as_millis() as i64,
         );
         match self
             .chain
-            .verify_blob_column_sidecar_for_gossip(column_sidecar, *subnet_id)
+            .verify_data_column_sidecar_for_gossip(column_sidecar, *subnet_id)
         {
-            Ok(gossip_verified_blob_column) => {
+            Ok(gossip_verified_data_column) => {
                 metrics::inc_counter(
-                    &metrics::BEACON_PROCESSOR_GOSSIP_BLOB_COLUMN_SIDECAR_VERIFIED_TOTAL,
+                    &metrics::BEACON_PROCESSOR_GOSSIP_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL,
                 );
 
                 debug!(
                     self.log,
-                    "Successfully verified gossip blob column sidecar";
+                    "Successfully verified gossip data column sidecar";
                     "slot" => %slot,
                     "root" => %root,
                     "index" => %index,
@@ -649,13 +649,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .and_then(|now| now.checked_sub(seen_duration))
                 {
                     metrics::observe_duration(
-                        &metrics::BEACON_BLOB_COLUMN_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME,
+                        &metrics::BEACON_DATA_COLUMN_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME,
                         duration,
                     );
                 }
-                self.process_gossip_verified_blob_column(
+                self.process_gossip_verified_data_column(
                     peer_id,
-                    gossip_verified_blob_column,
+                    gossip_verified_data_column,
                     seen_duration,
                 )
                 .await
@@ -663,7 +663,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(err) => {
                 error!(
                     self.log,
-                    "Internal error when verifying blob column sidecar";
+                    "Internal error when verifying data column sidecar";
                     "error" => ?err,
                 )
             }
@@ -867,14 +867,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    pub async fn process_gossip_verified_blob_column(
+    pub async fn process_gossip_verified_data_column(
         self: &Arc<Self>,
         _peer_id: PeerId,
-        verified_blob_column: GossipVerifiedBlobColumnSidecar<T>,
+        verified_data_column: GossipVerifiedDataColumnSidecar<T>,
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
-        self.chain.process_gossip_blob_column(verified_blob_column);
+        self.chain.process_gossip_data_column(verified_data_column);
     }
 
     /// Process the beacon block received from the gossip network and:

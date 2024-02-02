@@ -8,7 +8,7 @@ use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache}
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_verification::{
-    GossipBlobError, GossipVerifiedBlob, GossipVerifiedBlobColumnSidecar,
+    GossipBlobError, GossipVerifiedBlob, GossipVerifiedDataColumnSidecar,
 };
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
@@ -2057,15 +2057,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    pub fn verify_blob_column_sidecar_for_gossip(
+    pub fn verify_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
-        blob_column_sidecar: Arc<BlobColumnSidecar<T::EthSpec>>,
+        data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedBlobColumnSidecar<T>, GossipBlobError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedDataColumnSidecar<T>, GossipBlobError<T::EthSpec>> {
         metrics::inc_counter(&metrics::BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::BLOBS_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedBlobColumnSidecar::new(blob_column_sidecar, subnet_id, self).map(|v| {
-            metrics::inc_counter(&metrics::BLOB_COLUMNS_SIDECAR_PROCESSING_SUCCESSES);
+        let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
+        GossipVerifiedDataColumnSidecar::new(data_column_sidecar, subnet_id, self).map(|v| {
+            metrics::inc_counter(&metrics::DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES);
             v
         })
     }
@@ -2885,17 +2885,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.remove_notified(&block_root, r)
     }
 
-    pub fn process_gossip_blob_column(
+    pub fn process_gossip_data_column(
         self: &Arc<Self>,
-        blob_column: GossipVerifiedBlobColumnSidecar<T>,
+        gossip_verified_data_column: GossipVerifiedDataColumnSidecar<T>,
     ) {
-        let blob_column = blob_column.as_blob_column();
+        let data_column = gossip_verified_data_column.as_data_column();
         // TODO(das) send to DA checker
         info!(
             self.log,
-            "Processed gossip blob column";
-            "index" => blob_column.index,
-            "slot" => blob_column.slot().as_u64()
+            "Processed gossip data column";
+            "index" => data_column.index,
+            "slot" => data_column.slot().as_u64()
         );
     }
 

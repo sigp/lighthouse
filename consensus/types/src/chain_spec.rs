@@ -171,7 +171,7 @@ pub struct ChainSpec {
     /*
      * DAS params
      */
-    pub blob_custody_requirement: u64,
+    pub custody_requirement: u64,
 
     /*
      * Networking
@@ -202,7 +202,7 @@ pub struct ChainSpec {
     pub max_request_blob_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
     pub blob_sidecar_subnet_count: u64,
-    pub blob_column_sidecar_subnet_count: u64,
+    pub data_column_sidecar_subnet_count: u64,
 
     /*
      * Networking Derived
@@ -690,7 +690,7 @@ impl ChainSpec {
             /*
              * DAS params
              */
-            blob_custody_requirement: 1,
+            custody_requirement: 1,
 
             /*
              * Network specific
@@ -721,7 +721,7 @@ impl ChainSpec {
             max_request_blob_sidecars: default_max_request_blob_sidecars(),
             min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
-            blob_column_sidecar_subnet_count: default_blob_column_sidecar_subnet_count(),
+            data_column_sidecar_subnet_count: default_data_column_sidecar_subnet_count(),
 
             /*
              * Derived Deneb Specific
@@ -956,7 +956,7 @@ impl ChainSpec {
             /*
              * DAS params
              */
-            blob_custody_requirement: 1,
+            custody_requirement: 1,
             /*
              * Network specific
              */
@@ -986,7 +986,7 @@ impl ChainSpec {
             max_request_blob_sidecars: default_max_request_blob_sidecars(),
             min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
-            blob_column_sidecar_subnet_count: default_blob_column_sidecar_subnet_count(),
+            data_column_sidecar_subnet_count: default_data_column_sidecar_subnet_count(),
 
             /*
              * Derived Deneb Specific
@@ -1167,9 +1167,9 @@ pub struct Config {
     #[serde(default = "default_blob_sidecar_subnet_count")]
     #[serde(with = "serde_utils::quoted_u64")]
     blob_sidecar_subnet_count: u64,
-    #[serde(default = "default_blob_column_sidecar_subnet_count")]
+    #[serde(default = "default_data_column_sidecar_subnet_count")]
     #[serde(with = "serde_utils::quoted_u64")]
-    blob_column_sidecar_subnet_count: u64,
+    data_column_sidecar_subnet_count: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1275,7 +1275,7 @@ const fn default_blob_sidecar_subnet_count() -> u64 {
     6
 }
 
-const fn default_blob_column_sidecar_subnet_count() -> u64 {
+const fn default_data_column_sidecar_subnet_count() -> u64 {
     32
 }
 
@@ -1441,7 +1441,7 @@ impl Config {
             max_request_blob_sidecars: spec.max_request_blob_sidecars,
             min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count: spec.blob_sidecar_subnet_count,
-            blob_column_sidecar_subnet_count: spec.blob_column_sidecar_subnet_count,
+            data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
         }
     }
 
@@ -1506,7 +1506,7 @@ impl Config {
             max_request_blob_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
-            blob_column_sidecar_subnet_count,
+            data_column_sidecar_subnet_count,
         } = self;
 
         if preset_base != T::spec_name().to_string().as_str() {
@@ -1564,7 +1564,7 @@ impl Config {
             max_request_blob_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
-            blob_column_sidecar_subnet_count,
+            data_column_sidecar_subnet_count,
 
             // We need to re-derive any values that might have changed in the config.
             max_blocks_by_root_request: max_blocks_by_root_request_common(max_request_blocks),
