@@ -135,20 +135,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             prev_block_slot = block.slot();
             expected_block_root = block.message().parent_root();
+            signed_blocks.push(block);
 
             // If we've reached genesis, add the genesis block root to the batch for all slots
             // between 0 and the first block slot, and set the anchor slot to 0 to indicate
             // completion.
             if expected_block_root == self.genesis_block_root {
                 let genesis_slot = self.spec.genesis_slot;
-                for slot in genesis_slot.as_usize()..block.slot().as_usize() {
+                for slot in genesis_slot.as_usize()..prev_block_slot.as_usize() {
                     chunk_writer.set(slot, self.genesis_block_root, &mut cold_batch)?;
                 }
                 prev_block_slot = genesis_slot;
                 expected_block_root = Hash256::zero();
                 break;
             }
-            signed_blocks.push(block);
         }
         chunk_writer.write(&mut cold_batch)?;
         // these were pushed in reverse order so we reverse again

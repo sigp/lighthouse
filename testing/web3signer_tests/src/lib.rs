@@ -321,10 +321,12 @@ mod tests {
             let log = environment::null_logger().unwrap();
             let validator_dir = TempDir::new().unwrap();
 
+            let config = validator_client::Config::default();
             let validator_definitions = ValidatorDefinitions::from(validator_definitions);
             let initialized_validators = InitializedValidators::from_definitions(
                 validator_definitions,
                 validator_dir.path().into(),
+                config.clone(),
                 log.clone(),
             )
             .await

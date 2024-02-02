@@ -189,6 +189,7 @@ pub struct ChainSpec {
     pub attestation_subnet_count: u64,
     pub attestation_subnet_extra_bits: u8,
     pub attestation_subnet_prefix_bits: u8,
+    pub attestation_subnet_shuffling_prefix_bits: u8,
 
     /*
      * Networking Deneb
@@ -701,6 +702,8 @@ impl ChainSpec {
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
             attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            attestation_subnet_shuffling_prefix_bits:
+                default_attestation_subnet_shuffling_prefix_bits(),
             max_request_blocks: default_max_request_blocks(),
 
             /*
@@ -962,6 +965,8 @@ impl ChainSpec {
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
             attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            attestation_subnet_shuffling_prefix_bits:
+                default_attestation_subnet_shuffling_prefix_bits(),
             max_request_blocks: default_max_request_blocks(),
 
             /*
@@ -1139,6 +1144,9 @@ pub struct Config {
     #[serde(default = "default_attestation_subnet_prefix_bits")]
     #[serde(with = "serde_utils::quoted_u8")]
     attestation_subnet_prefix_bits: u8,
+    #[serde(default = "default_attestation_subnet_shuffling_prefix_bits")]
+    #[serde(with = "serde_utils::quoted_u8")]
+    attestation_subnet_shuffling_prefix_bits: u8,
     #[serde(default = "default_max_request_blocks_deneb")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blocks_deneb: u64,
@@ -1234,6 +1242,10 @@ const fn default_attestation_subnet_extra_bits() -> u8 {
 
 const fn default_attestation_subnet_prefix_bits() -> u8 {
     6
+}
+
+const fn default_attestation_subnet_shuffling_prefix_bits() -> u8 {
+    3
 }
 
 const fn default_max_request_blocks() -> u64 {
@@ -1414,6 +1426,7 @@ impl Config {
             message_domain_valid_snappy: spec.message_domain_valid_snappy,
             attestation_subnet_extra_bits: spec.attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits: spec.attestation_subnet_prefix_bits,
+            attestation_subnet_shuffling_prefix_bits: spec.attestation_subnet_shuffling_prefix_bits,
             max_request_blocks_deneb: spec.max_request_blocks_deneb,
             max_request_blob_sidecars: spec.max_request_blob_sidecars,
             min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
@@ -1474,6 +1487,7 @@ impl Config {
             message_domain_valid_snappy,
             attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits,
+            attestation_subnet_shuffling_prefix_bits,
             max_request_blocks,
             epochs_per_subnet_subscription,
             attestation_propagation_slot_range,
@@ -1531,6 +1545,7 @@ impl Config {
             message_domain_valid_snappy,
             attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits,
+            attestation_subnet_shuffling_prefix_bits,
             max_request_blocks,
             epochs_per_subnet_subscription,
             attestation_propagation_slot_range,
@@ -1817,6 +1832,7 @@ mod yaml_tests {
         check_default!(message_domain_valid_snappy);
         check_default!(attestation_subnet_extra_bits);
         check_default!(attestation_subnet_prefix_bits);
+        check_default!(attestation_subnet_shuffling_prefix_bits);
 
         assert_eq!(chain_spec.bellatrix_fork_epoch, None);
     }

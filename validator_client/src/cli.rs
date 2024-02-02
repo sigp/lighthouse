@@ -373,6 +373,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Disable Lighthouse's slashing protection for all web3signer keys. This can \
                        reduce the I/O burden on the VC and is safe as long as slashing protection \
                        is enabled on the remote signer and is implemented correctly.")
+        )
+        /*
+         * Experimental/development options.
+         */
+        .arg(
+            Arg::with_name("web3-signer-keep-alive-timeout")
+                .long("web3-signer-keep-alive-timeout")
+                .value_name("MILLIS")
+                .default_value("90000")
+                .help("Keep-alive timeout for each web3signer connection. Set to 'null' to never \
+                       timeout")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("web3-signer-max-idle-connections")
+                .long("web3-signer-max-idle-connections")
+                .value_name("COUNT")
+                .help("Maximum number of idle connections to maintain per web3signer host. Default \
+                       is unlimited.")
                 .takes_value(true),
         )
 }

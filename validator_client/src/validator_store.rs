@@ -574,7 +574,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             return Some(u64::MAX);
         }
         self.builder_boost_factor.or({
-            if self.builder_proposals {
+            if !self.builder_proposals {
                 Some(0)
             } else {
                 None

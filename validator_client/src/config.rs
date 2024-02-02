@@ -14,6 +14,7 @@ use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
@@ -83,6 +84,8 @@ pub struct Config {
     pub builder_boost_factor: Option<u64>,
     /// If true, Lighthouse will prefer builder proposals, if available.
     pub prefer_builder_proposals: bool,
+    pub web3_signer_keep_alive_timeout: Option<Duration>,
+    pub web3_signer_max_idle_connections: Option<usize>,
 }
 
 impl Default for Config {
@@ -127,6 +130,8 @@ impl Default for Config {
             produce_block_v3: false,
             builder_boost_factor: None,
             prefer_builder_proposals: false,
+            web3_signer_keep_alive_timeout: Some(Duration::from_secs(90)),
+            web3_signer_max_idle_connections: None,
         }
     }
 }
@@ -246,6 +251,22 @@ impl Config {
                         .map_err(|_| format!("Unknown API topic to broadcast: {t}"))
                 })
                 .collect::<Result<_, _>>()?;
+        }
+
+        /*
+         * Web3 signer
+         */
+        if let Some(s) = parse_optional::<String>(cli_args, "web3-signer-keep-alive-timeout")? {
+            config.web3_signer_keep_alive_timeout = if s == "null" {
+                None
+            } else {
+                Some(Duration::from_millis(
+                    s.parse().map_err(|_| "invalid timeout value".to_string())?,
+                ))
+            }
+        }
+        if let Some(n) = parse_optional::<usize>(cli_args, "web3-signer-max-idle-connections")? {
+            config.web3_signer_max_idle_connections = Some(n);
         }
 
         /*
