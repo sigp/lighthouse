@@ -1,7 +1,7 @@
 //! Identifies each data column subnet by an integer identifier.
 use crate::{ChainSpec, EthSpec};
 use ethereum_types::U256;
-use safe_arith::ArithError;
+use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
@@ -38,8 +38,9 @@ impl DataColumnSubnetId {
         id.into()
     }
 
-    pub fn from_column_index<T: EthSpec>(column_index: usize) -> Self {
-        DataColumnSubnetId((column_index % T::data_column_subnet_count()) as u64)
+    pub fn try_from_column_index<T: EthSpec>(column_index: usize) -> Result<Self, Error> {
+        let id = column_index.safe_rem(T::data_column_subnet_count())? as u64;
+        Ok(id.into())
     }
 
     #[allow(clippy::arithmetic_side_effects)]

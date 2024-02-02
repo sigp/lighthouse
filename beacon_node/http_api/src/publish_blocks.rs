@@ -91,20 +91,17 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                     // Build and publish column sidecars
                     let col_sidecars = DataColumnSidecar::random_from_blob_sidecars(&blob_sidecars)
                         .map_err(|e| {
-                            BlockError::BeaconChainError(
-                                BeaconChainError::UnableToBuildDataColumnSidecar(format!("{e:?}")),
-                            )
+                            BeaconChainError::UnableToBuildColumnSidecar(format!("{e:?}"))
                         })?;
+
                     for (col_index, col_sidecar) in col_sidecars.into_iter().enumerate() {
+                        let subnet_id =
+                            DataColumnSubnetId::try_from_column_index::<T::EthSpec>(col_index)
+                                .map_err(|e| {
+                                    BeaconChainError::UnableToBuildColumnSidecar(format!("{e:?}"))
+                                })?;
                         pubsub_messages.push(PubsubMessage::DataColumnSidecar(Box::new((
-                            DataColumnSubnetId::from_column_index::<T::EthSpec>(col_index),
-                            // .map_err(|e| {
-                            //     BlockError::BeaconChainError(
-                            //         BeaconChainError::UnableToBuildDataColumnSidecar(format!(
-                            //             "{e:?}"
-                            //         )),
-                            //     )
-                            // })?,
+                            subnet_id,
                             Arc::new(col_sidecar),
                         ))));
                     }
