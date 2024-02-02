@@ -482,9 +482,7 @@ OPTIONS:
         --slasher-validator-chunk-size <NUM_VALIDATORS>
             Number of validators per chunk stored on disk.
 
-        --slots-per-restore-point <SLOT_COUNT>
-            Specifies how often a freezer DB restore point should be stored. Cannot be changed after initialization.
-            [default: 8192 (mainnet) or 64 (minimal)]
+        --slots-per-restore-point <SLOT_COUNT>                                                       Deprecated.
         --state-cache-size <SIZE>
             Specifies how many states the database should cache in memory [default: 128]
 
