@@ -2571,7 +2571,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         epoch: Epoch,
         validator_indices: &[u64],
-    ) -> Result<Vec<Option<SyncDuty>>, Error> {
+    ) -> Result<Vec<Result<Option<SyncDuty>, BeaconStateError>>, Error> {
         self.with_head(move |head| {
             head.beacon_state
                 .get_sync_committee_duties(epoch, validator_indices, &self.spec)
