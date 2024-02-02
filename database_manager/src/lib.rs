@@ -16,7 +16,7 @@ use store::{
     DBColumn, HotColdDB, KeyValueStore, LevelDB,
 };
 use strum::{EnumString, EnumVariantNames, VariantNames};
-use types::{BeaconState, EthSpec, Slot, VList};
+use types::{BeaconState, EthSpec, Slot};
 
 pub const CMD: &str = "database_manager";
 
@@ -131,26 +131,6 @@ pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
         .about("Prune finalized execution payloads")
 }
 
-pub fn diff_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("diff")
-        .setting(clap::AppSettings::ColoredHelp)
-        .about("Diff SSZ balances")
-        .arg(
-            Arg::with_name("first")
-                .long("first")
-                .value_name("PATH")
-                .takes_value(true)
-                .required(true),
-        )
-        .arg(
-            Arg::with_name("second")
-                .long("second")
-                .value_name("PATH")
-                .takes_value(true)
-                .required(true),
-        )
-}
-
 pub fn prune_blobs_app<'a, 'b>() -> App<'a, 'b> {
     App::new("prune-blobs")
         .alias("prune_blobs")
@@ -225,7 +205,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(compact_cli_app())
         .subcommand(prune_payloads_app())
         .subcommand(prune_blobs_app())
-        .subcommand(diff_app())
         .subcommand(prune_states_app())
 }
 
@@ -534,57 +513,6 @@ pub fn migrate_db<E: EthSpec>(
     )
 }
 
-pub struct DiffConfig {
-    first: PathBuf,
-    second: PathBuf,
-}
-
-fn parse_diff_config(cli_args: &ArgMatches) -> Result<DiffConfig, String> {
-    let first = clap_utils::parse_required(cli_args, "first")?;
-    let second = clap_utils::parse_required(cli_args, "second")?;
-
-    Ok(DiffConfig { first, second })
-}
-
-pub fn diff<E: EthSpec>(diff_config: &DiffConfig, log: Logger) -> Result<(), Error> {
-    use ssz::{Decode, Encode};
-    use std::fs::File;
-    use std::io::Read;
-    use store::StoreConfig;
-
-    let mut first_file = File::open(&diff_config.first).unwrap();
-    let mut second_file = File::open(&diff_config.second).unwrap();
-
-    let mut first_bytes = vec![];
-    first_file.read_to_end(&mut first_bytes).unwrap();
-    let first: VList<u64, E::ValidatorRegistryLimit> = VList::from_ssz_bytes(&first_bytes).unwrap();
-
-    let mut second_bytes = vec![];
-    second_file.read_to_end(&mut second_bytes).unwrap();
-    let second: VList<u64, E::ValidatorRegistryLimit> =
-        VList::from_ssz_bytes(&second_bytes).unwrap();
-
-    let mut diff_balances = Vec::with_capacity(second.len());
-
-    for (i, new_balance) in second.iter().enumerate() {
-        let old_balance = first.get(i).copied().unwrap_or(0);
-        let diff = new_balance.wrapping_sub(old_balance);
-        diff_balances.push(diff);
-    }
-
-    let diff_ssz_bytes = diff_balances.as_ssz_bytes();
-    let config = StoreConfig::default();
-    let compressed_diff_bytes = config.compress_bytes(&diff_ssz_bytes).unwrap();
-
-    info!(
-        log,
-        "Compressed diff to {} bytes (from {})",
-        compressed_diff_bytes.len(),
-        diff_ssz_bytes.len()
-    );
-    Ok(())
-}
-
 pub fn prune_payloads<E: EthSpec>(
     client_config: ClientConfig,
     runtime_context: &RuntimeContext<E>,
@@ -744,10 +672,6 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
         }
         ("prune-payloads", Some(_)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)
-        }
-        ("diff", Some(cli_args)) => {
-            let diff_config = parse_diff_config(cli_args)?;
-            diff::<T>(&diff_config, log).map_err(format_err)
         }
         ("prune-blobs", Some(_)) => prune_blobs(client_config, &context, log).map_err(format_err),
         ("prune-states", Some(cli_args)) => {
