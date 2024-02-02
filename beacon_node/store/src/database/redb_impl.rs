@@ -4,8 +4,8 @@ use crate::{
     metrics, ColumnIter, ColumnKeyIter, Key,
 };
 use crate::{DBColumn, Error, KeyValueStoreOp};
-use parking_lot::{Mutex, MutexGuard, RwLock};
-use redb::{ReadableTable, TableDefinition};
+use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
+use redb::{AccessGuard, ReadOnlyTable, ReadTransaction, ReadableTable, RedbKey, RedbValue, StorageError, TableDefinition};
 use std::{borrow::BorrowMut, cell::RefCell, f64::consts::E, marker::PhantomData, path::Path};
 use strum::IntoEnumIterator;
 use types::{EthSpec, Hash256};
@@ -30,9 +30,10 @@ impl From<WriteOptions> for redb::Durability {
 
 impl<E: EthSpec> Redb<E> {
     pub fn open(path: &Path) -> Result<Self, Error> {
+        println!("{:?}", path);
         let db = redb::Database::create(path)?;
         let transaction_mutex = Mutex::new(());
-
+      
         for column in DBColumn::iter() {
             Redb::<E>::create_table(&db, column.into())?;
         }
@@ -45,7 +46,6 @@ impl<E: EthSpec> Redb<E> {
     }
 
     fn create_table(db: &redb::Database, table_name: &str) -> Result<(), Error> {
-        println!("{:?}", table_name);
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(table_name);
         let tx = db.begin_write()?;
         tx.open_table(table_definition)?;
@@ -73,9 +73,6 @@ impl<E: EthSpec> Redb<E> {
         val: &[u8],
         opts: WriteOptions,
     ) -> Result<(), Error> {
-        println!("put_bytes_with_options");
-        println!("{}", col);
-        println!("{:?}", key);
         metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
         metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as u64);
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
@@ -108,7 +105,6 @@ impl<E: EthSpec> Redb<E> {
 
     // Retrieve some bytes in `column` with `key`.
     pub fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        println!("get_bytes");
         metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
         let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
 
@@ -122,16 +118,10 @@ impl<E: EthSpec> Redb<E> {
         // TODO: clean this up
         if let Some(access_guard) = result {
             let value = access_guard.value().to_vec();
-            println!("{}", col);
-            println!("{:?}", key);
-            println!("get_bytes found");
             metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, value.len() as u64);
             metrics::stop_timer(timer);
             Ok(Some(value))
         } else {
-            println!("{}", col);
-            println!("{:?}", key);
-            println!("get_bytes not found");
             metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, 0 as u64);
             metrics::stop_timer(timer);
             Ok(None)
@@ -169,34 +159,31 @@ impl<E: EthSpec> Redb<E> {
 
     // TODO we need some way to fetch the correct table
     pub fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
-        println!("do_atomically");
+        let open_db = self.db.read();
+        let tx = open_db.begin_write()?;
         for op in ops_batch {
             match op {
                 KeyValueStoreOp::PutKeyValue(column, key, value) => {
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                         TableDefinition::new(&column);
-                    let open_db = self.db.read();
-                    let tx = open_db.begin_write()?;
+ 
                     let mut table = tx.open_table(table_definition)?;
                     table.insert(key.as_slice(), value.as_slice())?;
-                    println!("{}", column);
-                    println!("{:?}", key);
                     drop(table);
-                    tx.commit()?;
                 }
 
                 KeyValueStoreOp::DeleteKey(column, key) => {
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                         TableDefinition::new(&column);
-                    let open_db = self.db.read();
-                    let tx = open_db.begin_write()?;
+                    
                     let mut table = tx.open_table(table_definition)?;
                     table.remove(key.as_slice())?;
                     drop(table);
-                    tx.commit()?;
                 }
             }
         }
+
+        tx.commit()?;
         Ok(())
     }
 
@@ -227,24 +214,45 @@ impl<E: EthSpec> Redb<E> {
         Box::new(res.into_iter())
     }
 
-    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    pub fn iter_column_from<'a, K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'a, K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
         let open_db = self.db.read();
-        let tx = open_db.begin_read().unwrap();
-        let table = tx.open_table(table_definition).unwrap();
 
-        let mut res = vec![];
+        let mut iter = Box::new(TableIter {
+            db: open_db,
+            tx: None,
+            table: None,
+            range: None
+        });
 
-        while let Ok(result) = table.range(from..).unwrap().next().unwrap() {
-            let (key, value) = result;
-            res.push(Ok((
-                K::from_bytes(key.value()).unwrap(),
-                value.value().to_vec(),
-            )))
-        }
+        iter.tx = Some(iter.db.begin_read().unwrap());
+        iter.table = Some(iter.tx.as_ref().unwrap().open_table(table_definition).unwrap());
+        iter.range = Some(iter.table.as_ref().unwrap().range(from..).unwrap());
+        
 
-        Box::new(res.into_iter())
+        Box::new(
+            // itertools::process_results(iter, |inner_iter| {
+            //     inner_iter.map(|(k, v)| {
+            //         (K::from_bytes(k.value()).unwrap(), v.value().to_vec())
+            //     })
+            // }).unwrap()
+
+            iter.map(|result| {
+                let (k, v) = result.unwrap();
+                Ok((K::from_bytes(k.value()).unwrap(), v.value().to_vec()))
+            })
+        )
+
+        // while let Ok(result) = table.range(from..).unwrap().next().unwrap() {
+        //     let (key, value) = result;
+        //     res.push(Ok((
+        //         K::from_bytes(key.value()).unwrap(),
+        //         value.value().to_vec(),
+        //     )))
+        // }
+
+        // Box::new(res.into_iter())
     }
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
@@ -276,4 +284,19 @@ impl<E: EthSpec> Redb<E> {
     }
 
     */
+}
+
+struct TableIter<'a, K: RedbKey + 'static, V: RedbValue + 'static> {
+    db: RwLockReadGuard<'a, redb::Database>,
+    tx: Option<ReadTransaction<'a>>,
+    table: Option<ReadOnlyTable<'a, K, V>>,
+    range: Option<redb::Range<'a, K, V>>
+}
+
+impl<'a, K:RedbKey + 'static, V: RedbValue + 'static> Iterator for TableIter<'a, K, V> {
+    type Item = Result<(AccessGuard<'a, K>, AccessGuard<'a, V>), StorageError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.range.as_mut()?.next()
+    }
 }
