@@ -374,8 +374,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        reduce the I/O burden on the VC but is only safe if slashing protection \
                        is enabled on the remote signer and is implemented correctly. DO NOT ENABLE \
                        THIS FLAG UNLESS YOU ARE CERTAIN THAT SLASHING PROTECTION IS ENABLED ON \
-                       THE REMOTE SIGNER. IT IS OFF BY DEFAULT, AND YOU WILL GET SLASHED IF YOU \
-                       USE THIS FLAG WITHOUT ENABLING IT.")
+                       THE REMOTE SIGNER. YOU WILL GET SLASHED IF YOU USE THIS FLAG WITHOUT \
+                       ENABLING WEB3SIGNER'S SLASHING PROTECTION.")
+                .takes_value(false)
         )
         /*
          * Experimental/development options.
