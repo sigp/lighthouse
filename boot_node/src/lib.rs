@@ -48,11 +48,8 @@ pub fn run(
         log::Level::Error => drain.filter_level(Level::Error),
     };
 
-    let logger = Logger::root(drain.fuse(), o!());
-    let _scope_guard = slog_scope::set_global_logger(logger);
-    slog_stdlog::init_with_level(debug_level).unwrap();
+    let log = Logger::root(drain.fuse(), o!());
 
-    let log = slog_scope::logger();
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {
         EthSpecId::Minimal => {

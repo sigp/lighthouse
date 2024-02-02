@@ -14,7 +14,7 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
-# List of features to use when building natively. Can be overriden via the environment.
+# List of features to use when building natively. Can be overridden via the environment.
 # No jemalloc on Windows
 ifeq ($(OS),Windows_NT)
     FEATURES?=
@@ -210,7 +210,7 @@ cli:
 # `cargo`.
 cli-local:
 	make && ./scripts/cli.sh
-	
+
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 

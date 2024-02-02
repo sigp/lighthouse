@@ -1163,9 +1163,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         // Remove the ENR from the cache to prevent continual re-dialing on disconnects
         for enr in peers_to_dial {
-            debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %enr.peer_id());
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
-            self.peer_manager_mut().dial_peer(enr);
+            let peer_id = enr.peer_id();
+            if self.peer_manager_mut().dial_peer(enr) {
+                debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
+            }
         }
     }
 
@@ -1265,6 +1267,32 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     Some(GoodbyeReason::Unknown),
                     "does_not_support_gossipsub",
                 );
+            }
+            gossipsub::Event::SlowPeer {
+                peer_id,
+                failed_messages,
+            } => {
+                debug!(self.log, "Slow gossipsub peer"; "peer_id" => %peer_id, "publish" => failed_messages.publish, "forward" => failed_messages.forward, "priority" => failed_messages.priority, "non_priority" => failed_messages.non_priority);
+                // Punish the peer if it cannot handle priority messages
+                if failed_messages.total_timeout() > 10 {
+                    debug!(self.log, "Slow gossipsub peer penalized for priority failure"; "peer_id" => %peer_id);
+                    self.peer_manager_mut().report_peer(
+                        &peer_id,
+                        PeerAction::HighToleranceError,
+                        ReportSource::Gossipsub,
+                        None,
+                        "publish_timeout_penalty",
+                    );
+                } else if failed_messages.total_queue_full() > 10 {
+                    debug!(self.log, "Slow gossipsub peer penalized for send queue full"; "peer_id" => %peer_id);
+                    self.peer_manager_mut().report_peer(
+                        &peer_id,
+                        PeerAction::HighToleranceError,
+                        ReportSource::Gossipsub,
+                        None,
+                        "queue_full_penalty",
+                    );
+                }
             }
         }
         None
@@ -1470,8 +1498,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 self.build_response(id, peer_id, response)
             }
             HandlerEvent::Close(_) => {
-                let _ = self.swarm.disconnect_peer_id(peer_id);
-                // NOTE: we wait for the swarm to report the connection as actually closed
+                // NOTE: This is handled in the RPC behaviour.
                 None
             }
         }

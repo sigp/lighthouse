@@ -3,13 +3,12 @@ use crate::{
     version::{
         add_consensus_block_value_header, add_consensus_version_header,
         add_execution_payload_blinded_header, add_execution_payload_value_header,
-        fork_versioned_response, inconsistent_fork_rejection,
+        add_ssz_content_type_header, fork_versioned_response, inconsistent_fork_rejection,
     },
 };
 use beacon_chain::{
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
 };
-use bytes::Bytes;
 use eth2::types::{
     self as api_types, EndpointVersion, ProduceBlockV3Metadata, SkipRandaoVerification,
 };
@@ -58,7 +57,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti.map(Into::into),
+            query.graffiti,
             randao_verification,
             query.builder_boost_factor,
             BlockProductionVersion::V3,
@@ -80,7 +79,7 @@ pub fn build_response_v3<T: BeaconChainTypes>(
         .fork_name(&chain.spec)
         .map_err(inconsistent_fork_rejection)?;
     let execution_payload_value = block_response.execution_payload_value();
-    let consensus_block_value = block_response.consensus_block_value();
+    let consensus_block_value = block_response.consensus_block_value_wei();
     let execution_payload_blinded = block_response.is_blinded();
 
     let metadata = ProduceBlockV3Metadata {
@@ -95,8 +94,8 @@ pub fn build_response_v3<T: BeaconChainTypes>(
     match accept_header {
         Some(api_types::Accept::Ssz) => Response::builder()
             .status(200)
-            .header("Content-Type", "application/ssz")
             .body(block_contents.as_ssz_bytes().into())
+            .map(|res: Response<Body>| add_ssz_content_type_header(res))
             .map(|res: Response<Body>| add_consensus_version_header(res, fork_name))
             .map(|res| add_execution_payload_blinded_header(res, execution_payload_blinded))
             .map(|res: Response<Body>| {
@@ -196,9 +195,9 @@ pub fn build_response_v2<T: BeaconChainTypes>(
     match accept_header {
         Some(api_types::Accept::Ssz) => Response::builder()
             .status(200)
-            .header("Content-Type", "application/octet-stream")
             .body(block_contents.as_ssz_bytes().into())
-            .map(|res: Response<Bytes>| add_consensus_version_header(res, fork_name))
+            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+            .map(|res: Response<Body>| add_consensus_version_header(res, fork_name))
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))
             }),

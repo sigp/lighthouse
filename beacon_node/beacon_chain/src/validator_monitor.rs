@@ -26,9 +26,9 @@ use types::consts::altair::{
     TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
 };
 use types::{
-    Attestation, AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
-    IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
-    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
+    Attestation, AttestationData, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError,
+    ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes,
+    SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
 };
 
 /// Used for Prometheus labels.
@@ -731,6 +731,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 // that qualifies the committee index for reward is included
                 let inclusion_delay = spec.min_attestation_inclusion_delay;
 
+                let data = &unaggregated_attestation.data;
+
                 // Get the reward indices for the unaggregated attestation or log an error
                 match get_attestation_participation_flag_indices(
                     state,
@@ -742,47 +744,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         let head_hit = flag_indices.contains(&TIMELY_HEAD_FLAG_INDEX);
                         let target_hit = flag_indices.contains(&TIMELY_TARGET_FLAG_INDEX);
                         let source_hit = flag_indices.contains(&TIMELY_SOURCE_FLAG_INDEX);
-
-                        if head_hit {
-                            metrics::inc_counter(
-                                &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT,
-                            );
-                        } else {
-                            metrics::inc_counter(
-                            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS,
-                            );
-                        }
-                        if target_hit {
-                            metrics::inc_counter(
-                            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT,
-                            );
-                        } else {
-                            metrics::inc_counter(
-                            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS,
-                            );
-                        }
-                        if source_hit {
-                            metrics::inc_counter(
-                            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT,
-                            );
-                        } else {
-                            metrics::inc_counter(
-                            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS,
-                            );
-                        }
-
-                        let data = &unaggregated_attestation.data;
-                        debug!(
-                            self.log,
-                            "Simulated attestation evaluated";
-                            "attestation_source" => ?data.source.root,
-                            "attestation_target" => ?data.target.root,
-                            "attestation_head" => ?data.beacon_block_root,
-                            "attestation_slot" => ?data.slot,
-                            "source_hit" => source_hit,
-                            "target_hit" => target_hit,
-                            "head_hit" => head_hit,
-                        );
+                        register_simulated_attestation(
+                            data, head_hit, target_hit, source_hit, &self.log,
+                        )
+                    }
+                    Err(BeaconStateError::IncorrectAttestationSource) => {
+                        register_simulated_attestation(data, false, false, false, &self.log)
                     }
                     Err(err) => {
                         error!(
@@ -2052,6 +2019,46 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             }
         }
     }
+}
+
+fn register_simulated_attestation(
+    data: &AttestationData,
+    head_hit: bool,
+    target_hit: bool,
+    source_hit: bool,
+    log: &Logger,
+) {
+    if head_hit {
+        metrics::inc_counter(&metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT);
+    } else {
+        metrics::inc_counter(&metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS);
+    }
+    if target_hit {
+        metrics::inc_counter(&metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT);
+    } else {
+        metrics::inc_counter(
+            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS,
+        );
+    }
+    if source_hit {
+        metrics::inc_counter(&metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT);
+    } else {
+        metrics::inc_counter(
+            &metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS,
+        );
+    }
+
+    debug!(
+        log,
+        "Simulated attestation evaluated";
+        "attestation_source" => ?data.source.root,
+        "attestation_target" => ?data.target.root,
+        "attestation_head" => ?data.beacon_block_root,
+        "attestation_slot" => ?data.slot,
+        "source_hit" => source_hit,
+        "target_hit" => target_hit,
+        "head_hit" => head_hit,
+    );
 }
 
 /// Returns the duration since the unix epoch.
