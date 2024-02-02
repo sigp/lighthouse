@@ -411,7 +411,17 @@ impl Config {
         }
 
         config.enable_web3signer_slashing_protection =
-            !cli_args.is_present("disable-slashing-protection-web3signer");
+            if cli_args.is_present("disable-slashing-protection-web3signer") {
+                warn!(
+                    log,
+                    "Slashing protection for remote keys disabled";
+                    "info" => "ensure slashing protection on web3signer is enabled or you WILL \
+                               get slashed"
+                );
+                false
+            } else {
+                true
+            };
 
         Ok(config)
     }

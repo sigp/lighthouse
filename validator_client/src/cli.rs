@@ -371,8 +371,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("disable-slashing-protection-web3signer")
                 .long("disable-slashing-protection-web3signer")
                 .help("Disable Lighthouse's slashing protection for all web3signer keys. This can \
-                       reduce the I/O burden on the VC and is safe as long as slashing protection \
-                       is enabled on the remote signer and is implemented correctly.")
+                       reduce the I/O burden on the VC but is only safe if slashing protection \
+                       is enabled on the remote signer and is implemented correctly. DO NOT ENABLE \
+                       THIS FLAG UNLESS YOU ARE CERTAIN THAT SLASHING PROTECTION IS ENABLED ON \
+                       THE REMOTE SIGNER. IT IS OFF BY DEFAULT, AND YOU WILL GET SLASHED IF YOU \
+                       USE THIS FLAG WITHOUT ENABLING IT.")
         )
         /*
          * Experimental/development options.
