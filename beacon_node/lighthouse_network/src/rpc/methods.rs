@@ -388,10 +388,10 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
     LightClientBootstrap(LightClientBootstrap<T>),
 
-    /// A response to a get LightClientOptimisticUpdate request.
+    /// A response to a get LIGHT_CLIENT_OPTIMISTIC_UPDATE request.
     LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<T>>),
 
-    /// A response to a get LightClientFinalityUpdate request.
+    /// A response to a get LIGHT_CLIENT_FINALITY_UPDATE request.
     LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<T>>),
 
     /// A response to a get BLOBS_BY_ROOT request.

@@ -1155,9 +1155,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // Handle backfill sync chain segments.
                         } else if let Some(item) = backfill_chain_segment.pop() {
                             self.spawn_worker(item, idle_tx);
-                        // This statement should always be the final else statement.
+                        // Handle light client requests.
                         } else if let Some(item) = lc_bootstrap_queue.pop() {
                             self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = lc_optimistic_update_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = lc_finality_update_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                            // This statement should always be the final else statement.
                         } else {
                             // Let the journal know that a worker is freed and there's nothing else
                             // for it to do.
