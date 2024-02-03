@@ -198,22 +198,23 @@ impl<E: EthSpec> Redb<E> {
     pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
-        let open_db = self.db.read();
-        let tx = open_db.begin_read().unwrap();
-        let table = tx.open_table(table_definition).unwrap();
-        let start = Hash256::zero();
 
-        let mut res = vec![];
+        let iter = {
+            let open_db = self.db.read();
+            let read_txn = open_db.begin_read().unwrap();
+            let table = read_txn.open_table(table_definition).unwrap();
+            table.range(Hash256::zero().as_bytes()..).unwrap().map(|res| {
+                let (k, _) = res.unwrap();
+                Ok(
+                    K::from_bytes(k.value()).unwrap()
+                )
+            })
+        };
 
-        while let Ok(result) = table.range(start.as_bytes()..).unwrap().next().unwrap() {
-            let (key, _) = result;
-            res.push(K::from_bytes(key.value()))
-        }
-
-        Box::new(res.into_iter())
+        Box::new(iter)
     }
 
-    pub fn iter_column_from<'a, K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'a, K> {
+    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
