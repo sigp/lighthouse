@@ -4,7 +4,7 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
-    get_key_for_col, metadata::BLOB_INFO_KEY, DBColumn, Error, HotColdDB, KeyValueStoreOp,
+    metadata::BLOB_INFO_KEY, DBColumn, Error, HotColdDB, KeyValueStoreOp,
 };
 use types::{Epoch, EthSpec, Hash256, Slot};
 

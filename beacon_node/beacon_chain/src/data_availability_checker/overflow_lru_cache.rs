@@ -1519,6 +1519,9 @@ mod test {
                 let availability = recovered_cache
                     .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                     .expect("should put blob");
+                println!("{}", i);
+                println!("addtional_blobs {}", additional_blobs - 1);
+                println!("{:?}", availability);
                 if i == additional_blobs - 1 {
                     assert!(matches!(availability, Availability::Available(_)))
                 } else {

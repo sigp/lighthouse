@@ -1,5 +1,4 @@
 use crate::{
-    get_key_for_col,
     hot_cold_store::{BytesKey, HotColdDBError},
     metrics, ColumnIter, ColumnKeyIter, ItemStore, Key, KeyValueStore, RawEntryIter, RawKeyIter,
 };
@@ -242,6 +241,7 @@ impl<E: EthSpec> Redb<E> {
     }
 
     pub fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
+        println!("iter_raw_entries");
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 

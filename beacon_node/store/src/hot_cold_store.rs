@@ -17,7 +17,7 @@ use crate::metadata::{
 };
 use crate::metrics;
 use crate::{
-    get_key_for_col, ChunkWriter, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
+    ChunkWriter, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
     PartialBeaconState, StoreItem, StoreOp,
 };
 use db_key::Key;
@@ -387,8 +387,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blinded_block: &SignedBeaconBlock<E, BlindedPayload<E>>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
-        let db_key = get_key_for_col(DBColumn::BeaconBlock.into(), key.as_bytes());
-
         let column_name: &str = DBColumn::BeaconBlock.into();
         ops.push(KeyValueStoreOp::PutKeyValue(
             column_name.to_owned(),
@@ -590,8 +588,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blobs: BlobSidecarList<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
-        let db_key = get_key_for_col(DBColumn::BeaconBlob.into(), key.as_bytes());
-
         let column_key: &str = DBColumn::BeaconBlob.into();
         ops.push(KeyValueStoreOp::PutKeyValue(
             column_key.to_owned(),
@@ -899,9 +895,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::DeleteStateTemporaryFlag(state_root) => {
-                    let db_key =
-                        get_key_for_col(TemporaryFlag::db_column().into(), state_root.as_bytes());
-
                     let column_name: &str = TemporaryFlag::db_column().into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         column_name.to_owned(),
@@ -910,8 +903,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::DeleteBlock(block_root) => {
-                    let key = get_key_for_col(DBColumn::BeaconBlock.into(), block_root.as_bytes());
-
                     let column_name: &str = DBColumn::BeaconBlock.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         column_name.to_owned(),
@@ -920,8 +911,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::DeleteBlobs(block_root) => {
-                    let key = get_key_for_col(DBColumn::BeaconBlob.into(), block_root.as_bytes());
-
                     let column_name: &str = DBColumn::BeaconBlob.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         column_name.to_owned(),
@@ -930,9 +919,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::DeleteState(state_root, slot) => {
-                    let state_summary_key =
-                        get_key_for_col(DBColumn::BeaconStateSummary.into(), state_root.as_bytes());
-
                     let column_name: &str = DBColumn::BeaconStateSummary.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         column_name.to_owned(),
@@ -940,9 +926,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     ));
 
                     if slot.map_or(true, |slot| slot % E::slots_per_epoch() == 0) {
-                        let state_key =
-                            get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
-
                         let column_name: &str = DBColumn::BeaconState.into();
                         key_value_batch.push(KeyValueStoreOp::DeleteKey(
                             column_name.to_owned(),
@@ -952,8 +935,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::DeleteExecutionPayload(block_root) => {
-                    let key = get_key_for_col(DBColumn::ExecPayload.into(), block_root.as_bytes());
-
                     let column_name: &str = DBColumn::ExecPayload.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         column_name.to_owned(),
@@ -1542,7 +1523,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         let column = SchemaVersion::db_column().into();
         let key = SCHEMA_VERSION_KEY.as_bytes();
-        let db_key = get_key_for_col(column, key);
         let op = KeyValueStoreOp::PutKeyValue(
             column.to_owned(),
             key.to_vec(),

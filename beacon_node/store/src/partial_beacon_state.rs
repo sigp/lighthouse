@@ -2,7 +2,7 @@ use crate::chunked_vector::{
     load_variable_list_from_db, load_vector_from_db, BlockRoots, HistoricalRoots,
     HistoricalSummaries, RandaoMixes, StateRoots,
 };
-use crate::{get_key_for_col, DBColumn, Error, KeyValueStore, KeyValueStoreOp};
+use crate::{DBColumn, Error, KeyValueStore, KeyValueStoreOp};
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
@@ -271,8 +271,6 @@ impl<T: EthSpec> PartialBeaconState<T> {
 
     /// Prepare the partial state for storage in the KV database.
     pub fn as_kv_store_op(&self, state_root: Hash256) -> KeyValueStoreOp {
-        let db_key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
-
         let column_name: &str = DBColumn::BeaconState.into();
         KeyValueStoreOp::PutKeyValue(
             column_name.to_owned(),

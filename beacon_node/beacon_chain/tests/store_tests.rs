@@ -32,7 +32,6 @@ use store::database::interface::BeaconNodeBackend;
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
 use store::{
     chunked_vector::{chunk_key, Field},
-    get_key_for_col,
     iter::{BlockRootsIterator, StateRootsIterator},
     BlobInfo, DBColumn, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreConfig,
 };
@@ -146,7 +145,6 @@ async fn heal_freezer_block_roots_at_split() {
     let chunk_index = <store::chunked_vector::BlockRoots as Field<E>>::chunk_index(
         last_restore_point_slot.as_usize(),
     );
-    let key_chunk = get_key_for_col(DBColumn::BeaconBlockRoots.as_str(), &chunk_key(chunk_index));
     store
         .cold_db
         .do_atomically(vec![KeyValueStoreOp::DeleteKey(
@@ -228,7 +226,6 @@ async fn heal_freezer_block_roots_with_skip_slots() {
     let chunk_index = <store::chunked_vector::BlockRoots as Field<E>>::chunk_index(
         last_restore_point_slot.as_usize(),
     );
-    let key_chunk = get_key_for_col(DBColumn::BeaconBlockRoots.as_str(), &chunk_key(chunk_index));
     store
         .cold_db
         .do_atomically(vec![KeyValueStoreOp::DeleteKey(

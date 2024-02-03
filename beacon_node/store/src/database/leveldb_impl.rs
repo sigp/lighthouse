@@ -70,8 +70,6 @@ impl<E: EthSpec> LevelDB<E> {
         val: &[u8],
         opts: WriteOptions,
     ) -> Result<(), Error> {
-        println!("put_bytes_with_options");
-        println!("{}", col);
         let column_key = get_key_for_col(col, key);
 
         metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
@@ -101,8 +99,6 @@ impl<E: EthSpec> LevelDB<E> {
 
     // Retrieve some bytes in `column` with `key`.
     pub fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        println!("get_bytes");
-        println!("{}", col);
         let column_key = get_key_for_col(col, key);
 
         metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
@@ -122,8 +118,6 @@ impl<E: EthSpec> LevelDB<E> {
 
     /// Return `true` if `key` exists in `column`.
     pub fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
-        println!("key_exists");
-        println!("{}", col);
         let column_key = get_key_for_col(col, key);
 
         metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
@@ -146,18 +140,15 @@ impl<E: EthSpec> LevelDB<E> {
     }
 
     pub fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
-        println!("do_atomically");
         let mut leveldb_batch = Writebatch::new();
         for op in ops_batch {
             match op {
                 KeyValueStoreOp::PutKeyValue(col, key, value) => {
-                    println!("{}", col);
                     let column_key = get_key_for_col(&col, &key);
                     leveldb_batch.put(BytesKey::from_vec(column_key), &value);
                 }
 
                 KeyValueStoreOp::DeleteKey(col, key) => {
-                    println!("{}", col);
                     let column_key = get_key_for_col(&col, &key);
                     leveldb_batch.delete(BytesKey::from_vec(column_key));
                 }
@@ -256,7 +247,8 @@ impl<E: EthSpec> LevelDB<E> {
             })
     }
 
-    fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
+    pub fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
+        println!("iter_raw_entries");
         let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
 
         let iter = self.db.iter(self.read_options());
@@ -266,12 +258,14 @@ impl<E: EthSpec> LevelDB<E> {
             iter.take_while(move |(key, _)| key.key.starts_with(start_key.key.as_slice()))
                 .map(move |(bytes_key, value)| {
                     let subkey = &bytes_key.key[column.as_bytes().len()..];
+                    println!("{:?}", bytes_key.key);
+                    println!("{:?}", subkey);
                     Ok((Vec::from(subkey), value))
                 }),
         )
     }
 
-    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
+    pub fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
         let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
 
         let iter = self.db.keys_iter(self.read_options());

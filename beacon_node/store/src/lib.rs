@@ -312,8 +312,6 @@ pub trait StoreItem: Sized {
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
 
     fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
-        let db_key = get_key_for_col(Self::db_column().into(), key.as_bytes());
-
         let column_name: &str = Self::db_column().into();
         KeyValueStoreOp::PutKeyValue(
             column_name.to_owned(),
