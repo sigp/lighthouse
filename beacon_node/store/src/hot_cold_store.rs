@@ -736,8 +736,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else {
             state_root
         };
-
-        println!("state root to fetch: {:?}", state_root);
+        
         let state = self
             .load_hot_state(&state_root, state_processing_strategy)?
             .map(|state| (state_root, state));
