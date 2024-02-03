@@ -560,7 +560,7 @@ where
         } else {
             builder
         };
-
+        println!("YOOO");
         let chain = builder.build().expect("should build");
 
         BeaconChainHarness {
