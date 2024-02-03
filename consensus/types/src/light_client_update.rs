@@ -90,8 +90,8 @@ impl<T: EthSpec> LightClientUpdate<T> {
         beacon_state: BeaconState<T>,
         block: BeaconBlock<T>,
         attested_state: &mut BeaconState<T>,
-        attested_block: SignedBeaconBlock<T>,
-        finalized_block: SignedBeaconBlock<T>,
+        attested_block: &SignedBeaconBlock<T>,
+        finalized_block: &SignedBeaconBlock<T>,
     ) -> Result<Self, Error> {
         let sync_aggregate = block.body().sync_aggregate()?;
         if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {

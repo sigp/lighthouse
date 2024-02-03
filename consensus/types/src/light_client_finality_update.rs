@@ -60,21 +60,21 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
         {
             ForkName::Base => return Err(Error::AltairForkNotActive),
             ForkName::Altair | ForkName::Merge => (
-                LightClientHeaderAltair::block_to_light_client_header(attested_block.to_owned())?
+                LightClientHeaderAltair::block_to_light_client_header(attested_block)?
                     .into(),
-                LightClientHeaderAltair::block_to_light_client_header(finalized_block.to_owned())?
+                LightClientHeaderAltair::block_to_light_client_header(finalized_block)?
                     .into(),
             ),
             ForkName::Capella => (
-                LightClientHeaderCapella::block_to_light_client_header(attested_block.to_owned())?
+                LightClientHeaderCapella::block_to_light_client_header(attested_block)?
                     .into(),
-                LightClientHeaderCapella::block_to_light_client_header(finalized_block.to_owned())?
+                LightClientHeaderCapella::block_to_light_client_header(finalized_block)?
                     .into(),
             ),
             ForkName::Deneb => (
-                LightClientHeaderDeneb::block_to_light_client_header(attested_block.to_owned())?
+                LightClientHeaderDeneb::block_to_light_client_header(attested_block)?
                     .into(),
-                LightClientHeaderDeneb::block_to_light_client_header(finalized_block.to_owned())?
+                LightClientHeaderDeneb::block_to_light_client_header(finalized_block)?
                     .into(),
             ),
         };

@@ -29,7 +29,7 @@ impl<T: EthSpec> LightClientOptimisticUpdate<T> {
         chain_spec: &ChainSpec,
         block: &SignedBeaconBlock<T>,
         attested_state: &BeaconState<T>,
-        attested_block: SignedBeaconBlock<T>,
+        attested_block: &SignedBeaconBlock<T>,
     ) -> Result<Self, Error> {
         let sync_aggregate = block.message().body().sync_aggregate()?;
         if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {

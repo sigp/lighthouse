@@ -6650,7 +6650,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match fork_name {
             ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
-                LightClientBootstrap::from_beacon_state(&self.spec, &mut state, block)
+                LightClientBootstrap::from_beacon_state(&self.spec, &mut state, &block)
                     .map(|bootstrap| Some((bootstrap, fork_name)))
                     .map_err(Error::LightClientError)
             }

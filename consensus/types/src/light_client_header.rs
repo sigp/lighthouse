@@ -54,7 +54,7 @@ pub struct LightClientHeader<E: EthSpec> {
 }
 
 impl<E: EthSpec> LightClientHeaderAltair<E> {
-    pub fn block_to_light_client_header(block: SignedBeaconBlock<E>) -> Result<Self, Error> {
+    pub fn block_to_light_client_header(block: &SignedBeaconBlock<E>) -> Result<Self, Error> {
         Ok(LightClientHeaderAltair {
             beacon: block.message().block_header(),
             phantom_data: PhantomData,
@@ -73,7 +73,7 @@ impl<E: EthSpec> LightClientHeaderAltair<E> {
 }
 
 impl<E: EthSpec> LightClientHeaderCapella<E> {
-    pub fn block_to_light_client_header(block: SignedBeaconBlock<E>) -> Result<Self, Error> {
+    pub fn block_to_light_client_header(block: &SignedBeaconBlock<E>) -> Result<Self, Error> {
         let payload = block
             .message()
             .execution_payload()?
@@ -127,7 +127,7 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
 }
 
 impl<E: EthSpec> LightClientHeaderDeneb<E> {
-    pub fn block_to_light_client_header(block: SignedBeaconBlock<E>) -> Result<Self, Error> {
+    pub fn block_to_light_client_header(block: &SignedBeaconBlock<E>) -> Result<Self, Error> {
         let payload = block
             .message()
             .execution_payload()?

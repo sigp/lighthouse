@@ -119,7 +119,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         if is_latest_optimistic {
             // can create an optimistic update, that is more recent
             *self.latest_optimistic_update.write() = Some(LightClientOptimisticUpdate {
-                attested_header: block_to_light_client_header(fork_name, attested_block.clone())?,
+                attested_header: block_to_light_client_header(fork_name, &attested_block)?,
                 sync_aggregate: sync_aggregate.clone(),
                 signature_slot,
             });
@@ -141,8 +141,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 *self.latest_finality_update.write() = Some(LightClientFinalityUpdate {
                     // TODO: may want to cache this result from latest_optimistic_update if producing a
                     // light_client header becomes expensive
-                    attested_header: block_to_light_client_header(fork_name, attested_block)?,
-                    finalized_header: block_to_light_client_header(fork_name, finalized_block)?,
+                    attested_header: block_to_light_client_header(fork_name, &attested_block)?,
+                    finalized_header: block_to_light_client_header(fork_name, &finalized_block)?,
                     finality_branch: cached_parts.finality_branch.clone(),
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot,
@@ -257,7 +257,7 @@ fn is_latest_optimistic_update<T: EthSpec>(
 
 fn block_to_light_client_header<T: EthSpec>(
     fork_name: ForkName,
-    block: SignedBeaconBlock<T>,
+    block: &SignedBeaconBlock<T>,
 ) -> Result<LightClientHeader<T>, BeaconChainError> {
     let light_client_header = match fork_name {
         ForkName::Base => return Err(LightClientError::AltairForkNotActive.into()),
