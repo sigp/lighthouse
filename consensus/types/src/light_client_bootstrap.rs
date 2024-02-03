@@ -40,8 +40,7 @@ impl<T: EthSpec> LightClientBootstrap<T> {
             .fork_name_at_epoch(beacon_state.slot().epoch(T::slots_per_epoch()))
         {
             ForkName::Base => return Err(Error::AltairForkNotActive),
-            ForkName::Merge => return Err(Error::AltairForkNotActive),
-            ForkName::Altair => {
+            ForkName::Altair | ForkName::Merge => {
                 LightClientHeaderAltair::block_to_light_client_header(block)?.into()
             }
             ForkName::Capella => {
@@ -64,16 +63,14 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientBootstrap<T> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Altair | ForkName::Merge => {
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
                 Ok(serde_json::from_value::<LightClientBootstrap<T>>(value)
                     .map_err(serde::de::Error::custom))?
             }
-            ForkName::Base | ForkName::Capella | ForkName::Deneb => {
-                Err(serde::de::Error::custom(format!(
-                    "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
-                    fork_name
-                )))
-            }
+            ForkName::Base => Err(serde::de::Error::custom(format!(
+                "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
+                fork_name
+            ))),
         }
     }
 }

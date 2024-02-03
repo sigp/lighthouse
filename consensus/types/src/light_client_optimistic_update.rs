@@ -44,8 +44,7 @@ impl<T: EthSpec> LightClientOptimisticUpdate<T> {
             .fork_name_at_epoch(attested_state.slot().epoch(T::slots_per_epoch()))
         {
             ForkName::Base => return Err(Error::AltairForkNotActive),
-            ForkName::Merge => return Err(Error::AltairForkNotActive),
-            ForkName::Altair => {
+            ForkName::Merge | ForkName::Altair => {
                 LightClientHeaderAltair::block_to_light_client_header(attested_block)?.into()
             }
             ForkName::Capella => {
@@ -70,11 +69,11 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Altair | ForkName::Merge => Ok(serde_json::from_value::<
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => Ok(serde_json::from_value::<
                 LightClientOptimisticUpdate<T>,
             >(value)
             .map_err(serde::de::Error::custom))?,
-            ForkName::Base | ForkName::Capella | ForkName::Deneb => {
+            ForkName::Base  => {
                 Err(serde::de::Error::custom(format!(
                     "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
                     fork_name

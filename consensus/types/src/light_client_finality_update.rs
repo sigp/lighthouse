@@ -55,56 +55,29 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
 
         let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
 
-        let (attested_header, finalized_header) =
-            match chain_spec.fork_name_at_epoch(beacon_state.slot().epoch(T::slots_per_epoch())) {
-                ForkName::Base => return Err(Error::AltairForkNotActive),
-                ForkName::Merge => return Err(Error::AltairForkNotActive),
-                ForkName::Altair => {
-                    let attested_header: LightClientHeader<T> =
-                        LightClientHeaderAltair::block_to_light_client_header(
-                            attested_block.to_owned(),
-                        )?
-                        .into();
-
-                    let finalized_header: LightClientHeader<T> =
-                        LightClientHeaderAltair::block_to_light_client_header(
-                            finalized_block.to_owned(),
-                        )?
-                        .into();
-
-                    (attested_header, finalized_header)
-                }
-                ForkName::Capella => {
-                    let attested_header: LightClientHeader<T> =
-                        LightClientHeaderCapella::block_to_light_client_header(
-                            attested_block.to_owned(),
-                        )?
-                        .into();
-
-                    let finalized_header: LightClientHeader<T> =
-                        LightClientHeaderCapella::block_to_light_client_header(
-                            finalized_block.to_owned(),
-                        )?
-                        .into();
-
-                    (attested_header, finalized_header)
-                }
-                ForkName::Deneb => {
-                    let attested_header: LightClientHeader<T> =
-                        LightClientHeaderDeneb::block_to_light_client_header(
-                            attested_block.to_owned(),
-                        )?
-                        .into();
-
-                    let finalized_header: LightClientHeader<T> =
-                        LightClientHeaderDeneb::block_to_light_client_header(
-                            finalized_block.to_owned(),
-                        )?
-                        .into();
-
-                    (attested_header, finalized_header)
-                }
-            };
+        let (attested_header, finalized_header) = match chain_spec
+            .fork_name_at_epoch(beacon_state.slot().epoch(T::slots_per_epoch()))
+        {
+            ForkName::Base => return Err(Error::AltairForkNotActive),
+            ForkName::Altair | ForkName::Merge => (
+                LightClientHeaderAltair::block_to_light_client_header(attested_block.to_owned())?
+                    .into(),
+                LightClientHeaderAltair::block_to_light_client_header(finalized_block.to_owned())?
+                    .into(),
+            ),
+            ForkName::Capella => (
+                LightClientHeaderCapella::block_to_light_client_header(attested_block.to_owned())?
+                    .into(),
+                LightClientHeaderCapella::block_to_light_client_header(finalized_block.to_owned())?
+                    .into(),
+            ),
+            ForkName::Deneb => (
+                LightClientHeaderDeneb::block_to_light_client_header(attested_block.to_owned())?
+                    .into(),
+                LightClientHeaderDeneb::block_to_light_client_header(finalized_block.to_owned())?
+                    .into(),
+            ),
+        };
 
         Ok(Self {
             attested_header,
@@ -122,16 +95,14 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<T> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Altair | ForkName::Merge => Ok(serde_json::from_value::<
-                LightClientFinalityUpdate<T>,
-            >(value)
-            .map_err(serde::de::Error::custom))?,
-            ForkName::Base | ForkName::Capella | ForkName::Deneb => {
-                Err(serde::de::Error::custom(format!(
-                    "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
-                    fork_name
-                )))
-            }
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => Ok(
+                serde_json::from_value::<LightClientFinalityUpdate<T>>(value)
+                    .map_err(serde::de::Error::custom),
+            )?,
+            ForkName::Base => Err(serde::de::Error::custom(format!(
+                "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
+                fork_name
+            ))),
         }
     }
 }

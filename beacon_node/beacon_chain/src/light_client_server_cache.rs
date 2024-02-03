@@ -261,8 +261,9 @@ fn block_to_light_client_header<T: EthSpec>(
 ) -> Result<LightClientHeader<T>, BeaconChainError> {
     let light_client_header = match fork_name {
         ForkName::Base => return Err(LightClientError::AltairForkNotActive.into()),
-        ForkName::Merge => return Err(LightClientError::AltairForkNotActive.into()),
-        ForkName::Altair => LightClientHeaderAltair::block_to_light_client_header(block)?.into(),
+        ForkName::Merge | ForkName::Altair => {
+            LightClientHeaderAltair::block_to_light_client_header(block)?.into()
+        }
         ForkName::Capella => LightClientHeaderCapella::block_to_light_client_header(block)?.into(),
         ForkName::Deneb => LightClientHeaderDeneb::block_to_light_client_header(block)?.into(),
     };
