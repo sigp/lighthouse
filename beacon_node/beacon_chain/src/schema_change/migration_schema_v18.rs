@@ -3,9 +3,7 @@ use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{
-    metadata::BLOB_INFO_KEY, DBColumn, Error, HotColdDB, KeyValueStoreOp,
-};
+use store::{metadata::BLOB_INFO_KEY, DBColumn, Error, HotColdDB, KeyValueStoreOp};
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// The slot clock isn't usually available before the database is initialized, so we construct a

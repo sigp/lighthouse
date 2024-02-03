@@ -17,8 +17,8 @@ use crate::metadata::{
 };
 use crate::metrics;
 use crate::{
-    ChunkWriter, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
-    PartialBeaconState, StoreItem, StoreOp,
+    ChunkWriter, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp, PartialBeaconState,
+    StoreItem, StoreOp,
 };
 use db_key::Key;
 use itertools::process_results;
@@ -1521,7 +1521,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         schema_version: SchemaVersion,
         mut ops: Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        let column = SchemaVersion::db_column().into();
+        let column: &str = SchemaVersion::db_column().into();
         let key = SCHEMA_VERSION_KEY.as_bytes();
         let op = KeyValueStoreOp::PutKeyValue(
             column.to_owned(),
