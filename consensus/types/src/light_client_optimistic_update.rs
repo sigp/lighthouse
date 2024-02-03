@@ -69,16 +69,14 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => Ok(serde_json::from_value::<
-                LightClientOptimisticUpdate<T>,
-            >(value)
-            .map_err(serde::de::Error::custom))?,
-            ForkName::Base  => {
-                Err(serde::de::Error::custom(format!(
-                    "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
-                    fork_name
-                )))
-            }
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => Ok(
+                serde_json::from_value::<LightClientOptimisticUpdate<T>>(value)
+                    .map_err(serde::de::Error::custom),
+            )?,
+            ForkName::Base => Err(serde::de::Error::custom(format!(
+                "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
+                fork_name
+            ))),
         }
     }
 }
