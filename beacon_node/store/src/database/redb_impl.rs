@@ -222,7 +222,7 @@ impl<E: EthSpec> Redb<E> {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read().unwrap();
             let table = read_txn.open_table(table_definition).unwrap();
-            table.range::<&[u8]>(from..).unwrap().map(|res| {
+            table.range(from..).unwrap().map(|res| {
                 let (k, v) = res.unwrap();
                 Ok((
                     K::from_bytes(k.value()).unwrap(),
