@@ -128,7 +128,7 @@ impl From<LevelDBError> for Error {
 #[cfg(feature = "redb")]
 impl From<redb::Error> for Error {
     fn from(e: redb::Error) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(e)
     }
 }
 

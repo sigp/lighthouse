@@ -4,12 +4,16 @@ use crate::{
     get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, KeyValueStore,
     KeyValueStoreOp, RawEntryIter, RawKeyIter,
 };
-use leveldb::compaction::Compaction;
-use leveldb::database::batch::{Batch, Writebatch};
-use leveldb::database::kv::KV;
-use leveldb::database::Database;
-use leveldb::iterator::{Iterable, LevelDBIterator};
-use leveldb::options::{Options, ReadOptions};
+use leveldb::{
+    compaction::Compaction,
+    database::{
+        batch::{Batch, Writebatch},
+        kv::KV,
+        Database,
+    },
+    iterator::{Iterable, LevelDBIterator},
+    options::{Options, ReadOptions},
+};
 use parking_lot::{Mutex, MutexGuard};
 use std::marker::PhantomData;
 use std::path::Path;

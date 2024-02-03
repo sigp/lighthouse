@@ -1,14 +1,8 @@
-use crate::{
-    hot_cold_store::{BytesKey, HotColdDBError},
-    metrics, ColumnIter, ColumnKeyIter, ItemStore, Key, KeyValueStore, RawEntryIter, RawKeyIter,
-};
+use crate::{metrics, ColumnIter, ColumnKeyIter, Key, RawEntryIter, RawKeyIter};
 use crate::{DBColumn, Error, KeyValueStoreOp};
-use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
-use redb::{
-    AccessGuard, ReadOnlyTable, ReadTransaction, ReadableTable, RedbKey, RedbValue, StorageError,
-    TableDefinition,
-};
-use std::{borrow::BorrowMut, cell::RefCell, f64::consts::E, marker::PhantomData, path::Path};
+use parking_lot::{Mutex, MutexGuard, RwLock};
+use redb::{ReadableTable, TableDefinition};
+use std::{borrow::BorrowMut, marker::PhantomData, path::Path};
 use strum::IntoEnumIterator;
 use types::{EthSpec, Hash256};
 
@@ -124,7 +118,7 @@ impl<E: EthSpec> Redb<E> {
             metrics::stop_timer(timer);
             Ok(Some(value))
         } else {
-            metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, 0 as u64);
+            metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, 0_u64);
             metrics::stop_timer(timer);
             Ok(None)
         }
