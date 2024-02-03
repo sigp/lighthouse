@@ -89,7 +89,8 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
                 .to_owned(),
         );
 
-        let execution_branch = beacon_block_body.compute_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
+        let execution_branch =
+            beacon_block_body.block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
         return Ok(LightClientHeaderCapella {
             beacon: block.message().block_header(),
@@ -143,7 +144,8 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
                 .to_owned(),
         );
 
-        let execution_branch = beacon_block_body.compute_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
+        let execution_branch =
+            beacon_block_body.block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
         Ok(LightClientHeaderDeneb {
             beacon: block.message().block_header(),

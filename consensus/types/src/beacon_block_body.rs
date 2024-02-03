@@ -595,7 +595,7 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
 }
 
 impl<T: EthSpec> BeaconBlockBody<T> {
-    pub fn compute_merkle_proof(
+    pub fn block_body_merkle_proof(
         &mut self,
         generalized_index: usize,
     ) -> Result<Vec<Hash256>, Error> {

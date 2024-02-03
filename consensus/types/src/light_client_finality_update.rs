@@ -55,29 +55,22 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
 
         let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
 
-        let (attested_header, finalized_header) = match chain_spec
-            .fork_name_at_epoch(beacon_state.slot().epoch(T::slots_per_epoch()))
-        {
-            ForkName::Base => return Err(Error::AltairForkNotActive),
-            ForkName::Altair | ForkName::Merge => (
-                LightClientHeaderAltair::block_to_light_client_header(attested_block)?
-                    .into(),
-                LightClientHeaderAltair::block_to_light_client_header(finalized_block)?
-                    .into(),
-            ),
-            ForkName::Capella => (
-                LightClientHeaderCapella::block_to_light_client_header(attested_block)?
-                    .into(),
-                LightClientHeaderCapella::block_to_light_client_header(finalized_block)?
-                    .into(),
-            ),
-            ForkName::Deneb => (
-                LightClientHeaderDeneb::block_to_light_client_header(attested_block)?
-                    .into(),
-                LightClientHeaderDeneb::block_to_light_client_header(finalized_block)?
-                    .into(),
-            ),
-        };
+        let (attested_header, finalized_header) =
+            match chain_spec.fork_name_at_epoch(beacon_state.slot().epoch(T::slots_per_epoch())) {
+                ForkName::Base => return Err(Error::AltairForkNotActive),
+                ForkName::Altair | ForkName::Merge => (
+                    LightClientHeaderAltair::block_to_light_client_header(attested_block)?.into(),
+                    LightClientHeaderAltair::block_to_light_client_header(finalized_block)?.into(),
+                ),
+                ForkName::Capella => (
+                    LightClientHeaderCapella::block_to_light_client_header(attested_block)?.into(),
+                    LightClientHeaderCapella::block_to_light_client_header(finalized_block)?.into(),
+                ),
+                ForkName::Deneb => (
+                    LightClientHeaderDeneb::block_to_light_client_header(attested_block)?.into(),
+                    LightClientHeaderDeneb::block_to_light_client_header(finalized_block)?.into(),
+                ),
+            };
 
         Ok(Self {
             attested_header,
