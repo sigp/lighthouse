@@ -1,9 +1,14 @@
 use crate::{
-    get_key_for_col, hot_cold_store::{BytesKey, HotColdDBError}, metrics, ColumnIter, ColumnKeyIter, ItemStore, Key, KeyValueStore
+    get_key_for_col,
+    hot_cold_store::{BytesKey, HotColdDBError},
+    metrics, ColumnIter, ColumnKeyIter, ItemStore, Key, KeyValueStore, RawEntryIter, RawKeyIter,
 };
 use crate::{DBColumn, Error, KeyValueStoreOp};
 use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
-use redb::{AccessGuard, ReadOnlyTable, ReadTransaction, ReadableTable, RedbKey, RedbValue, StorageError, TableDefinition};
+use redb::{
+    AccessGuard, ReadOnlyTable, ReadTransaction, ReadableTable, RedbKey, RedbValue, StorageError,
+    TableDefinition,
+};
 use std::{borrow::BorrowMut, cell::RefCell, f64::consts::E, marker::PhantomData, path::Path};
 use strum::IntoEnumIterator;
 use types::{EthSpec, Hash256};
@@ -31,7 +36,7 @@ impl<E: EthSpec> Redb<E> {
         println!("{:?}", path);
         let db = redb::Database::create(path)?;
         let transaction_mutex = Mutex::new(());
-      
+
         for column in DBColumn::iter() {
             Redb::<E>::create_table(&db, column.into())?;
         }
@@ -165,7 +170,7 @@ impl<E: EthSpec> Redb<E> {
                 KeyValueStoreOp::PutKeyValue(column, key, value) => {
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                         TableDefinition::new(&column);
- 
+
                     let mut table = tx.open_table(table_definition)?;
                     table.insert(key.as_slice(), value.as_slice())?;
                     drop(table);
@@ -174,7 +179,7 @@ impl<E: EthSpec> Redb<E> {
                 KeyValueStoreOp::DeleteKey(column, key) => {
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                         TableDefinition::new(&column);
-                    
+
                     let mut table = tx.open_table(table_definition)?;
                     table.remove(key.as_slice())?;
                     drop(table);
@@ -203,12 +208,13 @@ impl<E: EthSpec> Redb<E> {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read().unwrap();
             let table = read_txn.open_table(table_definition).unwrap();
-            table.range(Hash256::zero().as_bytes()..).unwrap().map(|res| {
-                let (k, _) = res.unwrap();
-                Ok(
-                    K::from_bytes(k.value()).unwrap()
-                )
-            })
+            table
+                .range(Hash256::zero().as_bytes()..)
+                .unwrap()
+                .map(|res| {
+                    let (k, _) = res.unwrap();
+                    Ok(K::from_bytes(k.value()).unwrap())
+                })
         };
 
         Box::new(iter)
@@ -224,10 +230,7 @@ impl<E: EthSpec> Redb<E> {
             let table = read_txn.open_table(table_definition).unwrap();
             table.range(from..).unwrap().map(|res| {
                 let (k, v) = res.unwrap();
-                Ok((
-                    K::from_bytes(k.value()).unwrap(),
-                    v.value().to_vec(),
-                ))
+                Ok((K::from_bytes(k.value()).unwrap(), v.value().to_vec()))
             })
         };
 
@@ -238,29 +241,61 @@ impl<E: EthSpec> Redb<E> {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
-    /*
+    pub fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+            TableDefinition::new(column.into());
+
+        let iter = {
+            let open_db = self.db.read();
+            let read_txn = open_db.begin_read().unwrap();
+            let table = read_txn.open_table(table_definition).unwrap();
+            table.range(prefix..).unwrap().map(|res| {
+                let (k, v) = res.unwrap();
+                Ok((k.value().to_vec(), v.value().to_vec()))
+            })
+        };
+
+        Box::new(iter)
+    }
+
+    pub fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+            TableDefinition::new(column.into());
+
+        let iter = {
+            let open_db = self.db.read();
+            let read_txn = open_db.begin_read().unwrap();
+            let table = read_txn.open_table(table_definition).unwrap();
+            table.range(prefix..).unwrap().map(|res| {
+                let (k, _) = res.unwrap();
+                Ok(k.value().to_vec())
+            })
+        };
+
+        Box::new(iter)
+    }
+
     /// Return an iterator over the state roots of all temporary states.
     pub fn iter_temporary_state_roots(
         &self,
         column: DBColumn,
     ) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
-        let start_key =
-            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+            TableDefinition::new(column.into());
 
-        let keys_iter = self.db.keys_iter(self.read_options());
-        keys_iter.seek(&start_key);
-
-        keys_iter
-            .take_while(move |key| key.matches_column(column))
-            .map(move |bytes_key| {
-                bytes_key.remove_column(column).ok_or_else(|| {
-                    HotColdDBError::IterationError {
-                        unexpected_key: bytes_key,
-                    }
-                    .into()
+        let iter = {
+            let open_db = self.db.read();
+            let read_txn = open_db.begin_read().unwrap();
+            let table = read_txn.open_table(table_definition).unwrap();
+            table
+                .range(Hash256::zero().as_bytes()..)
+                .unwrap()
+                .map(|res| {
+                    let (k, _) = res.unwrap();
+                    Ok(Hash256::from_bytes(k.value()).unwrap())
                 })
-            })
-    }
+        };
 
-    */
+        iter
+    }
 }

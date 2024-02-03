@@ -68,7 +68,9 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
             match op {
                 KeyValueStoreOp::PutKeyValue(col, key, value) => {
                     let column_key = get_key_for_col(&col, &key);
-                    self.db.write().insert(BytesKey::from_vec(column_key), value);
+                    self.db
+                        .write()
+                        .insert(BytesKey::from_vec(column_key), value);
                 }
 
                 KeyValueStoreOp::DeleteKey(col, key) => {

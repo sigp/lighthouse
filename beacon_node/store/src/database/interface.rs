@@ -149,6 +149,28 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_from(txn, column, from),
         }
     }
+
+    fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> crate::RawEntryIter {
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => {
+                leveldb_impl::LevelDB::iter_raw_entries(txn, column, prefix)
+            }
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_raw_entries(txn, column, prefix),
+        }
+    }
+
+    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> crate::RawKeyIter {
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => {
+                leveldb_impl::LevelDB::iter_raw_keys(txn, column, prefix)
+            }
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_raw_keys(txn, column, prefix),
+        }
+    }
 }
 
 impl<E: EthSpec> BeaconNodeBackend<E> {
@@ -226,7 +248,7 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column(txn, column),
         }
     }
-    /*
+
     pub fn iter_temporary_state_roots(
         &self,
         column: DBColumn,
@@ -237,9 +259,11 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
                 leveldb_impl::LevelDB::iter_temporary_state_roots(txn, column)
             }
             #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => todo!(),
+            BeaconNodeBackend::Redb(txn) => {
+                redb_impl::Redb::iter_temporary_state_roots(txn, column)
+            }
         }
-    }*/
+    }
 }
 
 pub struct WriteOptions {

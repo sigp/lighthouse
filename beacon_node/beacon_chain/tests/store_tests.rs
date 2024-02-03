@@ -2293,11 +2293,11 @@ async fn garbage_collect_temp_states_from_failed_block() {
             .process_block_result((block, None))
             .await
             .unwrap_err();
-        /*
+
         assert_eq!(
             store.iter_temporary_state_roots().count(),
             block_slot.as_usize() - 1
-        );*/
+        );
         store
     };
 
@@ -2314,7 +2314,7 @@ async fn garbage_collect_temp_states_from_failed_block() {
 
     // On startup, the store should garbage collect all the temporary states.
     let store = get_store(&db_path);
-    // assert_eq!(store.iter_temporary_state_roots().count(), 0);
+    assert_eq!(store.iter_temporary_state_roots().count(), 0);
 }
 
 #[tokio::test]

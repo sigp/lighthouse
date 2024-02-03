@@ -329,12 +329,12 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
 
         Ok(db)
     }
-    /*
+
     /// Return an iterator over the state roots of all temporary states.
     pub fn iter_temporary_state_roots(&self) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
         self.hot_db
             .iter_temporary_state_roots(DBColumn::BeaconStateTemporary)
-    }*/
+    }
 }
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
@@ -736,7 +736,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else {
             state_root
         };
-        
+
         let state = self
             .load_hot_state(&state_root, state_processing_strategy)?
             .map(|state| (state_root, state));
