@@ -218,41 +218,43 @@ impl<E: EthSpec> Redb<E> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
         let open_db = self.db.read();
+        let tx = open_db.begin_read().unwrap();
+        let table = tx.open_table(table_definition).unwrap();
+        let mut res = vec![];
+        // let mut iter = Box::new(TableIter {
+        //     db: open_db,
+        //     tx: None,
+        //     table: None,
+        //     range: None
+        // });
 
-        let mut iter = Box::new(TableIter {
-            db: open_db,
-            tx: None,
-            table: None,
-            range: None
-        });
-
-        iter.tx = Some(iter.db.begin_read().unwrap());
-        iter.table = Some(iter.tx.as_ref().unwrap().open_table(table_definition).unwrap());
-        iter.range = Some(iter.table.as_ref().unwrap().range(from..).unwrap());
+        // iter.tx = Some(iter.db.begin_read().unwrap());
+        // iter.table = Some(iter.tx.as_ref().unwrap().open_table(table_definition).unwrap());
+        // iter.range = Some(iter.table.as_ref().unwrap().range(from..).unwrap());
         
 
-        Box::new(
-            // itertools::process_results(iter, |inner_iter| {
-            //     inner_iter.map(|(k, v)| {
-            //         (K::from_bytes(k.value()).unwrap(), v.value().to_vec())
-            //     })
-            // }).unwrap()
+        // Box::new(
+        //     // itertools::process_results(iter, |inner_iter| {
+        //     //     inner_iter.map(|(k, v)| {
+        //     //         (K::from_bytes(k.value()).unwrap(), v.value().to_vec())
+        //     //     })
+        //     // }).unwrap()
 
-            iter.map(|result| {
-                let (k, v) = result.unwrap();
-                Ok((K::from_bytes(k.value()).unwrap(), v.value().to_vec()))
-            })
-        )
+        //     iter.map(|result| {
+        //         let (k, v) = result.unwrap();
+        //         Ok((K::from_bytes(k.value()).unwrap(), v.value().to_vec()))
+        //     })
+        // )
 
-        // while let Ok(result) = table.range(from..).unwrap().next().unwrap() {
-        //     let (key, value) = result;
-        //     res.push(Ok((
-        //         K::from_bytes(key.value()).unwrap(),
-        //         value.value().to_vec(),
-        //     )))
-        // }
+        while let Ok(result) = table.range(from..).unwrap().next().unwrap() {
+            let (key, value) = result;
+            res.push(Ok((
+                K::from_bytes(key.value()).unwrap(),
+                value.value().to_vec(),
+            )))
+        };
 
-        // Box::new(res.into_iter())
+        Box::new(res.into_iter())
     }
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
