@@ -30,9 +30,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
     request_indices: &[u64],
     chain: &BeaconChain<T>,
 ) -> Result<SyncDuties, warp::reject::Rejection> {
-    let altair_fork_epoch = if let Some(altair_fork_epoch) = chain.spec.altair_fork_epoch {
-        altair_fork_epoch
-    } else {
+    let Some(altair_fork_epoch) = chain.spec.altair_fork_epoch else {
         // Empty response for networks with Altair disabled.
         return Ok(convert_to_response(vec![], false));
     };

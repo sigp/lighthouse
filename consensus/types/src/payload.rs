@@ -39,6 +39,7 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn transactions(&self) -> Option<&Transactions<T>>;
     /// fork-specific fields
     fn withdrawals_root(&self) -> Result<Hash256, Error>;
+    fn blob_gas_used(&self) -> Result<u64, Error>;
 
     /// Is this a default payload with 0x0 roots for transactions and withdrawals?
     fn is_default_with_zero_roots(&self) -> bool;
@@ -83,8 +84,6 @@ pub trait AbstractExecPayload<T: EthSpec>:
     + TryInto<Self::Capella>
     + TryInto<Self::Deneb>
 {
-    type Sidecar: Sidecar<T>;
-
     type Ref<'a>: ExecPayload<T>
         + Copy
         + From<&'a Self::Merge>
@@ -103,11 +102,6 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + Into<Self>
         + for<'a> From<Cow<'a, ExecutionPayloadDeneb<T>>>
         + TryFrom<ExecutionPayloadHeaderDeneb<T>>;
-
-    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
-    fn default_blobs_at_fork(
-        fork_name: ForkName,
-    ) -> Result<<Self::Sidecar as Sidecar<T>>::BlobItems, Error>;
 }
 
 #[superstruct(
@@ -261,6 +255,13 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         }
     }
 
+    fn blob_gas_used(&self) -> Result<u64, Error> {
+        match self {
+            FullPayload::Merge(_) | FullPayload::Capella(_) => Err(Error::IncorrectStateVariant),
+            FullPayload::Deneb(ref inner) => Ok(inner.execution_payload.blob_gas_used),
+        }
+    }
+
     fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
@@ -279,6 +280,15 @@ impl<T: EthSpec> FullPayload<T> {
         map_full_payload_into_execution_payload!(self, |inner, cons| {
             cons(inner.execution_payload)
         })
+    }
+
+    pub fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
+        match fork_name {
+            ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
+            ForkName::Merge => Ok(FullPayloadMerge::default().into()),
+            ForkName::Capella => Ok(FullPayloadCapella::default().into()),
+            ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
+        }
     }
 }
 
@@ -370,6 +380,15 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         }
     }
 
+    fn blob_gas_used(&self) -> Result<u64, Error> {
+        match self {
+            FullPayloadRef::Merge(_) | FullPayloadRef::Capella(_) => {
+                Err(Error::IncorrectStateVariant)
+            }
+            FullPayloadRef::Deneb(inner) => Ok(inner.execution_payload.blob_gas_used),
+        }
+    }
+
     fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
@@ -384,28 +403,10 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
 }
 
 impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
-    type Sidecar = BlobSidecar<T>;
     type Ref<'a> = FullPayloadRef<'a, T>;
     type Merge = FullPayloadMerge<T>;
     type Capella = FullPayloadCapella<T>;
     type Deneb = FullPayloadDeneb<T>;
-
-    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
-        match fork_name {
-            ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
-            ForkName::Merge => Ok(FullPayloadMerge::default().into()),
-            ForkName::Capella => Ok(FullPayloadCapella::default().into()),
-            ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
-        }
-    }
-    fn default_blobs_at_fork(fork_name: ForkName) -> Result<BlobsList<T>, Error> {
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                Err(Error::IncorrectStateVariant)
-            }
-            ForkName::Deneb => Ok(VariableList::default()),
-        }
-    }
 }
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for FullPayload<T> {
@@ -549,6 +550,15 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         }
     }
 
+    fn blob_gas_used(&self) -> Result<u64, Error> {
+        match self {
+            BlindedPayload::Merge(_) | BlindedPayload::Capella(_) => {
+                Err(Error::IncorrectStateVariant)
+            }
+            BlindedPayload::Deneb(ref inner) => Ok(inner.execution_payload_header.blob_gas_used),
+        }
+    }
+
     fn is_default_with_zero_roots(&self) -> bool {
         self.to_ref().is_default_with_zero_roots()
     }
@@ -637,6 +647,15 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
         }
     }
 
+    fn blob_gas_used(&self) -> Result<u64, Error> {
+        match self {
+            BlindedPayloadRef::Merge(_) | BlindedPayloadRef::Capella(_) => {
+                Err(Error::IncorrectStateVariant)
+            }
+            BlindedPayloadRef::Deneb(inner) => Ok(inner.execution_payload_header.blob_gas_used),
+        }
+    }
+
     fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_blinded_payload_ref!(&'b _, self, move |payload, cons| {
             cons(payload);
@@ -662,7 +681,8 @@ macro_rules! impl_exec_payload_common {
      $block_type_variant:ident,     // Blinded                      |   Full
      $is_default_with_empty_roots:block,
      $f:block,
-     $g:block) => {
+     $g:block,
+     $h:block) => {
         impl<T: EthSpec> ExecPayload<T> for $wrapper_type<T> {
             fn block_type() -> BlockType {
                 BlockType::$block_type_variant
@@ -720,6 +740,11 @@ macro_rules! impl_exec_payload_common {
                 let g = $g;
                 g(self)
             }
+
+            fn blob_gas_used(&self) -> Result<u64, Error> {
+                let h = $h;
+                h(self)
+            }
         }
 
         impl<T: EthSpec> From<$wrapped_type<T>> for $wrapper_type<T> {
@@ -755,6 +780,14 @@ macro_rules! impl_exec_payload_for_fork {
                     |payload: &$wrapper_type_header<T>| {
                         let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
                         wrapper_ref_type.withdrawals_root()
+                    };
+                c
+            },
+            {
+                let c: for<'a> fn(&'a $wrapper_type_header<T>) -> Result<u64, Error> =
+                    |payload: &$wrapper_type_header<T>| {
+                        let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
+                        wrapper_ref_type.blob_gas_used()
                     };
                 c
             }
@@ -836,6 +869,14 @@ macro_rules! impl_exec_payload_for_fork {
                         wrapper_ref_type.withdrawals_root()
                     };
                 c
+            },
+            {
+                let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Result<u64, Error> =
+                    |payload: &$wrapper_type_full<T>| {
+                        let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
+                        wrapper_ref_type.blob_gas_used()
+                    };
+                c
             }
         );
 
@@ -910,25 +951,6 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Merge = BlindedPayloadMerge<T>;
     type Capella = BlindedPayloadCapella<T>;
     type Deneb = BlindedPayloadDeneb<T>;
-
-    type Sidecar = BlindedBlobSidecar;
-
-    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
-        match fork_name {
-            ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
-            ForkName::Merge => Ok(BlindedPayloadMerge::default().into()),
-            ForkName::Capella => Ok(BlindedPayloadCapella::default().into()),
-            ForkName::Deneb => Ok(BlindedPayloadDeneb::default().into()),
-        }
-    }
-    fn default_blobs_at_fork(fork_name: ForkName) -> Result<BlobRootsList<T>, Error> {
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                Err(Error::IncorrectStateVariant)
-            }
-            ForkName::Deneb => Ok(VariableList::default()),
-        }
-    }
 }
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for BlindedPayload<T> {
@@ -978,4 +1000,11 @@ impl<T: EthSpec> From<BlindedPayload<T>> for ExecutionPayloadHeader<T> {
             }
         }
     }
+}
+
+/// The block production flow version to be used.
+pub enum BlockProductionVersion {
+    V3,
+    BlindedV2,
+    FullV2,
 }

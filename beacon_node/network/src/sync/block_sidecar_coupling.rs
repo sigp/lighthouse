@@ -30,7 +30,7 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
         }
     }
 
-    pub fn into_responses(self) -> Result<Vec<RpcBlock<T>>, &'static str> {
+    pub fn into_responses(self) -> Result<Vec<RpcBlock<T>>, String> {
         let BlocksAndBlobsRequestInfo {
             accumulated_blocks,
             accumulated_sidecars,
@@ -46,32 +46,32 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
             while {
                 let pair_next_blob = blob_iter
                     .peek()
-                    .map(|sidecar| sidecar.slot == block.slot())
+                    .map(|sidecar| sidecar.slot() == block.slot())
                     .unwrap_or(false);
                 pair_next_blob
             } {
-                blob_list.push(blob_iter.next().ok_or("Missing next blob")?);
+                blob_list.push(blob_iter.next().ok_or("Missing next blob".to_string())?);
             }
 
             let mut blobs_buffer = vec![None; T::max_blobs_per_block()];
             for blob in blob_list {
                 let blob_index = blob.index as usize;
                 let Some(blob_opt) = blobs_buffer.get_mut(blob_index) else {
-                    return Err("Invalid blob index");
+                    return Err("Invalid blob index".to_string());
                 };
                 if blob_opt.is_some() {
-                    return Err("Repeat blob index");
+                    return Err("Repeat blob index".to_string());
                 } else {
                     *blob_opt = Some(blob);
                 }
             }
             let blobs = VariableList::from(blobs_buffer.into_iter().flatten().collect::<Vec<_>>());
-            responses.push(RpcBlock::new(None, block, Some(blobs))?)
+            responses.push(RpcBlock::new(None, block, Some(blobs)).map_err(|e| format!("{e:?}"))?)
         }
 
         // if accumulated sidecars is not empty, throw an error.
         if blob_iter.next().is_some() {
-            return Err("Received sidecars that don't pair well");
+            return Err("Received sidecars that don't pair well".to_string());
         }
 
         Ok(responses)

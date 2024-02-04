@@ -4,6 +4,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
     ChainConfig,
 };
+use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use http_api::test_utils::InteractiveTester;
@@ -17,8 +18,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::{
-    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
+    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, MainnetEthSpec,
+    MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -111,8 +112,8 @@ async fn state_by_root_pruned_from_fork_choice() {
             .unwrap()
             .unwrap();
 
-        assert!(response.finalized.unwrap());
-        assert!(!response.execution_optimistic.unwrap());
+        assert!(response.metadata.finalized.unwrap());
+        assert!(!response.metadata.execution_optimistic.unwrap());
 
         let mut state = response.data;
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
@@ -617,14 +618,21 @@ pub async fn proposer_boost_re_org_test(
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_c)
         .into();
-    let unsigned_block_contents_c = tester
+    let (unsigned_block_type, _) = tester
         .client
-        .get_validator_blocks(slot_c, &randao_reveal, None)
+        .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None, None)
         .await
-        .unwrap()
-        .data;
-    let (unsigned_block_c, block_c_blobs) = unsigned_block_contents_c.deconstruct();
-    let block_c = harness.sign_beacon_block(unsigned_block_c, &state_b);
+        .unwrap();
+
+    let (unsigned_block_c, block_c_blobs) = match unsigned_block_type.data {
+        ProduceBlockV3Response::Full(unsigned_block_contents_c) => {
+            unsigned_block_contents_c.deconstruct()
+        }
+        ProduceBlockV3Response::Blinded(_) => {
+            panic!("Should not be a blinded block");
+        }
+    };
+    let block_c = Arc::new(harness.sign_beacon_block(unsigned_block_c, &state_b));
 
     if should_re_org {
         // Block C should build on A.
@@ -634,13 +642,9 @@ pub async fn proposer_boost_re_org_test(
         assert_eq!(block_c.parent_root(), block_b_root);
     }
 
-    // Sign blobs.
-    let block_c_signed_blobs =
-        block_c_blobs.map(|blobs| harness.sign_blobs(blobs, &state_b, proposer_index));
-
     // Applying block C should cause it to become head regardless (re-org or continuation).
     let block_root_c = harness
-        .process_block_result((block_c.clone(), block_c_signed_blobs))
+        .process_block_result((block_c.clone(), block_c_blobs))
         .await
         .unwrap()
         .into();
@@ -821,7 +825,7 @@ pub async fn fork_choice_before_proposal() {
         .into();
     let block_d = tester
         .client
-        .get_validator_blocks::<E, FullPayload<E>>(slot_d, &randao_reveal, None)
+        .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
         .await
         .unwrap()
         .data

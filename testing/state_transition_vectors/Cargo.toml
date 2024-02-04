@@ -13,3 +13,6 @@ ethereum_ssz = { workspace = true }
 beacon_chain = { workspace = true }
 lazy_static = { workspace = true }
 tokio = { workspace = true }
+
+[features]
+portable = ["beacon_chain/portable"]

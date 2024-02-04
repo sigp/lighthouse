@@ -9,6 +9,7 @@ edition = { workspace = true }
 ef_tests = []
 milagro = ["bls/milagro"]
 fake_crypto = ["bls/fake_crypto"]
+portable = ["beacon_chain/portable"]
 
 [dependencies]
 bls = { workspace = true }
@@ -39,3 +40,4 @@ beacon_chain = { workspace = true }
 store = { workspace = true }
 fork_choice = { workspace = true }
 execution_layer = { workspace = true }
+logging = { workspace = true }

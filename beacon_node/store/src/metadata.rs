@@ -4,7 +4,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::{Checkpoint, Hash256, Slot};
 
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(18);
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(19);
 
 // All the keys that get stored under the `BeaconMeta` column.
 //
@@ -135,7 +135,7 @@ pub struct BlobInfo {
     /// If the `oldest_blob_slot` is `None` then this means that the Deneb fork epoch is not yet
     /// known.
     pub oldest_blob_slot: Option<Slot>,
-    /// A separate blobs database is in use.
+    /// A separate blobs database is in use (deprecated, always `true`).
     pub blobs_db: bool,
 }
 

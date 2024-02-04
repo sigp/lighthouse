@@ -35,11 +35,11 @@ use state_processing::{
 use std::cmp::min;
 use std::convert::TryInto;
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::num::NonZeroUsize;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::BlobSidecarList;
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -61,7 +61,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// Cold database containing compact historical data.
     pub cold_db: Cold,
     /// Database containing blobs. If None, store falls back to use `cold_db`.
-    pub blobs_db: Option<Cold>,
+    pub blobs_db: Cold,
     /// Hot database containing duplicated but quick-to-access recent data.
     ///
     /// The hot database also contains all blocks.
@@ -85,7 +85,7 @@ struct BlockCache<E: EthSpec> {
 }
 
 impl<E: EthSpec> BlockCache<E> {
-    pub fn new(size: usize) -> Self {
+    pub fn new(size: NonZeroUsize) -> Self {
         Self {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
@@ -138,7 +138,6 @@ pub enum HotColdDBError {
     MissingExecutionPayload(Hash256),
     MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
-    MissingPathToBlobsDatabase,
     BlobsPreviouslyInDefaultStore,
     HotStateSummaryError(BeaconStateError),
     RestorePointDecodeError(ssz::DecodeError),
@@ -178,7 +177,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             anchor_info: RwLock::new(None),
             blob_info: RwLock::new(BlobInfo::default()),
             cold_db: MemoryStore::open(),
-            blobs_db: Some(MemoryStore::open()),
+            blobs_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
             state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
@@ -202,7 +201,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
     pub fn open(
         hot_path: &Path,
         cold_path: &Path,
-        blobs_db_path: Option<PathBuf>,
+        blobs_db_path: &Path,
         migrate_schema: impl FnOnce(Arc<Self>, SchemaVersion, SchemaVersion) -> Result<(), Error>,
         config: StoreConfig,
         spec: ChainSpec,
@@ -215,7 +214,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             anchor_info: RwLock::new(None),
             blob_info: RwLock::new(BlobInfo::default()),
             cold_db: LevelDB::open(cold_path)?,
-            blobs_db: None,
+            blobs_db: LevelDB::open(blobs_db_path)?,
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
             state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
@@ -271,37 +270,29 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             Some(blob_info) => {
                 // If the oldest block slot is already set do not allow the blob DB path to be
                 // changed (require manual migration).
-                if blob_info.oldest_blob_slot.is_some() {
-                    if blobs_db_path.is_some() && !blob_info.blobs_db {
-                        return Err(HotColdDBError::BlobsPreviouslyInDefaultStore.into());
-                    } else if blobs_db_path.is_none() && blob_info.blobs_db {
-                        return Err(HotColdDBError::MissingPathToBlobsDatabase.into());
-                    }
+                if blob_info.oldest_blob_slot.is_some() && !blob_info.blobs_db {
+                    return Err(HotColdDBError::BlobsPreviouslyInDefaultStore.into());
                 }
                 // Set the oldest blob slot to the Deneb fork slot if it is not yet set.
+                // Always initialize `blobs_db` to true, we no longer support storing the blobs
+                // in the freezer DB, because the UX is strictly worse for relocating the DB.
                 let oldest_blob_slot = blob_info.oldest_blob_slot.or(deneb_fork_slot);
                 BlobInfo {
                     oldest_blob_slot,
-                    blobs_db: blobs_db_path.is_some(),
+                    blobs_db: true,
                 }
             }
             // First start.
             None => BlobInfo {
                 // Set the oldest blob slot to the Deneb fork slot if it is not yet set.
                 oldest_blob_slot: deneb_fork_slot,
-                blobs_db: blobs_db_path.is_some(),
+                blobs_db: true,
             },
         };
-        if new_blob_info.blobs_db {
-            if let Some(path) = &blobs_db_path {
-                db.blobs_db = Some(LevelDB::open(path.as_path())?);
-            }
-        }
         db.compare_and_set_blob_info_with_write(<_>::default(), new_blob_info.clone())?;
         info!(
             db.log,
             "Blob DB initialized";
-            "separate_db" => new_blob_info.blobs_db,
             "path" => ?blobs_db_path,
             "oldest_blob_slot" => ?new_blob_info.oldest_blob_slot,
         );
@@ -432,9 +423,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // Load the blinded block.
-        let blinded_block = match self.get_blinded_block(block_root)? {
-            Some(block) => block,
-            None => return Ok(None),
+        let Some(blinded_block) = self.get_blinded_block(block_root)? else {
+            return Ok(None);
         };
 
         // If the block is after the split point then we should have the full execution payload
@@ -576,8 +566,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Check if the blobs for a block exists on disk.
     pub fn blobs_exist(&self, block_root: &Hash256) -> Result<bool, Error> {
-        let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
-        blobs_db.key_exists(DBColumn::BeaconBlob.into(), block_root.as_bytes())
+        self.blobs_db
+            .key_exists(DBColumn::BeaconBlob.into(), block_root.as_bytes())
     }
 
     /// Determine whether a block exists in the database.
@@ -593,13 +583,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())?;
         self.hot_db
             .key_delete(DBColumn::ExecPayload.into(), block_root.as_bytes())?;
-        let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
-        blobs_db.key_delete(DBColumn::BeaconBlob.into(), block_root.as_bytes())
+        self.blobs_db
+            .key_delete(DBColumn::BeaconBlob.into(), block_root.as_bytes())
     }
 
     pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobSidecarList<E>) -> Result<(), Error> {
-        let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
-        blobs_db.put_bytes(
+        self.blobs_db.put_bytes(
             DBColumn::BeaconBlob.into(),
             block_root.as_bytes(),
             &blobs.as_ssz_bytes(),
@@ -989,9 +978,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut guard = self.block_cache.lock();
 
         let blob_cache_ops = blobs_ops.clone();
-        let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
         // Try to execute blobs store ops.
-        blobs_db.do_atomically(self.convert_to_kv_batch(blobs_ops)?)?;
+        self.blobs_db
+            .do_atomically(self.convert_to_kv_batch(blobs_ops)?)?;
 
         let hot_db_cache_ops = hot_db_ops.clone();
         // Try to execute hot db store ops.
@@ -1019,7 +1008,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 };
                 *op = reverse_op;
             }
-            blobs_db.do_atomically(self.convert_to_kv_batch(blob_cache_ops)?)?;
+            self.blobs_db
+                .do_atomically(self.convert_to_kv_batch(blob_cache_ops)?)?;
             return Err(e);
         }
 
@@ -1437,15 +1427,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Fetch blobs for a given block from the store.
     pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobSidecarList<E>>, Error> {
-        let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
-
         // Check the cache.
         if let Some(blobs) = self.block_cache.lock().get_blobs(block_root) {
             metrics::inc_counter(&metrics::BEACON_BLOBS_CACHE_HIT_COUNT);
             return Ok(Some(blobs.clone()));
         }
 
-        match blobs_db.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())? {
+        match self
+            .blobs_db
+            .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
+        {
             Some(ref blobs_bytes) => {
                 let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
                 self.block_cache
@@ -1490,10 +1481,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let split_slot = self.get_split_slot();
         let anchor = self.get_anchor_info();
 
-        // There are no restore points stored if the state upper limit lies in the hot database.
-        // It hasn't been reached yet, and may never be.
-        if anchor.map_or(false, |a| a.state_upper_limit >= split_slot) {
+        // There are no restore points stored if the state upper limit lies in the hot database,
+        // and the lower limit is zero. It hasn't been reached yet, and may never be.
+        if anchor.as_ref().map_or(false, |a| {
+            a.state_upper_limit >= split_slot && a.state_lower_limit == 0
+        }) {
             None
+        } else if let Some(lower_limit) = anchor
+            .map(|a| a.state_lower_limit)
+            .filter(|limit| *limit > 0)
+        {
+            Some(lower_limit)
         } else {
             Some(
                 (split_slot - 1) / self.config.slots_per_restore_point
@@ -1634,7 +1632,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         });
         let blob_info = BlobInfo {
             oldest_blob_slot,
-            blobs_db: self.blobs_db.is_some(),
+            blobs_db: true,
         };
         self.compare_and_set_blob_info(self.get_blob_info(), blob_info)
     }
@@ -2046,12 +2044,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Try to prune blobs, approximating the current epoch from the split slot.
     pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
-        let deneb_fork_epoch = match self.spec.deneb_fork_epoch {
-            Some(epoch) => epoch,
-            None => {
-                debug!(self.log, "Deneb fork is disabled");
-                return Ok(());
-            }
+        let Some(deneb_fork_epoch) = self.spec.deneb_fork_epoch else {
+            debug!(self.log, "Deneb fork is disabled");
+            return Ok(());
         };
         // The current epoch is >= split_epoch + 2. It could be greater if the database is
         // configured to delay updating the split or finalization has ceased. In this instance we
@@ -2059,7 +2054,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
         let min_data_availability_boundary = std::cmp::max(
             deneb_fork_epoch,
-            min_current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+            min_current_epoch.saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
         );
 
         self.try_prune_blobs(force, min_data_availability_boundary)
@@ -2215,6 +2210,171 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "Blob pruning complete";
             "blob_lists_pruned" => blob_lists_pruned,
         );
+
+        Ok(())
+    }
+
+    /// This function fills in missing block roots between last restore point slot and split
+    /// slot, if any.  
+    pub fn heal_freezer_block_roots_at_split(&self) -> Result<(), Error> {
+        let split = self.get_split_info();
+        let last_restore_point_slot = (split.slot - 1) / self.config.slots_per_restore_point
+            * self.config.slots_per_restore_point;
+
+        // Load split state (which has access to block roots).
+        let (_, split_state) = self
+            .get_advanced_hot_state(split.block_root, split.slot, split.state_root)?
+            .ok_or(HotColdDBError::MissingSplitState(
+                split.state_root,
+                split.slot,
+            ))?;
+
+        let mut batch = vec![];
+        let mut chunk_writer = ChunkWriter::<BlockRoots, _, _>::new(
+            &self.cold_db,
+            last_restore_point_slot.as_usize(),
+        )?;
+
+        for slot in (last_restore_point_slot.as_u64()..split.slot.as_u64()).map(Slot::new) {
+            let block_root = *split_state.get_block_root(slot)?;
+            chunk_writer.set(slot.as_usize(), block_root, &mut batch)?;
+        }
+        chunk_writer.write(&mut batch)?;
+        self.cold_db.do_atomically(batch)?;
+
+        Ok(())
+    }
+
+    pub fn heal_freezer_block_roots_at_genesis(&self) -> Result<(), Error> {
+        let oldest_block_slot = self.get_oldest_block_slot();
+        let split_slot = self.get_split_slot();
+
+        // Check if backfill has been completed AND the freezer db has data in it
+        if oldest_block_slot != 0 || split_slot == 0 {
+            return Ok(());
+        }
+
+        let mut block_root_iter = self.forwards_block_roots_iterator_until(
+            Slot::new(0),
+            split_slot - 1,
+            || {
+                Err(Error::DBError {
+                    message: "Should not require end state".to_string(),
+                })
+            },
+            &self.spec,
+        )?;
+
+        let (genesis_block_root, _) = block_root_iter.next().ok_or_else(|| Error::DBError {
+            message: "Genesis block root missing".to_string(),
+        })??;
+
+        let slots_to_fix = itertools::process_results(block_root_iter, |iter| {
+            iter.take_while(|(block_root, _)| block_root.is_zero())
+                .map(|(_, slot)| slot)
+                .collect::<Vec<_>>()
+        })?;
+
+        let Some(first_slot) = slots_to_fix.first() else {
+            return Ok(());
+        };
+
+        let mut chunk_writer =
+            ChunkWriter::<BlockRoots, _, _>::new(&self.cold_db, first_slot.as_usize())?;
+        let mut ops = vec![];
+        for slot in slots_to_fix {
+            chunk_writer.set(slot.as_usize(), genesis_block_root, &mut ops)?;
+        }
+
+        chunk_writer.write(&mut ops)?;
+        self.cold_db.do_atomically(ops)?;
+
+        Ok(())
+    }
+
+    /// Delete *all* states from the freezer database and update the anchor accordingly.
+    ///
+    /// WARNING: this method deletes the genesis state and replaces it with the provided
+    /// `genesis_state`. This is to support its use in schema migrations where the storage scheme of
+    /// the genesis state may be modified. It is the responsibility of the caller to ensure that the
+    /// genesis state is correct, else a corrupt database will be created.
+    pub fn prune_historic_states(
+        &self,
+        genesis_state_root: Hash256,
+        genesis_state: &BeaconState<E>,
+    ) -> Result<(), Error> {
+        // Make sure there is no missing block roots before pruning
+        self.heal_freezer_block_roots_at_split()?;
+
+        // Update the anchor to use the dummy state upper limit and disable historic state storage.
+        let old_anchor = self.get_anchor_info();
+        let new_anchor = if let Some(old_anchor) = old_anchor.clone() {
+            AnchorInfo {
+                state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
+                state_lower_limit: Slot::new(0),
+                ..old_anchor.clone()
+            }
+        } else {
+            AnchorInfo {
+                anchor_slot: Slot::new(0),
+                oldest_block_slot: Slot::new(0),
+                oldest_block_parent: Hash256::zero(),
+                state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
+                state_lower_limit: Slot::new(0),
+            }
+        };
+
+        // Commit the anchor change immediately: if the cold database ops fail they can always be
+        // retried, and we can't do them atomically with this change anyway.
+        self.compare_and_set_anchor_info_with_write(old_anchor, Some(new_anchor))?;
+
+        // Stage freezer data for deletion. Do not bother loading and deserializing values as this
+        // wastes time and is less schema-agnostic. My hope is that this method will be useful for
+        // migrating to the tree-states schema (delete everything in the freezer then start afresh).
+        let mut cold_ops = vec![];
+
+        let columns = [
+            DBColumn::BeaconState,
+            DBColumn::BeaconStateSummary,
+            DBColumn::BeaconRestorePoint,
+            DBColumn::BeaconStateRoots,
+            DBColumn::BeaconHistoricalRoots,
+            DBColumn::BeaconRandaoMixes,
+            DBColumn::BeaconHistoricalSummaries,
+        ];
+
+        for column in columns {
+            for res in self.cold_db.iter_column_keys::<Vec<u8>>(column) {
+                let key = res?;
+                cold_ops.push(KeyValueStoreOp::DeleteKey(get_key_for_col(
+                    column.as_str(),
+                    &key,
+                )));
+            }
+        }
+
+        // XXX: We need to commit the mass deletion here *before* re-storing the genesis state, as
+        // the current schema performs reads as part of `store_cold_state`. This can be deleted
+        // once the target schema is tree-states. If the process is killed before the genesis state
+        // is written this can be fixed by re-running.
+        info!(
+            self.log,
+            "Deleting historic states";
+            "num_kv" => cold_ops.len(),
+        );
+        self.cold_db.do_atomically(std::mem::take(&mut cold_ops))?;
+
+        // If we just deleted the the genesis state, re-store it using the *current* schema, which
+        // may be different from the schema of the genesis state we just deleted.
+        if self.get_split_slot() > 0 {
+            info!(
+                self.log,
+                "Re-storing genesis state";
+                "state_root" => ?genesis_state_root,
+            );
+            self.store_cold_state(&genesis_state_root, genesis_state, &mut cold_ops)?;
+            self.cold_db.do_atomically(cold_ops)?;
+        }
 
         Ok(())
     }

@@ -294,19 +294,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return Ok(KeepChain);
         }
 
-        let beacon_processor = match network.beacon_processor_if_enabled() {
-            Some(beacon_processor) => beacon_processor,
-            None => return Ok(KeepChain),
+        let Some(beacon_processor) = network.beacon_processor_if_enabled() else {
+            return Ok(KeepChain);
         };
 
-        let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => batch,
-            None => {
-                return Err(RemoveChain::WrongChainState(format!(
-                    "Trying to process a batch that does not exist: {}",
-                    batch_id
-                )));
-            }
+        let Some(batch) = self.batches.get_mut(&batch_id) else {
+            return Err(RemoveChain::WrongChainState(format!(
+                "Trying to process a batch that does not exist: {}",
+                batch_id
+            )));
         };
 
         // NOTE: We send empty batches to the processor in order to trigger the block processor
@@ -827,9 +823,24 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
             if !batch.is_expecting_block(peer_id, &request_id) {
+                debug!(
+                    self.log,
+                    "Batch not expecting block";
+                    "batch_epoch" => batch_id,
+                    "batch_state" => ?batch.state(),
+                    "peer_id" => %peer_id,
+                    "request_id" => %request_id
+                );
                 return Ok(KeepChain);
             }
-            debug!(self.log, "Batch failed. RPC Error"; "batch_epoch" => batch_id);
+            debug!(
+                self.log,
+                "Batch failed. RPC Error";
+                "batch_epoch" => batch_id,
+                "batch_state" => ?batch.state(),
+                "peer_id" => %peer_id,
+                "request_id" => %request_id
+            );
             if let Some(active_requests) = self.peers.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
             }
@@ -841,6 +852,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
             self.retry_batch_download(network, batch_id)
         } else {
+            debug!(
+                self.log,
+                "Batch not found";
+                "batch_epoch" => batch_id,
+                "peer_id" => %peer_id,
+                "request_id" => %request_id
+            );
             // this could be an error for an old batch, removed when the chain advances
             Ok(KeepChain)
         }
@@ -852,9 +870,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
-        let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => batch,
-            None => return Ok(KeepChain),
+        let Some(batch) = self.batches.get_mut(&batch_id) else {
+            return Ok(KeepChain);
         };
 
         // Find a peer to request the batch
@@ -868,7 +885,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .collect::<Vec<_>>();
             // Sort peers prioritizing unrelated peers with less active requests.
             priorized_peers.sort_unstable();
-            priorized_peers.get(0).map(|&(_, _, peer)| peer)
+            priorized_peers.first().map(|&(_, _, peer)| peer)
         };
 
         if let Some(peer) = new_peer {

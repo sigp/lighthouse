@@ -1,4 +1,4 @@
-use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
+use beacon_chain::validator_monitor::ValidatorMonitorConfig;
 use beacon_chain::TrustedSetup;
 use beacon_processor::BeaconProcessorConfig;
 use directory::DEFAULT_ROOT_DIR;
@@ -9,9 +9,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
-use types::{Graffiti, PublicKeyBytes};
+use types::Graffiti;
+
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
+/// Default directory name for the blobs database under the top-level data dir.
+const DEFAULT_BLOBS_DB_DIR: &str = "blobs_db";
 
 /// Defines how the client should initialize the `BeaconChain` and other components.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -56,15 +59,7 @@ pub struct Config {
     pub sync_eth1_chain: bool,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Graffiti,
-    /// When true, automatically monitor validators using the HTTP API.
-    pub validator_monitor_auto: bool,
-    /// A list of validator pubkeys to monitor.
-    pub validator_monitor_pubkeys: Vec<PublicKeyBytes>,
-    /// Once the number of monitored validators goes above this threshold, we
-    /// will stop tracking metrics on a per-validator basis. This prevents large
-    /// validator counts causing infeasibly high cardinailty for Prometheus and
-    /// high log volumes.
-    pub validator_monitor_individual_tracking_threshold: usize,
+    pub validator_monitor: ValidatorMonitorConfig,
     #[serde(skip)]
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
@@ -83,6 +78,7 @@ pub struct Config {
     pub beacon_processor: BeaconProcessorConfig,
     pub genesis_state_url: Option<String>,
     pub genesis_state_url_timeout: Duration,
+    pub allow_insecure_genesis_sync: bool,
 }
 
 impl Default for Config {
@@ -107,14 +103,13 @@ impl Default for Config {
             http_metrics: <_>::default(),
             monitoring_api: None,
             slasher: None,
-            validator_monitor_auto: false,
-            validator_monitor_pubkeys: vec![],
-            validator_monitor_individual_tracking_threshold: DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+            validator_monitor: <_>::default(),
             logger_config: LoggerConfig::default(),
             beacon_processor: <_>::default(),
             genesis_state_url: <_>::default(),
             // This default value should always be overwritten by the CLI default value.
             genesis_state_url_timeout: Duration::from_secs(60),
+            allow_insecure_genesis_sync: false,
         }
     }
 }
@@ -156,12 +151,19 @@ impl Config {
             .unwrap_or_else(|| self.default_freezer_db_path())
     }
 
+    /// Fetch default path to use for the blobs database.
+    fn default_blobs_db_path(&self) -> PathBuf {
+        self.get_data_dir().join(DEFAULT_BLOBS_DB_DIR)
+    }
+
     /// Returns the path to which the client may initialize the on-disk blobs database.
     ///
     /// Will attempt to use the user-supplied path from e.g. the CLI, or will default
     /// to None.
-    pub fn get_blobs_db_path(&self) -> Option<PathBuf> {
-        self.blobs_db_path.clone()
+    pub fn get_blobs_db_path(&self) -> PathBuf {
+        self.blobs_db_path
+            .clone()
+            .unwrap_or_else(|| self.default_blobs_db_path())
     }
 
     /// Get the freezer DB path, creating it if necessary.
@@ -170,11 +172,8 @@ impl Config {
     }
 
     /// Get the blobs DB path, creating it if necessary.
-    pub fn create_blobs_db_path(&self) -> Result<Option<PathBuf>, String> {
-        match self.get_blobs_db_path() {
-            Some(blobs_db_path) => Ok(Some(ensure_dir_exists(blobs_db_path)?)),
-            None => Ok(None),
-        }
+    pub fn create_blobs_db_path(&self) -> Result<PathBuf, String> {
+        ensure_dir_exists(self.get_blobs_db_path())
     }
 
     /// Returns the "modern" path to the data_dir.

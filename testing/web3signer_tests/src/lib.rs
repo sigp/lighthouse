@@ -301,10 +301,12 @@ mod tests {
             let log = environment::null_logger().unwrap();
             let validator_dir = TempDir::new().unwrap();
 
+            let config = validator_client::Config::default();
             let validator_definitions = ValidatorDefinitions::from(validator_definitions);
             let initialized_validators = InitializedValidators::from_definitions(
                 validator_definitions,
                 validator_dir.path().into(),
+                config.clone(),
                 log.clone(),
             )
             .await
@@ -331,7 +333,6 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-            let config = validator_client::Config::default();
 
             let validator_store = ValidatorStore::<_, E>::new(
                 initialized_validators,
@@ -391,6 +392,8 @@ mod tests {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path: signer_rig.keystore_path.clone(),
@@ -409,6 +412,8 @@ mod tests {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::Web3Signer(Web3SignerDefinition {
                         url: signer_rig.url.to_string(),

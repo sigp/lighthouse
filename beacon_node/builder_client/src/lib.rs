@@ -1,9 +1,9 @@
 use eth2::types::builder_bid::SignedBuilderBid;
-use eth2::types::FullPayloadContents;
 use eth2::types::{
-    BlindedPayload, EthSpec, ExecutionBlockHash, ForkVersionedResponse, PublicKeyBytes,
-    SignedBlockContents, SignedValidatorRegistrationData, Slot,
+    EthSpec, ExecutionBlockHash, ForkVersionedResponse, PublicKeyBytes,
+    SignedValidatorRegistrationData, Slot,
 };
+use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 pub use eth2::Error;
 use eth2::{ok_or_error, StatusCode};
 use reqwest::{IntoUrl, Response};
@@ -140,7 +140,7 @@ impl BuilderHttpClient {
     /// `POST /eth/v1/builder/blinded_blocks`
     pub async fn post_builder_blinded_blocks<E: EthSpec>(
         &self,
-        blinded_block: &SignedBlockContents<E, BlindedPayload<E>>,
+        blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<ForkVersionedResponse<FullPayloadContents<E>>, Error> {
         let mut path = self.server.full.clone();
 

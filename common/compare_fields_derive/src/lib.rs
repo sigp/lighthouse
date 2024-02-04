@@ -19,19 +19,16 @@ pub fn compare_fields_derive(input: TokenStream) -> TokenStream {
     let name = &item.ident;
     let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
 
-    let struct_data = match &item.data {
-        syn::Data::Struct(s) => s,
-        _ => panic!("compare_fields_derive only supports structs."),
+    let syn::Data::Struct(struct_data) = &item.data else {
+        panic!("compare_fields_derive only supports structs.");
     };
 
     let mut quotes = vec![];
 
     for field in struct_data.fields.iter() {
-        let ident_a = match &field.ident {
-            Some(ref ident) => ident,
-            _ => panic!("compare_fields_derive only supports named struct fields."),
+        let Some(ident_a) = &field.ident else {
+            panic!("compare_fields_derive only supports named struct fields.");
         };
-
         let field_name = ident_a.to_string();
         let ident_b = ident_a.clone();
 
