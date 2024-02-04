@@ -331,7 +331,9 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
     }
 
     /// Return an iterator over the state roots of all temporary states.
-    pub fn iter_temporary_state_roots(&self) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
+    pub fn iter_temporary_state_roots(
+        &self,
+    ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
         self.hot_db
             .iter_temporary_state_roots(DBColumn::BeaconStateTemporary)
     }

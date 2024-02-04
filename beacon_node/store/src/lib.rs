@@ -42,10 +42,12 @@ use std::sync::Arc;
 use strum::{EnumIter, EnumString, IntoStaticStr};
 pub use types::*;
 
-pub type ColumnIter<'a, K> = Result<Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>, Error>;
+pub type ColumnIter<'a, K> =
+    Result<Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>, Error>;
 pub type ColumnKeyIter<'a, K> = Result<Box<dyn Iterator<Item = Result<K, Error>> + 'a>, Error>;
 
-pub type RawEntryIter<'a> = Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>, Error>;
+pub type RawEntryIter<'a> =
+    Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>, Error>;
 pub type RawKeyIter<'a> = Result<Box<dyn Iterator<Item = Result<Vec<u8>, Error>> + 'a>, Error>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {

@@ -200,12 +200,10 @@ impl<E: EthSpec> Redb<E> {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
-            table
-                .range(Hash256::zero().as_bytes()..)?
-                .map(|res| {
-                    let (k, _) = res?;
-                    K::from_bytes(k.value())
-                })
+            table.range(Hash256::zero().as_bytes()..)?.map(|res| {
+                let (k, _) = res?;
+                K::from_bytes(k.value())
+            })
         };
 
         Ok(Box::new(iter))
@@ -271,7 +269,7 @@ impl<E: EthSpec> Redb<E> {
     pub fn iter_temporary_state_roots(
         &self,
         column: DBColumn,
-    ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error>{
+    ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
@@ -279,12 +277,10 @@ impl<E: EthSpec> Redb<E> {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
-            table
-                .range(Hash256::zero().as_bytes()..)?
-                .map(|res| {
-                    let (k, _) = res?;
-                    Hash256::from_bytes(k.value())
-                })
+            table.range(Hash256::zero().as_bytes()..)?.map(|res| {
+                let (k, _) = res?;
+                Hash256::from_bytes(k.value())
+            })
         };
 
         Ok(iter)
