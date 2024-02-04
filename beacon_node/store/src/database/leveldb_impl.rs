@@ -1,7 +1,7 @@
 use crate::hot_cold_store::{BytesKey, HotColdDBError};
 use crate::Key;
 use crate::{
-    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, KeyValueStore,
+    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error,
     KeyValueStoreOp, RawEntryIter, RawKeyIter,
 };
 use leveldb::{
@@ -194,7 +194,7 @@ impl<E: EthSpec> LevelDB<E> {
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
 
-        Box::new(
+        Ok(Box::new(
             iter.take_while(move |(key, _)| key.matches_column(column))
                 .map(move |(bytes_key, value)| {
                     let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
@@ -204,7 +204,7 @@ impl<E: EthSpec> LevelDB<E> {
                     })?;
                     Ok((K::from_bytes(key)?, value))
                 }),
-        )
+        ))
     }
 
     /// Iterate through all keys and values in a particular column.
@@ -215,7 +215,7 @@ impl<E: EthSpec> LevelDB<E> {
         let iter = self.db.keys_iter(self.read_options());
         iter.seek(&start_key);
 
-        Box::new(
+        Ok(Box::new(
             iter.take_while(move |key| key.matches_column(column))
                 .map(move |bytes_key| {
                     let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
@@ -225,21 +225,21 @@ impl<E: EthSpec> LevelDB<E> {
                     })?;
                     K::from_bytes(key)
                 }),
-        )
+        ))
     }
 
     /// Return an iterator over the state roots of all temporary states.
     pub fn iter_temporary_state_roots(
         &self,
         column: DBColumn,
-    ) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
+    ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
         let start_key =
             BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
 
         let keys_iter = self.db.keys_iter(self.read_options());
         keys_iter.seek(&start_key);
 
-        keys_iter
+        Ok(keys_iter
             .take_while(move |key| key.matches_column(column))
             .map(move |bytes_key| {
                 bytes_key.remove_column(column).ok_or_else(|| {
@@ -248,25 +248,22 @@ impl<E: EthSpec> LevelDB<E> {
                     }
                     .into()
                 })
-            })
+            }))
     }
 
     pub fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
-        println!("iter_raw_entries");
         let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
 
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
 
-        Box::new(
+        Ok(Box::new(
             iter.take_while(move |(key, _)| key.key.starts_with(start_key.key.as_slice()))
                 .map(move |(bytes_key, value)| {
                     let subkey = &bytes_key.key[column.as_bytes().len()..];
-                    println!("{:?}", bytes_key.key);
-                    println!("{:?}", subkey);
                     Ok((Vec::from(subkey), value))
                 }),
-        )
+        ))
     }
 
     pub fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
@@ -275,13 +272,13 @@ impl<E: EthSpec> LevelDB<E> {
         let iter = self.db.keys_iter(self.read_options());
         iter.seek(&start_key);
 
-        Box::new(
+        Ok(Box::new(
             iter.take_while(move |key| key.key.starts_with(start_key.key.as_slice()))
                 .map(move |bytes_key| {
                     let subkey = &bytes_key.key[column.as_bytes().len()..];
                     Ok(Vec::from(subkey))
                 }),
-        )
+        ))
     }
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {

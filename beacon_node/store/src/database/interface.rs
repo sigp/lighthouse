@@ -252,7 +252,7 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
     pub fn iter_temporary_state_roots(
         &self,
         column: DBColumn,
-    ) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
+    ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => {

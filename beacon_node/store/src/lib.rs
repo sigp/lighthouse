@@ -42,11 +42,11 @@ use std::sync::Arc;
 use strum::{EnumIter, EnumString, IntoStaticStr};
 pub use types::*;
 
-pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
-pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
+pub type ColumnIter<'a, K> = Result<Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>, Error>;
+pub type ColumnKeyIter<'a, K> = Result<Box<dyn Iterator<Item = Result<K, Error>> + 'a>, Error>;
 
-pub type RawEntryIter<'a> = Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>;
-pub type RawKeyIter<'a> = Box<dyn Iterator<Item = Result<Vec<u8>, Error>> + 'a>;
+pub type RawEntryIter<'a> = Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>, Error>;
+pub type RawKeyIter<'a> = Result<Box<dyn Iterator<Item = Result<Vec<u8>, Error>> + 'a>, Error>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
@@ -90,11 +90,11 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
 
     fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
-        Box::new(std::iter::empty())
+        Ok(Box::new(std::iter::empty()))
     }
 
     fn iter_raw_keys(&self, _column: DBColumn, _prefix: &[u8]) -> RawKeyIter {
-        Box::new(std::iter::empty())
+        Ok(Box::new(std::iter::empty()))
     }
 
     /// Iterate through all keys in a particular column.

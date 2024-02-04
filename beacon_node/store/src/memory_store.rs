@@ -95,17 +95,17 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
             .take_while(|(k, _)| k.remove_column_variable(column).is_some())
             .filter_map(|(k, _)| k.remove_column_variable(column).map(|k| k.to_vec()))
             .collect::<Vec<_>>();
-        Box::new(keys.into_iter().filter_map(move |key| {
+        Ok(Box::new(keys.into_iter().filter_map(move |key| {
             self.get_bytes(col, &key).transpose().map(|res| {
                 let k = K::from_bytes(&key)?;
                 let v = res?;
                 Ok((k, v))
             })
-        }))
+        })))
     }
 
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
-        Box::new(self.iter_column(column).map(|res| res.map(|(k, _)| k)))
+        Ok(Box::new(self.iter_column(column)?.map(|res| res.map(|(k, _)| k))))
     }
 
     fn begin_rw_transaction(&self) -> MutexGuard<()> {

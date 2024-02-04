@@ -331,7 +331,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
     }
 
     /// Return an iterator over the state roots of all temporary states.
-    pub fn iter_temporary_state_roots(&self) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
+    pub fn iter_temporary_state_roots(&self) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
         self.hot_db
             .iter_temporary_state_roots(DBColumn::BeaconStateTemporary)
     }
@@ -2350,7 +2350,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ];
 
         for column in columns {
-            for res in self.cold_db.iter_column_keys::<Vec<u8>>(column) {
+            for res in self.cold_db.iter_column_keys::<Vec<u8>>(column)? {
                 let key = res?;
                 cold_ops.push(KeyValueStoreOp::DeleteKey(column.as_str().to_owned(), key));
             }

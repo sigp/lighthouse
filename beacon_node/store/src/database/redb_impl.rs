@@ -191,7 +191,6 @@ impl<E: EthSpec> Redb<E> {
         mut_db.compact().map_err(Into::into).map(|_| ())
     }
 
-    /// TODO resolve unwraps and clean this up
     /// Iterate through all keys and values in a particular column.
     pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
@@ -199,18 +198,17 @@ impl<E: EthSpec> Redb<E> {
 
         let iter = {
             let open_db = self.db.read();
-            let read_txn = open_db.begin_read().unwrap();
-            let table = read_txn.open_table(table_definition).unwrap();
+            let read_txn = open_db.begin_read()?;
+            let table = read_txn.open_table(table_definition)?;
             table
-                .range(Hash256::zero().as_bytes()..)
-                .unwrap()
+                .range(Hash256::zero().as_bytes()..)?
                 .map(|res| {
-                    let (k, _) = res.unwrap();
-                    Ok(K::from_bytes(k.value()).unwrap())
+                    let (k, _) = res?;
+                    K::from_bytes(k.value())
                 })
         };
 
-        Box::new(iter)
+        Ok(Box::new(iter))
     }
 
     pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
@@ -219,15 +217,15 @@ impl<E: EthSpec> Redb<E> {
 
         let iter = {
             let open_db = self.db.read();
-            let read_txn = open_db.begin_read().unwrap();
-            let table = read_txn.open_table(table_definition).unwrap();
-            table.range(from..).unwrap().map(|res| {
-                let (k, v) = res.unwrap();
-                Ok((K::from_bytes(k.value()).unwrap(), v.value().to_vec()))
+            let read_txn = open_db.begin_read()?;
+            let table = read_txn.open_table(table_definition)?;
+            table.range(from..)?.map(|res| {
+                let (k, v) = res?;
+                Ok((K::from_bytes(k.value())?, v.value().to_vec()))
             })
         };
 
-        Box::new(iter)
+        Ok(Box::new(iter))
     }
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
@@ -241,15 +239,15 @@ impl<E: EthSpec> Redb<E> {
 
         let iter = {
             let open_db = self.db.read();
-            let read_txn = open_db.begin_read().unwrap();
-            let table = read_txn.open_table(table_definition).unwrap();
-            table.range(prefix..).unwrap().map(|res| {
-                let (k, v) = res.unwrap();
+            let read_txn = open_db.begin_read()?;
+            let table = read_txn.open_table(table_definition)?;
+            table.range(prefix..)?.map(|res| {
+                let (k, v) = res?;
                 Ok((k.value().to_vec(), v.value().to_vec()))
             })
         };
 
-        Box::new(iter)
+        Ok(Box::new(iter))
     }
 
     pub fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
@@ -258,38 +256,37 @@ impl<E: EthSpec> Redb<E> {
 
         let iter = {
             let open_db = self.db.read();
-            let read_txn = open_db.begin_read().unwrap();
-            let table = read_txn.open_table(table_definition).unwrap();
-            table.range(prefix..).unwrap().map(|res| {
-                let (k, _) = res.unwrap();
+            let read_txn = open_db.begin_read()?;
+            let table = read_txn.open_table(table_definition)?;
+            table.range(prefix..)?.map(|res| {
+                let (k, _) = res?;
                 Ok(k.value().to_vec())
             })
         };
 
-        Box::new(iter)
+        Ok(Box::new(iter))
     }
 
     /// Return an iterator over the state roots of all temporary states.
     pub fn iter_temporary_state_roots(
         &self,
         column: DBColumn,
-    ) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
+    ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error>{
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
         let iter = {
             let open_db = self.db.read();
-            let read_txn = open_db.begin_read().unwrap();
-            let table = read_txn.open_table(table_definition).unwrap();
+            let read_txn = open_db.begin_read()?;
+            let table = read_txn.open_table(table_definition)?;
             table
-                .range(Hash256::zero().as_bytes()..)
-                .unwrap()
+                .range(Hash256::zero().as_bytes()..)?
                 .map(|res| {
-                    let (k, _) = res.unwrap();
-                    Ok(Hash256::from_bytes(k.value()).unwrap())
+                    let (k, _) = res?;
+                    Hash256::from_bytes(k.value())
                 })
         };
 
-        iter
+        Ok(iter)
     }
 }

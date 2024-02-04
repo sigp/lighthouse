@@ -33,7 +33,7 @@ use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_N
 use store::{
     chunked_vector::{chunk_key, Field},
     iter::{BlockRootsIterator, StateRootsIterator},
-    BlobInfo, DBColumn, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreConfig,
+    BlobInfo, DBColumn, HotColdDB, KeyValueStoreOp, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
 use tokio::time::sleep;
@@ -2292,7 +2292,7 @@ async fn garbage_collect_temp_states_from_failed_block() {
             .unwrap_err();
 
         assert_eq!(
-            store.iter_temporary_state_roots().count(),
+            store.iter_temporary_state_roots().unwrap().count(),
             block_slot.as_usize() - 1
         );
         store
@@ -2311,7 +2311,7 @@ async fn garbage_collect_temp_states_from_failed_block() {
 
     // On startup, the store should garbage collect all the temporary states.
     let store = get_store(&db_path);
-    assert_eq!(store.iter_temporary_state_roots().count(), 0);
+    assert_eq!(store.iter_temporary_state_roots().unwrap().count(), 0);
 }
 
 #[tokio::test]

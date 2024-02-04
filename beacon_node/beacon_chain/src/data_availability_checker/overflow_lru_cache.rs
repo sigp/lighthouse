@@ -216,7 +216,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         for res in self
             .0
             .hot_db
-            .iter_raw_entries(DBColumn::OverflowLRUCache, block_root.as_bytes())
+            .iter_raw_entries(DBColumn::OverflowLRUCache, block_root.as_bytes())?
         {
             let (key_bytes, value_bytes) = res?;
             match OverflowKey::from_ssz_bytes(&key_bytes)? {
@@ -245,7 +245,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
     /// Returns the hashes of all the blocks we have any data for on disk
     pub fn read_keys_on_disk(&self) -> Result<HashSet<Hash256>, AvailabilityCheckError> {
         let mut disk_keys = HashSet::new();
-        for res in self.0.hot_db.iter_raw_keys(DBColumn::OverflowLRUCache, &[]) {
+        for res in self.0.hot_db.iter_raw_keys(DBColumn::OverflowLRUCache, &[])? {
             let key_bytes = res?;
             disk_keys.insert(*OverflowKey::from_ssz_bytes(&key_bytes)?.root());
         }
@@ -622,7 +622,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             .overflow_store
             .0
             .hot_db
-            .iter_raw_entries(DBColumn::OverflowLRUCache, &[])
+            .iter_raw_entries(DBColumn::OverflowLRUCache, &[])?
         {
             let (key_bytes, value_bytes) = res?;
             let overflow_key = OverflowKey::from_ssz_bytes(&key_bytes)?;
