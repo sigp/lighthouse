@@ -1268,5 +1268,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("64")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("disable-duplicate-warn-logs")
+                .long("disable-duplicate-warn-logs")
+                .help("This flag is deprecated and has no effect.")
+                .takes_value(false)
+        )
         .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))
 }
