@@ -354,7 +354,7 @@ impl Default for Config {
             enr_udp6_port: None,
             enr_quic6_port: None,
             enr_tcp6_port: None,
-            target_peers: 50,
+            target_peers: 100,
             gs_config,
             discv5_config,
             boot_nodes_enr: vec![],
