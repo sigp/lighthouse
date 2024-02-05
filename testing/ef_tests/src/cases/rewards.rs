@@ -7,6 +7,7 @@ use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_epoch_processing::{
+        altair,
         base::{self, rewards_and_penalties::AttestationDelta, ValidatorStatuses},
         Delta,
     },
@@ -35,6 +36,11 @@ pub struct AllDeltas {
     #[ssz(with = "four_byte_option_deltas")]
     inclusion_delay_deltas: Option<Deltas>,
     inactivity_penalty_deltas: Deltas,
+}
+
+#[derive(Debug, Clone, PartialEq, CompareFields)]
+pub struct TotalDeltas {
+    deltas: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -104,33 +110,44 @@ impl<E: EthSpec> Case for RewardsTest<E> {
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let mut state = self.pre.clone();
-
-        // NOTE: We cannot run these tests for forks other than phase0 because single-pass epoch
-        // processing cannot expose these individual deltas. There is no point maintaining a
-        // separate implementation of rewards processing that will not be used in prod.
-        if fork_name != ForkName::Base {
-            return Ok(());
-        }
-
         let spec = &testing_spec::<E>(fork_name);
 
-        let deltas: Result<AllDeltas, EpochProcessingError> = (|| {
-            // Processing requires the committee caches.
-            state.build_all_committee_caches(spec)?;
+        // Single-pass epoch processing doesn't compute rewards in the genesis epoch because that's
+        // what the spec for `process_rewards_and_penalties` says to do. We skip these tests for now.
+        //
+        // See: https://github.com/ethereum/consensus-specs/issues/3593
+        if fork_name != ForkName::Base && state.current_epoch() == 0 {
+            return Err(Error::SkippedKnownFailure);
+        }
 
-            let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
-            validator_statuses.process_attestations(&state)?;
+        if let BeaconState::Base(_) = state {
+            let deltas: Result<AllDeltas, EpochProcessingError> = (|| {
+                // Processing requires the committee caches.
+                state.build_all_committee_caches(spec)?;
 
-            let deltas = base::rewards_and_penalties::get_attestation_deltas_all(
-                &state,
-                &validator_statuses,
-                spec,
-            )?;
+                let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
+                validator_statuses.process_attestations(&state)?;
 
-            Ok(convert_all_base_deltas(&deltas))
-        })();
+                let deltas = base::rewards_and_penalties::get_attestation_deltas_all(
+                    &state,
+                    &validator_statuses,
+                    spec,
+                )?;
 
-        compare_result_detailed(&deltas, &Some(self.deltas.clone()))?;
+                Ok(convert_all_base_deltas(&deltas))
+            })();
+            compare_result_detailed(&deltas, &Some(self.deltas.clone()))?;
+        } else {
+            let deltas: Result<TotalDeltas, EpochProcessingError> = (|| {
+                // Processing requires the committee caches.
+                state.build_all_committee_caches(spec)?;
+                compute_altair_deltas(&mut state, spec)
+            })();
+
+            let expected = all_deltas_to_total_deltas(&self.deltas);
+
+            compare_result_detailed(&deltas, &Some(expected))?;
+        };
 
         Ok(())
     }
@@ -153,4 +170,58 @@ fn convert_base_deltas(attestation_deltas: &[AttestationDelta], accessor: Access
         .map(|delta| (delta.rewards, delta.penalties))
         .unzip();
     Deltas { rewards, penalties }
+}
+
+fn deltas_to_total_deltas(d: &Deltas) -> impl Iterator<Item = i64> + '_ {
+    d.rewards
+        .iter()
+        .zip(&d.penalties)
+        .map(|(&reward, &penalty)| reward as i64 - penalty as i64)
+}
+
+fn optional_deltas_to_total_deltas(d: &Option<Deltas>, len: usize) -> TotalDeltas {
+    let deltas = if let Some(d) = d {
+        deltas_to_total_deltas(d).collect()
+    } else {
+        vec![0i64; len]
+    };
+    TotalDeltas { deltas }
+}
+
+fn all_deltas_to_total_deltas(d: &AllDeltas) -> TotalDeltas {
+    let len = d.source_deltas.rewards.len();
+    let deltas = deltas_to_total_deltas(&d.source_deltas)
+        .zip(deltas_to_total_deltas(&d.target_deltas))
+        .zip(deltas_to_total_deltas(&d.head_deltas))
+        .zip(optional_deltas_to_total_deltas(&d.inclusion_delay_deltas, len).deltas)
+        .zip(deltas_to_total_deltas(&d.inactivity_penalty_deltas))
+        .map(
+            |((((source, target), head), inclusion_delay), inactivity_penalty)| {
+                source + target + head + inclusion_delay + inactivity_penalty
+            },
+        )
+        .collect::<Vec<i64>>();
+    TotalDeltas { deltas }
+}
+
+fn compute_altair_deltas<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<TotalDeltas, EpochProcessingError> {
+    // Initialise deltas to pre-state balances.
+    let mut deltas = state
+        .balances()
+        .iter()
+        .map(|x| *x as i64)
+        .collect::<Vec<_>>();
+    altair::process_rewards_and_penalties_slow(state, spec)?;
+
+    state.apply_pending_mutations().unwrap();
+
+    for (delta, new_balance) in deltas.iter_mut().zip(state.balances()) {
+        let old_balance = *delta;
+        *delta = *new_balance as i64 - old_balance;
+    }
+
+    Ok(TotalDeltas { deltas })
 }
