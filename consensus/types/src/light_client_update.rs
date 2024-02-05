@@ -176,7 +176,7 @@ mod tests {
     use super::*;
     // use crate::MainnetEthSpec;
     use ssz_types::typenum::Unsigned;
-
+    // FIXME type includes enum which isn't compatible w/ TestRandom derive
     // ssz_tests!(LightClientUpdate<MainnetEthSpec>);
 
     #[test]

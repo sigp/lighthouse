@@ -384,7 +384,7 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<BlobSidecar<T>>),
 
-    /// A response to a get LIGHTCLIENT_BOOTSTRAP request.
+    /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
     LightClientBootstrap(Arc<LightClientBootstrap<T>>),
 
     /// A response to a get BLOBS_BY_ROOT request.

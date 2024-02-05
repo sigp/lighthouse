@@ -75,6 +75,7 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientBootstrap<T> {
     }
 }
 
+// FIXME type includes enum which isn't compatible w/ TestRandom derive
 // #[cfg(test)]
 // mod tests {
 //     use super::*;
