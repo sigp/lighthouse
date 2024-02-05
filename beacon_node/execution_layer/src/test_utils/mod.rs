@@ -487,7 +487,6 @@ pub struct StaticNewPayloadResponse {
     should_import: bool,
 }
 #[derive(Debug)]
-// We don't use the string value directly, but it's used in the Debug impl which is required by `warp::reject::Reject`.
 struct AuthError(String);
 
 impl warp::reject::Reject for AuthError {}
