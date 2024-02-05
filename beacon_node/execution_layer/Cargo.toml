@@ -29,7 +29,6 @@ kzg = { workspace = true }
 state_processing = { workspace = true }
 superstruct = { workspace = true }
 lru = { workspace = true }
-exit-future = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 parking_lot = { workspace = true }

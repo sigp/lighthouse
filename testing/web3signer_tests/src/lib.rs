@@ -307,8 +307,7 @@ mod tests {
         validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
         _validator_dir: TempDir,
         runtime: Arc<tokio::runtime::Runtime>,
-        _runtime_shutdown: exit_future::Signal,
-        using_web3signer: bool,
+        _runtime_shutdown: async_channel::Sender<()>,
     }
 
     impl ValidatorStoreRig {
@@ -340,7 +339,7 @@ mod tests {
                     .build()
                     .unwrap(),
             );
-            let (runtime_shutdown, exit) = exit_future::signal();
+            let (runtime_shutdown, exit) = async_channel::bounded(1);
             let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
             let executor =
                 TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
