@@ -253,10 +253,8 @@ mod attestation_service {
             &attestation_service.beacon_chain.spec,
         )
         .unwrap();
-        let expected = vec![
-            SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id)),
-            SubnetServiceMessage::Unsubscribe(Subnet::Attestation(subnet_id)),
-        ];
+        let expected = [SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id)),
+            SubnetServiceMessage::Unsubscribe(Subnet::Attestation(subnet_id))];
 
         // Wait for 1 slot duration to get the unsubscription event
         let events = get_events(

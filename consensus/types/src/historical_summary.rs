@@ -81,7 +81,7 @@ impl<'a, N: Unsigned> CachedTreeHash<TreeHashCache> for HistoricalSummaryCache<'
 
 pub fn leaf_iter(
     values: &[HistoricalSummary],
-) -> impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator + '_ {
+) -> impl ExactSizeIterator<Item = [u8; BYTES_PER_CHUNK]> + '_ {
     values
         .iter()
         .map(|value| value.tree_hash_root())
