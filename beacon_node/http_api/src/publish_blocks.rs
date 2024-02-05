@@ -19,9 +19,9 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, EthSpec, ExecPayload, ExecutionBlockHash,
-    ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock,
-    VariableList,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, DataColumnSidecar, DataColumnSubnetId,
+    EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, VariableList,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
@@ -88,6 +88,24 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             SignedBeaconBlock::Deneb(_) => {
                 let mut pubsub_messages = vec![PubsubMessage::BeaconBlock(block.clone())];
                 if let Some(blob_sidecars) = blobs_opt {
+                    // Build and publish column sidecars
+                    let col_sidecars = DataColumnSidecar::random_from_blob_sidecars(&blob_sidecars)
+                        .map_err(|e| {
+                            BeaconChainError::UnableToBuildColumnSidecar(format!("{e:?}"))
+                        })?;
+
+                    for (col_index, col_sidecar) in col_sidecars.into_iter().enumerate() {
+                        let subnet_id =
+                            DataColumnSubnetId::try_from_column_index::<T::EthSpec>(col_index)
+                                .map_err(|e| {
+                                    BeaconChainError::UnableToBuildColumnSidecar(format!("{e:?}"))
+                                })?;
+                        pubsub_messages.push(PubsubMessage::DataColumnSidecar(Box::new((
+                            subnet_id,
+                            Arc::new(col_sidecar),
+                        ))));
+                    }
+                    // Publish blob sidecars
                     for (blob_index, blob) in blob_sidecars.into_iter().enumerate() {
                         pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((
                             blob_index as u64,

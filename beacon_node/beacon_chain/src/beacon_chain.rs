@@ -7,7 +7,9 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
+use crate::blob_verification::{
+    GossipBlobError, GossipVerifiedBlob, GossipVerifiedDataColumnSidecar,
+};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
@@ -2070,6 +2072,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    pub fn verify_data_column_sidecar_for_gossip(
+        self: &Arc<Self>,
+        data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
+        subnet_id: u64,
+    ) -> Result<GossipVerifiedDataColumnSidecar<T>, GossipBlobError<T::EthSpec>> {
+        metrics::inc_counter(&metrics::BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
+        GossipVerifiedDataColumnSidecar::new(data_column_sidecar, subnet_id, self).map(|v| {
+            metrics::inc_counter(&metrics::DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES);
+            v
+        })
+    }
+
     pub fn verify_blob_sidecar_for_gossip(
         self: &Arc<Self>,
         blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
@@ -2883,6 +2898,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .notify_gossip_blob(blob.slot(), block_root, &blob);
         let r = self.check_gossip_blob_availability_and_import(blob).await;
         self.remove_notified(&block_root, r)
+    }
+
+    pub fn process_gossip_data_column(
+        self: &Arc<Self>,
+        gossip_verified_data_column: GossipVerifiedDataColumnSidecar<T>,
+    ) {
+        let data_column = gossip_verified_data_column.as_data_column();
+        // TODO(das) send to DA checker
+        info!(
+            self.log,
+            "Processed gossip data column";
+            "index" => data_column.index,
+            "slot" => data_column.slot().as_u64()
+        );
     }
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was

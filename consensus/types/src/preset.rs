@@ -214,6 +214,13 @@ pub struct DenebPreset {
     pub max_blob_commitments_per_block: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub field_elements_per_blob: u64,
+    // EIP-7594 DAS presets - to be moved to the next fork
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub field_elements_per_cell: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub kzg_commitments_inclusion_proof_depth: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub number_of_columns: u64,
 }
 
 impl DenebPreset {
@@ -222,6 +229,10 @@ impl DenebPreset {
             max_blobs_per_block: T::max_blobs_per_block() as u64,
             max_blob_commitments_per_block: T::max_blob_commitments_per_block() as u64,
             field_elements_per_blob: T::field_elements_per_blob() as u64,
+            field_elements_per_cell: T::field_elements_per_cell() as u64,
+            kzg_commitments_inclusion_proof_depth: T::kzg_commitments_inclusion_proof_depth()
+                as u64,
+            number_of_columns: T::number_of_columns() as u64,
         }
     }
 }
