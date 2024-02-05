@@ -1,4 +1,5 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
+use crate::blob_sidecar::BlobIdentifier;
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde::Deserialize;
@@ -1292,8 +1293,13 @@ fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
 
 fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     let max_request_blob_sidecars = max_request_blob_sidecars as usize;
-    RuntimeVariableList::<Hash256>::from_vec(
-        vec![Hash256::zero(); max_request_blob_sidecars],
+    let empty_blob_identifier = BlobIdentifier {
+        block_root: Hash256::zero(),
+        index: 0,
+    };
+
+    RuntimeVariableList::<BlobIdentifier>::from_vec(
+        vec![empty_blob_identifier; max_request_blob_sidecars],
         max_request_blob_sidecars,
     )
     .as_ssz_bytes()
