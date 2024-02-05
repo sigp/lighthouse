@@ -39,7 +39,8 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
     log: &Logger,
 ) {
-    let (candidate_info, num_available, num_synced) = duties_service.beacon_nodes.get_notifier_info().await;
+    let (candidate_info, num_available, num_synced) =
+        duties_service.beacon_nodes.get_notifier_info().await;
     let num_total = candidate_info.len();
     let num_synced_fallback = num_synced.saturating_sub(1);
 
@@ -89,7 +90,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
                 log,
                 "Beacon node info";
                 "status" => "Connected",
-                "id" => info.id,
+                "index" => info.index,
                 "endpoint" => info.node,
                 "head_slot" => %health.head,
                 "is_optimistic" => ?health.optimistic_status,
@@ -101,7 +102,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
                 log,
                 "Beacon node info";
                 "status" => "Disconnected",
-                "id" => info.id,
+                "index" => info.index,
                 "endpoint" => info.node,
             );
         }

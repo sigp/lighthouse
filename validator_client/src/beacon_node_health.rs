@@ -154,10 +154,10 @@ impl BeaconNodeHealthTier {
 /// Beacon Node Health metrics.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct BeaconNodeHealth {
-    // The ID of the Beacon Node. This should correspond with its position in the `--beacon-nodes`
-    // list. Note that the ID field is used to tie-break nodes with the same health so that nodes
-    // with a lower ID are preferred.
-    pub id: usize,
+    // The index of the Beacon Node. This should correspond with its position in the
+    // `--beacon-nodes` list. Note that the `user_index` field is used to tie-break nodes with the
+    // same health so that nodes with a lower index are preferred.
+    pub user_index: usize,
     // The slot number of the head.
     pub head: Slot,
     // Whether the node is optimistically synced.
@@ -173,8 +173,8 @@ impl Ord for BeaconNodeHealth {
     fn cmp(&self, other: &Self) -> Ordering {
         let ordering = self.health_tier.cmp(&other.health_tier);
         if ordering == Ordering::Equal {
-            // Tie-break node health by ID.
-            self.id.cmp(&other.id)
+            // Tie-break node health by `user_index`.
+            self.user_index.cmp(&other.user_index)
         } else {
             ordering
         }
@@ -189,7 +189,7 @@ impl PartialOrd for BeaconNodeHealth {
 
 impl BeaconNodeHealth {
     pub fn from_status(
-        id: usize,
+        user_index: usize,
         sync_distance: Slot,
         head: Slot,
         optimistic_status: IsOptimistic,
@@ -204,7 +204,7 @@ impl BeaconNodeHealth {
         );
 
         Self {
-            id,
+            user_index,
             head,
             optimistic_status,
             execution_status,
@@ -212,8 +212,8 @@ impl BeaconNodeHealth {
         }
     }
 
-    pub fn get_id(&self) -> usize {
-        self.id
+    pub fn get_index(&self) -> usize {
+        self.user_index
     }
 
     pub fn get_health_tier(&self) -> BeaconNodeHealthTier {

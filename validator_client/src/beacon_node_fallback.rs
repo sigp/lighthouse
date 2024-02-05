@@ -147,7 +147,7 @@ pub enum CandidateError {
 
 #[derive(Debug, Clone)]
 pub struct CandidateInfo {
-    pub id: usize,
+    pub index: usize,
     pub node: String,
     pub health: Option<BeaconNodeHealth>,
 }
@@ -156,7 +156,7 @@ pub struct CandidateInfo {
 /// for a query.
 #[derive(Debug)]
 pub struct CandidateBeaconNode<E> {
-    pub id: usize,
+    pub index: usize,
     pub beacon_node: BeaconNodeHttpClient,
     pub health: PLRwLock<Result<BeaconNodeHealth, CandidateError>>,
     _phantom: PhantomData<E>,
@@ -164,7 +164,7 @@ pub struct CandidateBeaconNode<E> {
 
 impl<E: EthSpec> PartialEq for CandidateBeaconNode<E> {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id && self.beacon_node == other.beacon_node
+        self.index == other.index && self.beacon_node == other.beacon_node
     }
 }
 
@@ -189,9 +189,9 @@ impl<E: EthSpec> PartialOrd for CandidateBeaconNode<E> {
 
 impl<E: EthSpec> CandidateBeaconNode<E> {
     /// Instantiate a new node.
-    pub fn new(beacon_node: BeaconNodeHttpClient, id: usize) -> Self {
+    pub fn new(beacon_node: BeaconNodeHttpClient, index: usize) -> Self {
         Self {
-            id,
+            index,
             beacon_node,
             health: PLRwLock::new(Err(CandidateError::Uninitialized)),
             _phantom: PhantomData,
@@ -239,7 +239,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                     };
 
                     let new_health = BeaconNodeHealth::from_status(
-                        self.id,
+                        self.index,
                         sync_distance,
                         head,
                         optimistic_status,
@@ -408,7 +408,11 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
             match candidate.health() {
                 Ok(health) => {
-                    if self.distance_tiers.compute_distance_tier(health.health_tier.sync_distance) == SyncDistanceTier::Synced {
+                    if self
+                        .distance_tiers
+                        .compute_distance_tier(health.health_tier.sync_distance)
+                        == SyncDistanceTier::Synced
+                    {
                         num_synced += 1;
                     }
                     num_available += 1;
@@ -417,7 +421,11 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 Err(_) => continue,
             }
 
-            candidate_info.push(CandidateInfo { id: candidate.id, node: candidate.beacon_node.to_string(), health: health.ok() });
+            candidate_info.push(CandidateInfo {
+                index: candidate.index,
+                node: candidate.beacon_node.to_string(),
+                health: health.ok(),
+            });
         }
 
         (candidate_info, num_available, num_synced)
@@ -680,12 +688,12 @@ mod tests {
         let optimistic_status = IsOptimistic::No;
         let execution_status = ExecutionEngineHealth::Healthy;
 
-        fn new_candidate(id: usize) -> CandidateBeaconNode<E> {
+        fn new_candidate(index: usize) -> CandidateBeaconNode<E> {
             let beacon_node = BeaconNodeHttpClient::new(
-                SensitiveUrl::parse(&format!("http://example_{id}.com")).unwrap(),
-                Timeouts::set_all(Duration::from_secs(id as u64)),
+                SensitiveUrl::parse(&format!("http://example_{index}.com")).unwrap(),
+                Timeouts::set_all(Duration::from_secs(index as u64)),
             );
-            CandidateBeaconNode::new(beacon_node, id)
+            CandidateBeaconNode::new(beacon_node, index)
         }
 
         let candidate_1 = new_candidate(1);
@@ -705,16 +713,16 @@ mod tests {
         let small = SyncDistanceTier::Small;
 
         // Despite `health_1` having a larger sync distance, it is inside the `synced` range which
-        // does not tie-break on sync distance and so will tie-break on `id` instead.
+        // does not tie-break on sync distance and so will tie-break on `user_index` instead.
         let health_1 = BeaconNodeHealth {
-            id: 1,
+            user_index: 1,
             head,
             optimistic_status,
             execution_status,
             health_tier: BeaconNodeHealthTier::new(1, Slot::new(2), synced),
         };
         let health_2 = BeaconNodeHealth {
-            id: 2,
+            user_index: 2,
             head,
             optimistic_status,
             execution_status,
@@ -722,16 +730,16 @@ mod tests {
         };
 
         // `health_3` and `health_4` have the same health tier and sync distance so should
-        // tie-break on `id`.
+        // tie-break on `user_index`.
         let health_3 = BeaconNodeHealth {
-            id: 3,
+            user_index: 3,
             head,
             optimistic_status,
             execution_status,
             health_tier: BeaconNodeHealthTier::new(3, Slot::new(9), small),
         };
         let health_4 = BeaconNodeHealth {
-            id: 4,
+            user_index: 4,
             head,
             optimistic_status,
             execution_status,
@@ -739,16 +747,16 @@ mod tests {
         };
 
         // `health_5` has a smaller sync distance and is outside the `synced` range so should be
-        // sorted first. Note the values of `id`.
+        // sorted first. Note the values of `user_index`.
         let health_5 = BeaconNodeHealth {
-            id: 6,
+            user_index: 6,
             head,
             optimistic_status,
             execution_status,
             health_tier: BeaconNodeHealthTier::new(4, Slot::new(9), small),
         };
         let health_6 = BeaconNodeHealth {
-            id: 5,
+            user_index: 5,
             head,
             optimistic_status,
             execution_status,

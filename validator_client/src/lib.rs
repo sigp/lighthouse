@@ -339,18 +339,21 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
 
         let num_nodes = beacon_nodes.len();
-
+        // User order of `beacon_nodes` is preserved, so `index` corresponds to the position of
+        // the node in `--beacon_nodes`.
         let candidates = beacon_nodes
             .into_iter()
             .enumerate()
-            .map(|(id, node)| CandidateBeaconNode::new(node, id))
+            .map(|(index, node)| CandidateBeaconNode::new(node, index))
             .collect();
 
         let proposer_nodes_num = proposer_nodes.len();
+        // User order of `proposer_nodes` is preserved, so `index` corresponds to the position of
+        // the node in `--proposer_nodes`.
         let proposer_candidates = proposer_nodes
             .into_iter()
             .enumerate()
-            .map(|(id, node)| CandidateBeaconNode::new(node, id))
+            .map(|(index, node)| CandidateBeaconNode::new(node, index))
             .collect();
 
         // Set the count for beacon node fallbacks excluding the primary beacon node.
