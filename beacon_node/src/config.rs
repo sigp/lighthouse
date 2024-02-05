@@ -1425,9 +1425,6 @@ pub fn set_network_config(
             Some(config_str.parse()?)
         }
     };
-
-    config.disable_duplicate_warn_logs = cli_args.is_present("disable-duplicate-warn-logs");
-
     Ok(())
 }
 
