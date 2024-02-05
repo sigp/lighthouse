@@ -1343,7 +1343,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Hash256, HotColdDBError> {
         high_restore_point
             .get_block_root(slot)
-            .or_else(|_| high_restore_point.get_oldest_block_root()).copied()
+            .or_else(|_| high_restore_point.get_oldest_block_root())
+            .copied()
             .map_err(HotColdDBError::RestorePointBlockHashError)
     }
 

@@ -1018,7 +1018,8 @@ pub fn serve<T: BeaconChainTypes>(
                                 let epoch = query.epoch.unwrap_or(current_epoch);
                                 Ok((
                                     state
-                                        .get_built_sync_committee(epoch, &chain.spec).cloned()
+                                        .get_built_sync_committee(epoch, &chain.spec)
+                                        .cloned()
                                         .map_err(|e| match e {
                                             BeaconStateError::SyncCommitteeNotKnown { .. } => {
                                                 warp_utils::reject::custom_bad_request(format!(
@@ -2856,7 +2857,8 @@ pub fn serve<T: BeaconChainTypes>(
                                 "0x{}",
                                 hex::encode(
                                     meta_data
-                                        .syncnets().cloned()
+                                        .syncnets()
+                                        .cloned()
                                         .unwrap_or_default()
                                         .into_bytes()
                                 )
