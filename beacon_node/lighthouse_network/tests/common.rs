@@ -42,23 +42,23 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
     ForkContext::new::<E>(current_slot, Hash256::zero(), &chain_spec)
 }
 
-pub struct Libp2pInstance {
-    service: LibP2PService<ReqId, E>,
+pub struct Libp2pInstance(
+    LibP2PService<ReqId, E>,
     #[allow(dead_code)]
-    /// This field is managed for lifetime purposes may not be used directly, hence the `#[allow(dead_code)]` attribute.
-    exit_signal: exit_future::Signal,
-}
+    // This field is managed for lifetime purposes may not be used directly, hence the `#[allow(dead_code)]` attribute.
+    exit_future::Signal,
+);
 
 impl std::ops::Deref for Libp2pInstance {
     type Target = LibP2PService<ReqId, E>;
     fn deref(&self) -> &Self::Target {
-        &self.service
+        &self.0
     }
 }
 
 impl std::ops::DerefMut for Libp2pInstance {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.service
+        &mut self.0
     }
 }
 
@@ -120,13 +120,13 @@ pub async fn build_libp2p_instance(
         chain_spec: spec,
         libp2p_registry: None,
     };
-    Libp2pInstance {
-        service: LibP2PService::new(executor, libp2p_context, &log)
+    Libp2pInstance(
+        LibP2PService::new(executor, libp2p_context, &log)
             .await
             .expect("should build libp2p instance")
             .0,
-        exit_signal: signal,
-    }
+        signal,
+    )
 }
 
 #[allow(dead_code)]
