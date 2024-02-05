@@ -1,11 +1,9 @@
-
 use crate::per_epoch_processing::{
-    single_pass::{process_epoch_single_pass, SinglePassConfig}, Error,
+    single_pass::{process_epoch_single_pass, SinglePassConfig},
+    Error,
 };
 
-use types::consts::altair::{
-    PARTICIPATION_FLAG_WEIGHTS,
-};
+use types::consts::altair::PARTICIPATION_FLAG_WEIGHTS;
 use types::{BeaconState, ChainSpec, EthSpec};
 
 /// Apply attester and proposer rewards.
