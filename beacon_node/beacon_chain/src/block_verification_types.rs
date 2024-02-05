@@ -1,4 +1,3 @@
-use crate::blob_verification::{GossipBlobError, GossipVerifiedBlobList};
 use crate::block_verification::BlockError;
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
@@ -294,9 +293,6 @@ pub struct BlockImportData<E: EthSpec> {
     pub confirmed_state_roots: Vec<Hash256>,
     pub consensus_context: ConsensusContext<E>,
 }
-
-pub type GossipVerifiedBlockContents<T> =
-    (GossipVerifiedBlock<T>, Option<GossipVerifiedBlobList<T>>);
 
 #[derive(Debug)]
 pub enum BlockContentsError<T: EthSpec> {

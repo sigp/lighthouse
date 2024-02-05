@@ -210,19 +210,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_blobs(block_root, verified_blobs)
     }
 
-    /// Check if we've cached other blobs for this block. If it completes a set and we also
-    /// have a block cached, return the `Availability` variant triggering block import.
-    /// Otherwise cache the blob sidecar.
-    ///
-    /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
-    pub fn put_gossip_blob(
-        &self,
-        gossip_blob: GossipVerifiedBlob<T>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache
-            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
-    }
-
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
     /// about whether all components have been received or more are required.
     pub fn put_pending_executed_block(
@@ -358,46 +345,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .entry(block_root)
             .or_insert_with(|| ProcessingComponents::new(slot))
             .merge_block(commitments);
-    }
-
-    /// Add a single blob commitment to the processing cache. This commitment is unverified but caching
-    /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
-    /// our block and blob download requirements.
-    pub fn notify_gossip_blob(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        blob: &GossipVerifiedBlob<T>,
-    ) {
-        let index = blob.index();
-        let commitment = blob.kzg_commitment();
-        self.processing_cache
-            .write()
-            .entry(block_root)
-            .or_insert_with(|| ProcessingComponents::new(slot))
-            .merge_single_blob(index as usize, commitment);
-    }
-
-    /// Adds blob commitments to the processing cache. These commitments are unverified but caching
-    /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
-    /// our block and blob download requirements.
-    pub fn notify_rpc_blobs(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        blobs: &FixedBlobSidecarList<T::EthSpec>,
-    ) {
-        let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
-        for blob in blobs.iter().flatten() {
-            if let Some(commitment) = commitments.get_mut(blob.index as usize) {
-                *commitment = Some(blob.kzg_commitment);
-            }
-        }
-        self.processing_cache
-            .write()
-            .entry(block_root)
-            .or_insert_with(|| ProcessingComponents::new(slot))
-            .merge_blobs(commitments);
     }
 
     /// Clears the block and all blobs from the processing cache for a give root if they exist.

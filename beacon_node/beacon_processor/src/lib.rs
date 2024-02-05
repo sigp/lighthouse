@@ -105,10 +105,6 @@ const MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 1_024;
 /// before we start dropping them.
 const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
 
-/// The maximum number of queued `BlobSidecar` objects received on gossip that
-/// will be stored before we start dropping them.
-const MAX_GOSSIP_BLOB_QUEUE_LEN: usize = 1_024;
-
 /// The maximum number of queued `DataColumnSidecar` objects received on gossip that
 /// will be stored before we start dropping them.
 const MAX_GOSSIP_DATA_COL_QUEUE_LEN: usize = 1_024;
@@ -594,7 +590,6 @@ pub enum Work<E: EthSpec> {
         process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
     },
     GossipBlock(AsyncFn),
-    GossipBlobSidecar(AsyncFn),
     GossipDataColumnSidecar(AsyncFn),
     DelayedImportBlock {
         beacon_block_slot: Slot,
@@ -645,7 +640,6 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAggregate { .. } => GOSSIP_AGGREGATE,
             Work::GossipAggregateBatch { .. } => GOSSIP_AGGREGATE_BATCH,
             Work::GossipBlock(_) => GOSSIP_BLOCK,
-            Work::GossipBlobSidecar(_) => GOSSIP_BLOBS_SIDECAR,
             Work::GossipDataColumnSidecar(_) => GOSSIP_BLOBS_COLUMN_SIDECAR,
             Work::DelayedImportBlock { .. } => DELAYED_IMPORT_BLOCK,
             Work::GossipVoluntaryExit(_) => GOSSIP_VOLUNTARY_EXIT,
@@ -815,7 +809,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut backfill_chain_segment = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
-        let mut gossip_blob_queue = FifoQueue::new(MAX_GOSSIP_BLOB_QUEUE_LEN);
         let mut gossip_data_column_queue = FifoQueue::new(MAX_GOSSIP_DATA_COL_QUEUE_LEN);
         let mut delayed_block_queue = FifoQueue::new(MAX_DELAYED_BLOCK_QUEUE_LEN);
 
@@ -969,8 +962,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // Check gossip blocks before gossip attestations, since a block might be
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
-                        } else if let Some(item) = gossip_blob_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = gossip_data_column_queue.pop() {
                             self.spawn_worker(item, idle_tx);
@@ -1213,9 +1204,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
                             }
-                            Work::GossipBlobSidecar { .. } => {
-                                gossip_blob_queue.push(work, work_id, &self.log)
-                            }
                             Work::GossipDataColumnSidecar { .. } => {
                                 gossip_data_column_queue.push(work, work_id, &self.log)
                             }
@@ -1312,10 +1300,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL,
                     gossip_block_queue.len() as i64,
-                );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_GOSSIP_BLOB_QUEUE_TOTAL,
-                    gossip_blob_queue.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_GOSSIP_DATA_COLUMN_QUEUE_TOTAL,
@@ -1472,11 +1456,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 task_spawner.spawn_async(process_fn)
             }
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
-            Work::GossipBlock(work)
-            | Work::GossipBlobSidecar(work)
-            | Work::GossipDataColumnSidecar(work) => task_spawner.spawn_async(async move {
-                work.await;
-            }),
+            Work::GossipBlock(work) | Work::GossipDataColumnSidecar(work) => task_spawner
+                .spawn_async(async move {
+                    work.await;
+                }),
             Work::BlobsByRangeRequest(process_fn) | Work::BlobsByRootsRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }

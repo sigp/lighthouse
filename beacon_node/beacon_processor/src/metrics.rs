@@ -45,13 +45,7 @@ lazy_static::lazy_static! {
     pub static ref BEACON_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_gossip_block_queue_total",
         "Count of blocks from gossip waiting to be verified."
-    );
-    // Gossip blobs.
-    pub static ref BEACON_PROCESSOR_GOSSIP_BLOB_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_gossip_blob_queue_total",
-        "Count of blobs from gossip waiting to be verified."
-    );
-    // Gossip data column sidecars.
+    );    // Gossip data column sidecars.
     pub static ref BEACON_PROCESSOR_GOSSIP_DATA_COLUMN_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_gossip_data_column_queue_total",
         "Count of data column sidecars from gossip waiting to be verified."

@@ -814,59 +814,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    pub async fn process_gossip_verified_blob(
-        self: &Arc<Self>,
-        peer_id: PeerId,
-        verified_blob: GossipVerifiedBlob<T>,
-        // This value is not used presently, but it might come in handy for debugging.
-        _seen_duration: Duration,
-    ) {
-        let block_root = verified_blob.block_root();
-        let blob_slot = verified_blob.slot();
-        let blob_index = verified_blob.id().index;
-
-        match self.chain.process_gossip_blob(verified_blob).await {
-            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                // Note: Reusing block imported metric here
-                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
-                info!(
-                    self.log,
-                    "Gossipsub blob processed, imported fully available block";
-                    "block_root" => %block_root
-                );
-                self.chain.recompute_head_at_current_slot().await;
-            }
-            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                trace!(
-                    self.log,
-                    "Processed blob, waiting for other components";
-                    "slot" => %slot,
-                    "blob_index" => %blob_index,
-                    "block_root" => %block_root,
-                );
-            }
-            Err(err) => {
-                debug!(
-                    self.log,
-                    "Invalid gossip blob";
-                    "outcome" => ?err,
-                    "block root" => ?block_root,
-                    "block slot" =>  blob_slot,
-                    "blob index" =>  blob_index,
-                );
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::MidToleranceError,
-                    "bad_gossip_blob_ssz",
-                );
-                trace!(
-                    self.log,
-                    "Invalid gossip blob ssz";
-                );
-            }
-        }
-    }
-
     pub async fn process_gossip_verified_data_column(
         self: &Arc<Self>,
         _peer_id: PeerId,

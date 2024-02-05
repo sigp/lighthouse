@@ -870,10 +870,7 @@ mod test {
 
     async fn availability_pending_block<E, Hot, Cold>(
         harness: &BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>,
-    ) -> (
-        AvailabilityPendingExecutedBlock<E>,
-        Vec<GossipVerifiedBlob<BaseHarnessType<E, Hot, Cold>>>,
-    )
+    ) -> (AvailabilityPendingExecutedBlock<E>)
     where
         E: EthSpec,
         Hot: ItemStore<E>,
@@ -921,20 +918,6 @@ mod test {
         }
         info!(log, "done printing kzg commitments");
 
-        let gossip_verified_blobs = if let Some((kzg_proofs, blobs)) = maybe_blobs {
-            let sidecars = BlobSidecar::build_sidecars(blobs, &block, kzg_proofs).unwrap();
-            Vec::from(sidecars)
-                .into_iter()
-                .map(|sidecar| {
-                    let subnet = sidecar.index;
-                    GossipVerifiedBlob::new(sidecar, subnet, &harness.chain)
-                        .expect("should validate blob")
-                })
-                .collect()
-        } else {
-            vec![]
-        };
-
         let slot = block.slot();
         let consensus_context = ConsensusContext::<E>::new(slot);
         let import_data: BlockImportData<E> = BlockImportData {
@@ -957,7 +940,7 @@ mod test {
             payload_verification_outcome,
         };
 
-        (availability_pending_block, gossip_verified_blobs)
+        (availability_pending_block)
     }
 
     async fn setup_harness_and_cache<E, T>(

@@ -7,9 +7,7 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::blob_verification::{
-    GossipBlobError, GossipVerifiedBlob, GossipVerifiedDataColumnSidecar,
-};
+use crate::blob_verification::{GossipBlobError, GossipVerifiedDataColumnSidecar};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
@@ -2085,19 +2083,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    pub fn verify_blob_sidecar_for_gossip(
-        self: &Arc<Self>,
-        blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
-        subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T>, GossipBlobError<T::EthSpec>> {
-        metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedBlob::new(blob_sidecar, subnet_id, self).map(|v| {
-            metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_SUCCESSES);
-            v
-        })
-    }
-
     /// Accepts some 'LightClientOptimisticUpdate' from the network and attempts to verify it
     pub fn verify_optimistic_update_for_gossip(
         self: &Arc<Self>,
@@ -2868,38 +2853,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
     }
 
-    /// Cache the blob in the processing cache, process it, then evict it from the cache if it was
-    /// imported or errors.
-    pub async fn process_gossip_blob(
-        self: &Arc<Self>,
-        blob: GossipVerifiedBlob<T>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        let block_root = blob.block_root();
-
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its blobs again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
-            return Err(BlockError::BlockIsAlreadyKnown);
-        }
-
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_blob_sidecar_subscribers() {
-                event_handler.register(EventKind::BlobSidecar(SseBlobSidecar::from_blob_sidecar(
-                    blob.as_blob(),
-                )));
-            }
-        }
-
-        self.data_availability_checker
-            .notify_gossip_blob(blob.slot(), block_root, &blob);
-        let r = self.check_gossip_blob_availability_and_import(blob).await;
-        self.remove_notified(&block_root, r)
-    }
-
     pub fn process_gossip_data_column(
         self: &Arc<Self>,
         gossip_verified_data_column: GossipVerifiedDataColumnSidecar<T>,
@@ -3178,21 +3131,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let availability = self
             .data_availability_checker
             .put_pending_executed_block(block)?;
-        self.process_availability(slot, availability).await
-    }
-
-    /// Checks if the provided blob can make any cached blocks available, and imports immediately
-    /// if so, otherwise caches the blob in the data availability checker.
-    async fn check_gossip_blob_availability_and_import(
-        self: &Arc<Self>,
-        blob: GossipVerifiedBlob<T>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        let slot = blob.slot();
-        if let Some(slasher) = self.slasher.as_ref() {
-            slasher.accept_block_header(blob.signed_block_header());
-        }
-        let availability = self.data_availability_checker.put_gossip_blob(blob)?;
-
         self.process_availability(slot, availability).await
     }
 

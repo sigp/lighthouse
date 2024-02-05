@@ -48,7 +48,6 @@
 // returned alongside.
 #![allow(clippy::result_large_err)]
 
-use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_verification_types::{
     AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
 };
@@ -705,23 +704,6 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
         let (block, blobs) = self.deconstruct();
 
-        let gossip_verified_blobs = blobs
-            .map(|(kzg_proofs, blobs)| {
-                let mut gossip_verified_blobs = vec![];
-                for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
-                    let _timer =
-                        metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
-                    let blob = BlobSidecar::new(i, blob, &block, *kzg_proof)
-                        .map_err(BlockContentsError::SidecarError)?;
-                    drop(_timer);
-                    let gossip_verified_blob =
-                        GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
-                    gossip_verified_blobs.push(gossip_verified_blob);
-                }
-                let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
-                Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
-            })
-            .transpose()?;
         let gossip_verified_block = GossipVerifiedBlock::new(block, chain)?;
 
         Ok((gossip_verified_block, gossip_verified_blobs))
