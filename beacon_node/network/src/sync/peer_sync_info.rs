@@ -58,7 +58,7 @@ pub fn remote_sync_type<T: BeaconChainTypes>(
                     PeerSyncType::Behind
                 }
                 AnchorState::NonRevertible => {
-                    // Our finalized chckpoint is newer than the actual finalized checkpoint
+                    // Our finalized checkpoint is newer than the actual finalized checkpoint
                     //
                     // We can ignore that this peer has a lower finalized checkpoint and only consider
                     // its head block.

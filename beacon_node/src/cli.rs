@@ -959,9 +959,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("checkpoint-sync-state-id")
                 .long("checkpoint-sync-state-id")
                 .help("Specify a specifc state ID to use for checkpoint sync. Acceptable formats include \
-                       (`head`, `finalized`, `justified`, `0x...` (root), slot number).")
+                       (`head`, `finalized`, `justified`, `0x...` (root), slot number). [default: finalized]")
                 .value_name("STATE_ID")
                 .takes_value(true)
+                .default_value_if("checkpoint-sync-url", None, "finalized")
                 .requires("checkpoint-sync-url")
         )
         .arg(

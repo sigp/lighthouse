@@ -39,7 +39,7 @@ pub enum ClientGenesis {
     },
     CheckpointSyncUrl {
         url: SensitiveUrl,
-        remote_state: Option<StateId>,
+        remote_state_id: StateId,
     },
 }
 

@@ -320,16 +320,19 @@ where
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 builder
-                    // FIXME: determine how to fix this.. CLI flag?
                     .weak_subjectivity_state(
                         anchor_beacon_state,
                         anchor_block,
                         genesis_state,
-                        AnchorState::Finalized,
+                        // default to non-revertible, this won't be an issue if state really is finalized
+                        AnchorState::NonRevertible,
                     )
                     .map(|v| (v, None))?
             }
-            ClientGenesis::CheckpointSyncUrl { url, remote_state } => {
+            ClientGenesis::CheckpointSyncUrl {
+                url,
+                remote_state_id,
+            } => {
                 info!(
                     context.log(),
                     "Starting checkpoint sync";
@@ -392,12 +395,6 @@ where
                     }
                 } else {
                     None
-                };
-
-                let remote_state_id = if let Some(id) = remote_state {
-                    id
-                } else {
-                    StateId::Finalized
                 };
 
                 let state_string = match remote_state_id {

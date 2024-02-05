@@ -536,19 +536,22 @@ pub fn get_config<E: EthSpec>(
             let url = SensitiveUrl::parse(remote_bn_url)
                 .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
 
-            let remote_state = cli_args
+            let remote_state_id = cli_args
                 .value_of("checkpoint-sync-state-id")
-                .map(StateId::from_str)
-                .transpose()
+                .unwrap_or("finalized") // this should unwrap to "finalized" anyway due to Clap's configuration
+                .parse::<StateId>()
                 .map_err(|e| format!("Invalid checkpoint state ID: {:?}", e))?;
 
-            if matches!(remote_state, Some(StateId::Genesis)) {
+            if remote_state_id == StateId::Genesis {
                 return Err(
-                    "Invalid checkpoint state ID: genesis is not a valid state ID".to_string(),
+                    "Invalid checkpoint state ID: cannot checkpoint sync from genesis".to_string(),
                 );
             }
 
-            ClientGenesis::CheckpointSyncUrl { url, remote_state }
+            ClientGenesis::CheckpointSyncUrl {
+                url,
+                remote_state_id,
+            }
         } else {
             ClientGenesis::GenesisState
         }
