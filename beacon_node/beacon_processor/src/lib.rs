@@ -181,6 +181,10 @@ const MAX_BLOCKS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
 /// will be stored before we start dropping them.
 const MAX_BLOBS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
 
+/// The maximum number of queued `DataColumnsByRootRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_DATA_COLUMNS_BY_ROOTS_QUEUE_LEN: usize = 2_048;
+
 /// Maximum number of `SignedBlsToExecutionChange` messages to queue before dropping them.
 ///
 /// This value is set high to accommodate the large spike that is expected immediately after Capella
@@ -247,6 +251,7 @@ pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const BLOBS_BY_ROOTS_REQUEST: &str = "blobs_by_roots_request";
+pub const DATA_COLUMNS_BY_ROOTS_REQUEST: &str = "data_columns_by_roots_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
@@ -624,6 +629,7 @@ pub enum Work<E: EthSpec> {
     BlocksByRootsRequest(BlockingFnWithManualSendOnIdle),
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
+    DataColumnsByRootsRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
     ApiRequestP0(BlockingOrAsync),
@@ -665,6 +671,7 @@ impl<E: EthSpec> Work<E> {
             Work::BlocksByRootsRequest(_) => BLOCKS_BY_ROOTS_REQUEST,
             Work::BlobsByRangeRequest(_) => BLOBS_BY_RANGE_REQUEST,
             Work::BlobsByRootsRequest(_) => BLOBS_BY_ROOTS_REQUEST,
+            Work::DataColumnsByRootsRequest(_) => DATA_COLUMNS_BY_ROOTS_REQUEST,
             Work::LightClientBootstrapRequest(_) => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
@@ -824,6 +831,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
         let mut blbroots_queue = FifoQueue::new(MAX_BLOBS_BY_ROOTS_QUEUE_LEN);
         let mut blbrange_queue = FifoQueue::new(MAX_BLOBS_BY_RANGE_QUEUE_LEN);
+        let mut dcbroots_queue = FifoQueue::new(MAX_DATA_COLUMNS_BY_ROOTS_QUEUE_LEN);
 
         let mut gossip_bls_to_execution_change_queue =
             FifoQueue::new(MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN);
@@ -1123,6 +1131,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = blbroots_queue.pop() {
                             self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = dcbroots_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
                         //
@@ -1275,6 +1285,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             }
                             Work::BlobsByRootsRequest { .. } => {
                                 blbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::DataColumnsByRootsRequest { .. } => {
+                                dcbroots_queue.push(work, work_id, &self.log)
                             }
                             Work::UnknownLightClientOptimisticUpdate { .. } => {
                                 unknown_light_client_update_queue.push(work, work_id, &self.log)
@@ -1477,7 +1490,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipDataColumnSidecar(work) => task_spawner.spawn_async(async move {
                 work.await;
             }),
-            Work::BlobsByRangeRequest(process_fn) | Work::BlobsByRootsRequest(process_fn) => {
+            Work::BlobsByRangeRequest(process_fn)
+            | Work::BlobsByRootsRequest(process_fn)
+            | Work::DataColumnsByRootsRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
             Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {

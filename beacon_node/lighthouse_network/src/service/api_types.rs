@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use libp2p::swarm::ConnectionId;
-use types::{BlobSidecar, EthSpec, LightClientBootstrap, SignedBeaconBlock};
+use types::{BlobSidecar, DataColumnSidecar, EthSpec, LightClientBootstrap, SignedBeaconBlock};
 
-use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
+use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRootRequest};
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
@@ -42,6 +42,8 @@ pub enum Request {
     LightClientBootstrap(LightClientBootstrapRequest),
     /// A request blobs root request.
     BlobsByRoot(BlobsByRootRequest),
+    /// A request data columns root request.
+    DataColumnsByRoot(DataColumnsByRootRequest),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
@@ -69,6 +71,7 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
             }
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
             Request::BlobsByRoot(r) => OutboundRequest::BlobsByRoot(r),
+            Request::DataColumnsByRoot(r) => OutboundRequest::DataColumnsByRoot(r),
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }
@@ -92,6 +95,8 @@ pub enum Response<TSpec: EthSpec> {
     BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<BlobSidecar<TSpec>>>),
+    /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
+    DataColumnsByRoot(Option<Arc<DataColumnSidecar<TSpec>>>),
     /// A response to a LightClientUpdate request.
     LightClientBootstrap(LightClientBootstrap<TSpec>),
 }
@@ -114,6 +119,10 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
             Response::BlobsByRange(r) => match r {
                 Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRange(b)),
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRange),
+            },
+            Response::DataColumnsByRoot(r) => match r {
+                Some(d) => RPCCodedResponse::Success(RPCResponse::DataColumnsByRoot(d)),
+                None => RPCCodedResponse::StreamTermination(ResponseTermination::DataColumnsByRoot),
             },
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
             Response::LightClientBootstrap(b) => {

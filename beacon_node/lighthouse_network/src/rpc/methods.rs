@@ -12,9 +12,10 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
+use types::data_column_sidecar::DataColumnIdentifier;
 use types::{
-    blob_sidecar::BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, LightClientBootstrap,
-    RuntimeVariableList, SignedBeaconBlock, Slot,
+    blob_sidecar::BlobSidecar, ChainSpec, DataColumnSidecar, Epoch, EthSpec, Hash256,
+    LightClientBootstrap, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 /// Maximum length of error message.
@@ -366,6 +367,13 @@ impl BlobsByRootRequest {
     }
 }
 
+/// Request a number of data columns from a peer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DataColumnsByRootRequest {
+    /// The list of beacon block roots and column indices being requested.
+    pub data_column_ids: RuntimeVariableList<DataColumnIdentifier>,
+}
+
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
@@ -390,6 +398,9 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<T>>),
 
+    /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
+    DataColumnsByRoot(Arc<DataColumnSidecar<T>>),
+
     /// A PONG response to a PING request.
     Pong(Ping),
 
@@ -411,6 +422,9 @@ pub enum ResponseTermination {
 
     /// Blobs by root stream termination.
     BlobsByRoot,
+
+    /// Data column sidecars by root stream termination.
+    DataColumnsByRoot,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -482,6 +496,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::BlocksByRoot(_) => true,
                 RPCResponse::BlobsByRange(_) => true,
                 RPCResponse::BlobsByRoot(_) => true,
+                RPCResponse::DataColumnsByRoot(_) => true,
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
                 RPCResponse::LightClientBootstrap(_) => false,
@@ -520,6 +535,7 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
             RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
             RPCResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
+            RPCResponse::DataColumnsByRoot(_) => Protocol::DataColumnsByRoot,
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -562,6 +578,9 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             }
             RPCResponse::BlobsByRoot(sidecar) => {
                 write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot())
+            }
+            RPCResponse::DataColumnsByRoot(sidecar) => {
+                write!(f, "DataColumnsByRoot: Data column slot: {}", sidecar.slot())
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
@@ -641,6 +660,16 @@ impl std::fmt::Display for BlobsByRangeRequest {
             f,
             "Request: BlobsByRange: Start Slot: {}, Count: {}",
             self.start_slot, self.count
+        )
+    }
+}
+
+impl std::fmt::Display for DataColumnsByRootRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Request: DataColumnsByRoot: Number of Requested Data Column Ids: {}",
+            self.data_column_ids.len()
         )
     }
 }

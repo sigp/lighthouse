@@ -1,12 +1,18 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::test_utils::TestRandom;
-use crate::{BlobSidecarList, EthSpec, Hash256, KzgProofs, SignedBeaconBlockHeader, Slot};
+use crate::{
+    BeaconBlockHeader, BlobSidecarList, EthSpec, Hash256, KzgProofs, SignedBeaconBlockHeader, Slot,
+};
+use bls::Signature;
 use derivative::Derivative;
+use kzg::{KzgCommitment, KzgProof};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
+use ssz_types::typenum::Unsigned;
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
 use test_random_derive::TestRandom;
@@ -16,6 +22,15 @@ use tree_hash_derive::TreeHash;
 pub type ColumnIndex = u64;
 pub type Cell<T> = FixedVector<u8, <T as EthSpec>::FieldElementsPerCell>;
 pub type DataColumn<T> = VariableList<Cell<T>, <T as EthSpec>::MaxBlobsPerBlock>;
+
+/// Container of the data that identifies an individual blob.
+#[derive(
+    Serialize, Deserialize, Encode, Decode, TreeHash, Copy, Clone, Debug, PartialEq, Eq, Hash,
+)]
+pub struct DataColumnIdentifier {
+    pub block_root: Hash256,
+    pub index: ColumnIndex,
+}
 
 #[derive(
     Debug,
@@ -127,6 +142,48 @@ impl<T: EthSpec> DataColumnSidecar<T> {
 
     pub fn block_root(&self) -> Hash256 {
         self.signed_block_header.message.tree_hash_root()
+    }
+
+    pub fn min_size() -> usize {
+        // min size is one cell
+        Self {
+            index: 0,
+            column: VariableList::new(vec![Cell::<T>::default()]).unwrap(),
+            kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
+            kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
+            signed_block_header: SignedBeaconBlockHeader {
+                message: BeaconBlockHeader::empty(),
+                signature: Signature::empty(),
+            },
+            kzg_commitments_inclusion_proof: Default::default(),
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+
+    pub fn max_size() -> usize {
+        Self {
+            index: 0,
+            column: VariableList::new(vec![Cell::<T>::default(); T::MaxBlobsPerBlock::to_usize()])
+                .unwrap(),
+            kzg_commitments: VariableList::new(vec![
+                KzgCommitment::empty_for_testing();
+                T::MaxBlobCommitmentsPerBlock::to_usize()
+            ])
+            .unwrap(),
+            kzg_proofs: VariableList::new(vec![
+                KzgProof::empty();
+                T::MaxBlobCommitmentsPerBlock::to_usize()
+            ])
+            .unwrap(),
+            signed_block_header: SignedBeaconBlockHeader {
+                message: BeaconBlockHeader::empty(),
+                signature: Signature::empty(),
+            },
+            kzg_commitments_inclusion_proof: Default::default(),
+        }
+        .as_ssz_bytes()
+        .len()
     }
 }
 

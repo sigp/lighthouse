@@ -5,7 +5,9 @@ use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use beacon_processor::SendOnDrop;
 use itertools::process_results;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRootRequest,
+};
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
@@ -292,6 +294,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         if send_response {
             self.send_response(peer_id, Response::BlobsByRoot(None), request_id);
         }
+    }
+
+    /// Handle a `DataColumnsByRoot` request from the peer.
+    pub fn handle_data_columns_by_root_request(
+        self: Arc<Self>,
+        _peer_id: PeerId,
+        _request_id: PeerRequestId,
+        _request: DataColumnsByRootRequest,
+    ) {
+        // TODO(das): handle DataColumnsByRoot requests
+        unimplemented!()
     }
 
     /// Handle a `BlocksByRoot` request from the peer.

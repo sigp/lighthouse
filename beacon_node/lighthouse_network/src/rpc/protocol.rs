@@ -21,8 +21,8 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, ForkContext, ForkName,
+    MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -166,6 +166,9 @@ pub enum Protocol {
     /// The `BlobsByRoot` protocol name.
     #[strum(serialize = "blob_sidecars_by_root")]
     BlobsByRoot,
+    /// The `DataColumnSidecarsByRoot` protocol name.
+    #[strum(serialize = "data_column_sidecars_by_root")]
+    DataColumnsByRoot,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -185,6 +188,7 @@ impl Protocol {
             Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
             Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
             Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
+            Protocol::DataColumnsByRoot => Some(ResponseTermination::DataColumnsByRoot),
             Protocol::Ping => None,
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
@@ -209,6 +213,7 @@ pub enum SupportedProtocol {
     BlocksByRootV2,
     BlobsByRangeV1,
     BlobsByRootV1,
+    DataColumnsByRootV1,
     PingV1,
     MetaDataV1,
     MetaDataV2,
@@ -226,6 +231,7 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRootV2 => "2",
             SupportedProtocol::BlobsByRangeV1 => "1",
             SupportedProtocol::BlobsByRootV1 => "1",
+            SupportedProtocol::DataColumnsByRootV1 => "1",
             SupportedProtocol::PingV1 => "1",
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
@@ -243,6 +249,7 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRootV2 => Protocol::BlocksByRoot,
             SupportedProtocol::BlobsByRangeV1 => Protocol::BlobsByRange,
             SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
+            SupportedProtocol::DataColumnsByRootV1 => Protocol::DataColumnsByRoot,
             SupportedProtocol::PingV1 => Protocol::Ping,
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
@@ -369,6 +376,7 @@ impl ProtocolId {
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlobsByRoot => RpcLimits::new(0, spec.max_blobs_by_root_request),
+            Protocol::DataColumnsByRoot => RpcLimits::new(0, spec.max_data_columns_by_root_request),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -393,6 +401,10 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<T>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<T>(),
+            Protocol::DataColumnsByRoot => RpcLimits::new(
+                DataColumnSidecar::<T>::min_size(),
+                DataColumnSidecar::<T>::max_size(),
+            ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -416,6 +428,7 @@ impl ProtocolId {
             | SupportedProtocol::BlocksByRootV2
             | SupportedProtocol::BlobsByRangeV1
             | SupportedProtocol::BlobsByRootV1
+            | SupportedProtocol::DataColumnsByRootV1
             | SupportedProtocol::LightClientBootstrapV1 => true,
             SupportedProtocol::StatusV1
             | SupportedProtocol::BlocksByRootV1
@@ -527,6 +540,7 @@ pub enum InboundRequest<TSpec: EthSpec> {
     BlocksByRoot(BlocksByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
+    DataColumnsByRoot(DataColumnsByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
     MetaData(MetadataRequest<TSpec>),
@@ -545,6 +559,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
             InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<TSpec>(),
             InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
+            InboundRequest::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
@@ -566,6 +581,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             },
             InboundRequest::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
             InboundRequest::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
+            InboundRequest::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
             InboundRequest::Ping(_) => SupportedProtocol::PingV1,
             InboundRequest::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
@@ -585,6 +601,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
             InboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             InboundRequest::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
+            InboundRequest::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
             InboundRequest::Status(_) => unreachable!(),
             InboundRequest::Goodbye(_) => unreachable!(),
             InboundRequest::Ping(_) => unreachable!(),
@@ -693,6 +710,7 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             InboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             InboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
+            InboundRequest::DataColumnsByRoot(req) => write!(f, "Data columns by root: {:?}", req),
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {

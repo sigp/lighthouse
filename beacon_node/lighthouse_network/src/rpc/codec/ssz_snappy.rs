@@ -15,12 +15,12 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::ChainSpec;
 use types::{
     BlobSidecar, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap,
     RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockMerge,
 };
+use types::{ChainSpec, DataColumnSidecar};
 use unsigned_varint::codec::Uvi;
 
 const CONTEXT_BYTES_LEN: usize = 4;
@@ -74,6 +74,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::DataColumnsByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
@@ -230,6 +231,7 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
             },
             OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
+            OutboundRequest::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
         };
@@ -498,6 +500,14 @@ fn handle_rpc_request<T: EthSpec>(
                 )?,
             })))
         }
+        SupportedProtocol::DataColumnsByRootV1 => Ok(Some(InboundRequest::DataColumnsByRoot(
+            DataColumnsByRootRequest {
+                data_column_ids: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    spec.max_request_data_column_sidecars as usize,
+                )?,
+            },
+        ))),
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -575,6 +585,23 @@ fn handle_rpc_response<T: EthSpec>(
             Some(_) => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 "Invalid fork name for blobs by root".to_string(),
+            )),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::DataColumnsByRootV1 => match fork_name {
+            // TODO(das): update fork name
+            Some(ForkName::Deneb) => Ok(Some(RPCResponse::DataColumnsByRoot(Arc::new(
+                DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+            )))),
+            Some(_) => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                "Invalid fork name for data columns by root".to_string(),
             )),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
@@ -944,6 +971,9 @@ mod tests {
             }
             OutboundRequest::BlobsByRoot(bbroot) => {
                 assert_eq!(decoded, InboundRequest::BlobsByRoot(bbroot))
+            }
+            OutboundRequest::DataColumnsByRoot(dcbroot) => {
+                assert_eq!(decoded, InboundRequest::DataColumnsByRoot(dcbroot))
             }
             OutboundRequest::Ping(ping) => {
                 assert_eq!(decoded, InboundRequest::Ping(ping))
