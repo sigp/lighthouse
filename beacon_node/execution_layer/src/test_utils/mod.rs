@@ -487,6 +487,8 @@ pub struct StaticNewPayloadResponse {
     should_import: bool,
 }
 #[derive(Debug)]
+#[allow(dead_code)]
+// We don't use the string value directly, but it's used in the Debug impl which is required by `warp::reject::Reject`.
 struct AuthError(String);
 
 impl warp::reject::Reject for AuthError {}
@@ -600,7 +602,7 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible
     let message;
 
     if let Some(e) = err.find::<AuthError>() {
-        message = format!("Authorization error: {:?}", e);
+        message = format!("Authorization error: {}", e.0);
         code = StatusCode::UNAUTHORIZED;
     } else {
         message = "BAD_REQUEST".to_string();
