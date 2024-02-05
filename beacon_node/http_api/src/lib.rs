@@ -1019,7 +1019,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 Ok((
                                     state
                                         .get_built_sync_committee(epoch, &chain.spec)
-                                        .map(|committee| committee.clone())
+                                        .cloned()
                                         .map_err(|e| match e {
                                             BeaconStateError::SyncCommitteeNotKnown { .. } => {
                                                 warp_utils::reject::custom_bad_request(format!(
@@ -2858,7 +2858,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 hex::encode(
                                     meta_data
                                         .syncnets()
-                                        .map(|x| x.clone())
+                                        .cloned()
                                         .unwrap_or_default()
                                         .into_bytes()
                                 )
