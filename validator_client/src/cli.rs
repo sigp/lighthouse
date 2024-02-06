@@ -368,29 +368,28 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
-            Arg::with_name("beacon-node-sync-tolerance")
-                .long("beacon-node-sync-tolerance")
-                .help("Sets the number of slots behind the head that each connected Beacon Node can be \
-                    to still be considered synced. Effectively this gives more priority to the first \
-                    connected Beacon Node.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("beacon-node-small-sync-distance-modifier")
-                .long("beacon-node-small-sync-distance-modifier")
-                .help("Only use this if you know what you are doing. Incorrectly setting this value \
-                    can result in suboptimal fallback behaviour. Sets the size (in slots) of the \
-                    `small` sync distance range when calculating the health tiers of connected \
-                    Beacon Nodes. The range falls immediately after the end of the `synced` range.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("beacon-node-medium-sync-distance-modifier")
-                .long("beacon-node-medium-sync-distance-modifier")
-                .help("Only use this if you know what you are doing. Incorrectly setting this value \
-                    can result in suboptimal fallback behaviour. Sets the size (in slots) of the \
-                    `medium` sync distance range when calculating the health tiers of connected \
-                    Beacon Nodes. The range falls immediately after the end of the `small` range.")
-                .takes_value(true),
+            Arg::with_name("beacon-nodes-sync-tolerances")
+                .long("beacon-nodes-sync-tolerances")
+                .value_name("SYNC_TOLERANCES")
+                .help("A comma-separated list of 3 values which sets the size of each sync distance range when \
+                    determining the health of each connected beacon node. \
+                    The first value determines the `Synced` range. \
+                    If a connected beacon node is synced to within this number of slots it is considered 'Synced'. \
+                    The second value determines the `Small` sync distance range. \
+                    This range starts immediately after the `Synced` range. \
+                    The third value determines the `Medium` sync distance range. \
+                    This range starts immediately after the `Small` range. \
+                    Any sync distance value beyond that is considered `Large`. \
+                    For example, a value of `8,8,48` would have ranges like the following: \
+                    `Synced`: 0..=8 \
+                    `Small`: 9..=16 \
+                    `Medium`: 17..=64 \
+                    `Large`: 65.. \
+                    These values are used to determine what ordering beacon node fallbacks are used in. \
+                    Generally, `Synced` nodes are preferred over `Small` and so on. \
+                    Nodes in the `Synced` range will tie-break based on their ordering in `--beacon-nodes`. \
+                    This ensures the primary beacon node is prioritised. \
+                    [default: 8,8,48]")
+                .takes_value(true)
         )
 }

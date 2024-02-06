@@ -1,6 +1,8 @@
 use crate::beacon_node_fallback::ApiTopic;
 use crate::graffiti_file::GraffitiFile;
-use crate::{beacon_node_fallback, http_api, http_metrics};
+use crate::{
+    beacon_node_fallback, beacon_node_health::BeaconNodeSyncDistanceTiers, http_api, http_metrics,
+};
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 use directory::{
@@ -14,6 +16,7 @@ use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::str::FromStr;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
@@ -254,30 +257,11 @@ impl Config {
 
         config.beacon_node_fallback.disable_run_on_all = cli_args.is_present("disable-run-on-all");
 
-        if let Some(sync_tolerance) = cli_args.value_of("beacon-node-sync-tolerance") {
-            config.beacon_node_fallback.sync_tolerance = Some(
-                sync_tolerance
-                    .parse::<u64>()
-                    .map_err(|_| "beacon-node-sync-tolerance is not a valid u64.")?,
-            );
-        }
-
-        if let Some(small_modifier) = cli_args.value_of("beacon-node-small-sync-distance-modifier")
-        {
-            config.beacon_node_fallback.small_sync_distance_modifier = Some(
-                small_modifier
-                    .parse::<u64>()
-                    .map_err(|_| "beacon-node-small-sync-distance-modifier is not a valid u64.")?,
-            );
-        }
-
-        if let Some(medium_modifier) =
-            cli_args.value_of("beacon-node-medium-sync-distance-modifier")
-        {
-            config.beacon_node_fallback.medium_sync_distance_modifier =
-                Some(medium_modifier.parse::<u64>().map_err(|_| {
-                    "beacon-node-medium-sync-distance-modifier is not a valid u64."
-                })?);
+        if let Some(sync_tolerance) = cli_args.value_of("beacon-nodes-sync-tolerances") {
+            config.beacon_node_fallback.sync_tolerances =
+                BeaconNodeSyncDistanceTiers::from_str(sync_tolerance)?;
+        } else {
+            config.beacon_node_fallback.sync_tolerances = BeaconNodeSyncDistanceTiers::default();
         }
 
         /*

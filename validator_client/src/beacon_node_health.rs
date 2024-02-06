@@ -1,7 +1,8 @@
-use crate::beacon_node_fallback::Config;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
+use std::str::FromStr;
 use types::Slot;
 
 /// Sync distances between 0 and DEFAULT_SYNC_TOLERANCE are considered `synced`.
@@ -30,35 +31,49 @@ pub enum SyncDistanceTier {
 
 /// Contains the different sync distance tiers which are determined at runtime by the
 /// `sync_tolerance` CLI flag and the `sync_distance_modifier` flags.
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct BeaconNodeSyncDistanceTiers {
-    synced: SyncDistance,
-    small: SyncDistance,
-    medium: SyncDistance,
+    pub synced: SyncDistance,
+    pub small: SyncDistance,
+    pub medium: SyncDistance,
+}
+
+impl Default for BeaconNodeSyncDistanceTiers {
+    fn default() -> Self {
+        Self {
+            synced: DEFAULT_SYNC_TOLERANCE,
+            small: DEFAULT_SYNC_TOLERANCE + DEFAULT_SMALL_SYNC_DISTANCE_MODIFIER,
+            medium: DEFAULT_SYNC_TOLERANCE
+                + DEFAULT_SMALL_SYNC_DISTANCE_MODIFIER
+                + DEFAULT_MEDIUM_SYNC_DISTANCE_MODIFIER,
+        }
+    }
+}
+
+impl FromStr for BeaconNodeSyncDistanceTiers {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        let values: (u64, u64, u64) = s
+            .split(',')
+            .map(|s| {
+                s.parse()
+                    .map_err(|e| format!("Invalid sync distance modifier: {e:?}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .collect_tuple()
+            .ok_or("Invalid number of sync distance modifiers".to_string())?;
+
+        Ok(BeaconNodeSyncDistanceTiers {
+            synced: Slot::new(values.0),
+            small: Slot::new(values.0 + values.1),
+            medium: Slot::new(values.0 + values.1 + values.2),
+        })
+    }
 }
 
 impl BeaconNodeSyncDistanceTiers {
-    pub fn from_config(config: &Config) -> Self {
-        let synced = config
-            .sync_tolerance
-            .map(Slot::new)
-            .unwrap_or(DEFAULT_SYNC_TOLERANCE);
-        let small_mod = config
-            .small_sync_distance_modifier
-            .map(Slot::new)
-            .unwrap_or(DEFAULT_SMALL_SYNC_DISTANCE_MODIFIER);
-        let medium_mod = config
-            .medium_sync_distance_modifier
-            .map(Slot::new)
-            .unwrap_or(DEFAULT_MEDIUM_SYNC_DISTANCE_MODIFIER);
-
-        Self {
-            synced,
-            small: synced + small_mod,
-            medium: synced + small_mod + medium_mod,
-        }
-    }
-
     /// Takes a given sync distance and determines its tier based on the `sync_tolerance` defined by
     /// the CLI.
     pub fn compute_distance_tier(&self, distance: SyncDistance) -> SyncDistanceTier {
@@ -70,18 +85,6 @@ impl BeaconNodeSyncDistanceTiers {
             SyncDistanceTier::Medium
         } else {
             SyncDistanceTier::Large
-        }
-    }
-}
-
-impl Default for BeaconNodeSyncDistanceTiers {
-    fn default() -> Self {
-        Self {
-            synced: DEFAULT_SYNC_TOLERANCE,
-            small: DEFAULT_SYNC_TOLERANCE + DEFAULT_SMALL_SYNC_DISTANCE_MODIFIER,
-            medium: DEFAULT_SYNC_TOLERANCE
-                + DEFAULT_SMALL_SYNC_DISTANCE_MODIFIER
-                + DEFAULT_MEDIUM_SYNC_DISTANCE_MODIFIER,
         }
     }
 }
@@ -290,12 +293,13 @@ mod tests {
         SyncDistanceTier,
     };
     use crate::beacon_node_fallback::Config;
+    use std::str::FromStr;
     use types::Slot;
 
     #[test]
     fn all_possible_health_tiers() {
         let config = Config::default();
-        let beacon_node_sync_distance_tiers = BeaconNodeSyncDistanceTiers::from_config(&config);
+        let beacon_node_sync_distance_tiers = config.sync_tolerances;
 
         let mut health_vec = vec![];
 
@@ -375,29 +379,24 @@ mod tests {
         let medium_high = new_distance_tier(64, &distance_tiers);
         let large = new_distance_tier(65, &distance_tiers);
 
-        assert!(synced_low.tier == 1);
-        assert!(synced_high.tier == 1);
-        assert!(small_low.tier == 2);
-        assert!(small_high.tier == 2);
-        assert!(medium_low.tier == 4);
+        assert_eq!(synced_low.tier, 1);
+        assert_eq!(synced_high.tier, 1);
+        assert_eq!(small_low.tier, 2);
+        assert_eq!(small_high.tier, 2);
+        assert_eq!(medium_low.tier, 4);
         assert_eq!(medium_high.tier, 4);
-        assert!(large.tier == 10);
+        assert_eq!(large.tier, 10);
     }
 
     #[test]
-    fn sync_tolerance_from_config() {
-        // Config should set the tiers as:
+    fn sync_tolerance_from_str() {
+        // String should set the tiers as:
         // synced: 0..=4
         // small: 5..=8
         // medium 9..=12
         // large: 13..
-        let config = Config {
-            disable_run_on_all: false,
-            sync_tolerance: Some(4),
-            small_sync_distance_modifier: Some(4),
-            medium_sync_distance_modifier: Some(4),
-        };
-        let distance_tiers = BeaconNodeSyncDistanceTiers::from_config(&config);
+
+        let distance_tiers = BeaconNodeSyncDistanceTiers::from_str("4,4,4").unwrap();
 
         let synced_low = new_distance_tier(0, &distance_tiers);
         let synced_high = new_distance_tier(4, &distance_tiers);
@@ -410,12 +409,12 @@ mod tests {
 
         let large = new_distance_tier(13, &distance_tiers);
 
-        assert!(synced_low.tier == 1);
-        assert!(synced_high.tier == 1);
-        assert!(small_low.tier == 2);
-        assert!(small_high.tier == 2);
-        assert!(medium_low.tier == 4);
+        assert_eq!(synced_low.tier, 1);
+        assert_eq!(synced_high.tier, 1);
+        assert_eq!(small_low.tier, 2);
+        assert_eq!(small_high.tier, 2);
+        assert_eq!(medium_low.tier, 4);
         assert_eq!(medium_high.tier, 4);
-        assert!(large.tier == 10);
+        assert_eq!(large.tier, 10);
     }
 }

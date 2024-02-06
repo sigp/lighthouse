@@ -1,4 +1,4 @@
-use validator_client::{ApiTopic, Config};
+use validator_client::{ApiTopic, BeaconNodeSyncDistanceTiers, Config};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
@@ -10,7 +10,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::Address;
+use types::{Address, Slot};
 
 /// Returns the `lighthouse validator_client` command.
 fn base_cmd() -> Command {
@@ -576,37 +576,29 @@ fn broadcast_flag() {
         });
 }
 
-/// Tests for validator fallback parameter flags.
+/// Tests for validator fallback flags.
 #[test]
-fn beacon_node_sync_tolerance_flag() {
-    CommandLineTest::new()
-        .flag("beacon-node-sync-tolerance", Some("4"))
-        .run()
-        .with_config(|config| {
-            assert_eq!(config.beacon_node_fallback.sync_tolerance, Some(4));
-        });
+fn beacon_nodes_sync_tolerances_flag_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(
+            config.beacon_node_fallback.sync_tolerances,
+            BeaconNodeSyncDistanceTiers::default()
+        )
+    });
 }
 #[test]
-fn beacon_node_small_sync_distance_modifier_flag() {
+fn beacon_nodes_sync_tolerances_flag() {
     CommandLineTest::new()
-        .flag("beacon-node-small-sync-distance-modifier", Some("16"))
+        .flag("beacon-nodes-sync-tolerances", Some("4,4,4"))
         .run()
         .with_config(|config| {
             assert_eq!(
-                config.beacon_node_fallback.small_sync_distance_modifier,
-                Some(16)
-            );
-        });
-}
-#[test]
-fn beacon_node_medium_sync_distance_modifier_flag() {
-    CommandLineTest::new()
-        .flag("beacon-node-medium-sync-distance-modifier", Some("32"))
-        .run()
-        .with_config(|config| {
-            assert_eq!(
-                config.beacon_node_fallback.medium_sync_distance_modifier,
-                Some(32)
+                config.beacon_node_fallback.sync_tolerances,
+                BeaconNodeSyncDistanceTiers {
+                    synced: Slot::new(4),
+                    small: Slot::new(8),
+                    medium: Slot::new(12),
+                }
             );
         });
 }
