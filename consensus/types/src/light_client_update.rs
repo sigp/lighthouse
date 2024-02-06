@@ -4,6 +4,7 @@ use crate::{
     light_client_header::{
         LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
     },
+    test_utils::TestRandom,
     BeaconBlock, BeaconState, ChainSpec, ForkName, ForkVersionDeserialize, LightClientHeader,
     SignedBeaconBlock,
 };
@@ -13,6 +14,7 @@ use serde_json::Value;
 use ssz_derive::{Decode, Encode};
 use ssz_types::typenum::{U4, U5, U6};
 use std::sync::Arc;
+use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
 pub const FINALIZED_ROOT_INDEX: usize = 105;
@@ -64,7 +66,17 @@ impl From<ArithError> for Error {
 /// A LightClientUpdate is the update we request solely to either complete the bootstraping process,
 /// or to sync up to the last committee period, we need to have one ready for each ALTAIR period
 /// we go over, note: there is no need to keep all of the updates from [ALTAIR_PERIOD, CURRENT_PERIOD].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    arbitrary::Arbitrary,
+    TestRandom,
+)]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientUpdate<T: EthSpec> {
@@ -174,10 +186,10 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientUpdate<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // use crate::MainnetEthSpec;
+    use crate::MainnetEthSpec;
     use ssz_types::typenum::Unsigned;
-    // FIXME type includes enum which isn't compatible w/ TestRandom derive
-    // ssz_tests!(LightClientUpdate<MainnetEthSpec>);
+
+    ssz_tests!(LightClientUpdate<MainnetEthSpec>);
 
     #[test]
     fn finalized_root_params() {

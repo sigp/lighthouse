@@ -4,16 +4,28 @@ use crate::{
         LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
     },
     light_client_update::*,
+    test_utils::TestRandom,
     ChainSpec, ForkName, ForkVersionDeserialize, LightClientHeader, SignedBeaconBlock,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
+use test_random_derive::TestRandom;
 
 /// A LightClientBootstrap is the initializer we send over to light_client nodes
 /// that are trying to generate their basic storage when booting up.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    arbitrary::Arbitrary,
+    TestRandom,
+)]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientBootstrap<T: EthSpec> {
@@ -75,11 +87,10 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientBootstrap<T> {
     }
 }
 
-// FIXME type includes enum which isn't compatible w/ TestRandom derive
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::MainnetEthSpec;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MainnetEthSpec;
 
-//     ssz_tests!(LightClientBootstrap<MainnetEthSpec>);
-// }
+    ssz_tests!(LightClientBootstrap<MainnetEthSpec>);
+}

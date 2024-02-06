@@ -4,16 +4,28 @@ use crate::{
         LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
     },
     light_client_update::*,
+    test_utils::TestRandom,
     BeaconState, ChainSpec, ForkName, ForkVersionDeserialize, LightClientHeader, SignedBeaconBlock,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
 /// A LightClientFinalityUpdate is the update light_client request or received by a gossip that
 /// signal a new finalized beacon block header for the light client sync protocol.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    arbitrary::Arbitrary,
+    TestRandom,
+)]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientFinalityUpdate<T: EthSpec> {
@@ -99,11 +111,11 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<T> {
         }
     }
 }
-// FIXME type includes enum which isn't compatible w/ TestRandom derive
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::MainnetEthSpec;
 
-//     ssz_tests!(LightClientFinalityUpdate<MainnetEthSpec>);
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MainnetEthSpec;
+
+    ssz_tests!(LightClientFinalityUpdate<MainnetEthSpec>);
+}

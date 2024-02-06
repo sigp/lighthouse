@@ -3,16 +3,28 @@ use crate::light_client_header::{
     LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
 };
 use crate::light_client_update::Error;
+use crate::test_utils::TestRandom;
 use crate::{light_client_header::LightClientHeader, ChainSpec};
 use crate::{BeaconState, SignedBeaconBlock};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
 /// A LightClientOptimisticUpdate is the update we send on each slot,
 /// it is based off the current unfinalized epoch is verified only against BLS signature.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    arbitrary::Arbitrary,
+    TestRandom,
+)]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientOptimisticUpdate<T: EthSpec> {
@@ -80,11 +92,11 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
         }
     }
 }
-// FIXME type includes enum which isn't compatible w/ TestRandom derive
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::MainnetEthSpec;
 
-//     ssz_tests!(LightClientOptimisticUpdate<MainnetEthSpec>);
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MainnetEthSpec;
+
+    ssz_tests!(LightClientOptimisticUpdate<MainnetEthSpec>);
+}
