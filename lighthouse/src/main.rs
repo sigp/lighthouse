@@ -11,6 +11,7 @@ use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info};
+use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
@@ -527,6 +528,21 @@ fn run<E: EthSpec>(
         .build()?;
 
     let log = environment.core_context().log().clone();
+
+    // Log panics properly.
+    {
+        let log = log.clone();
+        std::panic::set_hook(Box::new(move |info| {
+            crit!(
+                log,
+                "Task panic. This is a bug!";
+                "location" => info.location().map(ToString::to_string),
+                "message" => info.payload().downcast_ref::<String>(),
+                "backtrace" => %Backtrace::capture(),
+                "advice" => "Please check above for a backtrace and notify the developers",
+            );
+        }));
+    }
 
     let mut tracing_log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
 

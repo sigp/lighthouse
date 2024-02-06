@@ -373,7 +373,27 @@ impl BeaconNodeHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
+
         let response = builder.json(body).send().await?;
+        ok_or_error(response).await
+    }
+
+    /// Generic POST function supporting arbitrary responses and timeouts.
+    /// Does not include Content-Type application/json in the request header.
+    async fn post_generic_json_without_content_type_header<T: Serialize, U: IntoUrl>(
+        &self,
+        url: U,
+        body: &T,
+        timeout: Option<Duration>,
+    ) -> Result<Response, Error> {
+        let mut builder = self.client.post(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+
+        let serialized_body = serde_json::to_vec(body).map_err(Error::InvalidJson)?;
+
+        let response = builder.body(serialized_body).send().await?;
         ok_or_error(response).await
     }
 
@@ -1250,7 +1270,8 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("attester_slashings");
 
-        self.post(path, slashing).await?;
+        self.post_generic_json_without_content_type_header(path, slashing, None)
+            .await?;
 
         Ok(())
     }
