@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
+use types::data_column_sidecar::DataColumnSidecarList;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecarList, DataColumnSidecar, DataColumnSubnetId,
     EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256,
@@ -67,6 +68,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     /* actually publish a block */
     let publish_block = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
                               blobs_opt: Option<BlobSidecarList<T::EthSpec>>,
+                              data_cols_opt: Option<DataColumnSidecarList<T::EthSpec>>,
                               sender,
                               log,
                               seen_timestamp| {
@@ -88,28 +90,24 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             SignedBeaconBlock::Deneb(_) => {
                 let mut pubsub_messages = vec![PubsubMessage::BeaconBlock(block.clone())];
                 if let Some(blob_sidecars) = blobs_opt {
-                    // Build and publish column sidecars
-                    let col_sidecars = DataColumnSidecar::random_from_blob_sidecars(&blob_sidecars)
-                        .map_err(|e| {
-                            BeaconChainError::UnableToBuildColumnSidecar(format!("{e:?}"))
-                        })?;
-
-                    for (col_index, col_sidecar) in col_sidecars.into_iter().enumerate() {
-                        let subnet_id =
-                            DataColumnSubnetId::try_from_column_index::<T::EthSpec>(col_index)
-                                .map_err(|e| {
-                                    BeaconChainError::UnableToBuildColumnSidecar(format!("{e:?}"))
-                                })?;
-                        pubsub_messages.push(PubsubMessage::DataColumnSidecar(Box::new((
-                            subnet_id,
-                            Arc::new(col_sidecar),
-                        ))));
-                    }
                     // Publish blob sidecars
                     for (blob_index, blob) in blob_sidecars.into_iter().enumerate() {
                         pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((
                             blob_index as u64,
                             blob,
+                        ))));
+                    }
+                }
+                if let Some(data_col_sidecars) = data_cols_opt {
+                    for data_col in data_col_sidecars {
+                        let subnet = DataColumnSubnetId::try_from_column_index::<T::EthSpec>(
+                            data_col.index as usize,
+                        )
+                        .map_err(|e| {
+                            BeaconChainError::UnableToBuildColumnSidecar(format!("{e:?}"))
+                        })?;
+                        pubsub_messages.push(PubsubMessage::DataColumnSidecar(Box::new((
+                            subnet, data_col,
                         ))));
                     }
                 }
@@ -168,12 +166,29 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         VariableList::from(blobs)
     });
 
+    // TODO: evaluate whether data columns should be constructed in `into_gossip_verified_block`
+    let data_cols_opt = blobs_opt
+        .as_ref()
+        .map(|blobs| {
+            let kzg = chain
+                .kzg
+                .as_ref()
+                .ok_or(warp_utils::reject::custom_server_error(
+                    "unable to publish".into(),
+                ))?;
+
+            DataColumnSidecar::build_sidecars(blobs, &block, &kzg)
+                .map_err(|_err| warp_utils::reject::custom_server_error("unable to publish".into()))
+        })
+        .transpose()?;
+
     let block_root = block_root.unwrap_or(gossip_verified_block.block_root);
 
     if let BroadcastValidation::Gossip = validation_level {
         publish_block(
             block.clone(),
             blobs_opt.clone(),
+            data_cols_opt.clone(),
             sender_clone.clone(),
             log.clone(),
             seen_timestamp,
@@ -188,6 +203,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         BroadcastValidation::Consensus => publish_block(
             block_clone,
             blobs_opt,
+            data_cols_opt,
             sender_clone,
             log_clone,
             seen_timestamp,
@@ -203,6 +219,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             publish_block(
                 block_clone,
                 blobs_opt,
+                data_cols_opt,
                 sender_clone,
                 log_clone,
                 seen_timestamp,

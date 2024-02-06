@@ -1,9 +1,13 @@
+use std::sync::Arc;
+
 use crate::beacon_block_body::KzgCommitments;
 use crate::test_utils::TestRandom;
-use crate::{BlobSidecarList, EthSpec, Hash256, KzgProofs, SignedBeaconBlockHeader, Slot};
+use crate::BeaconStateError;
+use crate::{
+    BlobSidecarList, EthSpec, Hash256, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+};
 use derivative::Derivative;
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use kzg::{Blob as KzgBlob, Error as KzgError, Kzg};
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -46,81 +50,6 @@ pub struct DataColumnSidecar<T: EthSpec> {
 }
 
 impl<T: EthSpec> DataColumnSidecar<T> {
-    pub fn random_from_blob_sidecars(
-        blob_sidecars: &BlobSidecarList<T>,
-    ) -> Result<Vec<DataColumnSidecar<T>>, DataColumnSidecarError> {
-        if blob_sidecars.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let first_blob_sidecar = blob_sidecars
-            .first()
-            .ok_or(DataColumnSidecarError::MissingBlobSidecars)?;
-        let slot = first_blob_sidecar.slot();
-
-        // Proof for kzg commitments in `BeaconBlockBody`
-        let body_proof_start = first_blob_sidecar
-            .kzg_commitment_inclusion_proof
-            .len()
-            .saturating_sub(T::kzg_commitments_inclusion_proof_depth());
-        let kzg_commitments_inclusion_proof: FixedVector<
-            Hash256,
-            T::KzgCommitmentsInclusionProofDepth,
-        > = first_blob_sidecar
-            .kzg_commitment_inclusion_proof
-            .get(body_proof_start..)
-            .ok_or(DataColumnSidecarError::KzgCommitmentInclusionProofOutOfBounds)?
-            .to_vec()
-            .into();
-
-        let mut rng = StdRng::seed_from_u64(slot.as_u64());
-        let num_of_blobs = blob_sidecars.len();
-
-        (0..T::number_of_columns())
-            .map(|col_index| {
-                Ok(DataColumnSidecar {
-                    index: col_index as u64,
-                    column: Self::generate_column_data(&mut rng, num_of_blobs, col_index)?,
-                    kzg_commitments: blob_sidecars
-                        .iter()
-                        .map(|b| b.kzg_commitment)
-                        .collect::<Vec<_>>()
-                        .into(),
-                    kzg_proofs: blob_sidecars
-                        .iter()
-                        .map(|b| b.kzg_proof)
-                        .collect::<Vec<_>>()
-                        .into(),
-                    signed_block_header: first_blob_sidecar.signed_block_header.clone(),
-                    kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()
-    }
-
-    fn generate_column_data(
-        rng: &mut StdRng,
-        num_of_blobs: usize,
-        index: usize,
-    ) -> Result<DataColumn<T>, DataColumnSidecarError> {
-        let mut dummy_cell_data = Cell::<T>::default();
-        // Prefix with column index
-        let prefix = index.to_le_bytes();
-        dummy_cell_data
-            .get_mut(..prefix.len())
-            .ok_or(DataColumnSidecarError::DataColumnIndexOutOfBounds)?
-            .copy_from_slice(&prefix);
-        // Fill the rest of the vec with random values
-        rng.fill(
-            dummy_cell_data
-                .get_mut(prefix.len()..)
-                .ok_or(DataColumnSidecarError::DataColumnIndexOutOfBounds)?,
-        );
-
-        let column = DataColumn::<T>::new(vec![dummy_cell_data; num_of_blobs])?;
-        Ok(column)
-    }
-
     pub fn slot(&self) -> Slot {
         self.signed_block_header.message.slot
     }
@@ -128,14 +57,77 @@ impl<T: EthSpec> DataColumnSidecar<T> {
     pub fn block_root(&self) -> Hash256 {
         self.signed_block_header.message.tree_hash_root()
     }
+
+    pub fn build_sidecars(
+        blobs: &BlobSidecarList<T>,
+        block: &SignedBeaconBlock<T>,
+        kzg: &Kzg,
+    ) -> Result<DataColumnSidecarList<T>, DataColumnSidecarError> {
+        let kzg_commitments = block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_err(|_err| DataColumnSidecarError::PreDeneb)?;
+        let kzg_commitments_inclusion_proof =
+            block.message().body().kzg_commitments_merkle_proof()?;
+        let signed_block_header = block.signed_block_header();
+
+        let mut sidecars: Vec<DataColumnSidecar<T>> = Vec::with_capacity(T::number_of_columns());
+        for i in 0..sidecars.capacity() {
+            sidecars.push(DataColumnSidecar {
+                index: i as u64,
+                column: Default::default(),
+                kzg_commitments: kzg_commitments.clone(),
+                kzg_proofs: Default::default(),
+                signed_block_header: signed_block_header.clone(),
+                kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
+            });
+        }
+
+        // NOTE: assumes blob sidecars are ordered by index
+        for blob in blobs {
+            let blob = KzgBlob::from_bytes(&blob.blob).map_err(KzgError::from)?;
+            let (blob_cells, blob_cell_proofs) = kzg.compute_cells_and_proofs(&blob)?;
+            for (col_index, (cell, proof)) in blob_cells
+                .into_iter()
+                .zip(blob_cell_proofs.into_iter())
+                .enumerate()
+            {
+                let cell: Vec<u8> = cell
+                    .into_inner()
+                    .into_iter()
+                    .flat_map(|data| (*data).into_iter())
+                    .collect();
+                let cell = Cell::<T>::from(cell);
+
+                // construct data columns from "top to bottom", pushing on the cell and proof for
+                // each column for each blob
+                sidecars[col_index]
+                    .column
+                    .push(cell)
+                    .expect("exceeds capacity");
+                sidecars[col_index]
+                    .kzg_proofs
+                    .push(proof)
+                    .expect("exceeds capacity");
+            }
+        }
+
+        let sidecars = sidecars.into_iter().map(Arc::new).collect();
+        let sidecars = DataColumnSidecarList::new(sidecars).unwrap();
+        Ok(sidecars)
+    }
 }
 
 #[derive(Debug)]
 pub enum DataColumnSidecarError {
     ArithError(ArithError),
-    MissingBlobSidecars,
-    KzgCommitmentInclusionProofOutOfBounds,
+    BeaconStateError(BeaconStateError),
     DataColumnIndexOutOfBounds,
+    KzgCommitmentInclusionProofOutOfBounds,
+    KzgError(KzgError),
+    MissingBlobSidecars,
+    PreDeneb,
     SszError(SszError),
 }
 
@@ -145,11 +137,28 @@ impl From<ArithError> for DataColumnSidecarError {
     }
 }
 
+impl From<BeaconStateError> for DataColumnSidecarError {
+    fn from(e: BeaconStateError) -> Self {
+        Self::BeaconStateError(e)
+    }
+}
+
+impl From<KzgError> for DataColumnSidecarError {
+    fn from(e: KzgError) -> Self {
+        Self::KzgError(e)
+    }
+}
+
 impl From<SszError> for DataColumnSidecarError {
     fn from(e: SszError) -> Self {
         Self::SszError(e)
     }
 }
+
+pub type DataColumnSidecarList<T> =
+    VariableList<Arc<DataColumnSidecar<T>>, <T as EthSpec>::DataColumnCount>;
+pub type FixedDataColumnSidecarList<T> =
+    FixedVector<Option<Arc<DataColumnSidecar<T>>>, <T as EthSpec>::DataColumnCount>;
 
 #[cfg(test)]
 mod test {
@@ -161,35 +170,56 @@ mod test {
         DataColumnSidecar, MainnetEthSpec, SignedBeaconBlock,
     };
     use bls::Signature;
-    use kzg::{KzgCommitment, KzgProof};
+    use eth2_network_config::TRUSTED_SETUP_BYTES;
+    use kzg::{Kzg, KzgCommitment, KzgProof, TrustedSetup};
     use std::sync::Arc;
 
     #[test]
-    fn test_random_from_blob_sidecars() {
+    fn test_build_sidecars() {
         type E = MainnetEthSpec;
         let num_of_blobs = 6;
         let spec = E::default_spec();
-        let blob_sidecars: BlobSidecarList<E> = create_test_blob_sidecars(num_of_blobs, &spec);
+        let (signed_block, blob_sidecars) =
+            create_test_block_and_blob_sidecars::<E>(num_of_blobs, &spec);
 
-        let column_sidecars = DataColumnSidecar::random_from_blob_sidecars(&blob_sidecars).unwrap();
+        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES).unwrap();
+        let kzg = Arc::new(Kzg::new_from_trusted_setup(trusted_setup).unwrap());
+
+        let column_sidecars =
+            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &kzg).unwrap();
+
+        let block_kzg_commitments = signed_block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .unwrap()
+            .clone();
+        let block_kzg_commitments_inclusion_proof = signed_block
+            .message()
+            .body()
+            .kzg_commitments_merkle_proof()
+            .unwrap();
 
         assert_eq!(column_sidecars.len(), E::number_of_columns());
-
         for (idx, col_sidecar) in column_sidecars.iter().enumerate() {
             assert_eq!(col_sidecar.index, idx as u64);
+
             assert_eq!(col_sidecar.kzg_commitments.len(), num_of_blobs);
-            // ensure column sidecars are prefixed with column index (for verification purpose in prototype only)
-            let prefix_len = 8; // column index (u64) is stored as the first 8 bytes
-            let cell = col_sidecar.column.first().unwrap();
-            let col_index_prefix = u64::from_le_bytes(cell[0..prefix_len].try_into().unwrap());
-            assert_eq!(col_index_prefix, idx as u64)
+            assert_eq!(col_sidecar.column.len(), num_of_blobs);
+            assert_eq!(col_sidecar.kzg_proofs.len(), num_of_blobs);
+
+            assert_eq!(col_sidecar.kzg_commitments, block_kzg_commitments);
+            assert_eq!(
+                col_sidecar.kzg_commitments_inclusion_proof,
+                block_kzg_commitments_inclusion_proof
+            );
         }
     }
 
-    fn create_test_blob_sidecars<E: EthSpec>(
+    fn create_test_block_and_blob_sidecars<E: EthSpec>(
         num_of_blobs: usize,
         spec: &ChainSpec,
-    ) -> BlobSidecarList<E> {
+    ) -> (SignedBeaconBlock<E>, BlobSidecarList<E>) {
         let mut block = BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec));
         let mut body = block.body_mut();
         let blob_kzg_commitments = body.blob_kzg_commitments_mut().unwrap();
@@ -199,7 +229,7 @@ mod test {
 
         let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
 
-        (0..num_of_blobs)
+        let sidecars = (0..num_of_blobs)
             .map(|index| {
                 BlobSidecar::new(
                     index,
@@ -211,6 +241,8 @@ mod test {
             })
             .collect::<Result<Vec<_>, _>>()
             .unwrap()
-            .into()
+            .into();
+
+        (signed_block, sidecars)
     }
 }
