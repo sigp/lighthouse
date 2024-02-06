@@ -1,8 +1,7 @@
-extern crate reth_primitives;
-extern crate reth_rlp;
-
-use reth_primitives::{Transaction, TransactionSigned};
-use reth_rlp::Decodable;
+extern crate alloy_consensus;
+extern crate alloy_rlp;
+use alloy_consensus::TxEnvelope;
+use alloy_rlp::Decodable;
 use types::{EthSpec, ExecutionPayloadRef, Hash256, Unsigned, VersionedHash};
 
 #[derive(Debug)]
@@ -44,24 +43,29 @@ pub fn extract_versioned_hashes_from_transactions<E: EthSpec>(
 ) -> Result<Vec<VersionedHash>, Error> {
     Ok(transactions
         .into_iter()
-        .map(beacon_tx_to_reth_signed_tx)
+        .map(beacon_tx_to_tx_envelope)
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
-        .filter_map(|tx| match tx.transaction {
-            Transaction::Eip4844(blob_tx) => Some(blob_tx.blob_versioned_hashes),
+        .filter_map(|tx| match tx {
+            TxEnvelope::Eip4844(signed_tx_eip4844) => {
+                Some(signed_tx_eip4844.tx().blob_versioned_hashes.clone())
+            }
             // enumerating all variants explicitly to make pattern irrefutable in case new types are added
-            Transaction::Eip1559(_) | Transaction::Eip2930(_) | Transaction::Legacy(_) => None,
+            TxEnvelope::Legacy(_)
+            | TxEnvelope::TaggedLegacy(_)
+            | TxEnvelope::Eip2930(_)
+            | TxEnvelope::Eip1559(_) => None,
         })
         .flatten()
-        .map(Hash256::from)
+        .map(|fixed| Hash256::from(fixed.0))
         .collect())
 }
 
-pub fn beacon_tx_to_reth_signed_tx<N: Unsigned>(
+pub fn beacon_tx_to_tx_envelope<N: Unsigned>(
     tx: &types::Transaction<N>,
-) -> Result<TransactionSigned, Error> {
+) -> Result<TxEnvelope, Error> {
     let tx_bytes = Vec::from(tx.clone());
-    TransactionSigned::decode(&mut tx_bytes.as_slice())
+    TxEnvelope::decode(&mut tx_bytes.as_slice())
         .map_err(|e| Error::DecodingTransaction(e.to_string()))
 }
 
@@ -69,23 +73,27 @@ pub fn beacon_tx_to_reth_signed_tx<N: Unsigned>(
 mod test {
     use super::*;
     use crate::test_utils::static_valid_tx;
-    use reth_primitives::Transaction;
+    use alloy_consensus::{TxKind, TxLegacy};
 
     type E = types::MainnetEthSpec;
 
     #[test]
-    fn test_decode_reth_transaction() {
+    fn test_decode_static_transaction() {
         let valid_tx = static_valid_tx::<E>().expect("should give me known valid transaction");
-        let tx = beacon_tx_to_reth_signed_tx(&valid_tx).expect("should decode tx");
+        let tx_envelope = beacon_tx_to_tx_envelope(&valid_tx).expect("should decode tx");
+        let TxEnvelope::Legacy(signed_tx) = tx_envelope else {
+            panic!("should decode to legacy transaction");
+        };
+
         assert!(matches!(
-            tx.transaction,
-            Transaction::Legacy(reth_primitives::TxLegacy {
+            signed_tx.tx(),
+            TxLegacy {
                 chain_id: Some(0x01),
                 nonce: 0x15,
                 gas_price: 0x4a817c800,
-                to: reth_primitives::TransactionKind::Call(..),
+                to: TxKind::Call(..),
                 ..
-            })
+            }
         ));
     }
 
