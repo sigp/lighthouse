@@ -334,7 +334,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // transitions to a paused state.
                     // We still need to reset the state for all the affected batches, so we should not
                     // short circuit early
-                    if let Err(_) = self.retry_batch_download(network, id) {
+                    if self.retry_batch_download(network, id).is_err() {
                         debug!(
                             self.log,
                             "Batch could not be retried";
