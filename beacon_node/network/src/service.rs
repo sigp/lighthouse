@@ -16,6 +16,7 @@ use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
 use lighthouse_network::service::Network;
+use lighthouse_network::types::mutable_enr::EnrPort;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
@@ -640,14 +641,26 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.upnp_mappings = mappings;
                 // If there is an external TCP port update, modify our local ENR.
                 if let Some(tcp_port) = self.upnp_mappings.tcp_port {
-                    if let Err(e) = self.libp2p.discovery_mut().update_enr_tcp_port(tcp_port) {
-                        warn!(self.log, "Failed to update ENR"; "error" => e);
+                    if let Err(e) = self
+                        .libp2p
+                        .discovery_mut()
+                        .network_globals
+                        .local_enr
+                        .update_port(EnrPort::Tcp4(tcp_port))
+                    {
+                        warn!(self.log, "Failed to update ENR"; "error" => ?e);
                     }
                 }
                 // If there is an external QUIC port update, modify our local ENR.
                 if let Some(quic_port) = self.upnp_mappings.udp_quic_port {
-                    if let Err(e) = self.libp2p.discovery_mut().update_enr_quic_port(quic_port) {
-                        warn!(self.log, "Failed to update ENR"; "error" => e);
+                    if let Err(e) = self
+                        .libp2p
+                        .discovery_mut()
+                        .network_globals
+                        .local_enr
+                        .update_port(EnrPort::Quic4(quic_port))
+                    {
+                        warn!(self.log, "Failed to update ENR"; "error" => ?e);
                     }
                 }
             }

@@ -2,7 +2,8 @@ use self::behaviour::Behaviour;
 use self::gossip_cache::GossipCache;
 use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
 use crate::discovery::{
-    subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
+    enr_ext::CombinedKeyExt, subnet_predicate, DiscoveredPeers, Discovery,
+    FIND_NODE_QUERY_CLOSEST_PEERS,
 };
 use crate::gossipsub::{
     self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
@@ -26,6 +27,7 @@ use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use api_types::{PeerRequestId, Request, RequestId, Response};
+use discv5::enr::CombinedKey;
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
@@ -160,6 +162,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let meta_data = utils::load_or_build_metadata(&config.network_dir, &log);
             let globals = NetworkGlobals::new(
                 enr,
+                CombinedKey::from_libp2p(local_keypair.clone())?,
                 meta_data,
                 config
                     .trusted_peers
@@ -297,17 +300,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         let discovery = {
             // Build and start the discovery sub-behaviour
-            let mut discovery = Discovery::new(
-                local_keypair.clone(),
-                &config,
-                network_globals.clone(),
-                &log,
-            )
-            .await?;
+            let mut discovery = Discovery::new(&config, network_globals.clone(), &log).await?;
             // start searching for peers
             discovery.discover_peers(FIND_NODE_QUERY_CLOSEST_PEERS);
             discovery
         };
+
+        /* write back the ENR that discovery has built */
+        *network_globals.local_enr.enr.write() = discovery.local_enr();
 
         let identify = {
             let local_public_key = local_keypair.public();

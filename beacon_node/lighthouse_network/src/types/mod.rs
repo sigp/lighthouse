@@ -1,5 +1,6 @@
 pub mod error;
 mod globals;
+pub mod mutable_enr;
 mod pubsub;
 mod subnet;
 mod sync_state;

@@ -8,6 +8,7 @@ pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 use crate::service::TARGET_SUBNET_PEERS;
+use crate::types::mutable_enr::EnrPort;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use crate::{metrics, ClearDialError};
 use discv5::{enr::NodeId, Discv5};
@@ -35,7 +36,7 @@ use ssz::Encode;
 use std::num::NonZeroUsize;
 use std::{
     collections::{HashMap, VecDeque},
-    net::{IpAddr, SocketAddr},
+    net::IpAddr,
     path::Path,
     pin::Pin,
     sync::Arc,
@@ -46,6 +47,7 @@ use tokio::sync::mpsc;
 use types::{EnrForkId, EthSpec};
 
 mod subnet_predicate;
+use super::types::mutable_enr::MutableEnr;
 pub use subnet_predicate::subnet_predicate;
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -168,7 +170,7 @@ pub struct Discovery<TSpec: EthSpec> {
     discv5: Discv5,
 
     /// A collection of network constants that can be read from other threads.
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    pub network_globals: Arc<NetworkGlobals<TSpec>>,
 
     /// Indicates if we are actively searching for peers. We only allow a single FindPeers query at
     /// a time, regardless of the query concurrency.
@@ -197,7 +199,6 @@ pub struct Discovery<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Discovery<TSpec> {
     /// NOTE: Creating discovery requires running within a tokio execution environment.
     pub async fn new(
-        local_key: Keypair,
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
@@ -209,19 +210,20 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             None => String::from(""),
         };
 
-        let local_enr = network_globals.local_enr.read().clone();
-        let local_node_id = local_enr.node_id();
+        let local_enr: MutableEnr = network_globals.local_enr.clone();
+        let local_node_id = local_enr.enr().node_id();
 
-        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
-              "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6(),
-              "quic4" => ?local_enr.quic4(), "quic6" => ?local_enr.quic6()
+        info!(log, "ENR Initialised"; "enr" => local_enr.enr().to_base64(), "seq" => local_enr.enr().seq(), "id"=> %local_enr.enr().node_id(),
+              "ip4" => ?local_enr.enr().ip4(), "udp4"=> ?local_enr.enr().udp4(), "tcp4" => ?local_enr.enr().tcp4(), "tcp6" => ?local_enr.enr().tcp6(), "udp6" => ?local_enr.enr().udp6(),
+              "quic4" => ?local_enr.enr().quic4(), "quic6" => ?local_enr.enr().quic6()
         );
 
-        // convert the keypair into an ENR key
-        let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
-
-        let mut discv5 = Discv5::new(local_enr, enr_key, config.discv5_config.clone())
-            .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
+        let mut discv5 = Discv5::new(
+            local_enr.enr().clone(),
+            local_enr.enr_key(),
+            config.discv5_config.clone(),
+        )
+        .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
         for bootnode_enr in config.boot_nodes_enr.clone() {
@@ -393,54 +395,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         self.discv5.table_entries_enr()
     }
 
-    /// Updates the local ENR TCP port.
-    /// There currently isn't a case to update the address here. We opt for discovery to
-    /// automatically update the external address.
-    ///
-    /// If the external address needs to be modified, use `update_enr_udp_socket.
-    pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
-        self.discv5
-            .enr_insert("tcp", &port)
-            .map_err(|e| format!("{:?}", e))?;
-
-        // replace the global version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
-        // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
-        Ok(())
-    }
-
-    // TODO: Group these functions here once the ENR is shared across discv5 and lighthouse and
-    // Lighthouse can modify the ENR directly.
-    // This currently doesn't support ipv6. All of these functions should be removed and
-    // addressed properly in the following issue.
-    // https://github.com/sigp/lighthouse/issues/4706
-    pub fn update_enr_quic_port(&mut self, port: u16) -> Result<(), String> {
-        self.discv5
-            .enr_insert("quic", &port)
-            .map_err(|e| format!("{:?}", e))?;
-
-        // replace the global version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
-        // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
-        Ok(())
-    }
-
-    /// Updates the local ENR UDP socket.
-    ///
-    /// This is with caution. Discovery should automatically maintain this. This should only be
-    /// used when automatic discovery is disabled.
-    pub fn update_enr_udp_socket(&mut self, socket_addr: SocketAddr) -> Result<(), String> {
-        const IS_TCP: bool = false;
-        if self.discv5.update_local_enr_socket(socket_addr, IS_TCP) {
-            // persist modified enr to disk
-            enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
-        }
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
-        Ok(())
-    }
-
     /// Adds/Removes a subnet from the ENR attnets/syncnets Bitfield
     pub fn update_enr_bitfield(&mut self, subnet: Subnet, value: bool) -> Result<(), String> {
         let local_enr = self.discv5.local_enr();
@@ -516,7 +470,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
 
         // replace the global version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        *self.network_globals.local_enr.enr.write() = self.discv5.local_enr();
 
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
@@ -551,7 +505,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             });
 
         // replace the global version with discovery version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        *self.network_globals.local_enr.enr.write() = self.discv5.local_enr();
 
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
@@ -1017,7 +971,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             let enr = self.discv5.local_enr();
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
                             // update  network globals
-                            *self.network_globals.local_enr.write() = enr;
+                            *self.network_globals.local_enr.enr.write() = enr;
                             // A new UDP socket has been detected.
                             // NOTE: We assume libp2p itself can keep track of IP changes and we do
                             // not inform it about IP changes found via discovery.
@@ -1054,7 +1008,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                                 return;
                             }
 
-                            self.update_enr_tcp_port(port)
+                            self.network_globals
+                                .local_enr
+                                .update_port(EnrPort::Tcp4(port))
                         }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
                             if !self.update_ports.quic4 {
@@ -1062,7 +1018,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                                 return;
                             }
 
-                            self.update_enr_quic_port(port)
+                            self.network_globals
+                                .local_enr
+                                .update_port(EnrPort::Udp4(port))
                         }
                         _ => {
                             debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
@@ -1076,7 +1034,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                                 return;
                             }
 
-                            self.update_enr_tcp_port(port)
+                            self.network_globals
+                                .local_enr
+                                .update_port(EnrPort::Tcp6(port))
                         }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
                             if !self.update_ports.quic6 {
@@ -1084,7 +1044,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                                 return;
                             }
 
-                            self.update_enr_quic_port(port)
+                            self.network_globals
+                                .local_enr
+                                .update_port(EnrPort::Udp6(port))
                         }
                         _ => {
                             debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
@@ -1163,6 +1125,7 @@ mod tests {
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,
+            enr_key,
             MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
