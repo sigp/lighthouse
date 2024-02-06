@@ -218,7 +218,7 @@ impl<T: BeaconChainTypes> Router<T> {
             ),
             Request::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_lightclient_bootstrap_request(peer_id, request_id, request),
+                    .send_light_client_bootstrap_request(peer_id, request_id, request),
             ),
         }
     }

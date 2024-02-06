@@ -43,7 +43,7 @@ pub fn leaf_count(len: usize) -> usize {
 
 pub fn leaf_iter(
     values: &[ParticipationFlags],
-) -> impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator + '_ {
+) -> impl ExactSizeIterator<Item = [u8; BYTES_PER_CHUNK]> + '_ {
     values.chunks(BYTES_PER_CHUNK).map(|xs| {
         // Zero-pad chunks on the right.
         let mut chunk = [0u8; BYTES_PER_CHUNK];

@@ -1738,7 +1738,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                         self.gossip_penalize_peer(
                             peer_id,
-                            PeerAction::LowToleranceError,
+                            PeerAction::HighToleranceError,
                             "light_client_gossip_error",
                         );
                     }
@@ -1756,15 +1756,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "light_client_gossip_error",
                         );
                     }
-                    LightClientFinalityUpdateError::FinalityUpdateAlreadySeen => debug!(
-                        self.log,
-                        "Light client finality update already seen";
-                        "peer" => %peer_id,
-                        "error" => ?e,
-                    ),
-                    LightClientFinalityUpdateError::BeaconChainError(_)
-                    | LightClientFinalityUpdateError::LightClientUpdateError(_)
-                    | LightClientFinalityUpdateError::SigSlotStartIsNone
+                    LightClientFinalityUpdateError::SigSlotStartIsNone
                     | LightClientFinalityUpdateError::FailedConstructingUpdate => debug!(
                         self.log,
                         "Light client error constructing finality update";
@@ -1882,19 +1874,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "light_client_gossip_error",
                         );
                     }
-                    LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen => {
-                        metrics::register_optimistic_update_error(&e);
-
-                        debug!(
-                            self.log,
-                            "Light client optimistic update already seen";
-                            "peer" => %peer_id,
-                            "error" => ?e,
-                        )
-                    }
-                    LightClientOptimisticUpdateError::BeaconChainError(_)
-                    | LightClientOptimisticUpdateError::LightClientUpdateError(_)
-                    | LightClientOptimisticUpdateError::SigSlotStartIsNone
+                    LightClientOptimisticUpdateError::SigSlotStartIsNone
                     | LightClientOptimisticUpdateError::FailedConstructingUpdate => {
                         metrics::register_optimistic_update_error(&e);
 

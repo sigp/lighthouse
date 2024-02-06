@@ -67,4 +67,5 @@ exec $lighthouse_binary \
 	--target-peers $((BN_COUNT - 1)) \
   --execution-endpoint $execution_endpoint \
   --execution-jwt $execution_jwt \
+  --http-allow-sync-stalled \
   $BN_ARGS
