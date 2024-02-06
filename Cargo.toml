@@ -235,3 +235,6 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 incremental = false
+
+[patch.crates-io]
+curve25519-dalek = { git = "https://github.com/jimmygchen/curve25519-dalek.git" }
