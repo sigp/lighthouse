@@ -47,17 +47,20 @@ pub fn process_sync_aggregate<T: EthSpec>(
     // Apply participant and proposer rewards
     let committee_indices = state.get_sync_committee_indices(&current_sync_committee)?;
 
+    let mut total_proposer_reward = 0;
     for (participant_index, participation_bit) in committee_indices
         .into_iter()
         .zip(aggregate.sync_committee_bits.iter())
     {
+        // FIXME(sproul): double-check this for Capella, proposer shouldn't have 0 effective balance
         if participation_bit {
             increase_balance(state, participant_index, participant_reward)?;
-            increase_balance(state, proposer_index as usize, proposer_reward)?;
+            total_proposer_reward.safe_add_assign(proposer_reward)?;
         } else {
             decrease_balance(state, participant_index, participant_reward)?;
         }
     }
+    increase_balance(state, proposer_index as usize, total_proposer_reward)?;
 
     Ok(())
 }

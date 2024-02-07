@@ -1,6 +1,6 @@
 use super::signature_sets::Error as SignatureSetError;
 use crate::per_epoch_processing::altair::participation_cache;
-use crate::ContextError;
+use crate::{ContextError, EpochCacheError};
 use merkle_proof::MerkleTreeError;
 use participation_cache::Error as ParticipationCacheError;
 use safe_arith::ArithError;
@@ -84,6 +84,7 @@ pub enum BlockProcessingError {
     },
     ExecutionInvalid,
     ConsensusContext(ContextError),
+    EpochCacheError(EpochCacheError),
     WithdrawalsRootMismatch {
         expected: Hash256,
         found: Hash256,
@@ -131,6 +132,12 @@ impl From<SyncAggregateInvalid> for BlockProcessingError {
 impl From<ContextError> for BlockProcessingError {
     fn from(e: ContextError) -> Self {
         BlockProcessingError::ConsensusContext(e)
+    }
+}
+
+impl From<EpochCacheError> for BlockProcessingError {
+    fn from(e: EpochCacheError) -> Self {
+        BlockProcessingError::EpochCacheError(e)
     }
 }
 
@@ -328,9 +335,11 @@ pub enum AttestationInvalid {
     ///
     /// `is_current` is `true` if the attestation was compared to the
     /// `state.current_justified_checkpoint`, `false` if compared to `state.previous_justified_checkpoint`.
+    ///
+    /// Checkpoints have been boxed to keep the error size down and prevent clippy failures.
     WrongJustifiedCheckpoint {
-        state: Checkpoint,
-        attestation: Checkpoint,
+        state: Box<Checkpoint>,
+        attestation: Box<Checkpoint>,
         is_current: bool,
     },
     /// The aggregation bitfield length is not the smallest possible size to represent the committee.

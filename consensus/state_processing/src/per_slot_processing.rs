@@ -65,6 +65,11 @@ pub fn per_slot_processing<T: EthSpec>(
         if spec.deneb_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_deneb(state, spec)?;
         }
+
+        // Additionally build all caches so that all valid states that are advanced always have
+        // committee caches built, and we don't have to worry about initialising them at higher
+        // layers.
+        state.build_caches(spec)?;
     }
 
     Ok(summary)

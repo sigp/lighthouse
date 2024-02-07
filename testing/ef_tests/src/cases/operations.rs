@@ -6,6 +6,7 @@ use crate::testing_spec;
 use serde::Deserialize;
 use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
+use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
@@ -89,6 +90,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
+        initialize_epoch_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
         match state {
             BeaconState::Base(_) => base::process_attestations(
@@ -485,14 +487,22 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let spec = &testing_spec::<E>(fork_name);
-        let mut state = self.pre.clone();
-        let mut expected = self.post.clone();
 
+        let mut pre_state = self.pre.clone();
         // Processing requires the committee caches.
         // NOTE: some of the withdrawals tests have 0 active validators, do not try
         // to build the commitee cache in this case.
         if O::handler_name() != "withdrawals" {
-            state.build_all_committee_caches(spec).unwrap();
+            pre_state.build_all_committee_caches(spec).unwrap();
+        }
+
+        let mut state = pre_state.clone();
+        let mut expected = self.post.clone();
+
+        if O::handler_name() != "withdrawals" {
+            if let Some(post_state) = expected.as_mut() {
+                post_state.build_all_committee_caches(spec).unwrap();
+            }
         }
 
         let mut result = self

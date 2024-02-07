@@ -4,11 +4,8 @@ use eth2::{
     lighthouse::{GlobalValidatorInclusionData, ValidatorInclusionData},
     types::ValidatorId,
 };
-use state_processing::per_epoch_processing::{
-    altair::participation_cache::Error as ParticipationCacheError, process_epoch,
-    EpochProcessingSummary,
-};
-use types::{BeaconState, ChainSpec, Epoch, EthSpec};
+use state_processing::per_epoch_processing::{process_epoch, EpochProcessingSummary};
+use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec};
 
 /// Returns the state in the last slot of `epoch`.
 fn end_of_epoch_state<T: BeaconChainTypes>(
@@ -35,7 +32,7 @@ fn get_epoch_processing_summary<T: EthSpec>(
         .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))
 }
 
-fn convert_cache_error(error: ParticipationCacheError) -> warp::reject::Rejection {
+fn convert_cache_error(error: BeaconStateError) -> warp::reject::Rejection {
     warp_utils::reject::custom_server_error(format!("{:?}", error))
 }
 

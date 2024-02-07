@@ -1,4 +1,8 @@
 use super::ParticipationCache;
+use crate::per_epoch_processing::{
+    single_pass::{process_epoch_single_pass, SinglePassConfig},
+    Delta, Error,
+};
 use safe_arith::SafeArith;
 use types::consts::altair::{
     PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
@@ -6,48 +10,21 @@ use types::consts::altair::{
 };
 use types::{BeaconState, ChainSpec, EthSpec};
 
-use crate::common::{
-    altair::{get_base_reward, BaseRewardPerIncrement},
-    decrease_balance, increase_balance,
-};
-use crate::per_epoch_processing::{Delta, Error};
-
 /// Apply attester and proposer rewards.
 ///
-/// Spec v1.1.0
-pub fn process_rewards_and_penalties<T: EthSpec>(
+/// This function should only be used for testing.
+pub fn process_rewards_and_penalties_slow<T: EthSpec>(
     state: &mut BeaconState<T>,
-    participation_cache: &ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch() == T::genesis_epoch() {
-        return Ok(());
-    }
-
-    let mut deltas = vec![Delta::default(); state.validators().len()];
-
-    let total_active_balance = participation_cache.current_epoch_total_active_balance();
-
-    for flag_index in 0..PARTICIPATION_FLAG_WEIGHTS.len() {
-        get_flag_index_deltas(
-            &mut deltas,
-            state,
-            flag_index,
-            total_active_balance,
-            participation_cache,
-            spec,
-        )?;
-    }
-
-    get_inactivity_penalty_deltas(&mut deltas, state, participation_cache, spec)?;
-
-    // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
-    // instead).
-    for (i, delta) in deltas.into_iter().enumerate() {
-        increase_balance(state, i, delta.rewards)?;
-        decrease_balance(state, i, delta.penalties)?;
-    }
-
+    process_epoch_single_pass(
+        state,
+        spec,
+        SinglePassConfig {
+            rewards_and_penalties: true,
+            ..SinglePassConfig::disable_all()
+        },
+    )?;
     Ok(())
 }
 
@@ -62,21 +39,21 @@ pub fn get_flag_index_deltas<T: EthSpec>(
     participation_cache: &ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let previous_epoch = state.previous_epoch();
-    let unslashed_participating_indices =
-        participation_cache.get_unslashed_participating_indices(flag_index, previous_epoch)?;
     let weight = get_flag_weight(flag_index)?;
-    let unslashed_participating_balance = unslashed_participating_indices.total_balance()?;
+    let unslashed_participating_balance =
+        participation_cache.previous_epoch_flag_attesting_balance(flag_index)?;
     let unslashed_participating_increments =
         unslashed_participating_balance.safe_div(spec.effective_balance_increment)?;
     let active_increments = total_active_balance.safe_div(spec.effective_balance_increment)?;
-    let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
+    let previous_epoch = state.previous_epoch();
 
     for &index in participation_cache.eligible_validator_indices() {
-        let base_reward = get_base_reward(state, index, base_reward_per_increment, spec)?;
+        let validator = participation_cache.get_validator(index)?;
+        let base_reward = validator.base_reward;
+
         let mut delta = Delta::default();
 
-        if unslashed_participating_indices.contains(index)? {
+        if validator.is_unslashed_participating_index(flag_index)? {
             if !state.is_in_inactivity_leak(previous_epoch, spec)? {
                 let reward_numerator = base_reward
                     .safe_mul(weight)?
@@ -110,15 +87,12 @@ pub fn get_inactivity_penalty_deltas<T: EthSpec>(
     participation_cache: &ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let previous_epoch = state.previous_epoch();
-    let matching_target_indices = participation_cache
-        .get_unslashed_participating_indices(TIMELY_TARGET_FLAG_INDEX, previous_epoch)?;
     for &index in participation_cache.eligible_validator_indices() {
+        let validator = participation_cache.get_validator(index)?;
         let mut delta = Delta::default();
 
-        if !matching_target_indices.contains(index)? {
-            let penalty_numerator = state
-                .get_validator(index)?
+        if !validator.is_unslashed_participating_index(TIMELY_TARGET_FLAG_INDEX)? {
+            let penalty_numerator = validator
                 .effective_balance
                 .safe_mul(state.get_inactivity_score(index)?)?;
             let penalty_denominator = spec
