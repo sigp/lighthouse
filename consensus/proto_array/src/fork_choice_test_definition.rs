@@ -91,7 +91,6 @@ impl ForkChoiceTestDefinition {
         )
         .expect("should create fork choice struct");
         let equivocating_indices = BTreeSet::new();
-        let mut latest_justified = self.justified_checkpoint.epoch;
 
         for (op_index, op) in self.operations.into_iter().enumerate() {
             match op.clone() {
@@ -101,8 +100,6 @@ impl ForkChoiceTestDefinition {
                     justified_state_balances,
                     expected_head,
                 } => {
-                    let current_epoch =
-                        std::cmp::max(justified_checkpoint.epoch, latest_justified) + 3;
                     let justified_balances =
                         JustifiedBalances::from_effective_balances(justified_state_balances)
                             .unwrap();
@@ -113,7 +110,7 @@ impl ForkChoiceTestDefinition {
                             &justified_balances,
                             Hash256::zero(),
                             &equivocating_indices,
-                            current_epoch.start_slot(MainnetEthSpec::slots_per_epoch()),
+                            Slot::new(0),
                             &spec,
                         )
                         .unwrap_or_else(|e| {
@@ -134,8 +131,6 @@ impl ForkChoiceTestDefinition {
                     expected_head,
                     proposer_boost_root,
                 } => {
-                    let current_epoch =
-                        std::cmp::max(justified_checkpoint.epoch, latest_justified) + 3;
                     let justified_balances =
                         JustifiedBalances::from_effective_balances(justified_state_balances)
                             .unwrap();
@@ -146,7 +141,7 @@ impl ForkChoiceTestDefinition {
                             &justified_balances,
                             proposer_boost_root,
                             &equivocating_indices,
-                            current_epoch.start_slot(MainnetEthSpec::slots_per_epoch()),
+                            Slot::new(0),
                             &spec,
                         )
                         .unwrap_or_else(|e| {
@@ -165,8 +160,6 @@ impl ForkChoiceTestDefinition {
                     finalized_checkpoint,
                     justified_state_balances,
                 } => {
-                    let current_epoch =
-                        std::cmp::max(justified_checkpoint.epoch, latest_justified) + 3;
                     let justified_balances =
                         JustifiedBalances::from_effective_balances(justified_state_balances)
                             .unwrap();
@@ -176,7 +169,7 @@ impl ForkChoiceTestDefinition {
                         &justified_balances,
                         Hash256::zero(),
                         &equivocating_indices,
-                        current_epoch.start_slot(MainnetEthSpec::slots_per_epoch()),
+                        Slot::new(0),
                         &spec,
                     );
 
@@ -195,7 +188,6 @@ impl ForkChoiceTestDefinition {
                     justified_checkpoint,
                     finalized_checkpoint,
                 } => {
-                    latest_justified = std::cmp::max(justified_checkpoint.epoch, latest_justified);
                     let block = Block {
                         slot,
                         root,
