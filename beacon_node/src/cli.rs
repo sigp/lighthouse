@@ -1164,7 +1164,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("disable-deposit-contract-sync")
                 .long("disable-deposit-contract-sync")
-                .help("Explictly disables syncing of deposit logs from the execution node. \
+                .help("Explicitly disables syncing of deposit logs from the execution node. \
                       This overrides any previous option that depends on it. \
                       Useful if you intend to run a non-validating beacon node.")
                 .takes_value(false)
@@ -1271,11 +1271,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("disable-duplicate-warn-logs")
                 .long("disable-duplicate-warn-logs")
-                .help("Disable warning logs for duplicate gossip messages. The WARN level log is \
-                    useful for detecting a duplicate validator key running elsewhere. However, this may \
-                    result in excessive warning logs if the validator is broadcasting messages to \
-                    multiple beacon nodes via the validator client --broadcast flag. In this case, \
-                    disabling these warn logs may be useful.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(false)
         )
         .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))

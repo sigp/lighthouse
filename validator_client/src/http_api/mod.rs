@@ -565,6 +565,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let suggested_fee_recipient = body.suggested_fee_recipient;
                     let gas_limit = body.gas_limit;
                     let builder_proposals = body.builder_proposals;
+                    let builder_boost_factor = body.builder_boost_factor;
+                    let prefer_builder_proposals = body.prefer_builder_proposals;
 
                     let validator_def = {
                         if let Some(handle) = task_executor.handle() {
@@ -577,6 +579,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     suggested_fee_recipient,
                                     gas_limit,
                                     builder_proposals,
+                                    builder_boost_factor,
+                                    prefer_builder_proposals,
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
@@ -625,6 +629,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 suggested_fee_recipient: web3signer.suggested_fee_recipient,
                                 gas_limit: web3signer.gas_limit,
                                 builder_proposals: web3signer.builder_proposals,
+                                builder_boost_factor: web3signer.builder_boost_factor,
+                                prefer_builder_proposals: web3signer.prefer_builder_proposals,
                                 description: web3signer.description,
                                 signing_definition: SigningDefinition::Web3Signer(
                                     Web3SignerDefinition {
@@ -706,8 +712,16 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     body.gas_limit,
                                 )
                                 && equal_or_none(
+                                    initialized_validator.get_builder_boost_factor(),
+                                    body.builder_boost_factor,
+                                )
+                                && equal_or_none(
                                     initialized_validator.get_builder_proposals(),
                                     body.builder_proposals,
+                                )
+                                && equal_or_none(
+                                    initialized_validator.get_prefer_builder_proposals(),
+                                    body.prefer_builder_proposals,
                                 )
                                 && equal_or_none(
                                     initialized_validator.get_graffiti(),
@@ -721,7 +735,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         (Some(false), None)
                             if body.enabled.map_or(true, |enabled| !enabled)
                                 && body.gas_limit.is_none()
+                                && body.builder_boost_factor.is_none()
                                 && body.builder_proposals.is_none()
+                                && body.prefer_builder_proposals.is_none()
                                 && maybe_graffiti.is_none() =>
                         {
                             Ok(())
@@ -742,6 +758,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                                 body.enabled,
                                                 body.gas_limit,
                                                 body.builder_proposals,
+                                                body.builder_boost_factor,
+                                                body.prefer_builder_proposals,
                                                 body.graffiti,
                                             ),
                                     )

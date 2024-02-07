@@ -29,14 +29,10 @@ FLAGS:
                                                contention which degrades staking performance. Stakers should generally
                                                choose to avoid this flag since backfill sync is not required for
                                                staking.
-        --disable-deposit-contract-sync        Explictly disables syncing of deposit logs from the execution node. This
+        --disable-deposit-contract-sync        Explicitly disables syncing of deposit logs from the execution node. This
                                                overrides any previous option that depends on it. Useful if you intend to
                                                run a non-validating beacon node.
-        --disable-duplicate-warn-logs          Disable warning logs for duplicate gossip messages. The WARN level log is
-                                               useful for detecting a duplicate validator key running elsewhere.
-                                               However, this may result in excessive warning logs if the validator is
-                                               broadcasting messages to multiple beacon nodes via the validator client
-                                               --broadcast flag. In this case, disabling these warn logs may be useful.
+        --disable-duplicate-warn-logs          This flag is deprecated and has no effect.
     -x, --disable-enr-auto-update              Discovery automatically updates the nodes local ENR with an external IP
                                                address and port as seen by other peers on the network. This disables
                                                this feature, fixing the ENR's IP/PORT to those specified on boot.
