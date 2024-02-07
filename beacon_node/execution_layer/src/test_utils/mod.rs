@@ -599,8 +599,8 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible
     let code;
     let message;
 
-    if let Some(e) = err.find::<AuthError>() {
-        message = format!("Authorization error: {:?}", e);
+    if let Some(AuthError(e)) = err.find::<AuthError>() {
+        message = format!("Authorization error: {}", e);
         code = StatusCode::UNAUTHORIZED;
     } else {
         message = "BAD_REQUEST".to_string();

@@ -319,7 +319,7 @@ impl InvalidPayloadRig {
                         .get_full_block(&block_root)
                         .unwrap()
                         .unwrap(),
-                    block,
+                    *block,
                     "block from db must match block imported"
                 );
             }
@@ -700,7 +700,7 @@ async fn invalidates_all_descendants() {
         .chain
         .process_block(
             fork_block.canonical_root(),
-            Arc::new(fork_block),
+            fork_block,
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -800,7 +800,7 @@ async fn switches_heads() {
         .chain
         .process_block(
             fork_block.canonical_root(),
-            Arc::new(fork_block),
+            fork_block,
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -1044,8 +1044,7 @@ async fn invalid_parent() {
     // Produce another block atop the parent, but don't import yet.
     let slot = parent_block.slot() + 1;
     rig.harness.set_current_slot(slot);
-    let (block_tuple, state) = rig.harness.make_block(parent_state, slot).await;
-    let block = Arc::new(block_tuple.0);
+    let ((block, _), state) = rig.harness.make_block(parent_state, slot).await;
     let block_root = block.canonical_root();
     assert_eq!(block.parent_root(), parent_root);
 
@@ -1872,7 +1871,7 @@ impl InvalidHeadSetup {
             .state_at_slot(parent_slot, StateSkipConfig::WithStateRoots)
             .unwrap();
         let (fork_block_tuple, _) = rig.harness.make_block(parent_state, fork_block_slot).await;
-        let fork_block = Arc::new(fork_block_tuple.0);
+        let fork_block = fork_block_tuple.0;
 
         let invalid_head = rig.cached_head();
 

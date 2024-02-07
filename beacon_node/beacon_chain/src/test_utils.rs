@@ -822,7 +822,7 @@ where
         slot: Slot,
     ) -> (SignedBlindedBeaconBlock<E>, BeaconState<E>) {
         let (unblinded, new_state) = self.make_block(state, slot).await;
-        (unblinded.0.into(), new_state)
+        ((*unblinded.0).clone().into(), new_state)
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
@@ -866,14 +866,14 @@ where
             panic!("Should always be a full payload response");
         };
 
-        let signed_block = block_response.block.sign(
+        let signed_block = Arc::new(block_response.block.sign(
             &self.validator_keypairs[proposer_index].sk,
             &block_response.state.fork(),
             block_response.state.genesis_validators_root(),
             &self.spec,
-        );
+        ));
 
-        let block_contents: SignedBlockContentsTuple<E> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
@@ -928,14 +928,14 @@ where
             panic!("Should always be a full payload response");
         };
 
-        let signed_block = block_response.block.sign(
+        let signed_block = Arc::new(block_response.block.sign(
             &self.validator_keypairs[proposer_index].sk,
             &block_response.state.fork(),
             block_response.state.genesis_validators_root(),
             &self.spec,
-        );
+        ));
 
-        let block_contents: SignedBlockContentsTuple<E> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
@@ -1742,7 +1742,7 @@ where
 
         let ((block, blobs), state) = self.make_block_return_pre_state(state, slot).await;
 
-        let (mut block, _) = block.deconstruct();
+        let (mut block, _) = (*block).clone().deconstruct();
 
         block_modifier(&mut block);
 
@@ -1754,7 +1754,7 @@ where
             state.genesis_validators_root(),
             &self.spec,
         );
-        ((signed_block, blobs), state)
+        ((Arc::new(signed_block), blobs), state)
     }
 
     pub async fn make_blob_with_modifier(
@@ -1768,7 +1768,7 @@ where
 
         let ((block, mut blobs), state) = self.make_block_return_pre_state(state, slot).await;
 
-        let (block, _) = block.deconstruct();
+        let (block, _) = (*block).clone().deconstruct();
 
         blob_modifier(&mut blobs.as_mut().unwrap().1);
 
@@ -1780,7 +1780,7 @@ where
             state.genesis_validators_root(),
             &self.spec,
         );
-        ((signed_block, blobs), state)
+        ((Arc::new(signed_block), blobs), state)
     }
 
     pub fn make_deposits<'a>(
@@ -1873,7 +1873,7 @@ where
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), Arc::new(block), sidecars).unwrap(),
+                RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -1899,7 +1899,7 @@ where
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), Arc::new(block), sidecars).unwrap(),
+                RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )

@@ -92,6 +92,10 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.block_request_state.requested_block_root = block_root;
         self.block_request_state.state.state = State::AwaitingDownload;
         self.blob_request_state.state.state = State::AwaitingDownload;
+        self.block_request_state.state.component_downloaded = false;
+        self.blob_request_state.state.component_downloaded = false;
+        self.block_request_state.state.component_processed = false;
+        self.blob_request_state.state.component_processed = false;
         self.child_components = Some(ChildComponents::empty(block_root));
     }
 
@@ -110,19 +114,18 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         &mut self,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
-        let block_root = self.block_root();
         let block_already_downloaded = self.block_already_downloaded();
         let blobs_already_downloaded = self.blobs_already_downloaded();
 
-        if block_already_downloaded && blobs_already_downloaded {
-            trace!(cx.log, "Lookup request already completed"; "block_root"=> ?block_root);
-            return Ok(());
+        if !block_already_downloaded {
+            self.block_request_state
+                .build_request_and_send(self.id, cx)?;
         }
-        let id = self.id;
-        self.block_request_state
-            .build_request_and_send(id, block_already_downloaded, cx)?;
-        self.blob_request_state
-            .build_request_and_send(id, blobs_already_downloaded, cx)
+        if !blobs_already_downloaded {
+            self.blob_request_state
+                .build_request_and_send(self.id, cx)?;
+        }
+        Ok(())
     }
 
     /// Returns a `CachedChild`, which is a wrapper around a `RpcBlock` that is either:
