@@ -120,7 +120,14 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     reprocess_send: Option<Sender<ReprocessQueueMessage>>,
     log: Logger,
 ) -> Result<(), warp::Rejection> {
-    // Part 1: gossip validate and publish attestations that can be immediately processed.
+    // Collect metadata about attestations which we'll use to report failures. We need to
+    // move the `attestations` vec into the blocking task, so this small overhead is unavoidable.
+    let attestation_metadata = attestations
+        .iter()
+        .map(|att| (att.data.slot, att.data.index))
+        .collect::<Vec<_>>();
+
+    // Gossip validate and publish attestations that can be immediately processed.
     let seen_timestamp = timestamp_now();
     let mut prelim_results = task_spawner
         .blocking_task(Priority::P0, move || {
@@ -178,7 +185,8 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
         })
         .await?;
 
-    // Part 2: asynchronously wait for re-processing of attestations to unknown blocks.
+    // Asynchronously wait for re-processing of attestations to unknown blocks. This avoids blocking
+    // any of the beacon processor workers while we wait for reprocessing.
     let (reprocess_indices, reprocess_futures): (Vec<_>, Vec<_>) = prelim_results
         .iter_mut()
         .enumerate()
@@ -196,9 +204,8 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
         .unzip();
     let reprocess_results = futures::future::join_all(reprocess_futures).await;
 
-    // Part 3: join everything back together and construct a response.
+    // Join everything back together and construct a response.
     // This part should be quick so we just stay in the Tokio executor's async task.
-    // Splice reprocess results back in.
     for (i, reprocess_result) in reprocess_indices.into_iter().zip(reprocess_results) {
         let Some(result_entry) = prelim_results.get_mut(i) else {
             continue;
@@ -225,18 +232,25 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
             Some(PublishAttestationResult::Success) => {}
             Some(PublishAttestationResult::AlreadyKnown) => num_already_known += 1,
             Some(PublishAttestationResult::Failure(e)) => {
-                error!(
-                    log,
-                    "Failure verifying attestation for gossip";
-                    "error" => ?e,
-                    "request_index" => index,
-                );
-                /*
-                * FIXME(sproul): work out how to put these guys back
-                * "committee_index" => attestation.data.index,
-                  "attestation_slot" => attestation.data.slot,
-                */
-                failures.push(Failure::new(index, format!("{e:?}")));
+                if let Some((slot, committee_index)) = attestation_metadata.get(index) {
+                    error!(
+                        log,
+                        "Failure verifying attestation for gossip";
+                        "error" => ?e,
+                        "request_index" => index,
+                        "committee_index" => committee_index,
+                        "attestation_slot" => slot,
+                    );
+                    failures.push(Failure::new(index, format!("{e:?}")));
+                } else {
+                    error!(
+                        log,
+                        "Unreachable case in attestation publishing";
+                        "case" => "out of bounds",
+                        "request_index" => index
+                    );
+                    failures.push(Failure::new(index, "metadata logic error".into()));
+                }
             }
             Some(PublishAttestationResult::Reprocessing(_)) => {
                 error!(
