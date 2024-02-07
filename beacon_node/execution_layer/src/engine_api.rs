@@ -728,7 +728,7 @@ impl std::fmt::Display for CommitPrefix {
 #[derive(Clone, Debug)]
 pub struct ClientVersionV1 {
     pub code: ClientCode,
-    pub client_name: String,
+    pub name: String,
     pub version: String,
     pub commit: CommitPrefix,
 }

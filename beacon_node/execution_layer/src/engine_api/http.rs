@@ -84,7 +84,7 @@ lazy_static! {
     /// 2. The Json version lacks error checking so we can avoid calling `unwrap()`
     pub static ref LIGHTHOUSE_JSON_CLIENT_VERSION: JsonClientVersionV1 = JsonClientVersionV1 {
         code: ClientCode::Lighthouse.to_string(),
-        client_name: "Lighthouse".to_string(),
+        name: "Lighthouse".to_string(),
         version: VERSION.replace("Lighthouse/", ""),
         commit: COMMIT_PREFIX.to_string(),
     };
@@ -597,7 +597,7 @@ pub struct HttpJsonRpc {
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
     pub engine_capabilities_cache: Mutex<Option<CachedResponse<EngineCapabilities>>>,
-    pub engine_version_cache: Mutex<Option<CachedResponse<ClientVersionV1>>>,
+    pub engine_version_cache: Mutex<Option<CachedResponse<Vec<ClientVersionV1>>>>,
     auth: Option<Auth>,
 }
 
@@ -1077,10 +1077,10 @@ impl HttpJsonRpc {
     /// any caches or storing the result in the cache. It is better to use
     /// `get_engine_version(Some(Duration::ZERO))` if you want to force
     /// fetching from the EE as this will cache the result.
-    pub async fn client_version_v1(&self) -> Result<ClientVersionV1, Error> {
+    pub async fn get_client_version_v1(&self) -> Result<Vec<ClientVersionV1>, Error> {
         let params = json!([*LIGHTHOUSE_JSON_CLIENT_VERSION]);
 
-        let response: JsonClientVersionV1 = self
+        let response: Vec<JsonClientVersionV1> = self
             .rpc_request(
                 ENGINE_CLIENT_VERSION_V1,
                 params,
@@ -1088,7 +1088,11 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        response.try_into().map_err(Error::InvalidClientVersion)
+        response
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Error::InvalidClientVersion)
     }
 
     pub async fn clear_engine_version_cache(&self) {
@@ -1096,7 +1100,7 @@ impl HttpJsonRpc {
     }
 
     /// Returns the execution engine version resulting from a call to
-    /// engine_clientVersionV1. If the version cache is not populated, or if it
+    /// engine_getClientVersionV1. If the version cache is not populated, or if it
     /// is populated with a cached result of age >= `age_limit`, this method will
     /// fetch the result from the execution engine and populate the cache before
     /// returning it. Otherwise it will return the cached result from an earlier
@@ -1107,7 +1111,7 @@ impl HttpJsonRpc {
     pub async fn get_engine_version(
         &self,
         age_limit: Option<Duration>,
-    ) -> Result<ClientVersionV1, Error> {
+    ) -> Result<Vec<ClientVersionV1>, Error> {
         // check engine capabilities first (avoids holding two locks at once)
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         if !engine_capabilities.client_version_v1 {
@@ -1120,7 +1124,7 @@ impl HttpJsonRpc {
         {
             Ok(lock.data())
         } else {
-            let engine_version = self.client_version_v1().await?;
+            let engine_version = self.get_client_version_v1().await?;
             *lock = Some(CachedResponse::new(engine_version.clone()));
             Ok(engine_version)
         }

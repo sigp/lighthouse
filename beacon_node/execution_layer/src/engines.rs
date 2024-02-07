@@ -361,7 +361,7 @@ impl Engine {
     pub async fn get_engine_version(
         &self,
         age_limit: Option<Duration>,
-    ) -> Result<ClientVersionV1, EngineApiError> {
+    ) -> Result<Vec<ClientVersionV1>, EngineApiError> {
         self.api.get_engine_version(age_limit).await
     }
 

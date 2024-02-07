@@ -1535,7 +1535,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn get_engine_version(
         &self,
         age_limit: Option<Duration>,
-    ) -> Result<ClientVersionV1, Error> {
+    ) -> Result<Vec<ClientVersionV1>, Error> {
         self.engine()
             .request(|engine| engine.get_engine_version(age_limit))
             .await
