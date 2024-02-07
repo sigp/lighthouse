@@ -1,3 +1,4 @@
+use std::iter;
 use std::sync::Arc;
 
 use crate::beacon_block_body::KzgCommitments;
@@ -72,26 +73,20 @@ impl<T: EthSpec> DataColumnSidecar<T> {
             block.message().body().kzg_commitments_merkle_proof()?;
         let signed_block_header = block.signed_block_header();
 
-        let mut sidecars: Vec<DataColumnSidecar<T>> = Vec::with_capacity(T::number_of_columns());
-        for i in 0..sidecars.capacity() {
-            sidecars.push(DataColumnSidecar {
-                index: i as u64,
-                column: Default::default(),
-                kzg_commitments: kzg_commitments.clone(),
-                kzg_proofs: Default::default(),
-                signed_block_header: signed_block_header.clone(),
-                kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
-            });
-        }
+        let mut columns =
+            vec![Vec::with_capacity(T::max_blobs_per_block()); T::number_of_columns()];
+        let mut column_kzg_proofs =
+            vec![Vec::with_capacity(T::max_blob_commitments_per_block()); T::number_of_columns()];
 
         // NOTE: assumes blob sidecars are ordered by index
         for blob in blobs {
             let blob = KzgBlob::from_bytes(&blob.blob).map_err(KzgError::from)?;
             let (blob_cells, blob_cell_proofs) = kzg.compute_cells_and_proofs(&blob)?;
-            for (col_index, (cell, proof)) in blob_cells
-                .into_iter()
-                .zip(blob_cell_proofs.into_iter())
-                .enumerate()
+            for ((column, column_proofs), (cell, proof)) in
+                iter::zip(columns.iter_mut(), column_kzg_proofs.iter_mut()).zip(iter::zip(
+                    blob_cells.into_iter(),
+                    blob_cell_proofs.into_iter(),
+                ))
             {
                 let cell: Vec<u8> = cell
                     .into_inner()
@@ -102,19 +97,28 @@ impl<T: EthSpec> DataColumnSidecar<T> {
 
                 // construct data columns from "top to bottom", pushing on the cell and proof for
                 // each column for each blob
-                sidecars[col_index]
-                    .column
-                    .push(cell)
-                    .expect("exceeds capacity");
-                sidecars[col_index]
-                    .kzg_proofs
-                    .push(proof)
-                    .expect("exceeds capacity");
+                column.push(cell);
+                column_proofs.push(proof);
             }
         }
 
-        let sidecars = sidecars.into_iter().map(Arc::new).collect();
-        let sidecars = DataColumnSidecarList::new(sidecars).unwrap();
+        let sidecars: Vec<Arc<DataColumnSidecar<T>>> = columns
+            .into_iter()
+            .zip(column_kzg_proofs.into_iter())
+            .enumerate()
+            .map(|(index, (col, proofs))| {
+                Arc::new(DataColumnSidecar {
+                    index: index as u64,
+                    column: DataColumn::<T>::from(col),
+                    kzg_commitments: kzg_commitments.clone(),
+                    kzg_proofs: KzgProofs::<T>::from(proofs),
+                    signed_block_header: signed_block_header.clone(),
+                    kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
+                })
+            })
+            .collect();
+        let sidecars = DataColumnSidecarList::from(sidecars);
+
         Ok(sidecars)
     }
 }
