@@ -1,3 +1,4 @@
+use crate::gossipsub;
 use crate::listen_addr::{ListenAddr, ListenAddress};
 use crate::rpc::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use crate::types::GossipKind;
@@ -5,8 +6,6 @@ use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
-use discv5::{Discv5Config, Discv5ConfigBuilder};
-use libp2p::gossipsub;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -91,7 +90,7 @@ pub struct Config {
 
     /// Discv5 configuration parameters.
     #[serde(skip)]
-    pub discv5_config: Discv5Config,
+    pub discv5_config: discv5::Config,
 
     /// List of nodes to initially connect to.
     pub boot_nodes_enr: Vec<Enr>,
@@ -320,7 +319,7 @@ impl Default for Config {
             discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
 
         // discv5 configuration
-        let discv5_config = Discv5ConfigBuilder::new(discv5_listen_config)
+        let discv5_config = discv5::ConfigBuilder::new(discv5_listen_config)
             .enable_packet_filter()
             .session_cache_capacity(5000)
             .request_timeout(Duration::from_secs(1))

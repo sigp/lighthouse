@@ -105,7 +105,8 @@ criterion = "0.3"
 delay_map = "0.3"
 derivative = "2"
 dirs = "3"
-discv5 = { version = "0.3", features = ["libp2p"] }
+either = "1.9"
+discv5 = { version = "0.4.1", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
 ethereum-types = "0.14"
@@ -120,12 +121,12 @@ fnv = "1"
 fs2 = "0.4"
 futures = "0.3"
 hex = "0.4"
-hyper = "0.14"
+hyper = "1"
 itertools = "0.10"
 lazy_static = "1"
 libsecp256k1 = "0.7"
 log = "0.4"
-lru = "0.7"
+lru = "0.12"
 maplit = "1"
 num_cpus = "1"
 parking_lot = "0.12"
@@ -143,13 +144,13 @@ rusqlite = { version = "0.28", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_repr = "0.1"
-serde_yaml = "0.8"
+serde_yaml = "0.9"
 sha2 = "0.9"
 slog = { version = "2", features = ["max_level_trace", "release_max_level_trace", "nested-values"] }
 slog-async = "2"
 slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
-smallvec = "1"
+smallvec = "1.11.2"
 snap = "1"
 ssz_types = "0.5"
 strum = { version = "0.24", features = ["derive"] }
@@ -160,6 +161,11 @@ tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.6", features = ["codec", "compat", "time"] }
+tracing = "0.1.40"
+tracing-appender = "0.2"
+tracing-core = "0.1"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tree_hash = "0.5"
 tree_hash_derive = "0.5"
 url = "2"
@@ -220,7 +226,7 @@ swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
 task_executor = { path = "common/task_executor" }
 types = { path = "consensus/types" }
 unused_port = { path = "common/unused_port" }
-validator_client = { path = "validator_client/" }
+validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
 warp_utils = { path = "common/warp_utils" }
 
@@ -229,3 +235,6 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 incremental = false
+
+[patch.crates-io]
+curve25519-dalek = { git = "https://github.com/jimmygchen/curve25519-dalek.git", rev = "24019783e9bb9dc1464e7e503732f273a69969c6" }

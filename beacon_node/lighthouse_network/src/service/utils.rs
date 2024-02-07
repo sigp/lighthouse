@@ -1,3 +1,4 @@
+use crate::gossipsub;
 use crate::multiaddr::Protocol;
 use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
 use crate::types::{
@@ -6,7 +7,6 @@ use crate::types::{
 use crate::{GossipTopic, NetworkConfig};
 use futures::future::Either;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
-use libp2p::gossipsub;
 use libp2p::identity::{secp256k1, Keypair};
 use libp2p::quic;
 use libp2p::{core, noise, yamux, PeerId, Transport};
@@ -50,8 +50,7 @@ pub fn build_transport(
     mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
 
     // yamux config
-    let mut yamux_config = yamux::Config::default();
-    yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());
+    let yamux_config = yamux::Config::default();
     // Creates the TCP transport layer
     let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
         .upgrade(core::upgrade::Version::V1)

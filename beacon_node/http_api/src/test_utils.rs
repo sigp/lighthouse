@@ -7,7 +7,7 @@ use beacon_processor::{BeaconProcessor, BeaconProcessorChannels, BeaconProcessor
 use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::{
-    discv5::enr::{CombinedKey, EnrBuilder},
+    discv5::enr::CombinedKey,
     libp2p::swarm::{
         behaviour::{ConnectionEstablished, FromSwarm},
         ConnectionId, NetworkBehaviour,
@@ -138,7 +138,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
         syncnets: EnrSyncCommitteeBitfield::<T::EthSpec>::default(),
     });
     let enr_key = CombinedKey::generate_secp256k1();
-    let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
+    let enr = Enr::builder().build(&enr_key).unwrap();
     let network_globals = Arc::new(NetworkGlobals::new(
         enr.clone(),
         meta_data,

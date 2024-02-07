@@ -10,11 +10,8 @@ pub mod enr_ext;
 use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use crate::{metrics, ClearDialError};
-use discv5::{enr::NodeId, Discv5, Discv5Event};
-pub use enr::{
-    build_enr, create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, CombinedKey,
-    Eth2Enr,
-};
+use discv5::{enr::NodeId, Discv5};
+pub use enr::{build_enr, load_enr_from_disk, use_or_load_enr, CombinedKey, Eth2Enr};
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::identity::{Keypair, PublicKey};
 
@@ -35,6 +32,7 @@ pub use libp2p::{
 use lru::LruCache;
 use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
+use std::num::NonZeroUsize;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -49,6 +47,7 @@ use types::{EnrForkId, EthSpec};
 
 mod subnet_predicate;
 pub use subnet_predicate::subnet_predicate;
+use types::non_zero_usize::new_non_zero_usize;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
@@ -70,6 +69,8 @@ const MAX_SUBNETS_IN_QUERY: usize = 3;
 pub const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 /// The threshold for updating `min_ttl` on a connected peer.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
+/// The capacity of the Discovery ENR cache.
+const ENR_CACHE_CAPACITY: NonZeroUsize = new_non_zero_usize(50);
 
 /// A query has completed. This result contains a mapping of discovered peer IDs to the `min_ttl`
 /// of the peer if it is specified.
@@ -143,15 +144,10 @@ enum EventStream {
     /// Awaiting an event stream to be generated. This is required due to the poll nature of
     /// `Discovery`
     Awaiting(
-        Pin<
-            Box<
-                dyn Future<Output = Result<mpsc::Receiver<Discv5Event>, discv5::Discv5Error>>
-                    + Send,
-            >,
-        >,
+        Pin<Box<dyn Future<Output = Result<mpsc::Receiver<discv5::Event>, discv5::Error>> + Send>>,
     ),
     /// The future has completed.
-    Present(mpsc::Receiver<Discv5Event>),
+    Present(mpsc::Receiver<discv5::Event>),
     // The future has failed or discv5 has been disabled. There are no events from discv5.
     InActive,
 }
@@ -318,7 +314,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         };
 
         Ok(Self {
-            cached_enrs: LruCache::new(50),
+            cached_enrs: LruCache::new(ENR_CACHE_CAPACITY),
             network_globals,
             find_peer_active: false,
             queued_queries: VecDeque::with_capacity(10),
@@ -992,7 +988,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     match event {
                         // We filter out unwanted discv5 events here and only propagate useful results to
                         // the peer manager.
-                        Discv5Event::Discovered(_enr) => {
+                        discv5::Event::Discovered(_enr) => {
                             // Peers that get discovered during a query but are not contactable or
                             // don't match a predicate can end up here. For debugging purposes we
                             // log these to see if we are unnecessarily dropping discovered peers
@@ -1005,7 +1001,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             }
                             */
                         }
-                        Discv5Event::SocketUpdated(socket_addr) => {
+                        discv5::Event::SocketUpdated(socket_addr) => {
                             info!(self.log, "Address updated"; "ip" => %socket_addr.ip(), "udp_port" => %socket_addr.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             metrics::check_nat();
@@ -1026,10 +1022,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             // NOTE: We assume libp2p itself can keep track of IP changes and we do
                             // not inform it about IP changes found via discovery.
                         }
-                        Discv5Event::EnrAdded { .. }
-                        | Discv5Event::TalkRequest(_)
-                        | Discv5Event::NodeInserted { .. }
-                        | Discv5Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
+                        discv5::Event::EnrAdded { .. }
+                        | discv5::Event::TalkRequest(_)
+                        | discv5::Event::NodeInserted { .. }
+                        | discv5::Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
                     }
                 }
             }
@@ -1140,7 +1136,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 mod tests {
     use super::*;
     use crate::rpc::methods::{MetaData, MetaDataV2};
-    use enr::EnrBuilder;
     use libp2p::identity::secp256k1;
     use slog::{o, Drain};
     use types::{BitVector, MinimalEthSpec, SubnetId};
@@ -1223,7 +1218,7 @@ mod tests {
     }
 
     fn make_enr(subnet_ids: Vec<usize>) -> Enr {
-        let mut builder = EnrBuilder::new("v4");
+        let mut builder = Enr::builder();
         let keypair = secp256k1::Keypair::generate();
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
 

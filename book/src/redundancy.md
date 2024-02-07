@@ -97,7 +97,7 @@ from this list:
   setup this is the first option we would recommend enabling.
 - `sync-committee`: Send sync committee signatures & aggregates to all beacon nodes. This can
   improve propagation of sync committee messages with similar tradeoffs to broadcasting
-  attestations, although occuring less often due to the infrequency of sync committee duties.
+  attestations, although occurring less often due to the infrequency of sync committee duties.
 - `none`: Disable all broadcasting. This option only has an effect when provided alone, otherwise
    it is ignored. Not recommended except for expert tweakers.
 

@@ -54,7 +54,8 @@ impl Operation {
 }
 
 #[derive(Debug)]
-struct Custom(String);
+// We don't use the string value directly, but it's used in the Debug impl which is required by `warp::reject::Reject`.
+struct Custom(#[allow(dead_code)] String);
 
 impl warp::reject::Reject for Custom {}
 
@@ -335,8 +336,9 @@ pub fn serve<E: EthSpec>(
                     .el
                     .get_payload_by_root(&root)
                     .ok_or_else(|| reject("missing payload for tx root"))?;
-                let resp = ForkVersionedResponse {
+                let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
                     version: Some(fork_name),
+                    metadata: Default::default(),
                     data: payload,
                 };
 
@@ -616,8 +618,9 @@ pub fn serve<E: EthSpec>(
                     .spec
                     .fork_name_at_epoch(slot.epoch(E::slots_per_epoch()));
                 let signed_bid = SignedBuilderBid { message, signature };
-                let resp = ForkVersionedResponse {
+                let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
                     version: Some(fork_name),
+                    metadata: Default::default(),
                     data: signed_bid,
                 };
                 let json_bid = serde_json::to_string(&resp)
