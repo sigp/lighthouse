@@ -104,33 +104,8 @@ impl<E: EthSpec> TaskSpawner<E> {
         F: FnOnce() -> Result<T, warp::Rejection> + Send + Sync + 'static,
         T: Reply + Send + 'static,
     {
-        if let Some(beacon_processor_send) = &self.beacon_processor_send {
-            // Create a closure that will execute `func` and send the result to
-            // a channel held by this thread.
-            let (tx, rx) = oneshot::channel();
-            let process_fn = move || {
-                // Execute the function, collect the return value.
-                let func_result = func();
-                // Send the result down the channel. Ignore any failures; the
-                // send can only fail if the receiver is dropped.
-                let _ = tx.send(func_result);
-            };
-
-            // Send the function to the beacon processor for execution at some arbitrary time.
-            let result = send_to_beacon_processor(
-                beacon_processor_send,
-                priority,
-                BlockingOrAsync::Blocking(Box::new(process_fn)),
-                rx,
-            )
-            .await
-            .and_then(|x| x);
-            convert_rejection(result).await
-        } else {
-            // There is no beacon processor so spawn a task directly on the
-            // tokio executor.
-            convert_rejection(warp_utils::task::blocking_response_task(func).await).await
-        }
+        let result = self.blocking_task(priority, func).await;
+        convert_rejection(result).await
     }
 
     /// Executes a "blocking" (non-async) task which returns a JSON-serializable
