@@ -160,7 +160,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         let start_key = BytesKey::from_vec(get_key_for_col(column.as_str(), &[]));
         let end_key = BytesKey::from_vec(get_key_for_col(
             column.as_str(),
-            &vec![0; std::cmp::max(column.key_size(), 32)],
+            &vec![0xff; std::cmp::max(column.key_size(), 32)],
         ));
         self.db.compact(&start_key, &end_key);
         Ok(())
