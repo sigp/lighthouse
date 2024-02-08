@@ -76,6 +76,8 @@ pub struct Config {
     pub enable_latency_measurement_service: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
     pub validator_registration_batch_size: usize,
+    /// Enable slashing protection even while using web3signer keys.
+    pub enable_web3signer_slashing_protection: bool,
     /// Enables block production via the block v3 endpoint. This configuration option can be removed post deneb.
     pub produce_block_v3: bool,
     /// Specifies the boost factor, a percentage multiplier to apply to the builder's payload value.
@@ -124,6 +126,7 @@ impl Default for Config {
             broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
+            enable_web3signer_slashing_protection: true,
             produce_block_v3: false,
             builder_boost_factor: None,
             prefer_builder_proposals: false,
@@ -406,6 +409,19 @@ impl Config {
         if config.validator_registration_batch_size == 0 {
             return Err("validator-registration-batch-size cannot be 0".to_string());
         }
+
+        config.enable_web3signer_slashing_protection =
+            if cli_args.is_present("disable-slashing-protection-web3signer") {
+                warn!(
+                    log,
+                    "Slashing protection for remote keys disabled";
+                    "info" => "ensure slashing protection on web3signer is enabled or you WILL \
+                               get slashed"
+                );
+                false
+            } else {
+                true
+            };
 
         Ok(config)
     }
