@@ -3,7 +3,7 @@ use crate::peer_manager::PeerManager;
 use crate::rpc::{ReqId, RPC};
 use crate::types::SnappyTransform;
 
-use libp2p::gossipsub;
+use crate::gossipsub;
 use libp2p::identify;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::upnp::tokio::Behaviour as Upnp;
@@ -23,8 +23,8 @@ where
 {
     /// Keep track of active and pending connections to enforce hard limits.
     pub connection_limits: libp2p::connection_limits::Behaviour,
-    /// The routing pub-sub mechanism for eth2.
-    pub gossipsub: Gossipsub,
+    /// The peer manager that keeps track of peer's reputation and status.
+    pub peer_manager: PeerManager<TSpec>,
     /// The Eth2 RPC specified in the wire-0 protocol.
     pub eth2_rpc: RPC<RequestId<AppReqId>, TSpec>,
     /// Discv5 Discovery protocol.
@@ -33,9 +33,8 @@ where
     // NOTE: The id protocol is used for initial interop. This will be removed by mainnet.
     /// Provides IP addresses and peer information.
     pub identify: identify::Behaviour,
-    /// The peer manager that keeps track of peer's reputation and status.
-    pub peer_manager: PeerManager<TSpec>,
-
     /// Libp2p UPnP port mapping.
     pub upnp: Upnp,
+    /// The routing pub-sub mechanism for eth2.
+    pub gossipsub: Gossipsub,
 }

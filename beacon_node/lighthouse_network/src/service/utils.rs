@@ -1,3 +1,4 @@
+use crate::gossipsub;
 use crate::multiaddr::Protocol;
 use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
 use crate::types::{
@@ -7,7 +8,7 @@ use crate::{GossipTopic, NetworkConfig};
 use futures::future::Either;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::identity::{secp256k1, Keypair};
-use libp2p::{core, gossipsub, noise, yamux, PeerId, Transport};
+use libp2p::{core, noise, yamux, PeerId, Transport};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
 use ssz::Decode;

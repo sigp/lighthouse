@@ -106,7 +106,8 @@ criterion = "0.3"
 delay_map = "0.3"
 derivative = "2"
 dirs = "3"
-discv5 = { git="https://github.com/sigp/discv5", rev="dbb4a718cd32eaed8127c3c8241bfd0fde9eb908", features = ["libp2p"] }
+either = "1.9"
+discv5 = { version = "0.4.1", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
 ethereum-types = "0.14"
@@ -161,6 +162,7 @@ tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.6", features = ["codec", "compat", "time"] }
+tracing = "0.1.40"
 tracing-appender = "0.2"
 tracing-core = "0.1"
 tracing-log = "0.2"
@@ -234,3 +236,6 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 incremental = false
+
+[patch.crates-io]
+curve25519-dalek = { git = "https://github.com/jimmygchen/curve25519-dalek.git", rev = "24019783e9bb9dc1464e7e503732f273a69969c6" }

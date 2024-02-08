@@ -18,7 +18,7 @@ To enable the HTTP API for the beacon node, utilize the `--gui` CLI flag. This a
 
 If you require accessibility from another machine within the network, configure the `--http-address` to match the local LAN IP of the system running the Beacon Node and Validator Client.
 
-> To access from another machine on the same network (192.168.0.200) set the Beacon Node and Validator Client `--http-address` as `192.168.0.200`.
+> To access from another machine on the same network (192.168.0.200) set the Beacon Node and Validator Client `--http-address` as `192.168.0.200`. When this is set, the validator client requires the flag `--beacon-nodes http://192.168.0.200:5052` to connect to the beacon node. 
 
 In a similar manner, the validator client requires activation of the `--http` flag, along with the optional consideration of configuring the `--http-address` flag. If `--http-address` flag is set on the Validator Client, then the `--unencrypted-http-transport` flag is required as well. These settings will ensure compatibility with Siren's connectivity requirements.
 

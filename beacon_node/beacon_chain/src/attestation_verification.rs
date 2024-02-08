@@ -539,8 +539,8 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             Err(e) => return Err(SignatureNotChecked(&signed_aggregate.message.aggregate, e)),
         };
 
-        let indexed_attestation =
-            match map_attestation_committee(chain, attestation, |(committee, _)| {
+        let get_indexed_attestation_with_committee =
+            |(committee, _): (BeaconCommittee, CommitteesPerSlot)| {
                 // Note: this clones the signature which is known to be a relatively slow operation.
                 //
                 // Future optimizations should remove this clone.
@@ -561,10 +561,16 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
 
                 get_indexed_attestation(committee.committee, attestation)
                     .map_err(|e| BeaconChainError::from(e).into())
-            }) {
-                Ok(indexed_attestation) => indexed_attestation,
-                Err(e) => return Err(SignatureNotChecked(&signed_aggregate.message.aggregate, e)),
             };
+
+        let indexed_attestation = match map_attestation_committee(
+            chain,
+            attestation,
+            get_indexed_attestation_with_committee,
+        ) {
+            Ok(indexed_attestation) => indexed_attestation,
+            Err(e) => return Err(SignatureNotChecked(&signed_aggregate.message.aggregate, e)),
+        };
 
         Ok(IndexedAggregatedAttestation {
             signed_aggregate,
