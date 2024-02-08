@@ -216,6 +216,8 @@ impl From<SszError> for DataColumnSidecarError {
     }
 }
 
+pub type DataColumnSidecarList<T> =
+    VariableList<Arc<DataColumnSidecar<T>>, <T as EthSpec>::DataColumnCount>;
 pub type FixedDataColumnSidecarList<T> =
     FixedVector<Option<Arc<DataColumnSidecar<T>>>, <T as EthSpec>::DataColumnCount>;
 

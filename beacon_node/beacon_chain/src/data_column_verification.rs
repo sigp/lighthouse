@@ -146,6 +146,9 @@ impl<T: EthSpec> KzgVerifiedDataColumn<T> {
     pub fn new(data_column: Arc<DataColumnSidecar<T>>, kzg: &Kzg) -> Result<Self, KzgError> {
         verify_kzg_for_data_column(data_column, kzg)
     }
+    pub fn to_data_column(self) -> Arc<DataColumnSidecar<T>> {
+        self.data_column
+    }
     pub fn as_data_column(&self) -> &DataColumnSidecar<T> {
         &self.data_column
     }
@@ -174,6 +177,22 @@ pub fn verify_kzg_for_data_column<T: EthSpec>(
     //     data_column.kzg_proof,
     // )?;
     Ok(KzgVerifiedDataColumn { data_column })
+}
+
+/// Complete kzg verification for a list of `DataColumnSidecar`s.
+/// Returns an error if any of the `DataColumnSidecar`s fails kzg verification.
+///
+/// Note: This function should be preferred over calling `verify_kzg_for_data_column`
+/// in a loop since this function kzg verifies a list of data columns more efficiently.
+pub fn verify_kzg_for_data_column_list<'a, T: EthSpec, I>(
+    _data_column_iter: I,
+    _kzg: &'a Kzg,
+) -> Result<(), KzgError>
+where
+    I: Iterator<Item = &'a Arc<DataColumnSidecar<T>>>,
+{
+    // TODO(das): implement kzg verification
+    Ok(())
 }
 
 pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(

@@ -123,6 +123,7 @@ use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
+use types::data_column_sidecar::DataColumnSidecarList;
 use types::payload::BlockProductionVersion;
 use types::*;
 
@@ -1179,6 +1180,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
+    pub fn get_data_columns_checking_early_attester_cache(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
+        self.early_attester_cache
+            .get_data_columns(*block_root)
+            .map_or_else(|| self.get_data_columns(block_root), Ok)
+    }
+
     /// Returns the block at the given root, if any.
     ///
     /// ## Errors
@@ -1251,6 +1261,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(blobs),
             None => Ok(BlobSidecarList::default()),
+        }
+    }
+
+    /// Returns the data columns at the given root, if any.
+    ///
+    /// ## Errors
+    /// May return a database error.
+    pub fn get_data_columns(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
+        match self.store.get_data_columns(block_root)? {
+            Some(data_columns) => Ok(data_columns),
+            None => Ok(DataColumnSidecarList::default()),
         }
     }
 
@@ -3515,7 +3539,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        let (_, signed_block, blobs) = signed_block.deconstruct();
+        let (_, signed_block, blobs, data_columns) = signed_block.deconstruct();
         let block = signed_block.message();
         ops.extend(
             confirmed_state_roots
@@ -3533,6 +3557,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "count" => blobs.len(),
                 );
                 ops.push(StoreOp::PutBlobs(block_root, blobs));
+            }
+        }
+
+        if let Some(data_columns) = data_columns {
+            if !data_columns.is_empty() {
+                debug!(
+                    self.log, "Writing data_columns to store";
+                    "block_root" => %block_root,
+                    "count" => data_columns.len(),
+                );
+                ops.push(StoreOp::PutDataColumns(block_root, data_columns));
             }
         }
 

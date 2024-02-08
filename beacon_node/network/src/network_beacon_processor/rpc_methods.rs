@@ -18,6 +18,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
+use types::data_column_sidecar::DataColumnIdentifier;
 use types::{Epoch, EthSpec, ForkName, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
@@ -320,9 +321,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .collect::<Vec<_>>();
         let mut send_data_column_count = 0;
 
+        let mut data_column_list_results = HashMap::new();
         for id in request.data_column_ids.as_slice() {
             // Attempt to get the data columns from the RPC cache.
-            // TODO(das): we have not yet implemented importing data columns yet, so it's not available on the beacon chain.
             if let Ok(Some(data_column)) = self.chain.data_availability_checker.get_data_column(id)
             {
                 self.send_response(
@@ -332,12 +333,43 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 send_data_column_count += 1;
             } else {
-                debug!(
-                    self.log,
-                    "Error fetching data column for peer";
-                    "peer" => %peer_id,
-                    "request_root" => ?id.block_root,
-                );
+                let DataColumnIdentifier {
+                    block_root: root,
+                    index,
+                } = id;
+
+                let data_column_list_result = match data_column_list_results.entry(root) {
+                    Entry::Vacant(entry) => entry.insert(
+                        self.chain
+                            .get_data_columns_checking_early_attester_cache(root),
+                    ),
+                    Entry::Occupied(entry) => entry.into_mut(),
+                };
+
+                match data_column_list_result.as_ref() {
+                    Ok(data_columns_sidecar_list) => {
+                        'inner: for data_column_sidecar in data_columns_sidecar_list.iter() {
+                            if data_column_sidecar.index == *index {
+                                self.send_response(
+                                    peer_id,
+                                    Response::DataColumnsByRoot(Some(data_column_sidecar.clone())),
+                                    request_id,
+                                );
+                                send_data_column_count += 1;
+                                break 'inner;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!(
+                            self.log,
+                            "Error fetching data column for peer";
+                            "peer" => %peer_id,
+                            "request_root" => ?root,
+                            "error" => ?e,
+                        );
+                    }
+                }
             }
         }
         debug!(

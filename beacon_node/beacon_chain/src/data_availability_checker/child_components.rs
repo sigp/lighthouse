@@ -19,11 +19,14 @@ pub struct ChildComponents<E: EthSpec> {
 
 impl<E: EthSpec> From<RpcBlock<E>> for ChildComponents<E> {
     fn from(value: RpcBlock<E>) -> Self {
-        let (block_root, block, blobs) = value.deconstruct();
+        let (block_root, block, blobs, data_columns) = value.deconstruct();
         let fixed_blobs = blobs.map(|blobs| {
             FixedBlobSidecarList::from(blobs.into_iter().map(Some).collect::<Vec<_>>())
         });
-        Self::new(block_root, Some(block), fixed_blobs)
+        let fixed_data_columns = data_columns.map(|data_columns| {
+            FixedDataColumnSidecarList::from(data_columns.into_iter().map(Some).collect::<Vec<_>>())
+        });
+        Self::new(block_root, Some(block), fixed_blobs, fixed_data_columns)
     }
 }
 
@@ -40,6 +43,7 @@ impl<E: EthSpec> ChildComponents<E> {
         block_root: Hash256,
         block: Option<Arc<SignedBeaconBlock<E>>>,
         blobs: Option<FixedBlobSidecarList<E>>,
+        data_columns: Option<FixedDataColumnSidecarList<E>>,
     ) -> Self {
         let mut cache = Self::empty(block_root);
         if let Some(block) = block {
@@ -47,6 +51,9 @@ impl<E: EthSpec> ChildComponents<E> {
         }
         if let Some(blobs) = blobs {
             cache.merge_blobs(blobs);
+        }
+        if let Some(data_columns) = data_columns {
+            cache.merge_data_columns(data_columns);
         }
         cache
     }

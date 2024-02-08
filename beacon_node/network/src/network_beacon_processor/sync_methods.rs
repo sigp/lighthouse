@@ -361,6 +361,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .iter()
                     .map(|wrapped| wrapped.n_blobs())
                     .sum::<usize>();
+                let n_data_columns = downloaded_blocks
+                    .iter()
+                    .map(|wrapped| wrapped.n_data_columns())
+                    .sum::<usize>();
 
                 match self.process_backfill_blocks(downloaded_blocks) {
                     (_, Ok(_)) => {
@@ -370,6 +374,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "last_block_slot" => end_slot,
                             "processed_blocks" => sent_blocks,
                             "processed_blobs" => n_blobs,
+                            "processed_data_columns" => n_data_columns,
                             "service"=> "sync");
                         BatchProcessResult::Success {
                             was_non_empty: sent_blocks > 0,

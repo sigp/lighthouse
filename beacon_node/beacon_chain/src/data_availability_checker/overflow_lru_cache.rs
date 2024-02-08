@@ -86,7 +86,7 @@ impl<T: EthSpec> PendingComponents<T> {
         let Self {
             block_root,
             verified_blobs,
-            verified_data_columns: _verified_data_columns,
+            verified_data_columns,
             executed_block,
         } = self;
 
@@ -105,6 +105,15 @@ impl<T: EthSpec> PendingComponents<T> {
         };
         let verified_blobs = VariableList::new(verified_blobs)?;
 
+        // TODO(das) Add check later - we don't expect data columns to be available until we transition to PeerDAS.
+        let verified_data_columns = verified_data_columns
+            .into_iter()
+            .cloned()
+            .map(|d| d.map(|d| d.to_data_column()))
+            .take(T::number_of_columns())
+            .collect::<Option<Vec<_>>>()
+            .map(Into::into);
+
         let executed_block = recover(diet_executed_block)?;
 
         let AvailabilityPendingExecutedBlock {
@@ -117,6 +126,7 @@ impl<T: EthSpec> PendingComponents<T> {
             block_root,
             block,
             blobs: Some(verified_blobs),
+            data_columns: verified_data_columns,
         };
         Ok(Availability::Available(Box::new(
             AvailableExecutedBlock::new(available_block, import_data, payload_verification_outcome),

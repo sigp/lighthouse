@@ -33,9 +33,9 @@ mod overflow_lru_cache;
 mod processing_cache;
 mod state_lru_cache;
 
-use crate::data_column_verification::GossipVerifiedDataColumn;
+use crate::data_column_verification::{verify_kzg_for_data_column_list, GossipVerifiedDataColumn};
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
-use types::data_column_sidecar::DataColumnIdentifier;
+use types::data_column_sidecar::{DataColumnIdentifier, DataColumnSidecarList};
 use types::non_zero_usize::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents` which can store up to
@@ -269,9 +269,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
-        let (block_root, block, blobs) = block.deconstruct();
-        match blobs {
-            None => {
+        let (block_root, block, blobs, data_columns) = block.deconstruct();
+        match (blobs, data_columns) {
+            (None, None) => {
                 if self.blobs_required_for_block(&block) {
                     Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
                 } else {
@@ -279,25 +279,35 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block_root,
                         block,
                         blobs: None,
+                        data_columns: None,
                     }))
                 }
             }
-            Some(blob_list) => {
-                let verified_blobs = if self.blobs_required_for_block(&block) {
-                    let kzg = self
-                        .kzg
-                        .as_ref()
-                        .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                    verify_kzg_for_blob_list(blob_list.iter(), kzg)
-                        .map_err(AvailabilityCheckError::Kzg)?;
-                    Some(blob_list)
-                } else {
-                    None
-                };
+            (maybe_blob_list, maybe_data_column_list) => {
+                let (verified_blobs, verified_data_column) =
+                    if self.blobs_required_for_block(&block) {
+                        let kzg = self
+                            .kzg
+                            .as_ref()
+                            .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
+
+                        if let Some(blob_list) = maybe_blob_list.as_ref() {
+                            verify_kzg_for_blob_list(blob_list.iter(), kzg)
+                                .map_err(AvailabilityCheckError::Kzg)?;
+                        }
+                        if let Some(data_column_list) = maybe_data_column_list.as_ref() {
+                            verify_kzg_for_data_column_list(data_column_list.iter(), kzg)
+                                .map_err(AvailabilityCheckError::Kzg)?;
+                        }
+                        (maybe_blob_list, maybe_data_column_list)
+                    } else {
+                        (None, None)
+                    };
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
                     blobs: verified_blobs,
+                    data_columns: verified_data_column,
                 }))
             }
         }
@@ -333,9 +343,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         for block in blocks {
-            let (block_root, block, blobs) = block.deconstruct();
-            match blobs {
-                None => {
+            let (block_root, block, blobs, data_columns) = block.deconstruct();
+            match (blobs, data_columns) {
+                (None, None) => {
                     if self.blobs_required_for_block(&block) {
                         results.push(MaybeAvailableBlock::AvailabilityPending { block_root, block })
                     } else {
@@ -343,20 +353,23 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                             block_root,
                             block,
                             blobs: None,
+                            data_columns: None,
                         }))
                     }
                 }
-                Some(blob_list) => {
-                    let verified_blobs = if self.blobs_required_for_block(&block) {
-                        Some(blob_list)
-                    } else {
-                        None
-                    };
+                (maybe_blob_list, maybe_data_column_list) => {
+                    let (verified_blobs, verified_data_column) =
+                        if self.blobs_required_for_block(&block) {
+                            (maybe_blob_list, maybe_data_column_list)
+                        } else {
+                            (None, None)
+                        };
                     // already verified kzg for all blobs
                     results.push(MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
                         blobs: verified_blobs,
+                        data_columns: verified_data_column,
                     }))
                 }
             }
@@ -569,6 +582,7 @@ pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
+    data_columns: Option<DataColumnSidecarList<E>>,
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
@@ -576,11 +590,13 @@ impl<E: EthSpec> AvailableBlock<E> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
+        data_columns: Option<DataColumnSidecarList<E>>,
     ) -> Self {
         Self {
             block_root,
             block,
             blobs,
+            data_columns,
         }
     }
 
@@ -595,19 +611,26 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.blobs.as_ref()
     }
 
+    pub fn data_columns(&self) -> Option<&DataColumnSidecarList<E>> {
+        self.data_columns.as_ref()
+    }
+
+    #[allow(clippy::type_complexity)]
     pub fn deconstruct(
         self,
     ) -> (
         Hash256,
         Arc<SignedBeaconBlock<E>>,
         Option<BlobSidecarList<E>>,
+        Option<DataColumnSidecarList<E>>,
     ) {
         let AvailableBlock {
             block_root,
             block,
             blobs,
+            data_columns,
         } = self;
-        (block_root, block, blobs)
+        (block_root, block, blobs, data_columns)
     }
 }
 

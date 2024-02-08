@@ -135,6 +135,7 @@ pub struct BlobInfo {
     /// If the `oldest_blob_slot` is `None` then this means that the Deneb fork epoch is not yet
     /// known.
     pub oldest_blob_slot: Option<Slot>,
+    pub oldest_data_column_slot: Option<Slot>,
     /// A separate blobs database is in use (deprecated, always `true`).
     pub blobs_db: bool,
 }
