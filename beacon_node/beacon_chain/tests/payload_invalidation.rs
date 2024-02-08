@@ -1891,9 +1891,9 @@ impl InvalidHeadSetup {
             .await;
 
         // Since our setup ensures that there is only a single, invalid block
-        // that's viable to for head (according to FFG filtering), setting the
+        // that's viable for head (according to FFG filtering), setting the
         // head block as invalid should not result in another head being chosen.
-        // Rather, it should fail to run fork choice and leave invalid block as
+        // Rather, it should fail to run fork choice and leave the invalid block as
         // the head.
         assert!(rig
             .canonical_head()
