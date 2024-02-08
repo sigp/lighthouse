@@ -2372,6 +2372,7 @@ fn light_client_server_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enable_light_client_server, false);
+            assert_eq!(config.chain.enable_light_client_server, false);
             assert_eq!(config.http_api.enable_light_client_server, false);
         });
 }
@@ -2383,6 +2384,7 @@ fn light_client_server_enabled() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enable_light_client_server, true);
+            assert_eq!(config.chain.enable_light_client_server, true);
         });
 }
 
@@ -2580,24 +2582,5 @@ fn genesis_state_url_value() {
                 Some("http://genesis.com")
             );
             assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
-        });
-}
-
-#[test]
-fn disable_duplicate_warn_logs_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.network.disable_duplicate_warn_logs, false);
-        });
-}
-
-#[test]
-fn disable_duplicate_warn_logs() {
-    CommandLineTest::new()
-        .flag("disable-duplicate-warn-logs", None)
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.network.disable_duplicate_warn_logs, true);
         });
 }

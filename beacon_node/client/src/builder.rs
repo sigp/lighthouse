@@ -1,4 +1,7 @@
 use crate::address_change_broadcast::broadcast_address_changes_at_capella;
+use crate::compute_light_client_updates::{
+    compute_light_client_updates, LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
+};
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
@@ -7,6 +10,7 @@ use beacon_chain::data_availability_checker::start_availability_cache_maintenanc
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
+use beacon_chain::LightClientProducerEvent;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
@@ -24,6 +28,7 @@ use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
 };
 use execution_layer::ExecutionLayer;
+use futures::channel::mpsc::Receiver;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
@@ -84,6 +89,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     beacon_processor_config: Option<BeaconProcessorConfig>,
     beacon_processor_channels: Option<BeaconProcessorChannels<T::EthSpec>>,
+    light_client_server_rv: Option<Receiver<LightClientProducerEvent<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
 }
 
@@ -119,6 +125,7 @@ where
             eth_spec_instance,
             beacon_processor_config: None,
             beacon_processor_channels: None,
+            light_client_server_rv: None,
         }
     }
 
@@ -203,6 +210,16 @@ where
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
+        } else {
+            builder
+        };
+
+        let builder = if config.network.enable_light_client_server {
+            let (tx, rv) = futures::channel::mpsc::channel::<LightClientProducerEvent<TEthSpec>>(
+                LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
+            );
+            self.light_client_server_rv = Some(rv);
+            builder.light_client_server_tx(tx)
         } else {
             builder
         };
@@ -798,7 +815,7 @@ where
                 }
                 .spawn_manager(
                     beacon_processor_channels.beacon_processor_rx,
-                    beacon_processor_channels.work_reprocessing_tx,
+                    beacon_processor_channels.work_reprocessing_tx.clone(),
                     beacon_processor_channels.work_reprocessing_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
@@ -861,7 +878,7 @@ where
                 }
 
                 // Spawn a service to publish BLS to execution changes at the Capella fork.
-                if let Some(network_senders) = self.network_senders {
+                if let Some(network_senders) = self.network_senders.clone() {
                     let inner_chain = beacon_chain.clone();
                     let broadcast_context =
                         runtime_context.service_context("addr_bcast".to_string());
@@ -878,6 +895,26 @@ where
                         "addr_broadcast",
                     );
                 }
+            }
+
+            // Spawn service to publish light_client updates at some interval into the slot.
+            if let Some(light_client_server_rv) = self.light_client_server_rv {
+                let inner_chain = beacon_chain.clone();
+                let light_client_update_context =
+                    runtime_context.service_context("lc_update".to_string());
+                let log = light_client_update_context.log().clone();
+                light_client_update_context.executor.spawn(
+                    async move {
+                        compute_light_client_updates(
+                            &inner_chain,
+                            light_client_server_rv,
+                            beacon_processor_channels.work_reprocessing_tx,
+                            &log,
+                        )
+                        .await
+                    },
+                    "lc_update",
+                );
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
