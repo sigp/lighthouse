@@ -184,7 +184,7 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
                 root: Hash256::zero(),
             },
         },
-        // Ensure the head is still 4 whilst the justified epoch is 0.
+        // Ensure the head is now 5 whilst the justified epoch is 0.
         //
         //         0
         //        / \
@@ -203,9 +203,10 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
                 root: Hash256::zero(),
             },
             justified_state_balances: balances.clone(),
-            expected_head: get_root(4),
+            expected_head: get_root(5),
         },
-        // Ensure there is an error when starting from a block that has the wrong justified epoch.
+        // Ensure there is no error when starting from a block that has the
+        // wrong justified epoch.
         //
         //      0
         //     / \
@@ -214,7 +215,11 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
         //     4  3
         //     |
         //     5 <- starting from 5 with justified epoch 0 should error.
-        Operation::InvalidFindHead {
+        //
+        // Since https://github.com/ethereum/consensus-specs/pull/3431 it is valid
+        // to elect head blocks that have a higher justified checkpoint than the
+        // store.
+        Operation::FindHead {
             justified_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
                 root: get_root(5),
@@ -224,6 +229,7 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
                 root: Hash256::zero(),
             },
             justified_state_balances: balances.clone(),
+            expected_head: get_root(5),
         },
         // Set the justified epoch to 2 and the start block to 5 and ensure 5 is the head.
         //
