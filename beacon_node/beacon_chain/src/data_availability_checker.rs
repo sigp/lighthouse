@@ -22,7 +22,9 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
-use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    BlobSidecarList, ChainSpec, DataColumnSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+};
 
 mod availability_view;
 mod child_components;
@@ -31,7 +33,9 @@ mod overflow_lru_cache;
 mod processing_cache;
 mod state_lru_cache;
 
+use crate::data_column_verification::GossipVerifiedDataColumn;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
+use types::data_column_sidecar::DataColumnIdentifier;
 use types::non_zero_usize::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents` which can store up to
@@ -192,6 +196,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.peek_blob(blob_id)
     }
 
+    /// Get a data column from the availability cache.
+    pub fn get_data_column(
+        &self,
+        data_column_id: &DataColumnIdentifier,
+    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+        self.availability_cache.peek_data_column(data_column_id)
+    }
+
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG
     /// verification on the blobs in the list.
     pub fn put_rpc_blobs(
@@ -221,6 +233,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
             .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
+    }
+
+    /// Check if we've cached other data columns for this block. If it completes a set and we also
+    /// have a block cached, return the `Availability` variant triggering block import.
+    /// Otherwise cache the data column sidecar.
+    ///
+    /// This should only accept gossip verified data columns, so we should not have to worry about dupes.
+    pub fn put_gossip_data_column(
+        &self,
+        gossip_data_column: GossipVerifiedDataColumn<T>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        self.availability_cache.put_kzg_verified_data_columns(
+            gossip_data_column.block_root(),
+            vec![gossip_data_column.into_inner()],
+        )
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information

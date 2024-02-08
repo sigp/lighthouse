@@ -7,9 +7,7 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::blob_verification::{
-    GossipBlobError, GossipVerifiedBlob, GossipVerifiedDataColumnSidecar,
-};
+use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
@@ -25,6 +23,7 @@ use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
 };
+use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -2092,10 +2091,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedDataColumnSidecar<T>, GossipBlobError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError<T::EthSpec>> {
         metrics::inc_counter(&metrics::BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedDataColumnSidecar::new(data_column_sidecar, subnet_id, self).map(|v| {
+        GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).map(|v| {
             metrics::inc_counter(&metrics::DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES);
             v
         })
@@ -2916,18 +2915,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.remove_notified(&block_root, r)
     }
 
-    pub fn process_gossip_data_column(
+    /// Cache the data column in the processing cache, process it, then evict it from the cache if it was
+    /// imported or errors.
+    pub async fn process_gossip_data_column(
         self: &Arc<Self>,
-        gossip_verified_data_column: GossipVerifiedDataColumnSidecar<T>,
-    ) {
-        let data_column = gossip_verified_data_column.as_data_column();
-        // TODO(das) send to DA checker
-        info!(
-            self.log,
-            "Processed gossip data column";
-            "index" => data_column.index,
-            "slot" => data_column.slot().as_u64()
-        );
+        data_column: GossipVerifiedDataColumn<T>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        let block_root = data_column.block_root();
+
+        // If this block has already been imported to forkchoice it must have been available, so
+        // we don't need to process its samples again.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::BlockIsAlreadyKnown);
+        }
+
+        let r = self
+            .check_gossip_data_column_availability_and_import(data_column)
+            .await;
+        self.remove_notified(&block_root, r)
     }
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
@@ -3208,6 +3217,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slasher.accept_block_header(blob.signed_block_header());
         }
         let availability = self.data_availability_checker.put_gossip_blob(blob)?;
+
+        self.process_availability(slot, availability).await
+    }
+
+    /// Checks if the provided data column can make any cached blocks available, and imports immediately
+    /// if so, otherwise caches the blob in the data availability checker.
+    async fn check_gossip_data_column_availability_and_import(
+        self: &Arc<Self>,
+        data_column: GossipVerifiedDataColumn<T>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        let slot = data_column.slot();
+        if let Some(slasher) = self.slasher.as_ref() {
+            slasher.accept_block_header(data_column.signed_block_header());
+        }
+        let availability = self
+            .data_availability_checker
+            .put_gossip_data_column(data_column)?;
 
         self.process_availability(slot, availability).await
     }

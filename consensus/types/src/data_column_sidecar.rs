@@ -15,6 +15,7 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::typenum::Unsigned;
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
+use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -136,6 +137,13 @@ impl<T: EthSpec> DataColumnSidecar<T> {
         Ok(column)
     }
 
+    pub fn id(&self) -> DataColumnIdentifier {
+        DataColumnIdentifier {
+            block_root: self.block_root(),
+            index: self.index,
+        }
+    }
+
     pub fn slot(&self) -> Slot {
         self.signed_block_header.message.slot
     }
@@ -207,6 +215,9 @@ impl From<SszError> for DataColumnSidecarError {
         Self::SszError(e)
     }
 }
+
+pub type FixedDataColumnSidecarList<T> =
+    FixedVector<Option<Arc<DataColumnSidecar<T>>>, <T as EthSpec>::DataColumnCount>;
 
 #[cfg(test)]
 mod test {

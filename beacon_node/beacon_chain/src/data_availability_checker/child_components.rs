@@ -3,6 +3,7 @@ use crate::data_availability_checker::AvailabilityView;
 use bls::Hash256;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::data_column_sidecar::FixedDataColumnSidecarList;
 use types::{EthSpec, SignedBeaconBlock};
 
 /// For requests triggered by an `UnknownBlockParent` or `UnknownBlobParent`, this struct
@@ -13,6 +14,7 @@ pub struct ChildComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub downloaded_block: Option<Arc<SignedBeaconBlock<E>>>,
     pub downloaded_blobs: FixedBlobSidecarList<E>,
+    pub downloaded_data_columns: FixedDataColumnSidecarList<E>,
 }
 
 impl<E: EthSpec> From<RpcBlock<E>> for ChildComponents<E> {
@@ -31,6 +33,7 @@ impl<E: EthSpec> ChildComponents<E> {
             block_root,
             downloaded_block: None,
             downloaded_blobs: <_>::default(),
+            downloaded_data_columns: <_>::default(),
         }
     }
     pub fn new(

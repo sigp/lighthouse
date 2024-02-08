@@ -299,12 +299,58 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Handle a `DataColumnsByRoot` request from the peer.
     pub fn handle_data_columns_by_root_request(
         self: Arc<Self>,
-        _peer_id: PeerId,
-        _request_id: PeerRequestId,
-        _request: DataColumnsByRootRequest,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: DataColumnsByRootRequest,
     ) {
-        // TODO(das): handle DataColumnsByRoot requests
-        unimplemented!()
+        let Some(requested_root) = request
+            .data_column_ids
+            .as_slice()
+            .first()
+            .map(|id| id.block_root)
+        else {
+            // No data column ids requested.
+            return;
+        };
+        let requested_indices = request
+            .data_column_ids
+            .as_slice()
+            .iter()
+            .map(|id| id.index)
+            .collect::<Vec<_>>();
+        let mut send_data_column_count = 0;
+
+        for id in request.data_column_ids.as_slice() {
+            // Attempt to get the data columns from the RPC cache.
+            // TODO(das): we have not yet implemented importing data columns yet, so it's not available on the beacon chain.
+            if let Ok(Some(data_column)) = self.chain.data_availability_checker.get_data_column(id)
+            {
+                self.send_response(
+                    peer_id,
+                    Response::DataColumnsByRoot(Some(data_column)),
+                    request_id,
+                );
+                send_data_column_count += 1;
+            } else {
+                debug!(
+                    self.log,
+                    "Error fetching data column for peer";
+                    "peer" => %peer_id,
+                    "request_root" => ?id.block_root,
+                );
+            }
+        }
+        debug!(
+            self.log,
+            "Received DataColumnsByRoot Request";
+            "peer" => %peer_id,
+            "request_root" => %requested_root,
+            "request_indices" => ?requested_indices,
+            "returned" => send_data_column_count
+        );
+
+        // send stream termination
+        self.send_response(peer_id, Response::DataColumnsByRoot(None), request_id);
     }
 
     /// Handle a `BlocksByRoot` request from the peer.

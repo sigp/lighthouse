@@ -651,7 +651,7 @@ impl<T: BeaconChainTypes> Router<T> {
         _request_id: RequestId,
         _data_column_sidecar: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
-        // TODO(das) implement handling of DataColumnsByRoot response
+        // TODO(das) implement `DataColumnsByRoot` response handling
         unimplemented!()
     }
 

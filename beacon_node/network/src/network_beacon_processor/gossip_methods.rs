@@ -4,10 +4,9 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
-use beacon_chain::blob_verification::{
-    GossipBlobError, GossipVerifiedBlob, GossipVerifiedDataColumnSidecar,
-};
+use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
+use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
@@ -869,12 +868,59 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub async fn process_gossip_verified_data_column(
         self: &Arc<Self>,
-        _peer_id: PeerId,
-        verified_data_column: GossipVerifiedDataColumnSidecar<T>,
+        peer_id: PeerId,
+        verified_data_column: GossipVerifiedDataColumn<T>,
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
-        self.chain.process_gossip_data_column(verified_data_column);
+        let block_root = verified_data_column.block_root();
+        let data_column_slot = verified_data_column.slot();
+        let data_column_index = verified_data_column.id().index;
+
+        match self
+            .chain
+            .process_gossip_data_column(verified_data_column)
+            .await
+        {
+            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
+                // Note: Reusing block imported metric here
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
+                info!(
+                    self.log,
+                    "Gossipsub data column processed, imported fully available block";
+                    "block_root" => %block_root
+                );
+                self.chain.recompute_head_at_current_slot().await;
+            }
+            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
+                trace!(
+                    self.log,
+                    "Processed data column, waiting for other components";
+                    "slot" => %slot,
+                    "data_column_index" => %data_column_index,
+                    "block_root" => %block_root,
+                );
+            }
+            Err(err) => {
+                debug!(
+                    self.log,
+                    "Invalid gossip data column";
+                    "outcome" => ?err,
+                    "block root" => ?block_root,
+                    "block slot" =>  data_column_slot,
+                    "data column index" =>  data_column_index,
+                );
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "bad_gossip_data_column_ssz",
+                );
+                trace!(
+                    self.log,
+                    "Invalid gossip data column ssz";
+                );
+            }
+        }
     }
 
     /// Process the beacon block received from the gossip network and:
