@@ -97,6 +97,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     fee_recipient_process: Option<Address>,
     gas_limit: Option<u64>,
     builder_proposals: bool,
+    enable_web3signer_slashing_protection: bool,
     produce_block_v3: bool,
     prefer_builder_proposals: bool,
     builder_boost_factor: Option<u64>,
@@ -131,6 +132,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             fee_recipient_process: config.fee_recipient,
             gas_limit: config.gas_limit,
             builder_proposals: config.builder_proposals,
+            enable_web3signer_slashing_protection: config.enable_web3signer_slashing_protection,
             produce_block_v3: config.produce_block_v3,
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
@@ -604,19 +606,26 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_context = self.signing_context(Domain::BeaconProposer, signing_epoch);
         let domain_hash = signing_context.domain_hash(&self.spec);
 
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
         // Check for slashing conditions.
-        let slashing_status = self.slashing_protection.check_and_insert_block_proposal(
-            &validator_pubkey,
-            &block.block_header(),
-            domain_hash,
-        );
+        let slashing_status = if signing_method
+            .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
+        {
+            self.slashing_protection.check_and_insert_block_proposal(
+                &validator_pubkey,
+                &block.block_header(),
+                domain_hash,
+            )
+        } else {
+            Ok(Safe::Valid)
+        };
 
         match slashing_status {
             // We can safely sign this block without slashing.
             Ok(Safe::Valid) => {
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SUCCESS]);
 
-                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature::<E, Payload>(
                         SignableMessage::BeaconBlock(&block),
@@ -672,20 +681,28 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             });
         }
 
+        // Get the signing method and check doppelganger protection.
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
         // Checking for slashing conditions.
         let signing_epoch = attestation.data.target.epoch;
         let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
         let domain_hash = signing_context.domain_hash(&self.spec);
-        let slashing_status = self.slashing_protection.check_and_insert_attestation(
-            &validator_pubkey,
-            &attestation.data,
-            domain_hash,
-        );
+        let slashing_status = if signing_method
+            .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
+        {
+            self.slashing_protection.check_and_insert_attestation(
+                &validator_pubkey,
+                &attestation.data,
+                domain_hash,
+            )
+        } else {
+            Ok(Safe::Valid)
+        };
 
         match slashing_status {
             // We can safely sign this attestation.
             Ok(Safe::Valid) => {
-                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature::<E, BlindedPayload<E>>(
                         SignableMessage::AttestationData(&attestation.data),
