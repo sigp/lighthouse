@@ -43,6 +43,7 @@ pub enum Error {
         computed: Hash256,
     },
     BlockReplayError(BlockReplayError),
+    Compression(std::io::Error),
     AddPayloadLogicError,
     SlotClockUnavailableForMigration,
     InvalidKey,

@@ -924,8 +924,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, Error> {
         let root = self.block_root_at_slot(request_slot, skips)?;
 
+        // Only hint the slot if expect a block at this exact slot.
+        let slot_hint = match skips {
+            WhenSlotSkipped::Prev => None,
+            WhenSlotSkipped::None => Some(request_slot),
+        };
+
         if let Some(block_root) = root {
-            Ok(self.store.get_blinded_block(&block_root)?)
+            Ok(self.store.get_blinded_block(&block_root, slot_hint)?)
         } else {
             Ok(None)
         }
@@ -1180,7 +1186,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
         // Load block from database, returning immediately if we have the full block w payload
         // stored.
-        let blinded_block = match self.store.try_get_full_block(block_root)? {
+        let blinded_block = match self.store.try_get_full_block(block_root, None)? {
             Some(DatabaseBlock::Full(block)) => return Ok(Some(block)),
             Some(DatabaseBlock::Blinded(block)) => block,
             None => return Ok(None),
@@ -1248,7 +1254,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, Error> {
-        Ok(self.store.get_blinded_block(block_root)?)
+        Ok(self.store.get_blinded_block(block_root, None)?)
     }
 
     /// Return the status of a block as it progresses through the various caches of the beacon
@@ -6379,7 +6385,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let beacon_block = self
                 .store
-                .get_blinded_block(&beacon_block_root)?
+                .get_blinded_block(&beacon_block_root, None)?
                 .ok_or_else(|| {
                     Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
                 })?;

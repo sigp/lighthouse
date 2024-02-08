@@ -923,6 +923,16 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("compression-level")
+                .long("compression-level")
+                .value_name("LEVEL")
+                .help("Compression level (-99 to 22) for zstd compression applied to states on disk \
+                       [default: 1]. You may change the compression level freely without re-syncing.")
+                .action(ArgAction::Set)
+                .default_value("1")
+                .display_order(0)
+        )
+        .arg(
             Arg::new("prune-payloads")
                 .long("prune-payloads")
                 .help("Prune execution payloads from Lighthouse's database. This saves space but \
