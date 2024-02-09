@@ -499,7 +499,6 @@ where
                     debug!(context.log(), "Downloaded finalized block header"; "anchor_slot" => block.slot(), "finalized_slot" => finalized_header.slot);
                     if finalized_header.slot < checkpoint_state.slot() {
                         debug!(context.log(), "Checkpoint state is newer than remote finalized checkpoint. Treating anchor state as non-revertible.");
-                        // TODO: does this work with checkpointz?
                         AnchorState::NonRevertible
                     } else {
                         AnchorState::Finalized
