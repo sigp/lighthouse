@@ -3864,7 +3864,7 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // POST vaidator/liveness/{epoch}
+    // POST validator/liveness/{epoch}
     let post_validator_liveness_epoch = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("liveness"))
@@ -3875,7 +3875,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .then(
             |epoch: Epoch,
-             indices: Vec<u64>,
+             indices: api_types::ValidatorIndexData,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
@@ -3894,6 +3894,7 @@ pub fn serve<T: BeaconChainTypes>(
                     }
 
                     let liveness: Vec<api_types::StandardLivenessResponseData> = indices
+                        .0
                         .iter()
                         .cloned()
                         .map(|index| {
