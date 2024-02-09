@@ -118,7 +118,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
         Ok(())
     }
 
-    /// Verify the version hashes computed by the blob transactions match the version hashes computed from the commitments
+    /// Verify the versioned hashes computed by the blob transactions match the versioned hashes computed from the commitments.
     ///
     /// ## Specification
     ///
