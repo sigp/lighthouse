@@ -35,6 +35,7 @@ pub const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0/tcp/9000";
 
 /// HTTP API tester that allows interaction with the underlying beacon chain harness.
 pub struct InteractiveTester<E: EthSpec> {
+    pub ctx: Arc<Context<EphemeralHarnessType<E>>>,
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub client: BeaconNodeHttpClient,
     pub network_rx: NetworkReceivers<E>,
@@ -43,10 +44,11 @@ pub struct InteractiveTester<E: EthSpec> {
 /// The result of calling `create_api_server`.
 ///
 /// Glue-type between `tests::ApiTester` and `InteractiveTester`.
-pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
+pub struct ApiServer<T: BeaconChainTypes, SFut: Future<Output = ()>> {
+    pub ctx: Arc<Context<T>>,
     pub server: SFut,
     pub listening_socket: SocketAddr,
-    pub network_rx: NetworkReceivers<E>,
+    pub network_rx: NetworkReceivers<T::EthSpec>,
     pub local_enr: Enr,
     pub external_peer_id: PeerId,
 }
@@ -90,6 +92,7 @@ impl<E: EthSpec> InteractiveTester<E> {
         let harness = harness_builder.build();
 
         let ApiServer {
+            ctx,
             server,
             listening_socket,
             network_rx,
@@ -114,6 +117,7 @@ impl<E: EthSpec> InteractiveTester<E> {
         );
 
         Self {
+            ctx,
             harness,
             client,
             network_rx,
@@ -125,7 +129,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     test_runtime: &TestRuntime,
     log: Logger,
-) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
+) -> ApiServer<T, impl Future<Output = ()>> {
     // Use port 0 to allocate a new unused port.
     let port = 0;
 
@@ -223,9 +227,11 @@ pub async fn create_api_server<T: BeaconChainTypes>(
         log,
     });
 
-    let (listening_socket, server) = crate::serve(ctx, test_runtime.task_executor.exit()).unwrap();
+    let (listening_socket, server) =
+        crate::serve(ctx.clone(), test_runtime.task_executor.exit()).unwrap();
 
     ApiServer {
+        ctx,
         server,
         listening_socket,
         network_rx: network_receivers,
