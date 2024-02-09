@@ -41,24 +41,29 @@ pub fn verify_versioned_hashes<E: EthSpec>(
 pub fn extract_versioned_hashes_from_transactions<E: EthSpec>(
     transactions: &types::Transactions<E>,
 ) -> Result<Vec<VersionedHash>, Error> {
-    Ok(transactions
-        .into_iter()
-        .map(beacon_tx_to_tx_envelope)
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .filter_map(|tx| match tx {
+    let mut versioned_hashes = Vec::new();
+
+    for tx in transactions {
+        match beacon_tx_to_tx_envelope(tx)? {
             TxEnvelope::Eip4844(signed_tx_eip4844) => {
-                Some(signed_tx_eip4844.tx().blob_versioned_hashes.clone())
+                versioned_hashes.extend(
+                    signed_tx_eip4844
+                        .tx()
+                        .blob_versioned_hashes
+                        .iter()
+                        .map(|fb| Hash256::from(fb.0)),
+                );
             }
-            // enumerating all variants explicitly to make pattern irrefutable in case new types are added
+            // enumerating all variants explicitly to make pattern irrefutable
+            // in case new types are added in the future which also have blobs
             TxEnvelope::Legacy(_)
             | TxEnvelope::TaggedLegacy(_)
             | TxEnvelope::Eip2930(_)
-            | TxEnvelope::Eip1559(_) => None,
-        })
-        .flatten()
-        .map(|fixed| Hash256::from(fixed.0))
-        .collect())
+            | TxEnvelope::Eip1559(_) => {}
+        }
+    }
+
+    Ok(versioned_hashes)
 }
 
 pub fn beacon_tx_to_tx_envelope<N: Unsigned>(
