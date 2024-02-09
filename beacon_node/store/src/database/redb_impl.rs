@@ -8,6 +8,8 @@ use types::{EthSpec, Hash256};
 
 use super::interface::WriteOptions;
 
+pub const DB_FILE_NAME: &str = "database";
+
 pub struct Redb<E: EthSpec> {
     db: RwLock<redb::Database>,
     transaction_mutex: Mutex<()>,
@@ -27,7 +29,7 @@ impl From<WriteOptions> for redb::Durability {
 impl<E: EthSpec> Redb<E> {
     pub fn open(path: &Path) -> Result<Self, Error> {
         println!("{:?}", path);
-        let db = redb::Database::create(path)?;
+        let db = redb::Database::create(path.join(DB_FILE_NAME))?;
         let transaction_mutex = Mutex::new(());
 
         for column in DBColumn::iter() {
