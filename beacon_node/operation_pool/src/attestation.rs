@@ -2,7 +2,7 @@ use crate::attestation_storage::AttestationRef;
 use crate::max_cover::MaxCover;
 use crate::reward_cache::RewardCache;
 use state_processing::common::{
-    altair, base, get_attestation_participation_flag_indices, get_attesting_indices,
+    base, get_attestation_participation_flag_indices, get_attesting_indices,
 };
 use std::collections::HashMap;
 use types::{
@@ -30,7 +30,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         if let BeaconState::Base(ref base_state) = state {
             Self::new_for_base(att, state, base_state, total_active_balance, spec)
         } else {
-            Self::new_for_altair_deneb(att, state, reward_cache, total_active_balance, spec)
+            Self::new_for_altair_deneb(att, state, reward_cache, spec)
         }
     }
 
@@ -72,7 +72,6 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         att: AttestationRef<'a, T>,
         state: &BeaconState<T>,
         reward_cache: &'a RewardCache,
-        total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
         let att_data = att.attestation_data();
@@ -81,8 +80,6 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         let att_participation_flags =
             get_attestation_participation_flag_indices(state, &att_data, inclusion_delay, spec)
                 .ok()?;
-        let base_reward_per_increment =
-            altair::BaseRewardPerIncrement::new(total_active_balance, spec).ok()?;
 
         let fresh_validators_rewards = att
             .indexed
@@ -98,12 +95,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
 
                 let mut proposer_reward_numerator = 0;
 
-                // FIXME(sproul): store base_reward in reward cache
-                // let effective_balance = reward_cache.get_effective_balance(index)?;
-                let effective_balance = state.get_effective_balance(index as usize).ok()?;
-                let base_reward =
-                    altair::get_base_reward(effective_balance, base_reward_per_increment, spec)
-                        .ok()?;
+                let base_reward = state.get_base_reward(index as usize).ok()?;
 
                 for (flag_index, weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                     if att_participation_flags.contains(&flag_index) {
