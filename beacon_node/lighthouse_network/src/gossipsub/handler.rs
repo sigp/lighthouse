@@ -176,12 +176,6 @@ impl Handler {
 }
 
 impl EnabledHandler {
-    #[cfg(test)]
-    /// For testing purposed obtain the RPCReceiver
-    pub fn receiver(&mut self) -> RpcReceiver {
-        self.send_queue.clone()
-    }
-
     fn on_fully_negotiated_inbound(
         &mut self,
         (substream, peer_kind): (Framed<Stream, GossipsubCodec>, PeerKind),
@@ -237,7 +231,7 @@ impl EnabledHandler {
         }
 
         // determine if we need to create the outbound stream
-        if !self.send_queue.is_empty()
+        if !self.send_queue.poll_is_empty(cx)
             && self.outbound_substream.is_none()
             && !self.outbound_substream_establishing
         {
@@ -411,29 +405,10 @@ impl EnabledHandler {
         }
 
         // Drop the next message in queue if it's stale.
-        let mut peakable = self.send_queue.clone().peekable();
-        if let Poll::Ready(Some(mut message)) = peakable.poll_next_unpin(cx) {
-            match message {
-                RpcOut::Publish {
-                    message: _,
-                    ref mut timeout,
-                }
-                | RpcOut::Forward {
-                    message: _,
-                    ref mut timeout,
-                } => {
-                    if Pin::new(timeout).poll(cx).is_ready() {
-                        // Drop the message.
-                        let dropped = futures::ready!(self.send_queue.poll_next_unpin(cx))
-                            .expect("There should be a message");
-                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                            HandlerEvent::MessageDropped(dropped),
-                        ));
-                    }
-                }
-                // the next message in queue is not time bound.
-                _ => {}
-            }
+        if let Poll::Ready(Some(rpc)) = self.send_queue.poll_stale(cx) {
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                HandlerEvent::MessageDropped(rpc),
+            ));
         }
 
         Poll::Pending
