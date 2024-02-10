@@ -171,6 +171,15 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_raw_keys(txn, column, prefix),
         }
     }
+
+    fn compact_column(&self, _column: DBColumn) -> Result<(), crate::Error> {
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact_column(txn, _column),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
+        }
+    }
 }
 
 impl<E: EthSpec> BeaconNodeBackend<E> {
@@ -235,6 +244,15 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact(txn),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
+        }
+    }
+
+    pub fn compact_column(&self, _column: DBColumn) -> Result<(), crate::Error> {
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact_column(txn, _column),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
         }

@@ -80,8 +80,22 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// this method. In future we may implement a safer mandatory locking scheme.
     fn begin_rw_transaction(&self) -> MutexGuard<()>;
 
-    /// Compact the database, freeing space used by deleted items.
-    fn compact(&self) -> Result<(), Error>;
+    /// Compact a single column in the database, freeing space used by deleted items.
+    fn compact_column(&self, column: DBColumn) -> Result<(), Error>;
+
+    /// Compact a default set of columns that are likely to free substantial space.
+    fn compact(&self) -> Result<(), Error> {
+        // Compact state and block related columns as they are likely to have the most churn,
+        // i.e. entries being created and deleted.
+        for column in [
+            DBColumn::BeaconState,
+            DBColumn::BeaconStateSummary,
+            DBColumn::BeaconBlock,
+        ] {
+            self.compact_column(column)?;
+        }
+        Ok(())
+    }
 
     /// Iterate through all keys and values in a particular column.
     fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
