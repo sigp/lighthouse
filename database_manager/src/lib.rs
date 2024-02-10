@@ -327,11 +327,14 @@ pub fn inspect_db<E: EthSpec>(
     let mut num_keys = 0;
 
     let sub_db = if inspect_config.freezer {
-        BeaconNodeBackend::<E>::open(&client_config.store, &cold_path).map_err(|e| format!("Unable to open freezer DB: {e:?}"))?
+        BeaconNodeBackend::<E>::open(&client_config.store, &cold_path)
+            .map_err(|e| format!("Unable to open freezer DB: {e:?}"))?
     } else if inspect_config.blobs_db {
-        BeaconNodeBackend::<E>::open(&client_config.store, &blobs_path).map_err(|e| format!("Unable to open blobs DB: {e:?}"))?
+        BeaconNodeBackend::<E>::open(&client_config.store, &blobs_path)
+            .map_err(|e| format!("Unable to open blobs DB: {e:?}"))?
     } else {
-        BeaconNodeBackend::<E>::open(&client_config.store, &hot_path).map_err(|e| format!("Unable to open hot DB: {e:?}"))?
+        BeaconNodeBackend::<E>::open(&client_config.store, &hot_path)
+            .map_err(|e| format!("Unable to open hot DB: {e:?}"))?
     };
 
     let skip = inspect_config.skip.unwrap_or(0);
@@ -443,11 +446,20 @@ pub fn compact_db<E: EthSpec>(
     let column = compact_config.column;
 
     let (sub_db, db_name) = if compact_config.freezer {
-        (BeaconNodeBackend::<E>::open(&client_config.store, &cold_path)?, "freezer_db")
+        (
+            BeaconNodeBackend::<E>::open(&client_config.store, &cold_path)?,
+            "freezer_db",
+        )
     } else if compact_config.blobs_db {
-        (BeaconNodeBackend::<E>::open(&client_config.store, &blobs_path)?, "blobs_db")
+        (
+            BeaconNodeBackend::<E>::open(&client_config.store, &blobs_path)?,
+            "blobs_db",
+        )
     } else {
-        (BeaconNodeBackend::<E>::open(&client_config.store, &hot_path)?, "hot_db")
+        (
+            BeaconNodeBackend::<E>::open(&client_config.store, &hot_path)?,
+            "hot_db",
+        )
     };
     info!(
         log,

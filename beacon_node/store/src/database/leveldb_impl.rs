@@ -186,7 +186,7 @@ impl<E: EthSpec> LevelDB<E> {
             self.db.compact(&start_key, &end_key);
         }
     }
-    
+
     fn compact_column(&self, column: DBColumn) -> Result<(), Error> {
         // Use key-size-agnostic keys [] and 0xff..ff with a minimum of 32 bytes to account for
         // columns that may change size between sub-databases or schema versions.
