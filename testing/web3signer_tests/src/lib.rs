@@ -308,6 +308,7 @@ mod tests {
         _validator_dir: TempDir,
         runtime: Arc<tokio::runtime::Runtime>,
         _runtime_shutdown: async_channel::Sender<()>,
+        using_web3signer: bool,
     }
 
     impl ValidatorStoreRig {

@@ -1380,7 +1380,11 @@ where
                 tracing::error!(peer_id = %peer_id, "Peer non-existent when handling graft");
                 return;
             };
-            connected_peer.topics.insert(topic.clone());
+            if connected_peer.topics.insert(topic.clone()) {
+                if let Some(m) = self.metrics.as_mut() {
+                    m.inc_topic_peers(topic);
+                }
+            }
         }
 
         // we don't GRAFT to/from explicit peers; complain loudly if this happens
