@@ -1,8 +1,22 @@
+// Clippy lint set up
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::indexing_slicing
+    )
+)]
+
 mod attestation;
 mod attestation_id;
 mod attestation_storage;
 mod attester_slashing;
 mod bls_to_execution_changes;
+mod bron_kerbosch;
 mod max_cover;
 mod metrics;
 mod persistence;
@@ -11,7 +25,11 @@ mod sync_aggregate_id;
 
 pub use crate::bls_to_execution_changes::ReceivedPreCapella;
 pub use attestation::{earliest_attestation_validators, AttMaxCover};
-pub use attestation_storage::{AttestationRef, SplitAttestation};
+use attestation_storage::{AttestationDataMap, AttestationMap, CompactIndexedAttestation};
+pub use attestation_storage::{
+    AttestationRef, CheckpointKey, CompactAttestationData, SplitAttestation,
+};
+use bron_kerbosch::bron_kerbosch;
 pub use max_cover::MaxCover;
 pub use persistence::{
     PersistedOperationPool, PersistedOperationPoolV12, PersistedOperationPoolV14,
@@ -19,7 +37,6 @@ pub use persistence::{
 };
 pub use reward_cache::RewardCache;
 
-use crate::attestation_storage::{AttestationMap, CheckpointKey};
 use crate::bls_to_execution_changes::BlsToExecutionChanges;
 use crate::sync_aggregate_id::SyncAggregateId;
 use attester_slashing::AttesterSlashingMaxCover;
@@ -27,6 +44,7 @@ use max_cover::maximum_cover;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use rayon::prelude::*;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_exit, VerifySignatures,
@@ -35,6 +53,7 @@ use state_processing::{SigVerifiedOp, VerifyOperation};
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ptr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use types::{
     sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, AbstractExecPayload,
     Attestation, AttestationData, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
@@ -75,11 +94,12 @@ pub enum OpPoolError {
     RewardCacheValidatorUnknown(BeaconStateError),
     RewardCacheOutOfBounds,
     IncorrectOpPoolVariant,
+    BronKerboschLogicError,
 }
 
 #[derive(Default)]
 pub struct AttestationStats {
-    /// Total number of attestations for all committeees/indices/votes.
+    /// Total number of attestations for all committees/indices/votes.
     pub num_attestations: usize,
     /// Number of unique `AttestationData` attested to.
     pub num_attestation_data: usize,
@@ -215,28 +235,121 @@ impl<T: EthSpec> OperationPool<T> {
         self.attestations.read().stats()
     }
 
-    /// Return all valid attestations for the given epoch, for use in max cover.
+    /// Return a vector of aggregate/unaggregate attestations which are maximal cliques
+    /// with resepct to the graph with attestations as vertices and an edge encoding
+    /// compatibility for aggregation.
     #[allow(clippy::too_many_arguments)]
-    fn get_valid_attestations_for_epoch<'a>(
+    #[allow(clippy::type_complexity)]
+    fn get_clique_aggregate_attestations_for_epoch<'a>(
         &'a self,
         checkpoint_key: &'a CheckpointKey,
         all_attestations: &'a AttestationMap<T>,
         state: &'a BeaconState<T>,
-        reward_cache: &'a RewardCache,
-        total_active_balance: u64,
-        validity_filter: impl FnMut(&AttestationRef<'a, T>) -> bool + Send,
+        validity_filter: impl Fn(&CheckpointKey, &CompactAttestationData) -> bool + Send + Sync,
+        num_valid: &AtomicUsize,
+        max_vertices: usize,
         spec: &'a ChainSpec,
-    ) -> impl Iterator<Item = AttMaxCover<'a, T>> + Send {
-        all_attestations
-            .get_attestations(checkpoint_key)
-            .filter(|att| {
-                att.data.slot + spec.min_attestation_inclusion_delay <= state.slot()
-                    && state.slot() <= att.data.slot + T::slots_per_epoch()
+    ) -> Result<Vec<(&CompactAttestationData, Vec<CompactIndexedAttestation<T>>)>, OpPoolError>
+    {
+        let Some(AttestationDataMap {
+            aggregate_attestations,
+            unaggregate_attestations,
+        }) = all_attestations.get_attestation_map(checkpoint_key)
+        else {
+            return Ok(vec![]);
+        };
+        let mut cliques_from_aggregates: Vec<_> = aggregate_attestations
+            .iter()
+            .filter(|(data, _)| {
+                data.slot + spec.min_attestation_inclusion_delay <= state.slot()
+                    && state.slot() <= data.slot + T::slots_per_epoch()
             })
-            .filter(validity_filter)
-            .filter_map(move |att| {
-                AttMaxCover::new(att, state, reward_cache, total_active_balance, spec)
+            .map(|(data, aggregates)| {
+                let aggregates: Vec<&CompactIndexedAttestation<T>> = aggregates
+                    .iter()
+                    .filter(|_| validity_filter(checkpoint_key, data))
+                    .collect();
+                num_valid.fetch_add(aggregates.len(), Ordering::Relaxed);
+                (data, aggregates)
             })
+            .map(|(data, mut aggregates)| {
+                // Take the N aggregates with the highest number of set bits
+                // This is needed to avoid the bron_kerbosch algorithm generating millions of
+                // cliques
+                let aggregates = if aggregates.len() > max_vertices {
+                    let (left, _, _) = aggregates.select_nth_unstable_by_key(max_vertices, |a| {
+                        std::cmp::Reverse(a.aggregation_bits.num_set_bits())
+                    });
+                    left
+                } else {
+                    aggregates.as_slice()
+                };
+                // aggregate each clique's corresponding attestations
+                let mut clique_aggregates: Vec<CompactIndexedAttestation<_>> =
+                    bron_kerbosch(aggregates, is_compatible)?
+                        .iter()
+                        .map(|clique| {
+                            aggregate_attestations_by_indices(aggregates, clique.iter().copied())
+                                .ok_or(OpPoolError::BronKerboschLogicError)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                let mut indices_to_remove = Vec::new();
+                clique_aggregates.sort_unstable_by_key(|att| att.attesting_indices.len());
+                for (index, clique) in clique_aggregates.iter().enumerate() {
+                    for bigger_clique in clique_aggregates.iter().skip(index + 1) {
+                        if clique
+                            .aggregation_bits
+                            .is_subset(&bigger_clique.aggregation_bits)
+                        {
+                            indices_to_remove.push(index);
+                            break;
+                        }
+                    }
+                }
+
+                for index in indices_to_remove.iter().rev() {
+                    clique_aggregates.swap_remove(*index);
+                }
+
+                // aggregate unaggregate attestations into the clique aggregates
+                // if compatible
+                if let Some(unaggregate_attestations) = unaggregate_attestations.get(data) {
+                    for attestation in unaggregate_attestations {
+                        num_valid.fetch_add(1, Ordering::Relaxed);
+                        for clique_aggregate in &mut clique_aggregates {
+                            if clique_aggregate.signers_disjoint_from(attestation) {
+                                clique_aggregate.aggregate(attestation);
+                            }
+                        }
+                    }
+                }
+
+                Ok((data, clique_aggregates))
+            })
+            .collect::<Result<Vec<_>, OpPoolError>>()?;
+
+        // include aggregated attestations from unaggregated attestations whose
+        // attestation data doesn't appear in aggregated_attestations
+        unaggregate_attestations
+            .iter()
+            .filter(|(data, _)| {
+                data.slot + spec.min_attestation_inclusion_delay <= state.slot()
+                    && state.slot() <= data.slot + T::slots_per_epoch()
+                    && !aggregate_attestations.contains_key(data)
+            })
+            .for_each(|(data, unaggregates)| {
+                let mut unaggregates = unaggregates.iter();
+                if let Some(att) = unaggregates.next() {
+                    if !validity_filter(checkpoint_key, data) {
+                        return;
+                    }
+
+                    let mut att = att.clone();
+                    unaggregates.for_each(|valid_att| att.aggregate(valid_att));
+                    cliques_from_aggregates.push((data, vec![att]))
+                }
+            });
+        Ok(cliques_from_aggregates)
     }
 
     /// Get a list of attestations for inclusion in a block.
@@ -248,8 +361,13 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_attestations(
         &self,
         state: &BeaconState<T>,
-        prev_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, T>) -> bool + Send,
-        curr_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, T>) -> bool + Send,
+        prev_epoch_validity_filter: impl for<'a> Fn(&CheckpointKey, &CompactAttestationData) -> bool
+            + Send
+            + Sync,
+        curr_epoch_validity_filter: impl for<'a> Fn(&CheckpointKey, &CompactAttestationData) -> bool
+            + Send
+            + Sync,
+        max_vertices: usize,
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<T>>, OpPoolError> {
         // Attestations for the current fork, which may be from the current or previous epoch.
@@ -268,31 +386,57 @@ impl<T: EthSpec> OperationPool<T> {
 
         // Split attestations for the previous & current epochs, so that we
         // can optimise them individually in parallel.
-        let mut num_prev_valid = 0_i64;
-        let mut num_curr_valid = 0_i64;
+        let num_prev_valid = AtomicUsize::new(0);
+        let num_curr_valid = AtomicUsize::new(0);
 
-        let prev_epoch_att = self
-            .get_valid_attestations_for_epoch(
+        // If we're in the genesis epoch, just use the current epoch attestations.
+        let prev_epoch_cliqued_atts = if prev_epoch_key != curr_epoch_key {
+            self.get_clique_aggregate_attestations_for_epoch(
                 &prev_epoch_key,
                 &*all_attestations,
                 state,
-                &reward_cache,
-                total_active_balance,
                 prev_epoch_validity_filter,
+                &num_prev_valid,
+                max_vertices,
                 spec,
-            )
-            .inspect(|_| num_prev_valid += 1);
-        let curr_epoch_att = self
-            .get_valid_attestations_for_epoch(
-                &curr_epoch_key,
-                &*all_attestations,
-                state,
-                &reward_cache,
-                total_active_balance,
-                curr_epoch_validity_filter,
-                spec,
-            )
-            .inspect(|_| num_curr_valid += 1);
+            )?
+        } else {
+            vec![]
+        };
+
+        let prev_epoch_cliqued_atts = prev_epoch_cliqued_atts.iter().flat_map(|(data, atts)| {
+            atts.iter()
+                .map(|indexed| AttestationRef {
+                    checkpoint: &prev_epoch_key,
+                    data,
+                    indexed,
+                })
+                .filter_map(|att| {
+                    AttMaxCover::new(att, state, &reward_cache, total_active_balance, spec)
+                })
+        });
+
+        let curr_epoch_cliqued_atts = self.get_clique_aggregate_attestations_for_epoch(
+            &curr_epoch_key,
+            &*all_attestations,
+            state,
+            curr_epoch_validity_filter,
+            &num_curr_valid,
+            max_vertices,
+            spec,
+        )?;
+
+        let curr_epoch_cliqued_atts = curr_epoch_cliqued_atts.iter().flat_map(|(data, atts)| {
+            atts.iter()
+                .map(|indexed| AttestationRef {
+                    checkpoint: &curr_epoch_key,
+                    data,
+                    indexed,
+                })
+                .filter_map(|att| {
+                    AttMaxCover::new(att, state, &reward_cache, total_active_balance, spec)
+                })
+        });
 
         let prev_epoch_limit = if let BeaconState::Base(base_state) = state {
             std::cmp::min(
@@ -311,21 +455,31 @@ impl<T: EthSpec> OperationPool<T> {
                 if prev_epoch_key == curr_epoch_key {
                     vec![]
                 } else {
-                    maximum_cover(prev_epoch_att, prev_epoch_limit, "prev_epoch_attestations")
+                    maximum_cover(
+                        prev_epoch_cliqued_atts,
+                        prev_epoch_limit,
+                        "prev_epoch_attestations",
+                    )
                 }
             },
             move || {
                 let _timer = metrics::start_timer(&metrics::ATTESTATION_CURR_EPOCH_PACKING_TIME);
                 maximum_cover(
-                    curr_epoch_att,
+                    curr_epoch_cliqued_atts,
                     T::MaxAttestations::to_usize(),
                     "curr_epoch_attestations",
                 )
             },
         );
 
-        metrics::set_gauge(&metrics::NUM_PREV_EPOCH_ATTESTATIONS, num_prev_valid);
-        metrics::set_gauge(&metrics::NUM_CURR_EPOCH_ATTESTATIONS, num_curr_valid);
+        metrics::set_gauge(
+            &metrics::NUM_PREV_EPOCH_ATTESTATIONS,
+            num_prev_valid.load(Ordering::Relaxed) as i64,
+        );
+        metrics::set_gauge(
+            &metrics::NUM_CURR_EPOCH_ATTESTATIONS,
+            num_curr_valid.load(Ordering::Relaxed) as i64,
+        );
 
         Ok(max_cover::merge_solutions(
             curr_cover,
@@ -707,6 +861,25 @@ impl<T: EthSpec> OperationPool<T> {
     }
 }
 
+fn is_compatible<T: EthSpec>(
+    x: &&CompactIndexedAttestation<T>,
+    y: &&CompactIndexedAttestation<T>,
+) -> bool {
+    x.signers_disjoint_from(y)
+}
+
+fn aggregate_attestations_by_indices<E: EthSpec>(
+    attestations: &[&CompactIndexedAttestation<E>],
+    mut indices: impl Iterator<Item = usize>,
+) -> Option<CompactIndexedAttestation<E>> {
+    let first = indices.next()?;
+    let mut attestation: CompactIndexedAttestation<E> = (*attestations.get(first)?).clone();
+    for i in indices {
+        attestation.aggregate(attestations.get(i)?);
+    }
+    Some(attestation)
+}
+
 /// Filter up to a maximum number of operations out of an iterator.
 fn filter_limit_operations<'a, T: 'a, V: 'a, I, F, G>(
     operations: I,
@@ -773,6 +946,7 @@ mod release_tests {
     };
     use lazy_static::lazy_static;
     use maplit::hashset;
+    use state_processing::state_advance::complete_state_advance;
     use state_processing::{common::get_attesting_indices_from_state, VerifyOperation};
     use std::collections::BTreeSet;
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
@@ -963,12 +1137,12 @@ mod release_tests {
             }
         }
 
-        assert_eq!(op_pool.num_attestations(), committees.len());
+        assert_eq!(op_pool.num_attestations(), 128);
 
         // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
         assert_eq!(
             op_pool
-                .get_attestations(&state, |_| true, |_| true, spec)
+                .get_attestations(&state, |_, _| true, |_, _| true, 16, spec)
                 .expect("should have attestations")
                 .len(),
             0
@@ -978,7 +1152,7 @@ mod release_tests {
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
 
         let block_attestations = op_pool
-            .get_attestations(&state, |_| true, |_| true, spec)
+            .get_attestations(&state, |_, _| true, |_, _| true, 16, spec)
             .expect("Should have block attestations");
         assert_eq!(block_attestations.len(), committees.len());
 
@@ -990,7 +1164,7 @@ mod release_tests {
 
         // Prune attestations shouldn't do anything at this point.
         op_pool.prune_attestations(state.current_epoch());
-        assert_eq!(op_pool.num_attestations(), committees.len());
+        assert_eq!(op_pool.num_attestations(), 128);
 
         // But once we advance to more than an epoch after the attestation, it should prune it
         // out of existence.
@@ -1044,7 +1218,7 @@ mod release_tests {
     fn attestation_pairwise_overlapping() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = harness.get_current_state();
+        let mut state = harness.get_current_state();
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1056,8 +1230,8 @@ mod release_tests {
             .map(BeaconCommittee::into_owned)
             .collect::<Vec<_>>();
 
-        let num_validators =
-            MainnetEthSpec::slots_per_epoch() as usize * spec.target_committee_size;
+        // NOTE: this test is VERY sensitive to the number of attestations
+        let num_validators = 16 * spec.target_committee_size;
 
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
@@ -1071,6 +1245,11 @@ mod release_tests {
         // Create attestations that overlap on `step_size` validators, like:
         // {0,1,2,3}, {2,3,4,5}, {4,5,6,7}, ...
         for (atts1, _) in attestations {
+            assert_eq!(
+                (atts1.len() - step_size) % (2 * step_size),
+                0,
+                "to get two aggregates we need to be able to split by 2*step_size"
+            );
             let atts2 = atts1.clone();
             let aggs1 = atts1
                 .chunks_exact(step_size * 2)
@@ -1121,12 +1300,38 @@ mod release_tests {
             }
         }
 
+        let num_valid = AtomicUsize::new(0);
+        let (_, curr) = CheckpointKey::keys_for_state(&state);
+        let all_attestations = op_pool.attestations.read();
+
+        complete_state_advance(&mut state, None, Slot::new(1), spec).unwrap();
+        let clique_attestations = op_pool
+            .get_clique_aggregate_attestations_for_epoch(
+                &curr,
+                &all_attestations,
+                &state,
+                |_, _| true,
+                &num_valid,
+                32,
+                spec,
+            )
+            .unwrap();
+        let best_attestations = op_pool
+            .get_attestations(&state, |_, _| true, |_, _| true, 32, spec)
+            .unwrap();
+
+        // There should only be attestations for 1 attestation data.
+        let stats = op_pool.attestation_stats();
+        assert_eq!(committees.len(), 1);
+        assert_eq!(stats.num_attestation_data, 1);
+
+        // There should be multiple cliques for this single attestation data.
+        assert_eq!(clique_attestations.len(), 1);
+        assert!(clique_attestations[0].1.len() > 1);
+
         // The attestations should get aggregated into two attestations that comprise all
         // validators.
-        let stats = op_pool.attestation_stats();
-        assert_eq!(stats.num_attestation_data, committees.len());
-        assert_eq!(stats.num_attestations, 2 * committees.len());
-        assert_eq!(stats.max_aggregates_per_data, 2);
+        assert_eq!(best_attestations.len(), 2);
     }
 
     /// Create a bunch of attestations signed by a small number of validators, and another
@@ -1214,7 +1419,7 @@ mod release_tests {
 
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(&state, |_| true, |_| true, spec)
+            .get_attestations(&state, |_, _| true, |_, _| true, 32, spec)
             .expect("should have best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
@@ -1311,7 +1516,7 @@ mod release_tests {
 
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(&state, |_| true, |_| true, spec)
+            .get_attestations(&state, |_, _| true, |_, _| true, 32, spec)
             .expect("should have valid best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 

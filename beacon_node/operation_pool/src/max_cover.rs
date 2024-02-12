@@ -1,3 +1,5 @@
+use std::{collections::HashMap, hash::Hash};
+
 use crate::metrics;
 use itertools::Itertools;
 
@@ -15,6 +17,8 @@ pub trait MaxCover: Clone {
     type Intermediate: Clone;
     /// The type used to represent sets.
     type Set: Clone;
+    /// The type used to represent keys.
+    type Key: Clone + PartialEq + Eq + Hash;
 
     /// Extract the intermediate object.
     fn intermediate(&self) -> &Self::Intermediate;
@@ -28,6 +32,8 @@ pub trait MaxCover: Clone {
     fn update_covering_set(&mut self, max_obj: &Self::Intermediate, max_set: &Self::Set);
     /// The quality of this item's covering set, usually its cardinality.
     fn score(&self) -> usize;
+    /// Convert value to keyed value.
+    fn key(&self) -> Self::Key;
 }
 
 /// Helper struct to track which items of the input are still available for inclusion.
@@ -56,11 +62,15 @@ where
     T: MaxCover,
 {
     // Construct an initial vec of all items, marked available.
-    let mut all_items: Vec<_> = items_iter
+    let mut all_items: HashMap<T::Key, Vec<MaxCoverItem<T>>> = items_iter
         .into_iter()
         .map(MaxCoverItem::new)
         .filter(|x| x.item.score() != 0)
-        .collect();
+        .map(|val| (val.item.key(), val))
+        .fold(HashMap::new(), |mut acc, (key, val)| {
+            acc.entry(key).or_default().push(val);
+            acc
+        });
 
     metrics::set_int_gauge(
         &metrics::MAX_COVER_NON_ZERO_ITEMS,
@@ -72,29 +82,33 @@ where
 
     for _ in 0..limit {
         // Select the item with the maximum score.
-        let best = match all_items
+        let best = all_items
             .iter_mut()
-            .filter(|x| x.available && x.item.score() != 0)
-            .max_by_key(|x| x.item.score())
-        {
-            Some(x) => {
-                x.available = false;
-                x.item.clone()
+            .flat_map(|(key, items)| items.iter_mut().map(move |x| (key, x)))
+            .filter(|(_, val)| val.available && val.item.score() != 0)
+            .max_by_key(|(_, val)| val.item.score());
+
+        let (best_key, best_item) = match best {
+            Some((key, val)) => {
+                val.available = false;
+                (key.clone(), val.item.clone())
             }
             None => return result,
         };
 
         // Update the covering sets of the other items, for the inclusion of the selected item.
         // Items covered by the selected item can't be re-covered.
-        all_items
-            .iter_mut()
-            .filter(|x| x.available && x.item.score() != 0)
-            .for_each(|x| {
-                x.item
-                    .update_covering_set(best.intermediate(), best.covering_set())
-            });
+        if let Some(items) = all_items.get_mut(&best_key) {
+            items
+                .iter_mut()
+                .filter(|x| x.available && x.item.score() != 0)
+                .for_each(|x| {
+                    x.item
+                        .update_covering_set(best_item.intermediate(), best_item.covering_set())
+                });
+        }
 
-        result.push(best);
+        result.push(best_item);
     }
 
     result
@@ -128,6 +142,7 @@ mod test {
         type Object = Self;
         type Intermediate = Self;
         type Set = Self;
+        type Key = ();
 
         fn intermediate(&self) -> &Self {
             self
@@ -149,6 +164,8 @@ mod test {
         fn score(&self) -> usize {
             self.len()
         }
+
+        fn key(&self) {}
     }
 
     fn example_system() -> Vec<HashSet<usize>> {

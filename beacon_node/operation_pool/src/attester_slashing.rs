@@ -42,6 +42,7 @@ impl<'a, T: EthSpec> MaxCover for AttesterSlashingMaxCover<'a, T> {
     type Intermediate = AttesterSlashing<T>;
     /// The type used to represent sets.
     type Set = HashMap<u64, u64>;
+    type Key = ();
 
     fn intermediate(&self) -> &AttesterSlashing<T> {
         self.slashing
@@ -69,4 +70,5 @@ impl<'a, T: EthSpec> MaxCover for AttesterSlashingMaxCover<'a, T> {
     fn score(&self) -> usize {
         self.effective_balances.values().sum::<u64>() as usize
     }
+    fn key(&self) -> Self::Key {}
 }

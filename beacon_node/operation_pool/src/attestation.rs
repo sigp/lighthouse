@@ -1,4 +1,4 @@
-use crate::attestation_storage::AttestationRef;
+use crate::attestation_storage::{AttestationRef, CompactAttestationData};
 use crate::max_cover::MaxCover;
 use crate::reward_cache::RewardCache;
 use state_processing::common::{
@@ -127,6 +127,7 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
     type Object = Attestation<T>;
     type Intermediate = AttestationRef<'a, T>;
     type Set = HashMap<u64, u64>;
+    type Key = CompactAttestationData;
 
     fn intermediate(&self) -> &AttestationRef<'a, T> {
         &self.att
@@ -164,6 +165,10 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
     fn score(&self) -> usize {
         self.fresh_validators_rewards.values().sum::<u64>() as usize
     }
+
+    fn key(&self) -> CompactAttestationData {
+        self.att.data.clone()
+    }
 }
 
 /// Extract the validators for which `attestation` would be their earliest in the epoch.
@@ -188,6 +193,7 @@ pub fn earliest_attestation_validators<T: EthSpec>(
     } else if attestation.checkpoint.target_epoch == state.previous_epoch() {
         &base_state.previous_epoch_attestations
     } else {
+        #[allow(clippy::unwrap_used)]
         return BitList::with_capacity(0).unwrap();
     };
 

@@ -85,7 +85,10 @@ use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
 use kzg::Kzg;
-use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella};
+use operation_pool::{
+    CheckpointKey, CompactAttestationData, OperationPool, PersistedOperationPool,
+    ReceivedPreCapella,
+};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
@@ -94,7 +97,6 @@ use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
-    common::get_attesting_indices_from_state,
     per_block_processing,
     per_block_processing::{
         errors::AttestationValidationError, get_expected_withdrawals,
@@ -167,6 +169,13 @@ const PREPARE_PROPOSER_HISTORIC_EPOCHS: u64 = 4;
 /// 20 slots/second. Having a single fork-choice run interrupt syncing would have very little
 /// impact whilst having 8 epochs without a block is a comfortable grace period.
 const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 256;
+
+/// The maximum number of aggregates per `AttestationData` to supply to Bron-Kerbosch (BK).
+///
+/// This value is chosen to be sufficient for ~16 aggregators on mainnet, and in practice should
+/// never be reached. Higher values *could* lead to exponential blow-up in the running time of BK
+/// if an attacker found a way to generate a lot of distinct aggregates.
+const MAX_AGGREGATES_PER_DATA_FOR_CLIQUES: usize = 20;
 
 /// Reported to the user when the justified block has an invalid execution payload.
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
@@ -2304,15 +2313,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn filter_op_pool_attestation(
         &self,
         filter_cache: &mut HashMap<(Hash256, Epoch), bool>,
-        att: &AttestationRef<T::EthSpec>,
+        checkpoint: &CheckpointKey,
+        data: &CompactAttestationData,
         state: &BeaconState<T::EthSpec>,
     ) -> bool {
         *filter_cache
-            .entry((att.data.beacon_block_root, att.checkpoint.target_epoch))
+            .entry((data.beacon_block_root, checkpoint.target_epoch))
             .or_insert_with(|| {
                 self.shuffling_is_compatible(
-                    &att.data.beacon_block_root,
-                    att.checkpoint.target_epoch,
+                    &data.beacon_block_root,
+                    checkpoint.target_epoch,
                     state,
                 )
             })
@@ -4937,27 +4947,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .op_pool
             .get_bls_to_execution_changes(&state, &self.spec);
 
-        // Iterate through the naive aggregation pool and ensure all the attestations from there
-        // are included in the operation pool.
-        let unagg_import_timer =
-            metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
-        for attestation in self.naive_aggregation_pool.read().iter() {
-            let import = |attestation: &Attestation<T::EthSpec>| {
-                let attesting_indices = get_attesting_indices_from_state(&state, attestation)?;
-                self.op_pool
-                    .insert_attestation(attestation.clone(), attesting_indices)
-            };
-            if let Err(e) = import(attestation) {
-                // Don't stop block production if there's an error, just create a log.
-                error!(
-                    self.log,
-                    "Attestation did not transfer to op pool";
-                    "reason" => ?e
-                );
-            }
-        }
-        drop(unagg_import_timer);
-
         // Override the beacon node's graffiti with graffiti from the validator, if present.
         let graffiti = match validator_graffiti {
             Some(graffiti) => graffiti,
@@ -4967,14 +4956,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let attestation_packing_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
 
-        let mut prev_filter_cache = HashMap::new();
-        let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
-        };
-        let mut curr_filter_cache = HashMap::new();
-        let curr_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
-        };
+        let prev_chain = self.clone();
+        let prev_filter_cache_lock = Mutex::new(HashMap::new());
+        let prev_attestation_filter =
+            |checkpoint: &CheckpointKey, data: &CompactAttestationData| {
+                let mut prev_filter_cache = prev_filter_cache_lock.lock();
+                prev_chain.filter_op_pool_attestation(
+                    &mut prev_filter_cache,
+                    checkpoint,
+                    data,
+                    &state,
+                )
+            };
+        let curr_chain = self.clone();
+        let curr_filter_cache_lock = Mutex::new(HashMap::new());
+        let curr_attestation_filter =
+            |checkpoint: &CheckpointKey, data: &CompactAttestationData| {
+                let mut curr_filter_cache = curr_filter_cache_lock.lock();
+                curr_chain.filter_op_pool_attestation(
+                    &mut curr_filter_cache,
+                    checkpoint,
+                    data,
+                    &state,
+                )
+            };
 
         let mut attestations = self
             .op_pool
@@ -4982,6 +4987,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &state,
                 prev_attestation_filter,
                 curr_attestation_filter,
+                MAX_AGGREGATES_PER_DATA_FOR_CLIQUES,
                 &self.spec,
             )
             .map_err(BlockProductionError::OpPoolError)?;
