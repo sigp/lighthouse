@@ -1,4 +1,5 @@
 use clap::ArgMatches;
+use clap_utils::GlobalConfig;
 pub use eth2_network_config::DEFAULT_HARDCODED_NETWORK;
 use std::fs::{self, create_dir_all};
 use std::path::{Path, PathBuf};
@@ -24,6 +25,21 @@ pub fn get_network_dir(matches: &ArgMatches) -> String {
     if let Some(network_name) = matches.value_of("network") {
         network_name.to_string()
     } else if matches.value_of("testnet-dir").is_some() {
+        CUSTOM_TESTNET_DIR.to_string()
+    } else {
+        eth2_network_config::DEFAULT_HARDCODED_NETWORK.to_string()
+    }
+}
+
+/// Gets the network directory name
+///
+/// Tries to get the name first from the "network" flag,
+/// if not present, then checks the "testnet-dir" flag and returns a custom name
+/// If neither flags are present, returns the default hardcoded network name.
+pub fn get_network_dir_v2(config: &GlobalConfig) -> String {
+    if let Some(network_name) = config.network.clone() {
+        network_name.to_string()
+    } else if config.testnet_dir.is_some() {
         CUSTOM_TESTNET_DIR.to_string()
     } else {
         eth2_network_config::DEFAULT_HARDCODED_NETWORK.to_string()

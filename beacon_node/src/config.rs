@@ -5,7 +5,7 @@ use beacon_chain::chain_config::{
 use beacon_chain::TrustedSetup;
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
-use clap_utils::parse_required;
+use clap_utils::{parse_required, GlobalConfig};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -27,6 +27,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
+
+use crate::cli::NetworkConfigurable;
 
 /// Gets the fully-initialized global client.
 ///
@@ -1424,6 +1426,497 @@ pub fn set_network_config(
         }
     };
     Ok(())
+}
+
+
+/// Sets the network config from the command line arguments.
+pub fn set_network_config_v2(
+    config: &mut NetworkConfig,
+    beacon_node: &BeaconNode,
+    data_dir: &Path,
+    log: &Logger,
+) -> Result<(), String> {
+    // If a network dir has been specified, override the `datadir` definition.
+    if let Some(dir) = cli_args.value_of("network-dir") {
+        config.network_dir = PathBuf::from(dir);
+    } else {
+        config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
+    };
+
+    if cli_args.is_present("subscribe-all-subnets") {
+        config.subscribe_all_subnets = true;
+    }
+
+    if cli_args.is_present("import-all-attestations") {
+        config.import_all_attestations = true;
+    }
+
+    if cli_args.is_present("shutdown-after-sync") {
+        config.shutdown_after_sync = true;
+    }
+
+    config.set_listening_addr(parse_listening_addresses(cli_args, log)?);
+
+    // A custom target-peers command will overwrite the --proposer-only default.
+    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
+        config.target_peers = target_peers_str
+            .parse::<usize>()
+            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
+    }
+
+    if let Some(value) = cli_args.value_of("network-load") {
+        let network_load = value
+            .parse::<u8>()
+            .map_err(|_| format!("Invalid integer: {}", value))?;
+        config.network_load = network_load;
+    }
+
+    if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
+        let mut enrs: Vec<Enr> = vec![];
+        let mut multiaddrs: Vec<Multiaddr> = vec![];
+        for addr in boot_enr_str.split(',') {
+            match addr.parse() {
+                Ok(enr) => enrs.push(enr),
+                Err(_) => {
+                    // parsing as ENR failed, try as Multiaddr
+                    let multi: Multiaddr = addr
+                        .parse()
+                        .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
+                    if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
+                        slog::error!(log, "Missing UDP in Multiaddr {}", multi.to_string());
+                    }
+                    if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
+                        slog::error!(log, "Missing P2P in Multiaddr {}", multi.to_string());
+                    }
+                    multiaddrs.push(multi);
+                }
+            }
+        }
+        config.boot_nodes_enr = enrs;
+        config.boot_nodes_multiaddr = multiaddrs;
+    }
+
+    if let Some(libp2p_addresses_str) = cli_args.value_of("libp2p-addresses") {
+        config.libp2p_nodes = libp2p_addresses_str
+            .split(',')
+            .map(|multiaddr| {
+                multiaddr
+                    .parse()
+                    .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
+            })
+            .collect::<Result<Vec<Multiaddr>, _>>()?;
+    }
+
+    if cli_args.is_present("disable-peer-scoring") {
+        config.disable_peer_scoring = true;
+    }
+
+    if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {
+        config.trusted_peers = trusted_peers_str
+            .split(',')
+            .map(|peer_id| {
+                peer_id
+                    .parse()
+                    .map_err(|_| format!("Invalid trusted peer id: {}", peer_id))
+            })
+            .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
+        if config.trusted_peers.len() >= config.target_peers {
+            slog::warn!(log, "More trusted peers than the target peer limit. This will prevent efficient peer selection criteria."; "target_peers" => config.target_peers, "trusted_peers" => config.trusted_peers.len());
+        }
+    }
+
+    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
+        config.enr_udp4_port = Some(
+            enr_udp_port_str
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR discovery port: {}", enr_udp_port_str))?,
+        );
+    }
+
+    if let Some(enr_quic_port_str) = cli_args.value_of("enr-quic-port") {
+        config.enr_quic4_port = Some(
+            enr_quic_port_str
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR quic port: {}", enr_quic_port_str))?,
+        );
+    }
+
+    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
+        config.enr_tcp4_port = Some(
+            enr_tcp_port_str
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
+        );
+    }
+
+    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp6-port") {
+        config.enr_udp6_port = Some(
+            enr_udp_port_str
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR discovery port: {}", enr_udp_port_str))?,
+        );
+    }
+
+    if let Some(enr_quic_port_str) = cli_args.value_of("enr-quic6-port") {
+        config.enr_quic6_port = Some(
+            enr_quic_port_str
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR quic port: {}", enr_quic_port_str))?,
+        );
+    }
+
+    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp6-port") {
+        config.enr_tcp6_port = Some(
+            enr_tcp_port_str
+                .parse::<NonZeroU16>()
+                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
+        );
+    }
+
+    if cli_args.is_present("enr-match") {
+        // Match the IP and UDP port in the ENR.
+
+        if let Some(ipv4_addr) = config.listen_addrs().v4().cloned() {
+            // ensure the port is valid to be advertised
+            let disc_port = ipv4_addr
+                .disc_port
+                .try_into()
+                .map_err(|_| "enr-match can only be used with non-zero listening ports")?;
+
+            // Set the ENR address to localhost if the address is unspecified.
+            let ipv4_enr_addr = if ipv4_addr.addr == Ipv4Addr::UNSPECIFIED {
+                Ipv4Addr::LOCALHOST
+            } else {
+                ipv4_addr.addr
+            };
+            config.enr_address.0 = Some(ipv4_enr_addr);
+            config.enr_udp4_port = Some(disc_port);
+        }
+
+        if let Some(ipv6_addr) = config.listen_addrs().v6().cloned() {
+            // ensure the port is valid to be advertised
+            let disc_port = ipv6_addr
+                .disc_port
+                .try_into()
+                .map_err(|_| "enr-match can only be used with non-zero listening ports")?;
+
+            // Set the ENR address to localhost if the address is unspecified.
+            let ipv6_enr_addr = if ipv6_addr.addr == Ipv6Addr::UNSPECIFIED {
+                Ipv6Addr::LOCALHOST
+            } else {
+                ipv6_addr.addr
+            };
+            config.enr_address.1 = Some(ipv6_enr_addr);
+            config.enr_udp6_port = Some(disc_port);
+        }
+    }
+
+    if let Some(enr_addresses) = cli_args.values_of("enr-address") {
+        let mut enr_ip4 = None;
+        let mut enr_ip6 = None;
+        let mut resolved_enr_ip4 = None;
+        let mut resolved_enr_ip6 = None;
+
+        for addr in enr_addresses {
+            match addr.parse::<IpAddr>() {
+                Ok(IpAddr::V4(v4_addr)) => {
+                    if let Some(used) = enr_ip4.as_ref() {
+                        warn!(log, "More than one Ipv4 ENR address provided"; "used" => %used, "ignored" => %v4_addr)
+                    } else {
+                        enr_ip4 = Some(v4_addr)
+                    }
+                }
+                Ok(IpAddr::V6(v6_addr)) => {
+                    if let Some(used) = enr_ip6.as_ref() {
+                        warn!(log, "More than one Ipv6 ENR address provided"; "used" => %used, "ignored" => %v6_addr)
+                    } else {
+                        enr_ip6 = Some(v6_addr)
+                    }
+                }
+                Err(_) => {
+                    // Try to resolve the address
+
+                    // NOTE: From checking the `to_socket_addrs` code I don't think the port
+                    // actually matters. Just use the udp port.
+
+                    let port = match config.listen_addrs() {
+                        ListenAddress::V4(v4_addr) => v4_addr.disc_port,
+                        ListenAddress::V6(v6_addr) => v6_addr.disc_port,
+                        ListenAddress::DualStack(v4_addr, _v6_addr) => {
+                            // NOTE: slight preference for ipv4 that I don't think is of importance.
+                            v4_addr.disc_port
+                        }
+                    };
+
+                    let addr_str = format!("{addr}:{port}");
+                    match addr_str.to_socket_addrs() {
+                        Err(_e) => {
+                            return Err(format!("Failed to parse or resolve address {addr}."))
+                        }
+                        Ok(resolved_addresses) => {
+                            for socket_addr in resolved_addresses {
+                                // Use the first ipv4 and first ipv6 addresses present.
+
+                                // NOTE: this means that if two dns addresses are provided, we
+                                // might end up using the ipv4 and ipv6 resolved addresses of just
+                                // the first.
+                                match socket_addr.ip() {
+                                    IpAddr::V4(v4_addr) => {
+                                        if resolved_enr_ip4.is_none() {
+                                            resolved_enr_ip4 = Some(v4_addr)
+                                        }
+                                    }
+                                    IpAddr::V6(v6_addr) => {
+                                        if resolved_enr_ip6.is_none() {
+                                            resolved_enr_ip6 = Some(v6_addr)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The ENR addresses given as ips should take preference over any resolved address
+        let used_host_resolution = resolved_enr_ip4.is_some() || resolved_enr_ip6.is_some();
+        let ip4 = enr_ip4.or(resolved_enr_ip4);
+        let ip6 = enr_ip6.or(resolved_enr_ip6);
+        config.enr_address = (ip4, ip6);
+        if used_host_resolution {
+            config.discv5_config.enr_update = false;
+        }
+    }
+
+    if cli_args.is_present("disable-enr-auto-update") {
+        config.discv5_config.enr_update = false;
+    }
+
+    if cli_args.is_present("disable-packet-filter") {
+        warn!(log, "Discv5 packet filter is disabled");
+        config.discv5_config.enable_packet_filter = false;
+    }
+
+    if cli_args.is_present("disable-discovery") {
+        config.disable_discovery = true;
+        warn!(log, "Discovery is disabled. New peers will not be found");
+    }
+
+    if cli_args.is_present("disable-quic") {
+        config.disable_quic_support = true;
+    }
+
+    if cli_args.is_present("disable-upnp") {
+        config.upnp_enabled = false;
+    }
+
+    if cli_args.is_present("private") {
+        config.private = true;
+    }
+
+    if cli_args.is_present("metrics") {
+        config.metrics_enabled = true;
+    }
+
+    if cli_args.is_present("enable-private-discovery") {
+        config.discv5_config.table_filter = |_| true;
+    }
+
+    // Light client server config.
+    config.enable_light_client_server = cli_args.is_present("light-client-server");
+
+    // The self limiter is disabled by default.
+    // This flag can be used both with or without a value. Try to parse it first with a value, if
+    // no value is defined but the flag is present, use the default params.
+    config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
+    if cli_args.is_present("self-limiter") && config.outbound_rate_limiter_config.is_none() {
+        config.outbound_rate_limiter_config = Some(Default::default());
+    }
+
+    // Proposer-only mode overrides a number of previous configuration parameters.
+    // Specifically, we avoid subscribing to long-lived subnets and wish to maintain a minimal set
+    // of peers.
+    if cli_args.is_present("proposer-only") {
+        config.subscribe_all_subnets = false;
+
+        if cli_args.value_of("target-peers").is_none() {
+            // If a custom value is not set, change the default to 15
+            config.target_peers = 15;
+        }
+        config.proposer_only = true;
+        warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
+    }
+    // The inbound rate limiter is enabled by default unless `disabled` is passed to the
+    // `inbound-rate-limiter` flag. Any other value should be parsed as a configuration string.
+    config.inbound_rate_limiter_config = match cli_args.value_of("inbound-rate-limiter") {
+        None => {
+            // Enabled by default, with default values
+            Some(Default::default())
+        }
+        Some("disabled") => {
+            // Explicitly disabled
+            None
+        }
+        Some(config_str) => {
+            // Enabled with a custom configuration
+            Some(config_str.parse()?)
+        }
+    };
+    Ok(())
+}
+
+// This method sets the network config from the command line arguments for all fields that are
+// common to both the beacon node and boot node CLI config.
+pub fn set_network_config_shared<T: NetworkConfigurable>(
+    config: &mut NetworkConfig,
+    cli_config: &T,
+    data_dir: &Path,
+    log: &Logger,
+) -> Result<(), String> {
+    // If a network dir has been specified, override the `datadir` definition.
+    if let Some(dir) = cli_config.get_network_dir() {
+        config.network_dir = PathBuf::from(dir);
+    } else {
+        config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
+    };
+
+    config.set_listening_addr(cli_config.get_listen_addresses());
+
+    if let Some(boot_enr_str) = cli_config.get_boot_nodes() {
+        let mut enrs: Vec<Enr> = vec![];
+        let mut multiaddrs: Vec<Multiaddr> = vec![];
+        for addr in boot_enr_str.split(',') {
+            match addr.parse() {
+                Ok(enr) => enrs.push(enr),
+                Err(_) => {
+                    // parsing as ENR failed, try as Multiaddr
+                    let multi: Multiaddr = addr
+                        .parse()
+                        .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
+                    if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
+                        slog::error!(log, "Missing UDP in Multiaddr {}", multi.to_string());
+                    }
+                    if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
+                        slog::error!(log, "Missing P2P in Multiaddr {}", multi.to_string());
+                    }
+                    multiaddrs.push(multi);
+                }
+            }
+        }
+        config.boot_nodes_enr = enrs;
+        config.boot_nodes_multiaddr = multiaddrs;
+    };
+
+    if let Some(enr_udp_port) = cli_config.get_enr_udp_port() {
+        config.enr_udp4_port = NonZeroU16::new(enr_udp_port);
+    }
+
+    if let Some(enr_addresses) = cli_config.get_enr_addresses() {
+        let mut enr_ip4 = None;
+        let mut enr_ip6 = None;
+        let mut resolved_enr_ip4 = None;
+        let mut resolved_enr_ip6 = None;
+
+        for addr in enr_addresses {
+            match addr.parse::<IpAddr>() {
+                Ok(IpAddr::V4(v4_addr)) => {
+                    if let Some(used) = enr_ip4.as_ref() {
+                        warn!(log, "More than one Ipv4 ENR address provided"; "used" => %used, "ignored" => %v4_addr)
+                    } else {
+                        enr_ip4 = Some(v4_addr)
+                    }
+                }
+                Ok(IpAddr::V6(v6_addr)) => {
+                    if let Some(used) = enr_ip6.as_ref() {
+                        warn!(log, "More than one Ipv6 ENR address provided"; "used" => %used, "ignored" => %v6_addr)
+                    } else {
+                        enr_ip6 = Some(v6_addr)
+                    }
+                }
+                Err(_) => {
+                    // Try to resolve the address
+
+                    // NOTE: From checking the `to_socket_addrs` code I don't think the port
+                    // actually matters. Just use the udp port.
+
+                    let port = match config.listen_addrs() {
+                        ListenAddress::V4(v4_addr) => v4_addr.disc_port,
+                        ListenAddress::V6(v6_addr) => v6_addr.disc_port,
+                        ListenAddress::DualStack(v4_addr, _v6_addr) => {
+                            // NOTE: slight preference for ipv4 that I don't think is of importance.
+                            v4_addr.disc_port
+                        }
+                    };
+
+                    let addr_str = format!("{addr}:{port}");
+                    match addr_str.to_socket_addrs() {
+                        Err(_e) => {
+                            return Err(format!("Failed to parse or resolve address {addr}."))
+                        }
+                        Ok(resolved_addresses) => {
+                            for socket_addr in resolved_addresses {
+                                // Use the first ipv4 and first ipv6 addresses present.
+
+                                // NOTE: this means that if two dns addresses are provided, we
+                                // might end up using the ipv4 and ipv6 resolved addresses of just
+                                // the first.
+                                match socket_addr.ip() {
+                                    IpAddr::V4(v4_addr) => {
+                                        if resolved_enr_ip4.is_none() {
+                                            resolved_enr_ip4 = Some(v4_addr)
+                                        }
+                                    }
+                                    IpAddr::V6(v6_addr) => {
+                                        if resolved_enr_ip6.is_none() {
+                                            resolved_enr_ip6 = Some(v6_addr)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The ENR addresses given as ips should take preference over any resolved address
+        let used_host_resolution = resolved_enr_ip4.is_some() || resolved_enr_ip6.is_some();
+        let ip4 = enr_ip4.or(resolved_enr_ip4);
+        let ip6 = enr_ip6.or(resolved_enr_ip6);
+        config.enr_address = (ip4, ip6);
+        if used_host_resolution {
+            config.discv5_config.enr_update = false;
+        }
+    }
+
+    if cli_config.is_disable_packet_filter() {
+        warn!(log, "Discv5 packet filter is disabled");
+        config.discv5_config.enable_packet_filter = false;
+    }
+
+    Ok(())
+}
+
+/// Gets the datadir which should be used.
+pub fn get_data_dir_v2(config: &GlobalConfig) -> PathBuf {
+    // Read the `--datadir` flag.
+    //
+    // If it's not present, try and find the home directory (`~`) and push the default data
+    // directory and the testnet name onto it.
+
+    config
+        .datadir
+        .as_ref()
+        .map(|path| path.join(DEFAULT_BEACON_NODE_DIR))
+        .or_else(|| {
+            dirs::home_dir().map(|home| {
+                home.join(DEFAULT_ROOT_DIR)
+                    .join(directory::get_network_dir_v2(config))
+                    .join(DEFAULT_BEACON_NODE_DIR)
+            })
+        })
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Gets the datadir which should be used.

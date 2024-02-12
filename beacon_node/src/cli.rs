@@ -1,337 +1,360 @@
+use std::{net::IpAddr, path::PathBuf};
+
 use clap::{App, Arg, ArgGroup};
+use lighthouse_network::ListenAddress;
 use strum::VariantNames;
 use types::ProgressiveBalancesMode;
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("beacon_node")
-        .visible_aliases(&["b", "bn", "beacon"])
-        .version(crate_version!())
-        .author("Sigma Prime <contact@sigmaprime.io>")
-        .setting(clap::AppSettings::ColoredHelp)
-        .about("The primary component which connects to the Ethereum 2.0 P2P network and \
-                downloads, verifies and stores blocks. Provides a HTTP API for querying \
-                the beacon chain and publishing messages to the network.")
-        /*
-         * Configuration directory locations.
-         */
-        .arg(
-            Arg::with_name("network-dir")
-                .long("network-dir")
-                .value_name("DIR")
-                .help("Data directory for network keys. Defaults to network/ inside the beacon node \
-                       dir.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("freezer-dir")
-                .long("freezer-dir")
-                .value_name("DIR")
-                .help("Data directory for the freezer database.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("blobs-dir")
-                .long("blobs-dir")
-                .value_name("DIR")
-                .help("Data directory for the blobs database.")
-                .takes_value(true)
-        )
-        /*
-         * Network parameters.
-         */
-        .arg(
-            Arg::with_name("subscribe-all-subnets")
-                .long("subscribe-all-subnets")
-                .help("Subscribe to all subnets regardless of validator count. \
-                       This will also advertise the beacon node as being long-lived subscribed to all subnets.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("import-all-attestations")
-                .long("import-all-attestations")
-                .help("Import and aggregate all attestations, regardless of validator subscriptions. \
+pub use clap::{IntoApp, Parser};
+use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, Ipv4Addr};
+use std::path::PathBuf;
+use types::Address;
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(
+    name = "beacon_node",
+    visible_aliases = &["b", "bn", "beacon"],
+    author = "Sigma Prime <contact@sigmaprime.io>",
+    about = "The primary component which connects to the Ethereum 2.0 P2P network and \
+            downloads, verifies and stores blocks. Provides a HTTP API for querying \
+            the beacon chain and publishing messages to the network.",
+)]
+pub struct BeaconNode {
+    #[clap(
+        long = "network-dir",
+        value_name = "DIR",
+        help = "Data directory for network keys. Defaults to network/ inside the beacon node \
+                       dir."
+    )]
+    pub network_dir: Option<PathBuf>,
+
+    #[clap(
+        long = "freezer-dir",
+        value_name = "DIR",
+        help = "Data directory for the freezer database."
+    )]
+    pub freezer_dir: Option<PathBuf>,
+
+    #[clap(
+        long = "blobs-dir",
+        value_name = "DIR",
+        help = "Data directory for the blobs database."
+    )]
+    pub blobs_dir: Option<PathBuf>,
+
+    #[clap(
+        long = "subscribe-all-subnets",
+        help = "Subscribe to all subnets regardless of validator count. \
+                       This will also advertise the beacon node as being long-lived subscribed to all subnets."
+    )]
+    pub subscribe_all_subnets: bool,
+
+    #[clap(
+        long = "import-all-attestations",
+        help = "Import and aggregate all attestations, regardless of validator subscriptions. \
                        This will only import attestations from already-subscribed subnets, use with \
-                       --subscribe-all-subnets to ensure all attestations are received for import.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("disable-packet-filter")
-                .long("disable-packet-filter")
-                .help("Disables the discovery packet filter. Useful for testing in smaller networks")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("shutdown-after-sync")
-                .long("shutdown-after-sync")
-                .help("Shutdown beacon node as soon as sync is completed. Backfill sync will \
-                       not be performed before shutdown.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("zero-ports")
-                .long("zero-ports")
-                .short("z")
-                .help("Sets all listening TCP/UDP ports to 0, allowing the OS to choose some \
-                       arbitrary free ports.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("listen-address")
-                .long("listen-address")
-                .value_name("ADDRESS")
-                .help("The address lighthouse will listen for UDP and TCP connections. To listen \
-                      over IpV4 and IpV6 set this flag twice with the different values.\n\
-                      Examples:\n\
-                      - --listen-address '0.0.0.0' will listen over IPv4.\n\
-                      - --listen-address '::' will listen over IPv6.\n\
-                      - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
-                      IPv4 and IPv6. The order of the given addresses is not relevant. However, \
-                      multiple IPv4, or multiple IPv6 addresses will not be accepted.")
-                .multiple(true)
-                .max_values(2)
-                .default_value("0.0.0.0")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("port")
-                .long("port")
-                .value_name("PORT")
-                .help("The TCP/UDP ports to listen on. There are two UDP ports. \
-                      The discovery UDP port will be set to this value and the Quic UDP port will be set to this value + 1. The discovery port can be modified by the \
-                      --discovery-port flag and the quic port can be modified by the --quic-port flag. If listening over both IPv4 and IPv6 the --port flag \
-                      will apply to the IPv4 address and --port6 to the IPv6 address.")
-                .default_value("9000")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("port6")
-                .long("port6")
-                .value_name("PORT")
-                .help("The TCP/UDP ports to listen on over IPv6 when listening over both IPv4 and \
-                      IPv6. Defaults to 9090 when required. The Quic UDP port will be set to this value + 1.")
-                .default_value("9090")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("discovery-port")
-                .long("discovery-port")
-                .value_name("PORT")
-                .help("The UDP port that discovery will listen on. Defaults to `port`")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("quic-port")
-                .long("quic-port")
-                .value_name("PORT")
-                .help("The UDP port that quic will listen on. Defaults to `port` + 1")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("discovery-port6")
-                .long("discovery-port6")
-                .value_name("PORT")
-                .help("The UDP port that discovery will listen on over IPv6 if listening over \
-                      both IPv4 and IPv6. Defaults to `port6`")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("quic-port6")
-                .long("quic-port6")
-                .value_name("PORT")
-                .help("The UDP port that quic will listen on over IPv6 if listening over \
-                      both IPv4 and IPv6. Defaults to `port6` + 1")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("target-peers")
-                .long("target-peers")
-                .help("The target number of peers.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("boot-nodes")
-                .long("boot-nodes")
-                .allow_hyphen_values(true)
-                .value_name("ENR/MULTIADDR LIST")
-                .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network. Multiaddr is also supported.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("network-load")
-                .long("network-load")
-                .value_name("INTEGER")
-                .help("Lighthouse's network can be tuned for bandwidth/performance. Setting this to a high value, will increase the bandwidth lighthouse uses, increasing the likelihood of redundant information in exchange for faster communication. This can increase profit of validators marginally by receiving messages faster on the network. Lower values decrease bandwidth usage, but makes communication slower which can lead to validator performance reduction. Values are in the range [1,5].")
-                .default_value("3")
-                .set(clap::ArgSettings::Hidden)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("disable-upnp")
-                .long("disable-upnp")
-                .help("Disables UPnP support. Setting this will prevent Lighthouse from attempting to automatically establish external port mappings.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("private")
-                .long("private")
-                .help("Prevents sending various client identification information.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("enr-udp-port")
-                .long("enr-udp-port")
-                .value_name("PORT")
-                .help("The UDP4 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IPv4.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("enr-quic-port")
-                .long("enr-quic-port")
-                .value_name("PORT")
-                .help("The quic UDP4 port that will be set on the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IPv4.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("enr-udp6-port")
-                .long("enr-udp6-port")
-                .value_name("PORT")
-                .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IPv6.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("enr-quic6-port")
-                .long("enr-quic6-port")
-                .value_name("PORT")
-                .help("The quic UDP6 port that will be set on the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IPv6.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("enr-tcp-port")
-                .long("enr-tcp-port")
-                .value_name("PORT")
-                .help("The TCP4 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IPv4. The --port flag is \
-                      used if this is not set.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("enr-tcp6-port")
-                .long("enr-tcp6-port")
-                .value_name("PORT")
-                .help("The TCP6 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IPv6. The --port6 flag is \
-                      used if this is not set.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("enr-address")
-                .long("enr-address")
-                .value_name("ADDRESS")
-                .help("The IP address/ DNS address to broadcast to other peers on how to reach \
-                      this node. If a DNS address is provided, the enr-address is set to the IP \
-                      address it resolves to and does not auto-update based on PONG responses in \
-                      discovery. Set this only if you are sure other nodes can connect to your \
-                      local node on this address. This will update the `ip4` or `ip6` ENR fields \
-                      accordingly. To update both, set this flag twice with the different values.")
-                .multiple(true)
-                .max_values(2)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("enr-match")
-                .short("e")
-                .long("enr-match")
-                .help("Sets the local ENR IP address and port to match those set for lighthouse. \
-                      Specifically, the IP address will be the value of --listen-address and the \
-                      UDP port will be --discovery-port.")
-        )
-        .arg(
-            Arg::with_name("disable-enr-auto-update")
-                .short("x")
-                .long("disable-enr-auto-update")
-                .help("Discovery automatically updates the nodes local ENR with an external IP address and port as seen by other peers on the network. \
-                This disables this feature, fixing the ENR's IP/PORT to those specified on boot."),
-        )
-        .arg(
-            Arg::with_name("libp2p-addresses")
-                .long("libp2p-addresses")
-                .value_name("MULTIADDR")
-                .help("One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
-                       without an ENR.")
-                .takes_value(true),
-        )
-        // NOTE: This is hidden because it is primarily a developer feature for testnets and
-        // debugging. We remove it from the list to avoid clutter.
-        .arg(
-            Arg::with_name("disable-discovery")
-                .long("disable-discovery")
-                .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
-                .hidden(true)
-        )
-        .arg(
-            Arg::with_name("disable-quic")
-                .long("disable-quic")
-                .help("Disables the quic transport. The node will rely solely on the TCP transport for libp2p connections.")
-        )
-        .arg(
-            Arg::with_name("disable-peer-scoring")
-                .long("disable-peer-scoring")
-                .help("Disables peer scoring in lighthouse. WARNING: This is a dev only flag is only meant to be used in local testing scenarios \
-                        Using this flag on a real network may cause your node to become eclipsed and see a different view of the network")
-                .takes_value(false)
-                .hidden(true),
-        )
-        .arg(
-            Arg::with_name("trusted-peers")
-                .long("trusted-peers")
-                .value_name("TRUSTED_PEERS")
-                .help("One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("genesis-backfill")
-                .long("genesis-backfill")
-                .help("Attempts to download blocks all the way back to genesis when checkpoint syncing.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("enable-private-discovery")
-                .long("enable-private-discovery")
-                .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("self-limiter")
-            .long("self-limiter")
-            .help(
-                "Enables the outbound rate limiter (requests made by this node).\
+                       --subscribe-all-subnets to ensure all attestations are received for import."
+    )]
+    pub import_all_attestations: bool,
+
+    #[clap(
+        long = "disable-packet-filter",
+        help = "Disables the discovery packet filter. Useful for testing in smaller networks"
+    )]
+    pub disable_packet_filter: bool,
+
+    #[clap(
+        long = "shutdown-after-sync",
+        help = "Shutdown beacon node as soon as sync is completed. Backfill sync will \
+                       not be performed before shutdown."
+    )]
+    pub shutdown_after_sync: bool,
+
+    #[clap(
+        long = "zero-ports",
+        short = 'z',
+        help = "Sets all listening TCP/UDP ports to 0, allowing the OS to choose some \
+                       arbitrary free ports."
+    )]
+    pub zero_ports: bool,
+
+    #[clap(
+        long = "listen-address",
+        value_delimiter = ' ',
+        num_args = 0..=2,
+        value_name = "ADDRESS",
+        help = "The address lighthouse will listen for UDP and TCP connections. To listen \
+                over IpV4 and IpV6 set this flag twice with the different values.\n\
+                Examples:\n\
+                - --listen-address '0.0.0.0' will listen over IPv4.\n\
+                - --listen-address '::' will listen over IPv6.\n\
+                - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
+                - --listen-address '0.0.0.0' '::' will also listen over both \
+                IPv4 and IPv6. The order of the given addresses is not relevant. However, \
+                multiple IPv4, or multiple IPv6 addresses will not be accepted.",
+        default_value = "0.0.0.0"
+    )]
+    pub listen_addresses: Vec<std::net::IpAddr>,
+
+    #[clap(
+        long,
+        value_name = "PORT",
+        help = "The TCP/UDP ports to listen on. There are two UDP ports. \
+                The discovery UDP port will be set to this value and the Quic UDP port will be set to this value + 1. The discovery port can be modified by the \
+                --discovery-port flag and the quic port can be modified by the --quic-port flag. If listening over both IPv4 and IPv6 the --port flag \
+                will apply to the IPv4 address and --port6 to the IPv6 address.",
+        default_value = "9000"
+    )]
+    pub port: u16,
+
+    #[clap(
+        long,
+        value_name = "PORT",
+        help = "The TCP/UDP ports to listen on over IPv6 when listening over both IPv4 and \
+                IPv6. Defaults to 9090 when required. The Quic UDP port will be set to this value + 1.",
+        default_value = "9000"
+    )]
+    pub port6: u16,
+
+    #[clap(
+        long = "discovery-port",
+        value_name = "PORT",
+        help = "The UDP port that discovery will listen on. Defaults to `port`"
+    )]
+    pub discovery_port: Option<u16>,
+
+    #[clap(
+        long = "quic-port",
+        value_name = "PORT",
+        help = "The UDP port that quic will listen on. Defaults to `port + 1`"
+    )]
+    pub quic_port: Option<u16>,
+
+    #[clap(
+        long = "discovery-port6",
+        value_name = "PORT",
+        help = "The UDP port that discovery will listen on over IPv6 if listening over \
+                both IPv4 and IPv6. Defaults to `port6`"
+    )]
+    pub discovery_port6: Option<u16>,
+
+    #[clap(
+        long = "quic-port6",
+        value_name = "PORT",
+        help = "The UDP port that quic will listen on over IPv6 if listening over \
+                both IPv4 and IPv6. Defaults to `port6` + 1"
+    )]
+    pub quic_port6: Option<u16>,
+
+    #[clap(
+        long = "target-peers", 
+        help = "The target number of peers.",
+    )]
+    pub target_peers: usize,
+
+    #[clap(
+        long = "boot-nodes",
+        allow_hyphen_values = true,
+        value_delimiter = ',',
+        value_name = "ENR/MULTIADDR LIST",
+        help = "One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network. Multiaddr is also supported."
+    )]
+    pub boot_nodes: Option<Vec<String>>,
+
+    #[clap(
+        long = "network-load",
+        value_name = "INTEGER",
+        help = "Lighthouse's network can be tuned for bandwidth/performance. \
+                Setting this to a high value, will increase the bandwidth lighthouse uses, \
+                increasing the likelihood of redundant information in exchange for faster \
+                communication. This can increase profit of validators marginally by receiving \
+                messages faster on the network. Lower values decrease bandwidth usage, but makes \
+                communication slower which can lead to validator performance reduction. Values \
+                are in the range [1,5].",
+        default_value = "3",
+        hide = true
+    )]
+    pub network_load: u8,
+
+    #[clap(
+        long = "disable-upnp",
+        help = "Disables UPnP support. Setting this will prevent Lighthouse from attempting to \
+                automatically establish external port mappings."
+    )]
+    pub disable_upnp: bool,
+
+    #[clap(
+        long,
+        help = "Prevents sending various client identification information."
+    )]
+    pub private: bool,
+
+    #[clap(
+        long = "enr-udp-port",
+        value_name = "PORT",
+        help = "The UDP port of the local ENR. Set this only if you are sure other nodes can \
+                connect to your local node on this port."
+    )]
+    pub enr_udp_port: Option<u16>,
+
+    #[clap(
+        long = "enr-quic-port",
+        value_name = "PORT",
+        help = "The quic UDP4 port that will be set on the local ENR. Set this only if you are sure other nodes \
+                can connect to your local node on this port over IPv4."
+    )]
+    pub enr_quic_port: Option<u16>,
+
+    #[clap(
+        long = "enr-udp6-port",
+        value_name = "PORT",
+        help = "The UDP6 port of the local ENR. Set this only if you are sure other nodes \
+                can connect to your local node on this port over IPv6."
+    )]
+    pub enr_udp6_port: Option<u16>,
+
+    #[clap(
+        long = "enr-quic6-port",
+        value_name = "PORT",
+        help = "The quic UDP6 port that will be set on the local ENR. Set this only if you are sure other nodes \
+                can connect to your local node on this port over IPv6."
+    )]
+    pub enr_quic6_port: Option<u16>,
+
+    #[clap(
+        long = "enr-tcp-port",
+        value_name = "PORT",
+        help = "The TCP4 port of the local ENR. Set this only if you are sure other nodes \
+                can connect to your local node on this port over IPv4. The --port flag is \
+                used if this is not set."
+    )]
+    pub enr_tcp_port: Option<u16>,
+
+    #[clap(
+        long = "enr-tcp6-port",
+        value_name = "PORT",
+        help = "The TCP6 port of the local ENR. Set this only if you are sure other nodes \
+                can connect to your local node on this port over IPv6. The --port6 flag is \
+                used if this is not set."
+    )]
+    pub enr_tcp6_port: Option<u16>,
+
+    #[clap(
+        long = "enr-address",
+        value_name = "PORT",
+        value_delimiter = ' ',
+        num_args = 0..=2,
+        help = "The IP address/ DNS address to broadcast to other peers on how to reach \
+                this node. If a DNS address is provided, the enr-address is set to the IP \
+                address it resolves to and does not auto-update based on PONG responses in \
+                discovery. Set this only if you are sure other nodes can connect to your \
+                local node on this address. This will update the `ip4` or `ip6` ENR fields \
+                accordingly. To update both, set this flag twice with the different values."
+    )]
+    pub enr_addresses: Option<Vec<String>>,
+
+    #[clap(
+        long = "enr-match",
+        short = 'e',
+        help = "Sets the local ENR IP address and port to match those set for lighthouse. \
+                Specifically, the IP address will be the value of --listen-address and the \
+                UDP port will be --discovery-port."
+    )]
+    pub enr_match: bool,
+
+    #[clap(
+        long = "disable-enr-auto-update",
+        short = 'x',
+        help = "Discovery automatically updates the nodes local ENR with an external IP address \
+                and port as seen by other peers on the network. \
+                This disables this feature, fixing the ENR's IP/PORT to those specified on boot."
+    )]
+    pub disable_enr_auto_update: bool,
+
+    #[clap(
+        long = "libp2p-addresses",
+        value_delimiter = ',',
+        value_name = "MULTIADDR",
+        help = "One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
+                without an ENR."
+    )]
+    pub libp2p_addresses: Option<Vec<String>>,
+
+    // NOTE: This is hidden because it is primarily a developer feature for testnets and
+    // debugging. We remove it from the list to avoid clutter.
+    #[clap(
+        long,
+        disable = true,
+        help = "Disables the discv5 discovery protocol. The node will not search for new peers or \
+                participate in the discovery protocol."
+    )]
+    pub disable_discovery: bool,
+
+    #[clap(
+        long = "disable-quic",
+        help = "Disables the quic transport. The node will rely solely on the TCP transport for libp2p connections."
+    )]
+    pub disable_quic: bool,
+
+    #[clap(
+        long = "disable-peer-scoring",
+        hidden = true,
+        help =  "Disables peer scoring in lighthouse. WARNING: This is a dev only flag is only meant to be used in local testing scenarios \
+                Using this flag on a real network may cause your node to become eclipsed and see a different view of the network"
+    )]
+    pub disable_peer_scoring: bool,
+
+    #[clap(
+        long = "trusted-peers",
+        value_name = "TRUSTED_PEERS",
+        value_delimiter = ',',
+        help = "One or more comma-delimited trusted peer ids which always have the highest \
+                score according to the peer scoring system."
+    )]
+    pub trusted_peers: Option<Vec<String>>,
+
+    #[clap(
+        long = "genesis-backfill",
+        help =  "Attempts to download blocks all the way back to genesis when checkpoint syncing."
+    )]
+    pub genesis_backfill: bool,
+
+    #[clap(
+        long = "enable-private-discovery",
+        help =  "Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses."
+    )]
+    pub enable_private_discovery: bool,
+
+    #[clap(
+        long = "self-limiter",
+        value_name = "PROTOCOL_NAME:TOKENS/TIME_IN_SECONDS",
+        value_delimiter = ';',
+        // min_values = 0 TODO doesnt exist
+        help =  "Enables the outbound rate limiter (requests made by this node).\
                 \
                 Rate limit quotas per protocol can be set in the form of \
                 <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
                 separate them by ';'. If the self rate limiter is enabled and a protocol is not \
                 present in the configuration, the quotas used for the inbound rate limiter will be \
                 used."
-            )
-            .min_values(0)
-            .hidden(true)
-        )
-        .arg(
-            Arg::with_name("proposer-only")
-                .long("proposer-only")
-                .help("Sets this beacon node at be a block proposer only node. \
-                       This will run the beacon node in a minimal configuration that is sufficient for block publishing only. This flag should be used \
-                       for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("inbound-rate-limiter")
-            .long("inbound-rate-limiter")
-            .help(
-                "Configures the inbound rate limiter (requests received by this node).\
+    )]
+    pub self_limiter: Option<String>,
+
+    #[clap(
+        long = "proposer-only",
+        help =  "Sets this beacon node at be a block proposer only node. \
+                This will run the beacon node in a minimal configuration that is sufficient for block publishing only. This flag should be used \
+                for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups."
+    )]
+    pub proposer_only: bool,
+    
+    #[clap(
+        long = "inbound-rate-limiter",
+        value_name = "PROTOCOL_NAME:TOKENS/TIME_IN_SECONDS",
+        value_delimiter = ';',
+        hidden = true,
+        help =  "Configures the inbound rate limiter (requests received by this node).\
                 \
                 Rate limit quotas per protocol can be set in the form of \
                 <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
@@ -340,96 +363,108 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 \
                 This is enabled by default, using default quotas. To disable rate limiting pass \
                 `disabled` to this option instead."
-            )
-            .takes_value(true)
-            .hidden(true)
-        )
-        .arg(
-            Arg::with_name("disable-backfill-rate-limiting")
-                .long("disable-backfill-rate-limiting")
-                .help("Disable the backfill sync rate-limiting. This allow users to just sync the entire chain as fast \
-                    as possible, however it can result in resource contention which degrades staking performance. Stakers \
-                    should generally choose to avoid this flag since backfill sync is not required for staking.")
-                .takes_value(false),
-        )
-        /* REST API related arguments */
-        .arg(
-            Arg::with_name("http")
-                .long("http")
-                .help("Enable the RESTful HTTP API server. Disabled by default.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("http-address")
-                .long("http-address")
-                .requires("enable_http")
-                .value_name("ADDRESS")
-                .help("Set the listen address for the RESTful HTTP API server.")
-                .default_value_if("enable_http", None, "127.0.0.1")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("http-port")
-                .long("http-port")
-                .requires("enable_http")
-                .value_name("PORT")
-                .help("Set the listen TCP port for the RESTful HTTP API server.")
-                .default_value_if("enable_http", None, "5052")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("http-allow-origin")
-                .long("http-allow-origin")
-                .requires("enable_http")
-                .value_name("ORIGIN")
-                .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
-                    Use * to allow any origin (not recommended in production). \
-                    If no value is supplied, the CORS allowed origin is set to the listen \
-                    address of this server (e.g., http://localhost:5052).")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("http-spec-fork")
-                .long("http-spec-fork")
-                .requires("enable_http")
-                .value_name("FORK")
-                .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
-                       not be necessary to set this flag.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("http-enable-tls")
-                .long("http-enable-tls")
-                .help("Serves the RESTful HTTP API server over TLS. This feature is currently \
-                    experimental.")
-                .takes_value(false)
-                .requires("http-tls-cert")
-                .requires("http-tls-key")
-        )
-        .arg(
-            Arg::with_name("http-tls-cert")
-                .long("http-tls-cert")
-                .requires("enable_http")
-                .help("The path of the certificate to be used when serving the HTTP API server \
-                    over TLS.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("http-tls-key")
-                .long("http-tls-key")
-                .requires("enable_http")
-                .help("The path of the private key to be used when serving the HTTP API server \
-                    over TLS. Must not be password-protected.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("http-allow-sync-stalled")
-                .long("http-allow-sync-stalled")
-                .requires("enable_http")
-                .help("Forces the HTTP to indicate that the node is synced when sync is actually \
-                    stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
-                    MAINNET.")
-        )
+    )]
+    pub inbound_rate_limiter: Option<String>,
+
+    #[clap(
+        long = "disable-backfill-rate-limiting",
+        help =  "Disable the backfill sync rate-limiting. This allow users to just sync the entire chain as fast \
+                as possible, however it can result in resource contention which degrades staking performance. Stakers \
+                should generally choose to avoid this flag since backfill sync is not required for staking."
+    )]
+    pub disable_backfill_rate_limiting: bool,
+
+    /* REST API related arguments */
+    #[clap(
+        long = "http",
+        help = "Enable the RESTful HTTP API server. Disabled by default."
+    )]
+    pub http: bool,
+
+    #[clap(
+        long = "http-address",
+        value_name = "ADDRESS",
+        help = "Set the listen address for the RESTful HTTP API server.",
+        default_value_if("enable-http", None, "127.0.0.1",)
+    )]
+    pub http_address: Option<Ipv4Addr>,
+
+    #[clap(
+        long = "http-port",
+        value_name = "PORT",
+        help = "Set the listen TCP port for the RESTful HTTP API server.",
+        default_value_if("enable-http", None, "5052"),
+    )]
+    pub http_port: Option<u16>,
+
+    #[clap(
+        long = "http-allow-origin",
+        value_name = "ORIGIN",
+        help = "Set the value of the Access-Control-Allow-Origin response HTTP header. \
+                Use * to allow any origin (not recommended in production). \
+                If no value is supplied, the CORS allowed origin is set to the listen \
+                address of this server (e.g., http://localhost:5052)."
+    )]
+    pub http_allow_origin: Option<String>,
+
+    #[clap(
+        long = "http-spec-fork",
+        value_name = "FORK",
+        requires = "enable-http",
+        help = "Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
+                not be necessary to set this flag."
+    )]
+    pub http_spec_fork: Option<String>,
+
+    #[clap(
+        long = "http-enable-tls",
+        requires = "http-tls-cert",
+        requires = "http-tls-key",
+        help =  "Serves the RESTful HTTP API server over TLS. This feature is currently \
+                experimental."
+    )]
+    pub http_enable_tls: bool,
+
+    #[clap(
+        long = "http-tls-cert",
+        requires = "enable-http",
+        help =  "The path of the certificate to be used when serving the HTTP API server \
+                over TLS."
+    )]
+    pub http_tls_cert: bool,
+
+    #[clap(
+        long = "http-tls-key",
+        requires = "enable-http",
+        help =  "The path of the private key to be used when serving the HTTP API server \
+                over TLS. Must not be password-protected."
+    )]
+    pub http_tls_key: bool,
+
+    #[clap(
+        long = "http-allow-sync-stalled",
+        requires = "enable-http",
+        help =  "Forces the HTTP to indicate that the node is synced when sync is actually \
+                stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
+                MAINNET."
+    )]
+    pub http_allow_sync_stalled: bool,
+
+    #[clap(
+        long = "http-sse-capacity-multiplier",
+        value_name = "N",
+        default_value_if("enable-http", None, 1),
+        requires = "enable-http",
+        help =  "Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. \
+                Increasing this value can prevent messages from being dropped."
+    )]
+    pub http_sse_capacity_multiplier: bool,
+
+}
+
+pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+    App::new("beacon_node")
+    
         .arg(
             Arg::with_name("http-sse-capacity-multiplier")
                 .long("http-sse-capacity-multiplier")

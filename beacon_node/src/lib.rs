@@ -21,6 +21,8 @@ use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use types::EthSpec;
+use std::{net::IpAddr, path::PathBuf};
+use lighthouse_network::ListenAddress;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> =
@@ -204,4 +206,15 @@ impl lighthouse_network::discv5::Executor for Discv5Executor {
     fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) {
         self.0.spawn(future, "discv5")
     }
+}
+
+pub trait NetworkConfigurable {
+    fn get_network_dir(&self) -> Option<PathBuf>;
+    fn get_listen_address(&self) -> IpAddr;
+    fn get_listen_addresses(&self) -> ListenAddress;
+    fn get_port(&self) -> u16;
+    fn get_boot_nodes(&self) -> Option<String>;
+    fn get_enr_udp_port(&self) -> Option<u16>;
+    fn get_enr_addresses(&self) -> Option<Vec<String>>;
+    fn is_disable_packet_filter(&self) -> bool;
 }

@@ -6,7 +6,7 @@ edition = { workspace = true }
 
 [dependencies]
 beacon_node = { workspace = true }
-clap = { workspace = true }
+clap = { version = "4.5.0" , features = ["derive"]}
 clap_utils = { workspace = true }
 lighthouse_network = { workspace = true }
 types = { workspace = true }

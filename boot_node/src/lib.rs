@@ -6,7 +6,6 @@ use eth2_network_config::Eth2NetworkConfig;
 mod cli;
 pub mod config;
 mod server;
-pub use cli::cli_app;
 use config::BootNodeConfig;
 use types::{EthSpec, EthSpecId};
 
@@ -14,8 +13,8 @@ const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
 pub fn run(
-    lh_matches: &ArgMatches<'_>,
-    bn_matches: &ArgMatches<'_>,
+    lh_matches: &ArgMatches,
+    bn_matches: &ArgMatches,
     eth_spec_id: EthSpecId,
     eth2_network_config: &Eth2NetworkConfig,
     debug_level: String,
@@ -67,8 +66,8 @@ pub fn run(
 }
 
 fn main<T: EthSpec>(
-    lh_matches: &ArgMatches<'_>,
-    bn_matches: &ArgMatches<'_>,
+    lh_matches: &ArgMatches,
+    bn_matches: &ArgMatches,
     eth2_network_config: &Eth2NetworkConfig,
     log: slog::Logger,
 ) -> Result<(), String> {

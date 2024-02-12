@@ -2,16 +2,23 @@ use beacon_node::{get_data_dir, set_network_config};
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{self, enr::CombinedKey, Enr};
+use lighthouse_network::multiaddr::Protocol;
+use lighthouse_network::Multiaddr;
 use lighthouse_network::{
     discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
 use serde::{Deserialize, Serialize};
+use slog::Logger;
 use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};
+use std::path::Path;
 use std::time::Duration;
 use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
+use common::clap_utils::GlobalConfig;
+
+use crate::cli::BootNode;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
 pub struct BootNodeConfig<T: EthSpec> {
@@ -25,10 +32,11 @@ pub struct BootNodeConfig<T: EthSpec> {
 
 impl<T: EthSpec> BootNodeConfig<T> {
     pub async fn new(
-        matches: &ArgMatches<'_>,
+        boot_node_config: &BootNode,
+        global_config: &GlobalConfig,
         eth2_network_config: &Eth2NetworkConfig,
     ) -> Result<Self, String> {
-        let data_dir = get_data_dir(matches);
+        let data_dir = get_data_dir_v2(global_config);
 
         // Try and obtain bootnodes
 
@@ -39,13 +47,12 @@ impl<T: EthSpec> BootNodeConfig<T> {
                 boot_nodes.extend_from_slice(enr);
             }
 
-            if let Some(nodes) = matches.value_of("boot-nodes") {
-                boot_nodes.extend_from_slice(
-                    &nodes
-                        .split(',')
-                        .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
-                        .collect::<Result<Vec<Enr>, _>>()?,
-                );
+            if let Some(nodes) = boot_node_config.boot_nodes.as_ref() {
+                let mut additional_nodes =  nodes
+                .iter()
+                .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
+                .collect::<Result<Vec<Enr>, _>>()?;
+                boot_nodes.append(&mut additional_nodes);
             }
 
             boot_nodes
@@ -81,14 +88,14 @@ impl<T: EthSpec> BootNodeConfig<T> {
         };
 
         // By default this is enabled. If it is not set, revert to false.
-        if !matches.is_present("enable-enr-auto-update") {
+        if !boot_node_config.enable_enr_auto_update {
             network_config.discv5_config.enr_update = false;
         }
 
         let private_key = load_private_key(&network_config, &logger);
         let local_key = CombinedKey::from_libp2p(private_key)?;
 
-        let local_enr = if let Some(dir) = matches.value_of("network-dir") {
+        let local_enr = if let Some(dir) = boot_node_config.network_dir.as_ref() {
             let network_dir: PathBuf = dir.into();
             load_enr_from_disk(&network_dir)?
         } else {

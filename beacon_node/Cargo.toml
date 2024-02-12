@@ -25,7 +25,7 @@ beacon_chain = { workspace = true }
 types = { workspace = true }
 store = { workspace = true }
 client = { path = "client" }
-clap = { workspace = true }
+clap = { version = "4.5.0" , features = ["derive"]}
 slog = { workspace = true }
 dirs = { workspace = true }
 directory = { workspace = true }
