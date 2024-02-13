@@ -4,6 +4,7 @@ use beacon_chain::chain_config::{
 };
 use beacon_chain::TrustedSetup;
 use clap::ArgMatches;
+use types::ForkName;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::{parse_required, GlobalConfig};
 use client::{ClientConfig, ClientGenesis};
@@ -115,13 +116,8 @@ pub fn get_config<E: EthSpec>(
     if beacon_config.enable_http {
         client_config.http_api.enabled = true;
 
-        if let Some(address) = beacon_config.http_address {
-            client_config.http_api.listen_addr = address;
-        }
-
-        if let Some(port) = beacon_config.http_port {
-            client_config.http_api.listen_port = port
-        }
+        client_config.http_api.listen_addr = IpAddr::V4(beacon_config.http_address);
+        client_config.http_api.listen_port = beacon_config.http_port;
 
         if let Some(allow_origin) = beacon_config.http_allow_origin {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
@@ -132,22 +128,25 @@ pub fn get_config<E: EthSpec>(
             client_config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
-        if let Some(fork_name) = beacon_config.http_spec_fork {
-            client_config.http_api.spec_fork_name = Some(fork_name);
+        if let Some(fork_name_str) = beacon_config.http_spec_fork {
+            // TODO UNWRAP
+            client_config.http_api.spec_fork_name = Some(ForkName::from_str(&fork_name_str).unwrap());
         }
 
+        // TODO unwrap
         if beacon_config.http_enable_tls {
             client_config.http_api.tls_config = Some(TlsConfig {
-                cert: beacon_config.http_tls_cert,
-                key: beacon_config.http_tls_key,
+                cert: beacon_config.http_tls_cert.unwrap(),
+                key: beacon_config.http_tls_key.unwrap(),
             });
         }
 
         client_config.http_api.allow_sync_stalled = beacon_config.http_allow_sync_stalled;
         client_config.http_api.sse_capacity_multiplier = beacon_config.http_sse_capacity_multiplier;
         client_config.http_api.enable_beacon_processor = beacon_config.http_enable_beacon_processor;
+        // TODO FIX
         client_config.http_api.duplicate_block_status_code =
-            beacon_config.http_duplicate_block_status;
+            beacon_config.http_duplicate_block_status.unwrap_or(NonZeroU16::new(202).unwrap());
         client_config.http_api.enable_light_client_server = beacon_config.light_client_server;
     }
 

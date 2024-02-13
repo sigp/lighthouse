@@ -284,7 +284,7 @@ pub struct BeaconNode {
     // debugging. We remove it from the list to avoid clutter.
     #[clap(
         long,
-        disable = true,
+        hide = true,
         help = "Disables the discv5 discovery protocol. The node will not search for new peers or \
                 participate in the discovery protocol."
     )]
@@ -298,7 +298,7 @@ pub struct BeaconNode {
 
     #[clap(
         long = "disable-peer-scoring",
-        hidden = true,
+        hide = true,
         help = "Disables peer scoring in lighthouse. WARNING: This is a dev only flag is only meant to be used in local testing scenarios \
                 Using this flag on a real network may cause your node to become eclipsed and see a different view of the network"
     )]
@@ -352,7 +352,7 @@ pub struct BeaconNode {
         long = "inbound-rate-limiter",
         value_name = "PROTOCOL_NAME:TOKENS/TIME_IN_SECONDS",
         value_delimiter = ';',
-        hidden = true,
+        hide = true,
         help = "Configures the inbound rate limiter (requests received by this node).\
                 \
                 Rate limit quotas per protocol can be set in the form of \
@@ -383,18 +383,19 @@ pub struct BeaconNode {
     #[clap(
         long = "http-address",
         value_name = "ADDRESS",
+        requires = "enable_http",
+        default_value_t = Ipv4Addr::new(127,0,0,1),
         help = "Set the listen address for the RESTful HTTP API server.",
-        default_value_if("enable-http", None, "127.0.0.1",)
     )]
-    pub http_address: Option<Ipv4Addr>,
+    pub http_address: Ipv4Addr,
 
     #[clap(
         long = "http-port",
         value_name = "PORT",
+        requires = "enable_http",
         help = "Set the listen TCP port for the RESTful HTTP API server.",
-        default_value_if("enable-http", None, "5052")
     )]
-    pub http_port: Option<u16>,
+    pub http_port: u16,
 
     #[clap(
         long = "http-allow-origin",
@@ -464,12 +465,11 @@ pub struct BeaconNode {
     #[clap(
         long = "http-duplicate-block-status",
         value_name = "STATUS_CODE",
-        default_value_t = 202,
         requires = "enable-http",
         help = "Status code to send when a block that is already known is POSTed to the \
                 HTTP API."
     )]
-    pub http_duplicate_block_status: NonZeroU16,
+    pub http_duplicate_block_status: Option<NonZeroU16>,
 
     #[clap(
         long = "http-enable-beacon-processor",
@@ -494,19 +494,19 @@ pub struct BeaconNode {
         long = "metrics-address",
         value_name = "ADDRESS",
         requires = "metrics",
-        default_value_t = Ipv4Addr::FromStr("127.0.0.1"),
+        default_value_t = Ipv4Addr::new(127,0,0,1),
         help = "Set the listen address for the Prometheus metrics HTTP server.",
     )]
-    pub metrics_address: Option<Ipv4Addr>,
+    pub metrics_address: Ipv4Addr,
 
     #[clap(
         long = "metrics-port",
         value_name = "PORT",
         requires = "metrics",
-        default_value_t = Some(5054),
+        default_value_t = 5054,
         help = "Set the listen TCP port for the Prometheus metrics HTTP server.",
     )]
-    pub metrics_port: Option<u16>,
+    pub metrics_port: u16,
 
     #[clap(
         long = "metrics-allow-origin",
@@ -545,12 +545,12 @@ pub struct BeaconNode {
     #[clap(
         long = "monitoring-endpoint-period",
         value_name = "SECONDS",
-        default_value_t = Some(60),
+        default_value_t = 60,
         requires = "monitoring-endpoint",
         help = "Defines how many seconds to wait between each message sent to \
                 the monitoring-endpoint. Default: 60s"
     )]
-    pub monitoring_endpoint_period: Option<u64>,
+    pub monitoring_endpoint_period: u64,
 
     /* Standard staking flags */
     #[clap(
@@ -773,21 +773,21 @@ pub struct BeaconNode {
     #[clap(
         long = "epochs-per-blob-prune",
         value_name = "EPOCHS",
-        default_value_t = Some(1),
+        default_value_t = 1,
         help = "The epoch interval with which to prune blobs from Lighthouse's \
                 database when they are older than the data availability boundary \
                 relative to the current epoch."
     )]
-    pub epochs_per_blob_prune: Option<u64>,
+    pub epochs_per_blob_prune: u64,
 
     #[clap(
         long = "blob-prune-margin-epochs",
         value_name = "EPOCHS",
-        default_value_t = Some(0),
+        default_value_t = 0,
         help = "The margin for blob pruning in epochs. The oldest blobs are pruned \
                 up until data_availability_boundary - blob_prune_margin_epochs."
     )]
-    pub blob_prune_margin_epochs: Option<u64>,
+    pub blob_prune_margin_epochs: u64,
 
     /* Misc. */
     #[clap(
@@ -1024,10 +1024,10 @@ pub struct BeaconNode {
         long,
         value_name = "EPOCHS",
         conflicts_with = "disable_proposer_reorgs",
-        default_value_t = Some(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION),
+        default_value_t = DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
         help = "Maximum number of epochs since finalization at which proposer reorgs are allowed."
     )]
-    pub proposer_reorg_epochs_since_finalization: Option<Epoch>,
+    pub proposer_reorg_epochs_since_finalization: Epoch,
 
     #[clap(
         long,
@@ -1263,8 +1263,6 @@ pub struct BeaconNode {
 
     #[clap(
         long,
-        value_name = "INTEGER",
-        default_value_t = 64,
         help = "This flag is deprecated and has no effect."
     )]
     pub disable_duplicate_warn_logs: bool,

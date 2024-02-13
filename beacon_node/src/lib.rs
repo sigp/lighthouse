@@ -10,8 +10,8 @@ use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
     TimeoutRwLock,
 };
-use clap::ArgMatches;
-pub use cli::cli_app;
+use crate::cli::BeaconNode;
+use clap_utils::GlobalConfig;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_config, get_data_dir, get_slots_per_restore_point, set_network_config};
 use environment::RuntimeContext;
@@ -46,9 +46,10 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// configurations hosted remotely.
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        matches: ArgMatches<'static>,
+        beacon_config: &BeaconNode,
+        global_config: &GlobalConfig,
     ) -> Result<Self, String> {
-        let client_config = get_config::<E>(&matches, &context)?;
+        let client_config = get_config::<E>(beacon_config, global_config, &context)?;
         Self::new(context, client_config).await
     }
 
