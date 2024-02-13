@@ -1,12 +1,12 @@
 //! Simple logic for spawning a Lighthouse BootNode.
 
+use beacon_node::NetworkConfigurable;
 use clap::builder::styling::AnsiColor;
 use clap::builder::Styles;
 pub use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::path::PathBuf;
-use beacon_node::NetworkConfigurable;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[command(styles=STYLES)]

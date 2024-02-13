@@ -1,5 +1,6 @@
 use beacon_node::{get_data_dir, set_network_config};
 use clap::ArgMatches;
+use common::clap_utils::GlobalConfig;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{self, enr::CombinedKey, Enr};
 use lighthouse_network::multiaddr::Protocol;
@@ -16,7 +17,6 @@ use std::path::Path;
 use std::time::Duration;
 use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
-use common::clap_utils::GlobalConfig;
 
 use crate::cli::BootNode;
 
@@ -48,10 +48,10 @@ impl<T: EthSpec> BootNodeConfig<T> {
             }
 
             if let Some(nodes) = boot_node_config.boot_nodes.as_ref() {
-                let mut additional_nodes =  nodes
-                .iter()
-                .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
-                .collect::<Result<Vec<Enr>, _>>()?;
+                let mut additional_nodes = nodes
+                    .iter()
+                    .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
+                    .collect::<Result<Vec<Enr>, _>>()?;
                 boot_nodes.append(&mut additional_nodes);
             }
 

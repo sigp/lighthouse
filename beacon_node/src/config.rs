@@ -1428,7 +1428,6 @@ pub fn set_network_config(
     Ok(())
 }
 
-
 /// Sets the network config from the command line arguments.
 pub fn set_network_config_v2(
     config: &mut NetworkConfig,
