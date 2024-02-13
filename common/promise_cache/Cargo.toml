@@ -8,3 +8,4 @@ derivative = { workspace = true }
 oneshot_broadcast = { path = "../oneshot_broadcast" }
 itertools = { workspace = true }
 slog = { workspace = true }
+parking_lot = { workspace = true }

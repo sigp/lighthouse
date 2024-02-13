@@ -6198,6 +6198,7 @@ dependencies = [
  "derivative",
  "itertools",
  "oneshot_broadcast",
+ "parking_lot 0.12.1",
  "slog",
 ]
 
@@ -7767,6 +7768,7 @@ dependencies = [
  "logging",
  "lru",
  "parking_lot 0.12.1",
+ "promise_cache",
  "safe_arith",
  "serde",
  "slog",

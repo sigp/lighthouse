@@ -10,6 +10,7 @@ pub enum Error {
     SenderDropped,
 }
 
+#[derive(Debug)]
 enum Future<T> {
     /// The future is ready and the item may be consumed.
     Ready(T),
@@ -19,6 +20,7 @@ enum Future<T> {
     SenderDropped,
 }
 
+#[derive(Debug)]
 struct MutexCondvar<T> {
     mutex: Mutex<Future<T>>,
     condvar: Condvar,
@@ -50,7 +52,7 @@ impl<T> Drop for Sender<T> {
 
 /// The receiving pair of the `oneshot` channel. Always receives the message sent by the `Sender`
 /// (if any).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Receiver<T: Clone>(Arc<MutexCondvar<T>>);
 
 impl<T: Clone> Receiver<T> {
