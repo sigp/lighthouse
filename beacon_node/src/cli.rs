@@ -1,13 +1,17 @@
-use std::path::PathBuf;
+use std::{num::NonZeroUsize, path::PathBuf};
 
-use clap::{Arg, ArgGroup};
-use strum::VariantNames;
-use types::ProgressiveBalancesMode;
-
+use crate::IpAddr;
+use beacon_chain::chain_config::DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION;
 pub use clap::Parser;
+use clap::{Arg, ArgGroup};
+use lighthouse_network::{Multiaddr, PeerIdSerialized};
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
+use std::num::NonZeroU16;
+use strum::VariantNames;
 use types::Address;
+use types::Epoch;
+use types::{ProgressiveBalancesMode};
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
@@ -98,20 +102,20 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "PORT",
+        default_value_t = 9000,
         help = "The TCP/UDP ports to listen on. There are two UDP ports. \
                 The discovery UDP port will be set to this value and the Quic UDP port will be set to this value + 1. The discovery port can be modified by the \
                 --discovery-port flag and the quic port can be modified by the --quic-port flag. If listening over both IPv4 and IPv6 the --port flag \
-                will apply to the IPv4 address and --port6 to the IPv6 address.",
-        default_value = "9000"
+                will apply to the IPv4 address and --port6 to the IPv6 address."
     )]
     pub port: u16,
 
     #[clap(
         long,
         value_name = "PORT",
+        default_value_t = 9090,
         help = "The TCP/UDP ports to listen on over IPv6 when listening over both IPv4 and \
-                IPv6. Defaults to 9090 when required. The Quic UDP port will be set to this value + 1.",
-        default_value = "9000"
+                IPv6. Defaults to 9090 when required. The Quic UDP port will be set to this value + 1."
     )]
     pub port6: u16,
 
@@ -191,7 +195,7 @@ pub struct BeaconNode {
         help = "The UDP port of the local ENR. Set this only if you are sure other nodes can \
                 connect to your local node on this port."
     )]
-    pub enr_udp_port: Option<u16>,
+    pub enr_udp_port: Option<NonZeroU16>,
 
     #[clap(
         long = "enr-quic-port",
@@ -199,7 +203,7 @@ pub struct BeaconNode {
         help = "The quic UDP4 port that will be set on the local ENR. Set this only if you are sure other nodes \
                 can connect to your local node on this port over IPv4."
     )]
-    pub enr_quic_port: Option<u16>,
+    pub enr_quic_port: Option<NonZeroU16>,
 
     #[clap(
         long = "enr-udp6-port",
@@ -207,7 +211,7 @@ pub struct BeaconNode {
         help = "The UDP6 port of the local ENR. Set this only if you are sure other nodes \
                 can connect to your local node on this port over IPv6."
     )]
-    pub enr_udp6_port: Option<u16>,
+    pub enr_udp6_port: Option<NonZeroU16>,
 
     #[clap(
         long = "enr-quic6-port",
@@ -215,7 +219,7 @@ pub struct BeaconNode {
         help = "The quic UDP6 port that will be set on the local ENR. Set this only if you are sure other nodes \
                 can connect to your local node on this port over IPv6."
     )]
-    pub enr_quic6_port: Option<u16>,
+    pub enr_quic6_port: Option<NonZeroU16>,
 
     #[clap(
         long = "enr-tcp-port",
@@ -224,7 +228,7 @@ pub struct BeaconNode {
                 can connect to your local node on this port over IPv4. The --port flag is \
                 used if this is not set."
     )]
-    pub enr_tcp_port: Option<u16>,
+    pub enr_tcp_port: Option<NonZeroU16>,
 
     #[clap(
         long = "enr-tcp6-port",
@@ -233,7 +237,7 @@ pub struct BeaconNode {
                 can connect to your local node on this port over IPv6. The --port6 flag is \
                 used if this is not set."
     )]
-    pub enr_tcp6_port: Option<u16>,
+    pub enr_tcp6_port: Option<NonZeroU16>,
 
     #[clap(
         long = "enr-address",
@@ -247,7 +251,7 @@ pub struct BeaconNode {
                 local node on this address. This will update the `ip4` or `ip6` ENR fields \
                 accordingly. To update both, set this flag twice with the different values."
     )]
-    pub enr_addresses: Option<Vec<String>>,
+    pub enr_addresses: Option<Vec<IpAddr>>,
 
     #[clap(
         long = "enr-match",
@@ -274,7 +278,7 @@ pub struct BeaconNode {
         help = "One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
                 without an ENR."
     )]
-    pub libp2p_addresses: Option<Vec<String>>,
+    pub libp2p_addresses: Option<Vec<Multiaddr>>,
 
     // NOTE: This is hidden because it is primarily a developer feature for testnets and
     // debugging. We remove it from the list to avoid clutter.
@@ -307,7 +311,7 @@ pub struct BeaconNode {
         help = "One or more comma-delimited trusted peer ids which always have the highest \
                 score according to the peer scoring system."
     )]
-    pub trusted_peers: Option<Vec<String>>,
+    pub trusted_peers: Option<Vec<PeerIdSerialized>>,
 
     #[clap(
         long = "genesis-backfill",
@@ -423,18 +427,20 @@ pub struct BeaconNode {
     #[clap(
         long = "http-tls-cert",
         requires = "enable-http",
+        value_name = "PATH",
         help = "The path of the certificate to be used when serving the HTTP API server \
                 over TLS."
     )]
-    pub http_tls_cert: bool,
+    pub http_tls_cert: Option<PathBuf>,
 
     #[clap(
         long = "http-tls-key",
         requires = "enable-http",
+        value_name = "PATH",
         help = "The path of the private key to be used when serving the HTTP API server \
                 over TLS. Must not be password-protected."
     )]
-    pub http_tls_key: bool,
+    pub http_tls_key: Option<PathBuf>,
 
     #[clap(
         long = "http-allow-sync-stalled",
@@ -448,34 +454,34 @@ pub struct BeaconNode {
     #[clap(
         long = "http-sse-capacity-multiplier",
         value_name = "N",
-        default_value_if("enable-http", None, 1),
+        default_value_t = 1,
         requires = "enable-http",
         help = "Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. \
                 Increasing this value can prevent messages from being dropped."
     )]
-    pub http_sse_capacity_multiplier: Option<u16>,
+    pub http_sse_capacity_multiplier: usize,
 
     #[clap(
         long = "http-duplicate-block-status",
         value_name = "STATUS_CODE",
-        default_value_if("enable-http", None, "202"),
+        default_value_t = 202,
         requires = "enable-http",
         help = "Status code to send when a block that is already known is POSTed to the \
                 HTTP API."
     )]
-    pub http_duplicate_block_status: Option<u16>,
+    pub http_duplicate_block_status: NonZeroU16,
 
     #[clap(
         long = "http-enable-beacon-processor",
         value_name = "BOOLEAN",
-        default_value_if("enable-http", None, true),
+        default_value_t = true,
         requires = "enable-http",
         help = "The beacon processor is a scheduler which provides quality-of-service and \
                 DoS protection. When set to \"true\", HTTP API requests will be queued and scheduled \
                 alongside other tasks. When set to \"false\", HTTP API responses will be executed \
                 immediately."
     )]
-    pub http_enable_beacon_processor: Option<bool>,
+    pub http_enable_beacon_processor: bool,
 
     /* Prometheus metrics HTTP server related arguments */
     #[clap(
@@ -487,22 +493,25 @@ pub struct BeaconNode {
     #[clap(
         long = "metrics-address",
         value_name = "ADDRESS",
+        requires = "metrics",
+        default_value_t = Ipv4Addr::FromStr("127.0.0.1"),
         help = "Set the listen address for the Prometheus metrics HTTP server.",
-        default_value_if("metrics", None, Ipv4Addr::FromStr("127.0.0.1"))
     )]
-    pub metrics_address: Ipv4Addr,
+    pub metrics_address: Option<Ipv4Addr>,
 
     #[clap(
         long = "metrics-port",
         value_name = "PORT",
+        requires = "metrics",
+        default_value_t = Some(5054),
         help = "Set the listen TCP port for the Prometheus metrics HTTP server.",
-        default_value_if("metrics", None, 5054)
     )]
-    pub metrics_port: u16,
+    pub metrics_port: Option<u16>,
 
     #[clap(
         long = "metrics-allow-origin",
         value_name = "ORIGIN",
+        requires = "metrics",
         help = "Set the value of the Access-Control-Allow-Origin response HTTP header. \
                 Use * to allow any origin (not recommended in production). \
                 If no value is supplied, the CORS allowed origin is set to the listen \
@@ -536,11 +545,12 @@ pub struct BeaconNode {
     #[clap(
         long = "monitoring-endpoint-period",
         value_name = "SECONDS",
+        default_value_t = Some(60),
         requires = "monitoring-endpoint",
         help = "Defines how many seconds to wait between each message sent to \
                 the monitoring-endpoint. Default: 60s"
     )]
-    pub monitoring_endpoint_period: Option<u16>,
+    pub monitoring_endpoint_period: Option<u64>,
 
     /* Standard staking flags */
     #[clap(
@@ -600,7 +610,7 @@ pub struct BeaconNode {
                 Cannot be changed after initialization. \
                 [default: 8192 (mainnet) or 64 (minimal)]"
     )]
-    pub slots_per_restore_point: Option<u16>,
+    pub slots_per_restore_point: Option<u64>,
 
     #[clap(
         long = "epochs-per-migration",
@@ -610,7 +620,7 @@ pub struct BeaconNode {
                 hot DB to the cold DB. Less frequent runs can be useful for minimizing disk \
                 writes"
     )]
-    pub epochs_per_migration: Option<u16>,
+    pub epochs_per_migration: Option<u64>,
 
     #[clap(
         long = "block-cache-size",
@@ -618,7 +628,7 @@ pub struct BeaconNode {
         default_value = "5",
         help = "Specifies how many blocks the database should cache in memory."
     )]
-    pub block_cache_size: Option<u16>,
+    pub block_cache_size: Option<NonZeroUsize>,
 
     #[clap(
         long = "historic-state-cache-size",
@@ -626,7 +636,7 @@ pub struct BeaconNode {
         default_value = "1",
         help = "Specifies how many states from the freezer database should cache in memory."
     )]
-    pub historic_state_cache_size: Option<u16>,
+    pub historic_state_cache_size: Option<NonZeroUsize>,
 
     /* Execution Layer Integration */
     #[clap(
@@ -646,7 +656,7 @@ pub struct BeaconNode {
         help = "File path which contains the hex-encoded JWT secret for the \
                 execution endpoint provided in the --execution-endpoint flag."
     )]
-    pub execution_jwt: Option<String>,
+    pub execution_jwt: Option<PathBuf>,
 
     #[clap(
         long = "execution-jwt-secret-key",
@@ -707,7 +717,7 @@ pub struct BeaconNode {
         default_value = "1",
         help = "Unsigned integer to multiply the default execution timeouts by."
     )]
-    pub execution_timeout_multiplier: Option<u16>,
+    pub execution_timeout_multiplier: Option<u32>,
 
     /* Deneb settings */
     #[clap(
@@ -763,21 +773,21 @@ pub struct BeaconNode {
     #[clap(
         long = "epochs-per-blob-prune",
         value_name = "EPOCHS",
-        default_value = "1",
+        default_value_t = Some(1),
         help = "The epoch interval with which to prune blobs from Lighthouse's \
                 database when they are older than the data availability boundary \
                 relative to the current epoch."
     )]
-    pub epochs_per_blob_prune: u16,
+    pub epochs_per_blob_prune: Option<u64>,
 
     #[clap(
         long = "blob-prune-margin-epochs",
         value_name = "EPOCHS",
-        default_value = "0",
+        default_value_t = Some(0),
         help = "The margin for blob pruning in epochs. The oldest blobs are pruned \
                 up until data_availability_boundary - blob_prune_margin_epochs."
     )]
-    pub blob_prune_margin_epochs: u16,
+    pub blob_prune_margin_epochs: Option<u64>,
 
     /* Misc. */
     #[clap(
@@ -941,7 +951,7 @@ pub struct BeaconNode {
                 Checkpoint syncing is the preferred method for syncing a node. \
                 Only use this flag when testing. DO NOT use on mainnet!"
     )]
-    pub allow_insecure_genesis_sync: Option<bool>,
+    pub allow_insecure_genesis_sync: bool,
 
     #[clap(
         long = "reconstruct-historic-states",
@@ -1008,16 +1018,16 @@ pub struct BeaconNode {
         default_value = "20",
         help = "Percentage of vote weight below which to attempt a proposer reorg."
     )]
-    pub proposer_reorg_threshold: Option<u16>,
+    pub proposer_reorg_threshold: Option<u64>,
 
     #[clap(
         long,
         value_name = "EPOCHS",
         conflicts_with = "disable_proposer_reorgs",
-        default_value = "2",
+        default_value_t = Some(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION),
         help = "Maximum number of epochs since finalization at which proposer reorgs are allowed."
     )]
-    pub proposer_reorg_epochs_since_finalization: Option<u16>,
+    pub proposer_reorg_epochs_since_finalization: Option<Epoch>,
 
     #[clap(
         long,
@@ -1042,7 +1052,7 @@ pub struct BeaconNode {
                 avoided. Any offsets supplied with this flag will impose additional \
                 restrictions."
     )]
-    pub proposer_reorg_disallowed_offsets: Option<Vec<u16>>,
+    pub proposer_reorg_disallowed_offsets: Option<Vec<u64>>,
 
     #[clap(
         long,
@@ -1091,7 +1101,7 @@ pub struct BeaconNode {
                 on the canonical chain in a row, it will NOT query any connected builders, \
                 and will use the local execution engine for payload construction."
     )]
-    pub builder_fallback_skips: Option<u16>,
+    pub builder_fallback_skips: Option<usize>,
 
     #[clap(
         long,
@@ -1186,7 +1196,7 @@ pub struct BeaconNode {
                 developers. This directory is not pruned, users should be careful to avoid \
                 filling up their disks."
     )]
-    pub invalid_gossip_verified_blocks_path: Option<String>,
+    pub invalid_gossip_verified_blocks_path: Option<PathBuf>,
 
     #[clap(
         long,
@@ -1209,7 +1219,7 @@ pub struct BeaconNode {
                 may result in decreased resource usage and diminished performance. The \
                 default value is the number of logical CPU cores on the host."
     )]
-    pub beacon_processor_max_workers: Option<u16>,
+    pub beacon_processor_max_workers: Option<usize>,
 
     #[clap(
         long,
@@ -1219,7 +1229,7 @@ pub struct BeaconNode {
                 Higher values may prevent messages from being dropped while lower values \
                 may help protect the node from becoming overwhelmed."
     )]
-    pub beacon_processor_work_queue_len: u16,
+    pub beacon_processor_work_queue_len: usize,
 
     #[clap(
         long,
@@ -1229,7 +1239,7 @@ pub struct BeaconNode {
                 Higher values may prevent messages from being dropped while lower values \
                 may help protect the node from becoming overwhelmed."
     )]
-    pub beacon_processor_reprocess_queue_len: u16,
+    pub beacon_processor_reprocess_queue_len: usize,
 
     #[clap(
         long,
@@ -1239,7 +1249,7 @@ pub struct BeaconNode {
                 Higher values may reduce CPU usage in a healthy network whilst lower values may \
                 increase CPU usage in an unhealthy or hostile network."
     )]
-    pub beacon_processor_attestation_batch_size: u16,
+    pub beacon_processor_attestation_batch_size: usize,
 
     #[clap(
         long,
@@ -1249,7 +1259,7 @@ pub struct BeaconNode {
                 verification batch. Higher values may reduce CPU usage in a healthy \
                 network while lower values may increase CPU usage in an unhealthy or hostile network."
     )]
-    pub beacon_processor_aggregate_batch_size: u16,
+    pub beacon_processor_aggregate_batch_size: usize,
 
     #[clap(
         long,

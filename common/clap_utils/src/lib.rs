@@ -27,6 +27,7 @@ pub struct GlobalConfig {
     pub terminal_total_difficulty_override: Option<String>,
     pub terminal_block_hash_override: Option<Hash256>,
     pub terminal_block_hash_epoch_override: Option<Epoch>,
+    pub genesis_state_url: Option<String>,
 }
 
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's
