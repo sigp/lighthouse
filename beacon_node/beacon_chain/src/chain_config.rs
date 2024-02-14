@@ -1,7 +1,7 @@
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use types::{Checkpoint, Epoch, ProgressiveBalancesMode};
+use types::{Checkpoint, Epoch};
 
 pub const DEFAULT_RE_ORG_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
 pub const DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION: Epoch = Epoch::new(2);
@@ -79,8 +79,6 @@ pub struct ChainConfig {
     ///
     /// This is useful for block builders and testing.
     pub always_prepare_payload: bool,
-    /// Whether to use `ProgressiveBalancesCache` in unrealized FFG progression calculation.
-    pub progressive_balances_mode: ProgressiveBalancesMode,
     /// Number of epochs between each migration of data from the hot database to the freezer.
     pub epochs_per_migration: u64,
     /// When set to true Light client server computes and caches state proofs for serving updates
@@ -114,7 +112,6 @@ impl Default for ChainConfig {
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
             always_prepare_payload: false,
-            progressive_balances_mode: ProgressiveBalancesMode::Fast,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
             enable_light_client_server: false,
         }

@@ -833,10 +833,12 @@ pub fn get_config<E: EthSpec>(
         client_config.network.invalid_block_storage = Some(path);
     }
 
-    if let Some(progressive_balances_mode) =
-        clap_utils::parse_optional(cli_args, "progressive-balances")?
-    {
-        client_config.chain.progressive_balances_mode = progressive_balances_mode;
+    if cli_args.is_present("progressive-balances") {
+        warn!(
+            log,
+            "Progressive balances mode is deprecated";
+            "info" => "please remove --progressive-balances"
+        );
     }
 
     if let Some(max_workers) = clap_utils::parse_optional(cli_args, "beacon-processor-max-workers")?
