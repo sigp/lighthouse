@@ -15,7 +15,7 @@ pub enum GossipDataColumnError<T: EthSpec> {
     ///
     /// ## Peer scoring
     ///
-    /// We were unable to process this blob due to an internal error. It's
+    /// We were unable to process this data column due to an internal error. It's
     /// unclear if the data column is valid.
     BeaconChainError(BeaconChainError),
 

@@ -1524,7 +1524,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Fetch blobs for a given block from the store.
+    /// Fetch data_columns for a given block from the store.
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,

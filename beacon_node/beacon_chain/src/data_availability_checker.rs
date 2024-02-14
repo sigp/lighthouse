@@ -235,7 +235,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
     }
 
-    /// Check if we've cached other data columns for this block. If it completes a set and we also
+    /// Check if we've cached other data columns for this block. If it satisfies the custody requirement and we also
     /// have a block cached, return the `Availability` variant triggering block import.
     /// Otherwise cache the data column sidecar.
     ///
@@ -358,7 +358,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     }
                 }
                 (maybe_blob_list, maybe_data_column_list) => {
-                    let (verified_blobs, verified_data_column) =
+                    let (verified_blobs, verified_data_columns) =
                         if self.blobs_required_for_block(&block) {
                             (maybe_blob_list, maybe_data_column_list)
                         } else {

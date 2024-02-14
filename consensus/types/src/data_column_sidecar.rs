@@ -24,7 +24,7 @@ pub type ColumnIndex = u64;
 pub type Cell<T> = FixedVector<u8, <T as EthSpec>::FieldElementsPerCell>;
 pub type DataColumn<T> = VariableList<Cell<T>, <T as EthSpec>::MaxBlobsPerBlock>;
 
-/// Container of the data that identifies an individual blob.
+/// Container of the data that identifies an individual data column.
 #[derive(
     Serialize, Deserialize, Encode, Decode, TreeHash, Copy, Clone, Debug, PartialEq, Eq, Hash,
 )]

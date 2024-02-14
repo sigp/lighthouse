@@ -3246,7 +3246,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Checks if the provided data column can make any cached blocks available, and imports immediately
-    /// if so, otherwise caches the blob in the data availability checker.
+    /// if so, otherwise caches the data column in the data availability checker.
     async fn check_gossip_data_column_availability_and_import(
         self: &Arc<Self>,
         data_column: GossipVerifiedDataColumn<T>,

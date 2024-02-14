@@ -136,7 +136,7 @@ pub trait AvailabilityView<E: EthSpec> {
     ///
     /// Data columns are only inserted if:
     /// 1. The data column entry at the index is empty and no block exists.
-    /// 2. The block exists and its commitment matches the blob's commitment.
+    /// 2. The block exists and its commitments matches the data column's commitments.
     fn merge_data_columns(
         &mut self,
         data_columns: FixedVector<Option<Self::DataColumnType>, E::DataColumnCount>,
