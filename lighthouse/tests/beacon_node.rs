@@ -20,10 +20,7 @@ use std::time::Duration;
 use store::hdiff::HierarchyConfig;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
-use types::{
-    Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
-    ProgressiveBalancesMode,
-};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 const DUMMY_ENR_TCP_PORT: u16 = 7777;
@@ -2498,28 +2495,11 @@ fn invalid_gossip_verified_blocks_path() {
 }
 
 #[test]
-fn progressive_balances_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Fast
-            )
-        });
-}
-
-#[test]
 fn progressive_balances_checked() {
+    // Flag is deprecated but supplying it should not crash until we remove it completely.
     CommandLineTest::new()
         .flag("progressive-balances", Some("checked"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Checked
-            )
-        });
+        .run_with_zero_port();
 }
 
 #[test]
