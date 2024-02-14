@@ -260,6 +260,7 @@ pub enum BlockProductionError {
     UnableToProduceAtSlot(Slot),
     SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
+    EpochCacheError(EpochCacheError),
     ForkChoiceError(ForkChoiceError),
     Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
@@ -299,3 +300,4 @@ easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(Eth1ChainError, BlockProductionError);
 easy_from_to!(StateAdvanceError, BlockProductionError);
 easy_from_to!(ForkChoiceError, BlockProductionError);
+easy_from_to!(EpochCacheError, BlockProductionError);
