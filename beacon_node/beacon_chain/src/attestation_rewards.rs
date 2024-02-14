@@ -246,9 +246,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                         let penalty_numerator = effective_balance
                             .safe_mul(state.get_inactivity_score(validator_index)?)?;
-                        let penalty_denominator = spec
-                            .inactivity_score_bias
-                            .safe_mul(spec.inactivity_penalty_quotient_for_state(&state))?;
+                        let penalty_denominator = spec.inactivity_score_bias.safe_mul(
+                            spec.inactivity_penalty_quotient_for_fork(state.fork_name_unchecked()),
+                        )?;
                         inactivity_penalty =
                             -(penalty_numerator.safe_div(penalty_denominator)? as i64);
                     } else if flag_index == TIMELY_SOURCE_FLAG_INDEX {
