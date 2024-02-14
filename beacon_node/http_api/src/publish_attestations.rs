@@ -43,7 +43,7 @@ use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueu
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{debug, error, Logger};
+use slog::{debug, error, warn, Logger};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{
@@ -75,6 +75,7 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
     attestation: &Attestation<T::EthSpec>,
     seen_timestamp: Duration,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    log: &Logger,
 ) -> Result<(), Error> {
     let attestation = chain
         .verify_unaggregated_attestation_for_gossip(attestation, None)
@@ -103,6 +104,21 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
     let fc_result = chain.apply_attestation_to_fork_choice(&attestation);
     let naive_aggregation_result = chain.add_to_naive_aggregation_pool(&attestation);
 
+    if let Err(e) = &fc_result {
+        warn!(
+            log,
+            "Attestation invalid for fork choice";
+            "err" => ?e,
+        );
+    }
+    if let Err(e) = &naive_aggregation_result {
+        warn!(
+            log,
+            "Attestation invalid for aggregation";
+            "err" => ?e
+        );
+    }
+
     if let Err(e) = fc_result {
         Err(Error::ForkChoice(e))
     } else if let Err(e) = naive_aggregation_result {
@@ -129,6 +145,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
 
     // Gossip validate and publish attestations that can be immediately processed.
     let seen_timestamp = timestamp_now();
+    let inner_log = log.clone();
     let mut prelim_results = task_spawner
         .blocking_task(Priority::P0, move || {
             Ok(attestations
@@ -139,6 +156,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
                         &attestation,
                         seen_timestamp,
                         &network_tx,
+                        &inner_log,
                     ) {
                         Ok(()) => PublishAttestationResult::Success,
                         Err(Error::Validation(AttestationError::UnknownHeadBlock {
@@ -151,12 +169,14 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
                             let (tx, rx) = oneshot::channel();
                             let reprocess_chain = chain.clone();
                             let reprocess_network_tx = network_tx.clone();
+                            let reprocess_log = inner_log.clone();
                             let reprocess_fn = move || {
                                 let result = verify_and_publish_attestation(
                                     &reprocess_chain,
                                     &attestation,
                                     seen_timestamp,
                                     &reprocess_network_tx,
+                                    &reprocess_log,
                                 );
                                 // Ignore failure on the oneshot that reports the result. This
                                 // shouldn't happen unless some catastrophe befalls the waiting
@@ -208,6 +228,12 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     // This part should be quick so we just stay in the Tokio executor's async task.
     for (i, reprocess_result) in reprocess_indices.into_iter().zip(reprocess_results) {
         let Some(result_entry) = prelim_results.get_mut(i) else {
+            error!(
+                log,
+                "Unreachable case in attestation publishing";
+                "case" => "prelim out of bounds",
+                "request_index" => i,
+            );
             continue;
         };
         *result_entry = Some(match reprocess_result {
