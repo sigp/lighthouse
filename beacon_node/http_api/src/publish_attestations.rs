@@ -52,12 +52,13 @@ use tokio::sync::{
 };
 use types::Attestation;
 
+// Error variants are only used in `Debug` and considered `dead_code` by the compiler.
 #[derive(Debug)]
 enum Error {
     Validation(AttestationError),
     Publication,
-    ForkChoice(BeaconChainError),
-    AggregationPool(AttestationError),
+    ForkChoice(#[allow(dead_code)] BeaconChainError),
+    AggregationPool(#[allow(dead_code)] AttestationError),
     ReprocessDisabled,
     ReprocessFull,
     ReprocessTimeout,
