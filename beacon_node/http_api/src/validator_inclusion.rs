@@ -47,7 +47,6 @@ pub fn global_validator_inclusion_data<T: BeaconChainTypes>(
 
     Ok(GlobalValidatorInclusionData {
         current_epoch_active_gwei: summary.current_epoch_total_active_balance(),
-        previous_epoch_active_gwei: summary.previous_epoch_total_active_balance(),
         current_epoch_target_attesting_gwei: summary
             .current_epoch_target_attesting_balance()
             .map_err(convert_cache_error)?,
