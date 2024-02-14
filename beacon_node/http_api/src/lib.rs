@@ -68,7 +68,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use sysinfo::{System, SystemExt};
-use system_health::observe_system_health_bn;
+use system_health::{observe_nat, observe_system_health_bn};
 use task_spawner::{Priority, TaskSpawner};
 use tokio::sync::{
     mpsc::{Sender, UnboundedSender},
@@ -3757,7 +3757,7 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // POST vaidator/liveness/{epoch}
+    // POST validator/liveness/{epoch}
     let post_validator_liveness_epoch = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("liveness"))
@@ -3768,7 +3768,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .then(
             |epoch: Epoch,
-             indices: Vec<u64>,
+             indices: api_types::ValidatorIndexData,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
@@ -3787,6 +3787,7 @@ pub fn serve<T: BeaconChainTypes>(
                     }
 
                     let liveness: Vec<api_types::StandardLivenessResponseData> = indices
+                        .0
                         .iter()
                         .cloned()
                         .map(|index| {
@@ -3964,13 +3965,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .then(|task_spawner: TaskSpawner<T::EthSpec>| {
             task_spawner.blocking_json_task(Priority::P1, move || {
-                Ok(api_types::GenericResponse::from(
-                    lighthouse_network::metrics::NAT_OPEN
-                        .as_ref()
-                        .map(|v| v.get())
-                        .unwrap_or(0)
-                        != 0,
-                ))
+                Ok(api_types::GenericResponse::from(observe_nat()))
             })
         });
 
