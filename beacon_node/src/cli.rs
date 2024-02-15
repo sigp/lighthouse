@@ -12,6 +12,24 @@ use strum::VariantNames;
 use types::Address;
 use types::Epoch;
 use types::{ProgressiveBalancesMode};
+use std::ops::RangeInclusive;
+
+const NETWORK_LOAD_RANGE: RangeInclusive<u8> = 1..=5;
+
+fn network_load_in_range(s: &str) -> Result<u8, String> {
+    let network_load: u8 = s
+        .parse()
+        .map_err(|_| format!("`{s}` isn't a port number"))?;
+    if NETWORK_LOAD_RANGE.contains(&network_load) {
+        Ok(network_load as u8)
+    } else {
+        Err(format!(
+            "network-load not in range {}-{}",
+            NETWORK_LOAD_RANGE.start(),
+            NETWORK_LOAD_RANGE.end()
+        ))
+    }
+}
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
@@ -24,7 +42,7 @@ use types::{ProgressiveBalancesMode};
 )]
 pub struct BeaconNode {
     #[clap(
-        long = "network-dir",
+        long,
         value_name = "DIR",
         help = "Data directory for network keys. Defaults to network/ inside the beacon node \
                        dir."
@@ -32,28 +50,28 @@ pub struct BeaconNode {
     pub network_dir: Option<PathBuf>,
 
     #[clap(
-        long = "freezer-dir",
+        long,
         value_name = "DIR",
         help = "Data directory for the freezer database."
     )]
     pub freezer_dir: Option<PathBuf>,
 
     #[clap(
-        long = "blobs-dir",
+        long,
         value_name = "DIR",
         help = "Data directory for the blobs database."
     )]
     pub blobs_dir: Option<PathBuf>,
 
     #[clap(
-        long = "subscribe-all-subnets",
+        long,
         help = "Subscribe to all subnets regardless of validator count. \
                        This will also advertise the beacon node as being long-lived subscribed to all subnets."
     )]
     pub subscribe_all_subnets: bool,
 
     #[clap(
-        long = "import-all-attestations",
+        long,
         help = "Import and aggregate all attestations, regardless of validator subscriptions. \
                        This will only import attestations from already-subscribed subnets, use with \
                        --subscribe-all-subnets to ensure all attestations are received for import."
@@ -61,20 +79,20 @@ pub struct BeaconNode {
     pub import_all_attestations: bool,
 
     #[clap(
-        long = "disable-packet-filter",
+        long,
         help = "Disables the discovery packet filter. Useful for testing in smaller networks"
     )]
     pub disable_packet_filter: bool,
 
     #[clap(
-        long = "shutdown-after-sync",
+        long,
         help = "Shutdown beacon node as soon as sync is completed. Backfill sync will \
                        not be performed before shutdown."
     )]
     pub shutdown_after_sync: bool,
 
     #[clap(
-        long = "zero-ports",
+        long,
         short = 'z',
         help = "Sets all listening TCP/UDP ports to 0, allowing the OS to choose some \
                        arbitrary free ports."
@@ -82,7 +100,7 @@ pub struct BeaconNode {
     pub zero_ports: bool,
 
     #[clap(
-        long = "listen-address",
+        long,
         value_delimiter = ' ',
         num_args = 0..=2,
         value_name = "ADDRESS",
@@ -120,21 +138,21 @@ pub struct BeaconNode {
     pub port6: u16,
 
     #[clap(
-        long = "discovery-port",
+        long,
         value_name = "PORT",
         help = "The UDP port that discovery will listen on. Defaults to `port`"
     )]
     pub discovery_port: Option<u16>,
 
     #[clap(
-        long = "quic-port",
+        long,
         value_name = "PORT",
         help = "The UDP port that quic will listen on. Defaults to `port + 1`"
     )]
     pub quic_port: Option<u16>,
 
     #[clap(
-        long = "discovery-port6",
+        long,
         value_name = "PORT",
         help = "The UDP port that discovery will listen on over IPv6 if listening over \
                 both IPv4 and IPv6. Defaults to `port6`"
@@ -142,18 +160,18 @@ pub struct BeaconNode {
     pub discovery_port6: Option<u16>,
 
     #[clap(
-        long = "quic-port6",
+        long,
         value_name = "PORT",
         help = "The UDP port that quic will listen on over IPv6 if listening over \
                 both IPv4 and IPv6. Defaults to `port6` + 1"
     )]
     pub quic_port6: Option<u16>,
 
-    #[clap(long = "target-peers", help = "The target number of peers.")]
-    pub target_peers: usize,
+    #[clap(long, help = "The target number of peers.")]
+    pub target_peers: Option<usize>,
 
     #[clap(
-        long = "boot-nodes",
+        long,
         allow_hyphen_values = true,
         value_delimiter = ',',
         value_name = "ENR/MULTIADDR LIST",
@@ -162,22 +180,23 @@ pub struct BeaconNode {
     pub boot_nodes: Option<Vec<String>>,
 
     #[clap(
-        long = "network-load",
+        long,
         value_name = "INTEGER",
+        default_value_t = 3,
+        hide = true,
+        value_parser = network_load_in_range,
         help = "Lighthouse's network can be tuned for bandwidth/performance. \
                 Setting this to a high value, will increase the bandwidth lighthouse uses, \
                 increasing the likelihood of redundant information in exchange for faster \
                 communication. This can increase profit of validators marginally by receiving \
                 messages faster on the network. Lower values decrease bandwidth usage, but makes \
                 communication slower which can lead to validator performance reduction. Values \
-                are in the range [1,5].",
-        default_value = "3",
-        hide = true
+                are in the range [1,5].", 
     )]
     pub network_load: u8,
 
     #[clap(
-        long = "disable-upnp",
+        long,
         help = "Disables UPnP support. Setting this will prevent Lighthouse from attempting to \
                 automatically establish external port mappings."
     )]
@@ -190,7 +209,7 @@ pub struct BeaconNode {
     pub private: bool,
 
     #[clap(
-        long = "enr-udp-port",
+        long,
         value_name = "PORT",
         help = "The UDP port of the local ENR. Set this only if you are sure other nodes can \
                 connect to your local node on this port."
@@ -198,7 +217,7 @@ pub struct BeaconNode {
     pub enr_udp_port: Option<NonZeroU16>,
 
     #[clap(
-        long = "enr-quic-port",
+        long,
         value_name = "PORT",
         help = "The quic UDP4 port that will be set on the local ENR. Set this only if you are sure other nodes \
                 can connect to your local node on this port over IPv4."
@@ -206,7 +225,7 @@ pub struct BeaconNode {
     pub enr_quic_port: Option<NonZeroU16>,
 
     #[clap(
-        long = "enr-udp6-port",
+        long,
         value_name = "PORT",
         help = "The UDP6 port of the local ENR. Set this only if you are sure other nodes \
                 can connect to your local node on this port over IPv6."
@@ -214,7 +233,7 @@ pub struct BeaconNode {
     pub enr_udp6_port: Option<NonZeroU16>,
 
     #[clap(
-        long = "enr-quic6-port",
+        long,
         value_name = "PORT",
         help = "The quic UDP6 port that will be set on the local ENR. Set this only if you are sure other nodes \
                 can connect to your local node on this port over IPv6."
@@ -222,7 +241,7 @@ pub struct BeaconNode {
     pub enr_quic6_port: Option<NonZeroU16>,
 
     #[clap(
-        long = "enr-tcp-port",
+        long,
         value_name = "PORT",
         help = "The TCP4 port of the local ENR. Set this only if you are sure other nodes \
                 can connect to your local node on this port over IPv4. The --port flag is \
@@ -231,7 +250,7 @@ pub struct BeaconNode {
     pub enr_tcp_port: Option<NonZeroU16>,
 
     #[clap(
-        long = "enr-tcp6-port",
+        long,
         value_name = "PORT",
         help = "The TCP6 port of the local ENR. Set this only if you are sure other nodes \
                 can connect to your local node on this port over IPv6. The --port6 flag is \
@@ -240,7 +259,7 @@ pub struct BeaconNode {
     pub enr_tcp6_port: Option<NonZeroU16>,
 
     #[clap(
-        long = "enr-address",
+        long,
         value_name = "PORT",
         value_delimiter = ' ',
         num_args = 0..=2,
@@ -254,7 +273,7 @@ pub struct BeaconNode {
     pub enr_addresses: Option<Vec<IpAddr>>,
 
     #[clap(
-        long = "enr-match",
+        long,
         short = 'e',
         help = "Sets the local ENR IP address and port to match those set for lighthouse. \
                 Specifically, the IP address will be the value of --listen-address and the \
@@ -263,7 +282,7 @@ pub struct BeaconNode {
     pub enr_match: bool,
 
     #[clap(
-        long = "disable-enr-auto-update",
+        long,
         short = 'x',
         help = "Discovery automatically updates the nodes local ENR with an external IP address \
                 and port as seen by other peers on the network. \
@@ -272,7 +291,7 @@ pub struct BeaconNode {
     pub disable_enr_auto_update: bool,
 
     #[clap(
-        long = "libp2p-addresses",
+        long,
         value_delimiter = ',',
         value_name = "MULTIADDR",
         help = "One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
@@ -291,13 +310,13 @@ pub struct BeaconNode {
     pub disable_discovery: bool,
 
     #[clap(
-        long = "disable-quic",
+        long,
         help = "Disables the quic transport. The node will rely solely on the TCP transport for libp2p connections."
     )]
     pub disable_quic: bool,
 
     #[clap(
-        long = "disable-peer-scoring",
+        long,
         hide = true,
         help = "Disables peer scoring in lighthouse. WARNING: This is a dev only flag is only meant to be used in local testing scenarios \
                 Using this flag on a real network may cause your node to become eclipsed and see a different view of the network"
@@ -305,7 +324,7 @@ pub struct BeaconNode {
     pub disable_peer_scoring: bool,
 
     #[clap(
-        long = "trusted-peers",
+        long,
         value_name = "TRUSTED_PEERS",
         value_delimiter = ',',
         help = "One or more comma-delimited trusted peer ids which always have the highest \
@@ -314,19 +333,19 @@ pub struct BeaconNode {
     pub trusted_peers: Option<Vec<PeerIdSerialized>>,
 
     #[clap(
-        long = "genesis-backfill",
+        long,
         help = "Attempts to download blocks all the way back to genesis when checkpoint syncing."
     )]
     pub genesis_backfill: bool,
 
     #[clap(
-        long = "enable-private-discovery",
+        long,
         help = "Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses."
     )]
     pub enable_private_discovery: bool,
 
     #[clap(
-        long = "self-limiter",
+        long,
         value_name = "PROTOCOL_NAME:TOKENS/TIME_IN_SECONDS",
         value_delimiter = ';',
         // min_values = 0 TODO doesnt exist
@@ -341,7 +360,7 @@ pub struct BeaconNode {
     pub self_limiter: Option<String>,
 
     #[clap(
-        long = "proposer-only",
+        long,
         help = "Sets this beacon node at be a block proposer only node. \
                 This will run the beacon node in a minimal configuration that is sufficient for block publishing only. This flag should be used \
                 for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups."
@@ -349,7 +368,7 @@ pub struct BeaconNode {
     pub proposer_only: bool,
 
     #[clap(
-        long = "inbound-rate-limiter",
+        long,
         value_name = "PROTOCOL_NAME:TOKENS/TIME_IN_SECONDS",
         value_delimiter = ';',
         hide = true,
@@ -366,7 +385,7 @@ pub struct BeaconNode {
     pub inbound_rate_limiter: Option<String>,
 
     #[clap(
-        long = "disable-backfill-rate-limiting",
+        long,
         help = "Disable the backfill sync rate-limiting. This allow users to just sync the entire chain as fast \
                 as possible, however it can result in resource contention which degrades staking performance. Stakers \
                 should generally choose to avoid this flag since backfill sync is not required for staking."
@@ -375,13 +394,13 @@ pub struct BeaconNode {
 
     /* REST API related arguments */
     #[clap(
-        long = "http",
+        long,
         help = "Enable the RESTful HTTP API server. Disabled by default."
     )]
     pub http: bool,
 
     #[clap(
-        long = "http-address",
+        long,
         value_name = "ADDRESS",
         requires = "enable_http",
         default_value_t = Ipv4Addr::new(127,0,0,1),
@@ -390,7 +409,7 @@ pub struct BeaconNode {
     pub http_address: Ipv4Addr,
 
     #[clap(
-        long = "http-port",
+        long,
         value_name = "PORT",
         requires = "enable_http",
         help = "Set the listen TCP port for the RESTful HTTP API server.",
@@ -398,7 +417,7 @@ pub struct BeaconNode {
     pub http_port: u16,
 
     #[clap(
-        long = "http-allow-origin",
+        long,
         value_name = "ORIGIN",
         help = "Set the value of the Access-Control-Allow-Origin response HTTP header. \
                 Use * to allow any origin (not recommended in production). \
@@ -408,7 +427,7 @@ pub struct BeaconNode {
     pub http_allow_origin: Option<String>,
 
     #[clap(
-        long = "http-spec-fork",
+        long,
         value_name = "FORK",
         requires = "enable-http",
         help = "Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
@@ -417,7 +436,7 @@ pub struct BeaconNode {
     pub http_spec_fork: Option<String>,
 
     #[clap(
-        long = "http-enable-tls",
+        long,
         requires = "http-tls-cert",
         requires = "http-tls-key",
         help = "Serves the RESTful HTTP API server over TLS. This feature is currently \
@@ -426,7 +445,7 @@ pub struct BeaconNode {
     pub http_enable_tls: bool,
 
     #[clap(
-        long = "http-tls-cert",
+        long,
         requires = "enable-http",
         value_name = "PATH",
         help = "The path of the certificate to be used when serving the HTTP API server \
@@ -435,7 +454,7 @@ pub struct BeaconNode {
     pub http_tls_cert: Option<PathBuf>,
 
     #[clap(
-        long = "http-tls-key",
+        long,
         requires = "enable-http",
         value_name = "PATH",
         help = "The path of the private key to be used when serving the HTTP API server \
@@ -444,7 +463,7 @@ pub struct BeaconNode {
     pub http_tls_key: Option<PathBuf>,
 
     #[clap(
-        long = "http-allow-sync-stalled",
+        long,
         requires = "enable-http",
         help = "Forces the HTTP to indicate that the node is synced when sync is actually \
                 stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
@@ -453,7 +472,7 @@ pub struct BeaconNode {
     pub http_allow_sync_stalled: bool,
 
     #[clap(
-        long = "http-sse-capacity-multiplier",
+        long,
         value_name = "N",
         default_value_t = 1,
         requires = "enable-http",
@@ -463,7 +482,7 @@ pub struct BeaconNode {
     pub http_sse_capacity_multiplier: usize,
 
     #[clap(
-        long = "http-duplicate-block-status",
+        long,
         value_name = "STATUS_CODE",
         requires = "enable-http",
         help = "Status code to send when a block that is already known is POSTed to the \
@@ -472,7 +491,7 @@ pub struct BeaconNode {
     pub http_duplicate_block_status: Option<NonZeroU16>,
 
     #[clap(
-        long = "http-enable-beacon-processor",
+        long,
         value_name = "BOOLEAN",
         default_value_t = true,
         requires = "enable-http",
@@ -491,7 +510,7 @@ pub struct BeaconNode {
     pub metrics: bool,
 
     #[clap(
-        long = "metrics-address",
+        long,
         value_name = "ADDRESS",
         requires = "metrics",
         default_value_t = Ipv4Addr::new(127,0,0,1),
@@ -500,7 +519,7 @@ pub struct BeaconNode {
     pub metrics_address: Ipv4Addr,
 
     #[clap(
-        long = "metrics-port",
+        long,
         value_name = "PORT",
         requires = "metrics",
         default_value_t = 5054,
@@ -509,7 +528,7 @@ pub struct BeaconNode {
     pub metrics_port: u16,
 
     #[clap(
-        long = "metrics-allow-origin",
+        long,
         value_name = "ORIGIN",
         requires = "metrics",
         help = "Set the value of the Access-Control-Allow-Origin response HTTP header. \
@@ -520,18 +539,18 @@ pub struct BeaconNode {
     pub metrics_allow_origin: Option<String>,
 
     #[clap(
-        long = "shuffling-cache-size",
+        long,
         value_name = "ORIGIN",
         help = "Some HTTP API requests can be optimised by caching the shufflings at each epoch. \
                 This flag allows the user to set the shuffling cache size in epochs. \
                 Shufflings are dependent on validator count and setting this value to a large \
                 number can consume a large amount of memory."
     )]
-    pub shuffling_cache_size: Option<u16>,
+    pub shuffling_cache_size: Option<usize>,
 
     /* Monitoring metrics */
     #[clap(
-        long = "monitoring-endpoint",
+        long,
         value_name = "ADDRESS",
         help = "Enables the monitoring service for sending system metrics to a remote endpoint. \
                 This can be used to monitor your setup on certain services (e.g. beaconcha.in). \
@@ -543,7 +562,7 @@ pub struct BeaconNode {
     pub monitoring_endpoint: Option<String>,
 
     #[clap(
-        long = "monitoring-endpoint-period",
+        long,
         value_name = "SECONDS",
         default_value_t = 60,
         requires = "monitoring-endpoint",
@@ -554,7 +573,7 @@ pub struct BeaconNode {
 
     /* Standard staking flags */
     #[clap(
-        long = "staking",
+        long,
         help = "Standard option for a staking beacon node. This will enable the HTTP server \
                 on localhost:5052 and import deposit logs from the execution node. This is \
                 equivalent to `--http` on merge-ready networks, or `--http --eth1` pre-merge"
@@ -563,14 +582,14 @@ pub struct BeaconNode {
 
     /* Eth1 Integration */
     #[clap(
-        long = "eth1",
+        long,
         help = "If present the node will connect to an eth1 node. This is required for \
                 block production, you must use this flag if you wish to serve a validator."
     )]
     pub eth1: bool,
 
     #[clap(
-        long = "dummy-eth1",
+        long,
         conflicts_with = "eth1",
         help = "If present, uses an eth1 backend that generates static dummy data.\
                 Identical to the method used at the 2019 Canada interop."
@@ -578,33 +597,33 @@ pub struct BeaconNode {
     pub dummy_eth1: bool,
 
     #[clap(
-        long = "eth1-purge-cache",
+        long,
         conflicts_with = "eth1",
         help = "Purges the eth1 block and deposit caches."
     )]
     pub eth1_purge_cache: bool,
 
     #[clap(
-        long = "eth1-blocks-per-log-query",
+        long,
         value_name = "BLOCKS",
-        default_value = "1000",
+        default_value_t = 1000,
         help = "Specifies the number of blocks that a deposit log query should span. \
                 This will reduce the size of responses from the Eth1 endpoint."
     )]
-    pub eth1_blocks_per_log_query: Option<u16>,
+    pub eth1_blocks_per_log_query: usize,
 
     #[clap(
-        long = "eth1-cache-follow-distance",
+        long,
         value_name = "BLOCKS",
         help = "Specifies the distance between the Eth1 chain head and the last block which \
                 should be imported into the cache. Setting this value lower can help \
                 compensate for irregular Proof-of-Work block times, but setting it too low \
                 can make the node vulnerable to re-orgs."
     )]
-    pub eth1_cache_follow_distance: Option<u16>,
+    pub eth1_cache_follow_distance: Option<u64>,
 
     #[clap(
-        long = "slots-per-restore-point",
+        long,
         value_name = "SLOT_COUNT",
         help = "Specifies how often a freezer DB restore point should be stored. \
                 Cannot be changed after initialization. \
@@ -613,7 +632,7 @@ pub struct BeaconNode {
     pub slots_per_restore_point: Option<u64>,
 
     #[clap(
-        long = "epochs-per-migration",
+        long,
         value_name = "N",
         default_value = "1",
         help = "The number of epochs to wait between running the migration of data from the \
@@ -623,7 +642,7 @@ pub struct BeaconNode {
     pub epochs_per_migration: Option<u64>,
 
     #[clap(
-        long = "block-cache-size",
+        long,
         value_name = "SIZE",
         default_value = "5",
         help = "Specifies how many blocks the database should cache in memory."
@@ -631,7 +650,7 @@ pub struct BeaconNode {
     pub block_cache_size: Option<NonZeroUsize>,
 
     #[clap(
-        long = "historic-state-cache-size",
+        long,
         value_name = "SIZE",
         default_value = "1",
         help = "Specifies how many states from the freezer database should cache in memory."
@@ -640,7 +659,7 @@ pub struct BeaconNode {
 
     /* Execution Layer Integration */
     #[clap(
-        long = "execution-endpoint",
+        long,
         value_name = "EXECUTION-ENDPOINT",
         help = "Server endpoint for an execution layer JWT-authenticated HTTP \
                 JSON-RPC connection. Uses the same endpoint to populate the \
@@ -649,7 +668,7 @@ pub struct BeaconNode {
     pub execution_endpoint: Option<String>,
 
     #[clap(
-        long = "execution-jwt",
+        long,
         value_name = "EXECUTION-JWT",
         requires = "execution_endpoint",
         alias = "jwt-secrets",
@@ -659,7 +678,7 @@ pub struct BeaconNode {
     pub execution_jwt: Option<PathBuf>,
 
     #[clap(
-        long = "execution-jwt-secret-key",
+        long,
         value_name = "EXECUTION-JWT-SECRET-KEY",
         requires = "execution_endpoint",
         conflicts_with = "execution_jwt",
@@ -670,7 +689,7 @@ pub struct BeaconNode {
     pub execution_jwt_secret_key: Option<String>,
 
     #[clap(
-        long = "execution-jwt-id",
+        long,
         value_name = "EXECUTION-JWT-ID",
         requires = "execution_jwt",
         alias = "jwt-id",
@@ -681,7 +700,7 @@ pub struct BeaconNode {
     pub execution_jwt_id: Option<String>,
 
     #[clap(
-        long = "execution-jwt-version",
+        long,
         value_name = "EXECUTION-JWT-VERSION",
         requires = "execution_jwt",
         alias = "jwt-version",
@@ -692,7 +711,7 @@ pub struct BeaconNode {
     pub execution_jwt_version: Option<String>,
 
     #[clap(
-        long = "suggested-fee-recipient",
+        long,
         value_name = "SUGGESTED-FEE-RECIPIENT",
         help = "Emergency fallback fee recipient for use in case the validator client does \
                 not have one configured. You should set this flag on the validator \
@@ -702,7 +721,7 @@ pub struct BeaconNode {
     pub suggested_fee_recipient: Option<Address>,
 
     #[clap(
-        long = "builder",
+        long,
         alias = "payload-builder",
         alias = "payload-builders",
         value_name = "URL",
@@ -712,7 +731,7 @@ pub struct BeaconNode {
     pub builder: Option<String>,
 
     #[clap(
-        long = "execution-timeout-multiplier",
+        long,
         value_name = "NUM",
         default_value = "1",
         help = "Unsigned integer to multiply the default execution timeouts by."
@@ -721,7 +740,7 @@ pub struct BeaconNode {
 
     /* Deneb settings */
     #[clap(
-        long = "trusted-setup-file-override",
+        long,
         value_name = "FILE",
         help = "Path to a json file containing the trusted setup params. \
                 NOTE: This will override the trusted setup that is generated \
@@ -731,20 +750,20 @@ pub struct BeaconNode {
 
     /* Database purging and compaction. */
     #[clap(
-        long = "purge-db",
+        long,
         help = "If present, the chain database will be deleted. Use with caution."
     )]
     pub purge_db: bool,
 
     #[clap(
-        long = "compact-db",
+        long,
         help = "If present, apply compaction to the database on start-up. Use with caution. \
                 It is generally not recommended unless auto-compaction is disabled."
     )]
     pub compact_db: bool,
 
     #[clap(
-        long = "auto-compact-db",
+        long,
         value_name = "BOOLEAN",
         help = "Enable or disable automatic compaction of the database on finalization.",
         default_value = "true"
@@ -752,7 +771,7 @@ pub struct BeaconNode {
     pub auto_compact_db: bool,
 
     #[clap(
-        long = "prune-payloads",
+        long,
         value_name = "BOOLEAN",
         help = "Prune execution payloads from Lighthouse's database. This saves space but \
                 imposes load on the execution client, as payloads need to be \
@@ -762,7 +781,7 @@ pub struct BeaconNode {
     pub prune_payloads: bool,
 
     #[clap(
-        long = "prune-blobs",
+        long,
         value_name = "BOOLEAN",
         help = "Prune blobs from Lighthouse's database when they are older than the \
                 data availability boundary relative to the current epoch.",
@@ -771,7 +790,7 @@ pub struct BeaconNode {
     pub prune_blobs: bool,
 
     #[clap(
-        long = "epochs-per-blob-prune",
+        long,
         value_name = "EPOCHS",
         default_value_t = 1,
         help = "The epoch interval with which to prune blobs from Lighthouse's \
@@ -781,7 +800,7 @@ pub struct BeaconNode {
     pub epochs_per_blob_prune: u64,
 
     #[clap(
-        long = "blob-prune-margin-epochs",
+        long,
         value_name = "EPOCHS",
         default_value_t = 0,
         help = "The margin for blob pruning in epochs. The oldest blobs are pruned \
@@ -791,7 +810,7 @@ pub struct BeaconNode {
 
     /* Misc. */
     #[clap(
-        long = "graffiti",
+        long,
         value_name = "GRAFFITI",
         help = "Specify your custom graffiti to be included in blocks. \
                 Defaults to the current version and commit, truncated to fit in 32 bytes. "
@@ -799,17 +818,17 @@ pub struct BeaconNode {
     pub graffiti: Option<String>,
 
     #[clap(
-        long = "max-skip-slots",
+        long,
         value_name = "NUM_SLOTS",
         help = "Refuse to skip more than this many slots when processing a block or attestation. \
                 This prevents nodes on minority forks from wasting our time and disk space, \
                 but could also cause unnecessary consensus failures, so is disabled by default."
     )]
-    pub max_skip_slots: Option<u16>,
+    pub max_skip_slots: Option<u64>,
 
     /* Slasher */
     #[clap(
-        long = "slasher",
+        long,
         help = "Run a slasher alongside the beacon node. It is currently only recommended for \
                 expert users because of the immaturity of the slasher UX and the extra \
                 resources required."
@@ -817,7 +836,7 @@ pub struct BeaconNode {
     pub slasher: bool,
 
     #[clap(
-        long = "slasher-dir",
+        long,
         value_name = "PATH",
         requires = "slasher",
         help = "Set the slasher's database directory."
@@ -825,7 +844,7 @@ pub struct BeaconNode {
     pub slasher_dir: Option<PathBuf>,
 
     #[clap(
-        long = "slasher-update-period",
+        long,
         value_name = "SECONDS",
         requires = "slasher",
         help = "Configure how often the slasher runs batch processing."
@@ -833,7 +852,7 @@ pub struct BeaconNode {
     pub slasher_update_period: Option<u64>,
 
     #[clap(
-        long = "slasher-slot-offset",
+        long,
         value_name = "SECONDS",
         requires = "slasher",
         help = "Set the delay from the start of the slot at which the slasher should ingest \
@@ -843,7 +862,7 @@ pub struct BeaconNode {
     pub slasher_slot_offset: Option<f64>,
 
     #[clap(
-        long = "slasher-history-length",
+        long,
         value_name = "EPOCHS",
         requires = "slasher",
         help = "Configure how many epochs of history the slasher keeps. Immutable after \
@@ -852,7 +871,7 @@ pub struct BeaconNode {
     pub slasher_history_length: Option<usize>,
 
     #[clap(
-        long = "slasher-max-db-size",
+        long,
         value_name = "GIGABYTES",
         requires = "slasher",
         help = "Maximum size of the MDBX database used by the slasher."
@@ -860,15 +879,15 @@ pub struct BeaconNode {
     pub slasher_max_db_size: Option<usize>,
 
     #[clap(
-        long = "slasher-att-cache-size",
+        long,
         value_name = "COUNT",
         requires = "slasher",
         help = "Set the maximum number of attestation roots for the slasher to cache"
     )]
-    pub slasher_att_cache_size: Option<usize>,
+    pub slasher_att_cache_size: Option<NonZeroUsize>,
 
     #[clap(
-        long = "slasher-chunk-size",
+        long,
         value_name = "EPOCHS",
         requires = "slasher",
         help = "Number of epochs per validator per chunk stored on disk."
@@ -876,7 +895,7 @@ pub struct BeaconNode {
     pub slasher_chunk_size: Option<usize>,
 
     #[clap(
-        long = "slasher-validator-chunk-size",
+        long,
         value_name = "NUM_VALIDATORS",
         requires = "slasher",
         help = "Number of validators per chunk stored on disk."
@@ -884,15 +903,16 @@ pub struct BeaconNode {
     pub slasher_validator_chunk_size: Option<usize>,
 
     #[clap(
-        long = "slasher-broadcast",
+        long,
         requires = "slasher",
         help = "Broadcast slashings found by the slasher to the rest of the network \
                 [disabled by default]."
     )]
     pub slasher_broadcast: bool,
 
+    // TODO we need to show the correct slasher variants
     #[clap(
-        long = "slasher-backend",
+        long,
         requires = "slasher",
         value_enum,
         help = "Set the database backend to be used by the slasher"
@@ -900,7 +920,7 @@ pub struct BeaconNode {
     pub slasher_backend: slasher::DatabaseBackend,
 
     #[clap(
-        long = "wss-checkpoint",
+        long,
         value_name = "WSS_CHECKPOINT",
         help = "Specify a weak subjectivity checkpoint in `block_root:epoch` format to verify \
                 the node's sync against. The block root should be 0x-prefixed. Note that this \
@@ -910,25 +930,25 @@ pub struct BeaconNode {
     pub wss_checkpoint: Option<String>,
 
     #[clap(
-        long = "checkpoint-state",
+        long,
         value_name = "STATE_SSZ",
         requires = "checkpoint-block",
         help = "Set a checkpoint state to start syncing from. Must be aligned and match \
                 --checkpoint-block. Using --checkpoint-sync-url instead is recommended."
     )]
-    pub checkpoint_state: Option<PathBuf>,
+    pub checkpoint_state: Option<Vec<u8>>,
 
     #[clap(
-        long = "checkpoint-block",
+        long,
         value_name = "BLOCK_SSZ",
         requires = "checkpoint-state",
         help = "Set a checkpoint block to start syncing from. Must be aligned and match \
                 --checkpoint-state. Using --checkpoint-sync-url instead is recommended."
     )]
-    pub checkpoint_block: Option<PathBuf>,
+    pub checkpoint_block: Option<Vec<u8>>,
 
     #[clap(
-        long = "checkpoint-sync-url",
+        long,
         value_name = "BEACON_NODE",
         conflicts_with = "checkpoint-state",
         help = "Set the remote beacon node HTTP endpoint to use for checkpoint sync."
@@ -936,7 +956,7 @@ pub struct BeaconNode {
     pub checkpoint_sync_url: Option<String>,
 
     #[clap(
-        long = "checkpoint-sync-url-timeout",
+        long,
         value_name = "SECONDS",
         default_value = "180",
         help = "Set the remote beacon node HTTP endpoint to use for checkpoint sync."
@@ -944,7 +964,7 @@ pub struct BeaconNode {
     pub checkpoint_sync_url_timeout: Option<u64>,
 
     #[clap(
-        long = "allow-insecure-genesis-sync",
+        long,
         conflicts_with = "checkpoint_sync_url",
         conflicts_with = "checkpoint_state",
         help = "Enable syncing from genesis, which is generally insecure and incompatible with data availability checks. \
@@ -954,14 +974,14 @@ pub struct BeaconNode {
     pub allow_insecure_genesis_sync: bool,
 
     #[clap(
-        long = "reconstruct-historic-states",
+        long,
         help = "After a checkpoint sync, reconstruct historic states in the database. \
                 This requires syncing all the way back to genesis."
     )]
     pub reconstruct_historic_states: bool,
 
     #[clap(
-        long = "validator-monitor-auto",
+        long,
         help = "Enables the automatic detection and monitoring of validators connected to the \
                 HTTP API and using the subnet subscription endpoint. This generally has the \
                 effect of providing additional logging and metrics for locally controlled \
@@ -970,7 +990,7 @@ pub struct BeaconNode {
     pub validator_monitor_auto: bool,
 
     #[clap(
-        long = "validator-monitor-pubkeys",
+        long,
         value_name = "PUBKEYS",
         help = "A comma-separated list of 0x-prefixed validator public keys. \
                 These validators will receive special monitoring and additional \
@@ -989,13 +1009,14 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "INTEGER",
+        default_value_t = 64,
         help = "Once the validator monitor reaches this number of local validators \
                 it will stop collecting per-validator Prometheus metrics and issuing \
                 per-validator logs. Instead, it will provide aggregate metrics and logs. \
                 This avoids infeasibly high cardinality in the Prometheus database and \
-                high log volume when using many validators. Defaults to 64."
+                high log volume when using many validators."
     )]
-    pub validator_monitor_individual_tracking_threshold: bool,
+    pub validator_monitor_individual_tracking_threshold: usize,
 
     #[clap(
         long,
@@ -1015,10 +1036,10 @@ pub struct BeaconNode {
         long,
         value_name = "PERCENT",
         conflicts_with = "disable_proposer_reorgs",
-        default_value = "20",
+        default_value_t = 20,
         help = "Percentage of vote weight below which to attempt a proposer reorg."
     )]
-    pub proposer_reorg_threshold: Option<u64>,
+    pub proposer_reorg_threshold: u64,
 
     #[clap(
         long,
@@ -1112,12 +1133,12 @@ pub struct BeaconNode {
                 any connected builders, and will use the local execution engine for \
                 payload construction."
     )]
-    pub builder_fallback_skips_per_epoch: Option<u16>,
+    pub builder_fallback_skips_per_epoch: Option<usize>,
 
     #[clap(
         long,
         value_name = "EPOCHS",
-        default_value = "3",
+        default_value_t = 3,
         help = "If this node is proposing a block and the chain has not finalized within \
                 this number of epochs, it will NOT query any connected builders, \
                 and will use the local execution engine for payload construction. Setting \
@@ -1126,10 +1147,11 @@ pub struct BeaconNode {
                 if there are skips slots at the start of an epoch, right before this node \
                 is set to propose."
     )]
-    pub builder_fallback_epochs_since_finalization: Option<u16>,
+    pub builder_fallback_epochs_since_finalization: usize,
 
     #[clap(
         long,
+        default_value_t = false,
         help = "This flag disables all checks related to chain health. This means the builder \
                 API will always be used for payload construction, regardless of recent chain \
                 conditions."
