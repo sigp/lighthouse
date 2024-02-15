@@ -163,6 +163,10 @@ pub fn get_config<E: EthSpec>(
             cli_args.is_present("light-client-server");
     }
 
+    if cli_args.is_present("light-client-server") {
+        client_config.chain.enable_light_client_server = true;
+    }
+
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
     }
@@ -1118,8 +1122,6 @@ pub fn set_network_config(
         config.target_peers = target_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
-    } else {
-        config.target_peers = 80; // default value
     }
 
     if let Some(value) = cli_args.value_of("network-load") {
@@ -1421,9 +1423,6 @@ pub fn set_network_config(
             Some(config_str.parse()?)
         }
     };
-
-    config.disable_duplicate_warn_logs = cli_args.is_present("disable-duplicate-warn-logs");
-
     Ok(())
 }
 

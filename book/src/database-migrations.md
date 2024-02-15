@@ -16,6 +16,7 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
+
 | v4.6.0             | Dec 2023     | v19            | yes before Deneb     |
 | v4.6.0-rc.0        | Dec 2023     | v18            | yes before Deneb     |
 | v4.5.0             | Sep 2023     | v17            | yes                  |
@@ -158,8 +159,7 @@ lighthouse db version --network mainnet
 
 Pruning historic states helps in managing the disk space used by the Lighthouse beacon node by removing old beacon
 states from the freezer database. This can be especially useful when the database has accumulated a significant amount
-of historic data. This command is intended for nodes synced before 4.4.1, as newly synced node no longer store
-historic states by default.
+of historic data. This command is intended for nodes synced before 4.4.1, as newly synced nodes no longer store historic states by default.
 
 Here are the steps to prune historic states:
 
@@ -175,14 +175,27 @@ Here are the steps to prune historic states:
     sudo -u "$LH_USER" lighthouse db prune-states --datadir "$LH_DATADIR" --network "$NET"
     ```
 
+   If pruning is available, Lighthouse will log:
+
+   ```
+   INFO Ready to prune states
+   WARN Pruning states is irreversible
+   WARN Re-run this command with --confirm to commit to state deletion
+   INFO Nothing has been pruned on this run
+   ```
+
 3. If you are ready to prune the states irreversibly, add the `--confirm` flag to commit the changes:
 
    ```bash
     sudo -u "$LH_USER" lighthouse db prune-states --confirm --datadir "$LH_DATADIR" --network "$NET"
     ```
 
-   The `--confirm` flag ensures that you are aware the action is irreversible, and historic states will be permanently removed.
+   The `--confirm` flag ensures that you are aware the action is irreversible, and historic states will be permanently removed. Lighthouse will log:
 
+   ```
+   INFO Historic states pruned successfully
+   ```
+   
 4. After successfully pruning the historic states, you can restart the Lighthouse beacon node:
 
    ```bash

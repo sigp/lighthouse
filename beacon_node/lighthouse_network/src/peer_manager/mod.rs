@@ -104,6 +104,8 @@ pub struct PeerManager<TSpec: EthSpec> {
     discovery_enabled: bool,
     /// Keeps track if the current instance is reporting metrics or not.
     metrics_enabled: bool,
+    /// Keeps track of whether the QUIC protocol is enabled or not.
+    quic_enabled: bool,
     /// The logger associated with the `PeerManager`.
     log: slog::Logger,
 }
@@ -149,6 +151,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             status_interval,
             ping_interval_inbound,
             ping_interval_outbound,
+            quic_enabled,
         } = cfg;
 
         // Set up the peer manager heartbeat interval
@@ -167,6 +170,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             heartbeat,
             discovery_enabled,
             metrics_enabled,
+            quic_enabled,
             log: log.clone(),
         })
     }
@@ -722,28 +726,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             return;
         }
 
-        let mut connected_peer_count = 0;
-        let mut inbound_connected_peers = 0;
-        let mut outbound_connected_peers = 0;
         let mut clients_per_peer = HashMap::new();
 
         for (_peer, peer_info) in self.network_globals.peers.read().connected_peers() {
-            connected_peer_count += 1;
-            if let PeerConnectionStatus::Connected { n_in, .. } = peer_info.connection_status() {
-                if *n_in > 0 {
-                    inbound_connected_peers += 1;
-                } else {
-                    outbound_connected_peers += 1;
-                }
-            }
             *clients_per_peer
                 .entry(peer_info.client().kind.to_string())
                 .or_default() += 1;
         }
-
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peer_count);
-        metrics::set_gauge(&metrics::NETWORK_INBOUND_PEERS, inbound_connected_peers);
-        metrics::set_gauge(&metrics::NETWORK_OUTBOUND_PEERS, outbound_connected_peers);
 
         for client_kind in ClientKind::iter() {
             let value = clients_per_peer.get(&client_kind.to_string()).unwrap_or(&0);
@@ -849,11 +838,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // start a ping and status timer for the peer
         self.status_peers.insert(*peer_id);
 
-        let connected_peers = self.network_globals.connected_peers() as i64;
-
         // increment prometheus metrics
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
 
         true
     }

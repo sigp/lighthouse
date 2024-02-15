@@ -152,10 +152,12 @@ jobs:
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-            - name: Build lcli dockerfile (with push)
-              run: |
-                  docker build \
-                      --build-arg PORTABLE=true \
-                      --tag ${LCLI_IMAGE_NAME}:${VERSION}${VERSION_SUFFIX} \
-                      --file ./lcli/Dockerfile .
-                  docker push ${LCLI_IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}
+            - name: Build lcli and push
+              uses: docker/build-push-action@v5
+              with:
+                  build-args: |
+                      FEATURES=portable
+                  context: .
+                  push: true
+                  file: ./lcli/Dockerfile
+                  tags: ${{ env.LCLI_IMAGE_NAME }}:${{ env.VERSION }}${{ env.VERSION_SUFFIX }}

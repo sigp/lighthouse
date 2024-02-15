@@ -1153,6 +1153,22 @@ lazy_static! {
             "data_availability_overflow_store_cache_size",
             "Number of entries in the data availability overflow store cache."
         );
+
+    /*
+    * light_client server metrics
+    */
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_STATE_DATA_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_light_client_server_cache_state_data_seconds",
+        "Time taken to produce and cache state data",
+    );
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_RECOMPUTE_UPDATES_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_light_client_server_cache_recompute_updates_seconds",
+        "Time taken to recompute and cache updates",
+    );
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_PREV_BLOCK_CACHE_MISS: Result<IntCounter> = try_create_int_counter(
+        "beacon_light_client_server_cache_prev_block_cache_miss",
+        "Count of prev block cache misses",
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
